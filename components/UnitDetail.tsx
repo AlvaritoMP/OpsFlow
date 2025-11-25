@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle } from 'lucide-react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase } from 'lucide-react';
 import { generateExecutiveReport } from '../services/geminiService';
 
 interface UnitDetailProps {
@@ -37,8 +37,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
   // Personnel State
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
+  
+  // Mass Training State
   const [showMassTrainingModal, setShowMassTrainingModal] = useState(false);
   const [massTrainingForm, setMassTrainingForm] = useState({ topic: '', date: '', status: 'Programado' });
+  
+  // Mass Asset Assignment State
+  const [showAssetAssignmentModal, setShowAssetAssignmentModal] = useState(false);
+  const [assetAssignmentForm, setAssetAssignmentForm] = useState({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
   const [newWorkerForm, setNewWorkerForm] = useState({ name: '', zone: '', shift: '' });
 
@@ -172,6 +179,32 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
     setMassTrainingForm({ topic: '', date: '', status: 'Programado' });
   };
 
+  const handleMassAssignAsset = () => {
+    if (!onUpdate) return;
+    const newAsset: AssignedAsset = {
+        id: `a-${Date.now()}`,
+        name: assetAssignmentForm.name,
+        type: assetAssignmentForm.type as any,
+        dateAssigned: assetAssignmentForm.dateAssigned,
+        serialNumber: assetAssignmentForm.serialNumber
+    };
+    
+    const updatedResources = unit.resources.map(res => {
+        if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
+            return {
+                ...res,
+                assignedAssets: [...(res.assignedAssets || []), { ...newAsset, id: `a-${Date.now()}-${res.id}` }]
+            };
+        }
+        return res;
+    });
+
+    onUpdate({ ...unit, resources: updatedResources });
+    setShowAssetAssignmentModal(false);
+    setSelectedPersonnelIds([]);
+    setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+  };
+
   const handleAddWorker = () => {
     if (!onUpdate) return;
     const newWorker: Resource = {
@@ -183,7 +216,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
       assignedZone: newWorkerForm.zone,
       assignedShift: newWorkerForm.shift,
       compliancePercentage: 100,
-      trainings: []
+      trainings: [],
+      assignedAssets: []
     };
     onUpdate({ ...unit, resources: [...unit.resources, newWorker] });
     setShowAddWorkerModal(false);
@@ -291,6 +325,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
     return events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   };
   const upcomingEvents = getUpcomingEvents();
+
+  const getAssetIcon = (type: string) => {
+    switch (type) {
+        case 'Uniforme': return <Shirt size={16} className="text-blue-500" />;
+        case 'Tecnologia': return <Laptop size={16} className="text-purple-500" />;
+        case 'EPP': return <HardHat size={16} className="text-orange-500" />;
+        default: return <Briefcase size={16} className="text-slate-500" />;
+    }
+  };
 
   // --- Render Sections ---
 
@@ -473,12 +516,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
     <div className="space-y-6 animate-in fade-in duration-300 pb-10">
       <div className="flex justify-between items-center">
          <div>
-          <h3 className="text-lg font-semibold text-slate-800">Dotación y Capacitaciones</h3>
+          <h3 className="text-lg font-semibold text-slate-800">Dotación, Capacitaciones y Equipamiento</h3>
           {canEdit && selectedPersonnelIds.length > 0 && <p className="text-xs text-blue-600 mt-1">{selectedPersonnelIds.length} seleccionados</p>}
          </div>
          <div className="flex space-x-3">
             {canEdit && selectedPersonnelIds.length > 0 && (
-              <button onClick={() => setShowMassTrainingModal(true)} className="bg-blue-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-sm flex items-center"><Award size={16} className="mr-2" /> Asignar Capacitación</button>
+              <>
+                 <button onClick={() => setShowMassTrainingModal(true)} className="bg-blue-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-sm flex items-center"><Award size={16} className="mr-2" /> Asignar Capacitación</button>
+                 <button onClick={() => setShowAssetAssignmentModal(true)} className="bg-indigo-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm flex items-center"><Briefcase size={16} className="mr-2" /> Asignar Activo/EPP</button>
+              </>
             )}
             {canEdit && <button onClick={() => setShowAddWorkerModal(true)} className="text-blue-600 text-sm font-medium hover:underline flex items-center bg-blue-50 px-3 py-2 rounded-lg"><Plus size={16} className="mr-1" /> Agregar Colaborador</button>}
          </div>
@@ -518,18 +564,41 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
                 {expandedPersonnel === p.id && (
                   <tr className="bg-slate-50 animate-in fade-in duration-200">
                     <td colSpan={canEdit ? 7 : 6} className="px-6 py-4">
-                      <div className={`ml-12 border-l-2 border-slate-200 pl-4`}>
-                        <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center"><Award className="w-4 h-4 mr-2 text-indigo-500" /> Historial de Capacitaciones</h4>
-                        {p.trainings && p.trainings.length > 0 ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {p.trainings.map(t => (
-                              <div key={t.id} className="bg-white p-3 rounded border border-slate-200 shadow-sm flex justify-between items-center">
-                                <div><p className="text-sm font-medium text-slate-800">{t.topic}</p><p className="text-xs text-slate-500">{t.date}</p></div>
-                                <div className="text-right"><span className={`text-xs px-2 py-0.5 rounded-full ${t.status === 'Completado' ? 'bg-green-100 text-green-700' : t.status === 'Programado' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`}>{t.status}</span>{t.score && <p className="text-xs font-bold text-slate-600 mt-1">Nota: {t.score}</p>}</div>
+                      <div className="flex flex-col md:flex-row gap-6 ml-12">
+                          {/* Trainings Section */}
+                          <div className={`flex-1 border-l-2 border-slate-200 pl-4`}>
+                            <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center"><Award className="w-4 h-4 mr-2 text-blue-500" /> Historial de Capacitaciones</h4>
+                            {p.trainings && p.trainings.length > 0 ? (
+                              <div className="space-y-2">
+                                {p.trainings.map(t => (
+                                  <div key={t.id} className="bg-white p-3 rounded border border-slate-200 shadow-sm flex justify-between items-center">
+                                    <div><p className="text-sm font-medium text-slate-800">{t.topic}</p><p className="text-xs text-slate-500">{t.date}</p></div>
+                                    <div className="text-right"><span className={`text-xs px-2 py-0.5 rounded-full ${t.status === 'Completado' ? 'bg-green-100 text-green-700' : t.status === 'Programado' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`}>{t.status}</span>{t.score && <p className="text-xs font-bold text-slate-600 mt-1">Nota: {t.score}</p>}</div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            ) : <p className="text-sm text-slate-500 italic">No hay capacitaciones registradas.</p>}
                           </div>
-                        ) : <p className="text-sm text-slate-500 italic">No hay capacitaciones registradas.</p>}
+                          
+                          {/* Assets / PPE Section */}
+                          <div className={`flex-1 border-l-2 border-slate-200 pl-4`}>
+                             <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center"><Briefcase className="w-4 h-4 mr-2 text-indigo-500" /> Inventario Asignado (Activos / EPPs)</h4>
+                             {p.assignedAssets && p.assignedAssets.length > 0 ? (
+                                <div className="space-y-2">
+                                   {p.assignedAssets.map(asset => (
+                                      <div key={asset.id} className="bg-white p-3 rounded border border-slate-200 shadow-sm flex items-start gap-3">
+                                         <div className="mt-1">{getAssetIcon(asset.type)}</div>
+                                         <div className="flex-1">
+                                            <p className="text-sm font-medium text-slate-800">{asset.name}</p>
+                                            <p className="text-xs text-slate-500">Entrega: {asset.dateAssigned}</p>
+                                            {asset.serialNumber && <p className="text-xs text-slate-400 mt-0.5 font-mono">SN: {asset.serialNumber}</p>}
+                                         </div>
+                                         <div className="text-xs font-semibold bg-slate-100 px-2 py-0.5 rounded text-slate-600">{asset.type}</div>
+                                      </div>
+                                   ))}
+                                </div>
+                             ) : <p className="text-sm text-slate-500 italic">Sin equipamiento asignado.</p>}
+                          </div>
                       </div>
                     </td>
                   </tr>
@@ -850,6 +919,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Tema / Curso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej. Seguridad en Altura" value={massTrainingForm.topic} onChange={e => setMassTrainingForm({...massTrainingForm, topic: e.target.value})} /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha Programada</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={massTrainingForm.date} onChange={e => setMassTrainingForm({...massTrainingForm, date: e.target.value})} /></div>
                 <button onClick={handleMassAssignTraining} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Confirmar Asignación</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mass Asset Assignment Modal */}
+      {showAssetAssignmentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+             <div className="bg-indigo-600 text-white px-6 py-4 border-b border-indigo-700 flex justify-between items-center shrink-0">
+                <div className="flex items-center"><Briefcase className="mr-2"/><h3 className="font-bold text-lg">Asignar Equipamiento / EPP</h3></div>
+                <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+             </div>
+             <div className="p-6 space-y-4 overflow-y-auto">
+                <div className="bg-indigo-50 text-indigo-700 p-3 rounded-lg text-sm mb-4">Entregando a <strong>{selectedPersonnelIds.length}</strong> colaboradores seleccionados.</div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Recurso</label>
+                  <select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" value={assetAssignmentForm.type} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, type: e.target.value})}>
+                     <option value="EPP">EPP (Protección Personal)</option>
+                     <option value="Uniforme">Uniforme / Ropa</option>
+                     <option value="Tecnologia">Tecnología (Laptop/Celular)</option>
+                     <option value="Herramienta">Herramienta</option>
+                     <option value="Otro">Otro</option>
+                  </select>
+                </div>
+
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Ítem</label>
+                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder={assetAssignmentForm.type === 'Tecnologia' ? "Ej. Celular Samsung A54" : assetAssignmentForm.type === 'Uniforme' ? "Ej. Pantalón Drill Talla 32" : "Ej. Casco Dielectrico"} value={assetAssignmentForm.name} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, name: e.target.value})} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" value={assetAssignmentForm.dateAssigned} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, dateAssigned: e.target.value})} /></div>
+                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Serie / Talla (Opcional)</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="SN-12345 o Talla M" value={assetAssignmentForm.serialNumber} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, serialNumber: e.target.value})} /></div>
+                </div>
+
+                <button onClick={handleMassAssignAsset} disabled={!assetAssignmentForm.name || !assetAssignmentForm.dateAssigned} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors mt-2 disabled:opacity-50">Confirmar Entrega</button>
              </div>
           </div>
         </div>

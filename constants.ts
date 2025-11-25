@@ -44,6 +44,11 @@ export const MOCK_UNITS: Unit[] = [
         trainings: [
           { id: 't1', topic: 'Liderazgo de Equipos', date: '2023-09-15', status: 'Completado', score: 95 },
           { id: 't2', topic: 'Seguridad y Salud en el Trabajo', date: getFutureDate(5), status: 'Programado' }
+        ],
+        assignedAssets: [
+          { id: 'a1', name: 'Laptop Lenovo ThinkPad', type: 'Tecnologia', dateAssigned: '2023-01-15', serialNumber: 'SN-998877' },
+          { id: 'a2', name: 'Celular Corporativo', type: 'Tecnologia', dateAssigned: '2023-01-15' },
+          { id: 'a3', name: 'Uniforme Completo (Supervisor)', type: 'Uniforme', dateAssigned: '2023-06-01' }
         ]
       },
       {
@@ -57,6 +62,10 @@ export const MOCK_UNITS: Unit[] = [
         compliancePercentage: 95,
         trainings: [
           { id: 't3', topic: 'Uso de Químicos Industriales', date: '2023-08-10', status: 'Completado', score: 88 }
+        ],
+        assignedAssets: [
+          { id: 'a4', name: 'Botas de Seguridad', type: 'EPP', dateAssigned: '2023-08-01' },
+          { id: 'a5', name: 'Mandil Industrial', type: 'Uniforme', dateAssigned: '2023-08-01' }
         ]
       },
       {
@@ -132,6 +141,10 @@ export const MOCK_UNITS: Unit[] = [
         trainings: [
            { id: 't4', topic: 'Protocolos HACCP', date: '2023-09-01', status: 'Completado', score: 92 },
            { id: 't5', topic: 'Bloqueo y Etiquetado (LOTO)', date: '2023-10-05', status: 'Completado', score: 100 }
+        ],
+        assignedAssets: [
+            { id: 'a6', name: 'Casco de Seguridad', type: 'EPP', dateAssigned: '2023-05-10' },
+            { id: 'a7', name: 'Arnés de Seguridad', type: 'EPP', dateAssigned: '2023-05-10', serialNumber: 'AN-2023-X' }
         ]
       },
       {

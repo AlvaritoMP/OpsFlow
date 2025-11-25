@@ -44,6 +44,15 @@ export interface Training {
   certificateUrl?: string;
 }
 
+export interface AssignedAsset {
+  id: string;
+  name: string; // e.g., "Laptop Dell", "Botas Seguridad", "Uniforme Verano"
+  type: 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro';
+  dateAssigned: string;
+  serialNumber?: string;
+  notes?: string;
+}
+
 export interface Resource {
   id: string;
   name: string;
@@ -57,6 +66,7 @@ export interface Resource {
   lastRestock?: string; // For materials
   nextMaintenance?: string; // For machines
   trainings?: Training[]; // Specific for personnel
+  assignedAssets?: AssignedAsset[]; // Inventory assigned to this worker
   image?: string; // Photo of the resource (equipment/material/person)
 }
 
