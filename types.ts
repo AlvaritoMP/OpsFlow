@@ -17,6 +17,7 @@ export enum StaffStatus {
 }
 
 export type UserRole = 'ADMIN' | 'OPERATIONS' | 'CLIENT';
+export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 
 export interface User {
   id: string;
@@ -24,6 +25,15 @@ export interface User {
   email: string;
   role: UserRole;
   avatar?: string;
+}
+
+export interface ManagementStaff {
+  id: string;
+  name: string;
+  role: ManagementRole;
+  email?: string;
+  phone?: string;
+  photo?: string;
 }
 
 export interface OperationalLog {
@@ -76,6 +86,14 @@ export interface Zone {
   shifts: string[]; // e.g., ["Turno Mañana", "Turno Tarde"]
 }
 
+export interface UnitContact {
+  id?: string; // Link to ManagementStaff id
+  name: string;
+  photo?: string;
+  phone?: string;
+  email?: string;
+}
+
 export interface Unit {
   id: string;
   name: string;
@@ -88,4 +106,9 @@ export interface Unit {
   resources: Resource[];
   logs: OperationalLog[];
   complianceHistory: { month: string; score: number }[];
+  
+  // Management Team
+  coordinator?: UnitContact;
+  rovingSupervisor?: UnitContact; // Supervisor de Ronda
+  residentSupervisor?: UnitContact; // Supervisor Residente
 }

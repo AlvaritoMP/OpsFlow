@@ -1,4 +1,4 @@
-import { ResourceType, StaffStatus, Unit, UnitStatus, User, UserRole } from "./types";
+import { ManagementStaff, ResourceType, StaffStatus, Unit, UnitStatus, User, UserRole } from "./types";
 
 // Helper to get a future date
 const getFutureDate = (days: number) => {
@@ -11,6 +11,57 @@ export const MOCK_USERS: User[] = [
   { id: 'u1', name: 'Admin General', email: 'admin@opsflow.com', role: 'ADMIN', avatar: 'AD' },
   { id: 'u2', name: 'Carlos Ops', email: 'carlos@opsflow.com', role: 'OPERATIONS', avatar: 'CO' },
   { id: 'u3', name: 'Cliente Visor', email: 'gerente@cliente.com', role: 'CLIENT', avatar: 'CL' },
+];
+
+export const MOCK_MANAGEMENT_STAFF: ManagementStaff[] = [
+    {
+        id: 'ms1',
+        name: 'Roberto Gomez',
+        role: 'COORDINATOR',
+        email: 'roberto@opsflow.com',
+        phone: '+51 999 111 222',
+        photo: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=200&auto=format&fit=crop'
+    },
+    {
+        id: 'ms2',
+        name: 'Ana Martinez',
+        role: 'COORDINATOR',
+        email: 'ana@opsflow.com',
+        phone: '+51 999 333 444',
+        photo: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?q=80&w=200&auto=format&fit=crop'
+    },
+    {
+        id: 'ms3',
+        name: 'Elena Torres',
+        role: 'RESIDENT_SUPERVISOR',
+        email: 'elena@opsflow.com',
+        phone: '+51 988 555 666',
+        photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=200&auto=format&fit=crop'
+    },
+    {
+        id: 'ms4',
+        name: 'Jorge Luis',
+        role: 'RESIDENT_SUPERVISOR',
+        email: 'jorge@opsflow.com',
+        phone: '+51 977 777 888',
+        photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop'
+    },
+    {
+        id: 'ms5',
+        name: 'Miguel Angel',
+        role: 'ROVING_SUPERVISOR',
+        email: 'miguel@opsflow.com',
+        phone: '+51 966 999 000',
+        photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop'
+    },
+    {
+        id: 'ms6',
+        name: 'Sofia Ramirez',
+        role: 'ROVING_SUPERVISOR',
+        email: 'sofia@opsflow.com',
+        phone: '+51 955 222 111',
+        photo: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?q=80&w=200&auto=format&fit=crop'
+    }
 ];
 
 export const MOCK_UNITS: Unit[] = [
@@ -26,6 +77,27 @@ export const MOCK_UNITS: Unit[] = [
       'https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&w=800&auto=format&fit=crop',
       'https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=800&auto=format&fit=crop'
     ],
+    coordinator: {
+        id: 'ms1',
+        name: 'Roberto Gomez',
+        email: 'roberto@opsflow.com',
+        phone: '+51 999 111 222',
+        photo: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=200&auto=format&fit=crop'
+    },
+    residentSupervisor: {
+        id: 'ms3',
+        name: 'Elena Torres',
+        email: 'elena@opsflow.com',
+        phone: '+51 988 555 666',
+        photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=200&auto=format&fit=crop'
+    },
+    rovingSupervisor: {
+        id: 'ms5',
+        name: 'Miguel Angel',
+        email: 'miguel@opsflow.com',
+        phone: '+51 966 999 000',
+        photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop'
+    },
     zones: [
       { id: 'z1', name: 'Recepción / Lobby', shifts: ['Diurno', 'Nocturno'] },
       { id: 'z2', name: 'Oficinas Piso 1-5', shifts: ['Nocturno'] },

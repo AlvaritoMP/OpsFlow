@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, Shield, UserPlus, Camera, Image as ImageIcon } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, Shield, UserPlus, Camera, Image as ImageIcon, Briefcase } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
-import { MOCK_UNITS, MOCK_USERS } from './constants';
-import { Unit, UnitStatus, User, UserRole } from './types';
+import { MOCK_UNITS, MOCK_USERS, MOCK_MANAGEMENT_STAFF } from './constants';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole } from './types';
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -28,6 +28,12 @@ const App: React.FC = () => {
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUserForm, setNewUserForm] = useState({ name: '', email: '', role: 'OPERATIONS' as UserRole });
   
+  // Management Staff State (Supervisors/Coordinators)
+  const [managementStaff, setManagementStaff] = useState<ManagementStaff[]>(MOCK_MANAGEMENT_STAFF);
+  const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [newStaffForm, setNewStaffForm] = useState<Partial<ManagementStaff>>({ name: '', role: 'COORDINATOR', email: '' });
+  const [newStaffPhotoUrl, setNewStaffPhotoUrl] = useState('');
+
   // User / Role Context Simulation
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Default to Admin
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -126,6 +132,29 @@ const App: React.FC = () => {
     setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
   };
 
+  // Management Staff Handlers
+  const handleAddStaff = () => {
+      if (!newStaffForm.name || !newStaffForm.role) return;
+      const newStaff: ManagementStaff = {
+          id: `ms-${Date.now()}`,
+          name: newStaffForm.name,
+          role: newStaffForm.role,
+          email: newStaffForm.email,
+          photo: newStaffPhotoUrl || 'https://via.placeholder.com/150'
+      };
+      setManagementStaff([...managementStaff, newStaff]);
+      setShowAddStaffModal(false);
+      setNewStaffForm({ name: '', role: 'COORDINATOR', email: '' });
+      setNewStaffPhotoUrl('');
+  };
+
+  const handleDeleteStaff = (staffId: string) => {
+      if (confirm('¿Eliminar este miembro del equipo de gestión?')) {
+          setManagementStaff(managementStaff.filter(s => s.id !== staffId));
+      }
+  };
+
+
   const renderContent = () => {
     if (currentView === 'dashboard') {
       return <Dashboard units={units} onSelectUnit={handleSelectUnit} />;
@@ -139,6 +168,7 @@ const App: React.FC = () => {
           <UnitDetail 
             unit={unit} 
             userRole={currentUser.role}
+            availableStaff={managementStaff} // Pass global staff registry
             onBack={() => setSelectedUnitId(null)} 
             onUpdate={handleUpdateUnit} 
           />
@@ -295,20 +325,21 @@ const App: React.FC = () => {
 
     if (currentView === 'settings') {
       return (
-        <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500">
+        <div className="p-6 md:p-8 space-y-8 animate-in fade-in duration-500">
            <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold text-slate-800">Configuración del Sistema</h1>
-              <p className="text-slate-500">Administración de usuarios y roles</p>
+              <p className="text-slate-500">Administración general de la plataforma</p>
             </div>
-            <button onClick={() => setShowAddUserModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 transition-colors shadow-sm">
-              <UserPlus size={20} className="mr-2" /> Nuevo Usuario
-            </button>
            </div>
 
+           {/* --- Users Management --- */}
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
+             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                <h3 className="font-bold text-slate-700 flex items-center"><Users className="mr-2" size={18} /> Usuarios Registrados</h3>
+               <button onClick={() => setShowAddUserModal(true)} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
+                  <UserPlus size={14} className="mr-1.5" /> Nuevo Usuario
+               </button>
              </div>
              <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-white">
@@ -347,6 +378,33 @@ const App: React.FC = () => {
              </table>
            </div>
 
+           {/* --- Management Staff Registry --- */}
+           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+               <h3 className="font-bold text-slate-700 flex items-center"><Briefcase className="mr-2" size={18} /> Gestión de Equipo de Supervisión (Global)</h3>
+               <button onClick={() => setShowAddStaffModal(true)} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
+                  <Plus size={14} className="mr-1.5" /> Agregar Personal
+               </button>
+             </div>
+             <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                 {managementStaff.map(staff => (
+                     <div key={staff.id} className="flex items-center space-x-3 p-3 border border-slate-200 rounded-lg hover:shadow-md transition-shadow relative group">
+                         <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-100 flex-shrink-0">
+                             {staff.photo ? <img src={staff.photo} alt={staff.name} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-400">?</div>}
+                         </div>
+                         <div className="flex-1 min-w-0">
+                             <h4 className="font-medium text-slate-900 truncate">{staff.name}</h4>
+                             <p className="text-xs text-slate-500 mb-1">{staff.role.replace('_', ' ')}</p>
+                             <p className="text-xs text-slate-400 truncate">{staff.email}</p>
+                         </div>
+                         <button onClick={() => handleDeleteStaff(staff.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <Trash2 size={14} />
+                         </button>
+                     </div>
+                 ))}
+             </div>
+           </div>
+
            {/* Add User Modal */}
            {showAddUserModal && (
              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -367,6 +425,57 @@ const App: React.FC = () => {
                         </select>
                       </div>
                       <button onClick={handleAddUser} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Crear Usuario</button>
+                  </div>
+                </div>
+             </div>
+           )}
+
+           {/* Add Staff Modal */}
+           {showAddStaffModal && (
+             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                  <div className="bg-indigo-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                      <h3 className="font-bold text-lg flex items-center"><Briefcase className="mr-2" size={20}/> Nuevo Supervisor/Coord.</h3>
+                      <button onClick={() => setShowAddStaffModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newStaffForm.name} onChange={e => setNewStaffForm({...newStaffForm, name: e.target.value})} /></div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Rol de Gestión</label>
+                        <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newStaffForm.role} onChange={e => setNewStaffForm({...newStaffForm, role: e.target.value as ManagementRole})}>
+                          <option value="COORDINATOR">Coordinador</option>
+                          <option value="RESIDENT_SUPERVISOR">Supervisor Residente</option>
+                          <option value="ROVING_SUPERVISOR">Supervisor de Ronda</option>
+                        </select>
+                      </div>
+
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Email / Contacto</label><input type="email" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newStaffForm.email} onChange={e => setNewStaffForm({...newStaffForm, email: e.target.value})} /></div>
+                      
+                      {/* Staff Photo */}
+                      <div>
+                       <label className="block text-sm font-medium text-slate-700 mb-1">Foto (URL o Upload)</label>
+                       <div className="flex gap-2">
+                         <input 
+                           type="text" 
+                           className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" 
+                           placeholder="URL de imagen..." 
+                           value={newStaffPhotoUrl} 
+                           onChange={e => setNewStaffPhotoUrl(e.target.value)} 
+                         />
+                         <label className="bg-slate-100 p-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                            <Camera size={20} className="text-slate-600"/>
+                            <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                    setNewStaffPhotoUrl(URL.createObjectURL(e.target.files[0]));
+                                }
+                            }} />
+                         </label>
+                       </div>
+                       {newStaffPhotoUrl && <img src={newStaffPhotoUrl} alt="prev" className="w-16 h-16 object-cover rounded mt-2 border border-slate-200" />}
+                      </div>
+
+                      <button onClick={handleAddStaff} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors mt-2">Agregar a Registro</button>
                   </div>
                 </div>
              </div>

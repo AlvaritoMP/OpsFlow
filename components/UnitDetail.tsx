@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase } from 'lucide-react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck } from 'lucide-react';
 import { generateExecutiveReport } from '../services/geminiService';
 
 interface UnitDetailProps {
   unit: Unit;
   userRole: UserRole;
+  availableStaff: ManagementStaff[]; // GLOBAL REGISTRY PASSED DOWN
   onBack: () => void;
   onUpdate?: (updatedUnit: Unit) => void;
 }
@@ -22,7 +23,7 @@ const STATUS_COLORS = {
   'Baja': 'bg-gray-100 text-gray-700',
 };
 
-export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, onUpdate }) => {
+export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, onBack, onUpdate }) => {
   const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview'>('overview');
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
@@ -136,6 +137,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
       const imageUrl = URL.createObjectURL(file);
       setEditForm({ ...editForm, images: [...editForm.images, imageUrl] });
     }
+  };
+
+  // --- Staff Selection Helper ---
+  const handleSelectStaff = (roleKey: 'coordinator' | 'residentSupervisor' | 'rovingSupervisor', staffId: string) => {
+     if (!staffId) {
+        setEditForm({ ...editForm, [roleKey]: undefined });
+        return;
+     }
+     const staffMember = availableStaff.find(s => s.id === staffId);
+     if (staffMember) {
+         setEditForm({
+             ...editForm,
+             [roleKey]: {
+                 id: staffMember.id,
+                 name: staffMember.name,
+                 photo: staffMember.photo,
+                 email: staffMember.email,
+                 phone: staffMember.phone
+             }
+         });
+     }
   };
 
 
@@ -338,7 +360,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
   // --- Render Sections ---
 
   const renderOverview = () => (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       {/* Photo Gallery */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 aspect-video md:aspect-auto md:h-80 rounded-xl overflow-hidden shadow-sm relative group bg-slate-200">
@@ -360,108 +382,250 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, onBack, 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="col-span-1 bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-slate-800 flex items-center"><MapPin className="w-5 h-5 mr-2 text-slate-500" /> Detalles</h3>
-            {canEdit && !isEditing && (
-              <button onClick={() => setIsEditing(true)} className="text-blue-600 hover:text-blue-800 text-xs font-bold flex items-center bg-blue-50 px-2 py-1 rounded-md transition-colors"><Edit2 size={12} className="mr-1" /> Editar Info</button>
-            )}
-          </div>
-          
-          {isEditing ? (
-            <div className="space-y-4">
-               <div><label className="text-xs text-slate-500 font-medium block mb-1">Nombre Unidad</label><input type="text" value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
-               <div><label className="text-xs text-slate-500 font-medium block mb-1">Cliente</label><input type="text" value={editForm.clientName} onChange={(e) => setEditForm({...editForm, clientName: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
-               <div><label className="text-xs text-slate-500 font-medium block mb-1">Dirección</label><input type="text" value={editForm.address} onChange={(e) => setEditForm({...editForm, address: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
-               <div>
-                  <label className="text-xs text-slate-500 font-medium block mb-1">Estado</label>
-                  <select value={editForm.status} onChange={(e) => setEditForm({...editForm, status: e.target.value as UnitStatus})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500">
-                    <option value={UnitStatus.ACTIVE}>Activo</option>
-                    <option value={UnitStatus.PENDING}>Pendiente</option>
-                    <option value={UnitStatus.ISSUE}>Con Incidencias</option>
-                  </select>
-               </div>
-
-               {/* Image Management Section */}
-               <div className="border-t border-slate-100 pt-3">
-                 <label className="text-xs text-slate-500 font-medium block mb-2">Gestión de Imágenes (Galería)</label>
-                 
-                 <div className="flex gap-2 mb-2">
-                     <input 
-                       type="text" 
-                       className="flex-1 border border-slate-300 rounded p-2 outline-none text-xs" 
-                       placeholder="URL de imagen..." 
-                       value={editImageUrl} 
-                       onChange={e => setEditImageUrl(e.target.value)} 
-                     />
-                     <label className="bg-slate-100 p-2 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
-                        <Camera size={14} className="text-slate-600"/>
-                        <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForEdit} />
-                     </label>
-                     <button onClick={handleAddImageToEdit} disabled={!editImageUrl} className="bg-blue-50 text-blue-600 p-2 rounded hover:bg-blue-100 disabled:opacity-50 border border-blue-100"><Plus size={14} /></button>
-                 </div>
-
-                 {editForm.images.length > 0 ? (
-                   <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                     {editForm.images.map((img, idx) => (
-                       <div key={idx} className="relative shrink-0 w-16 h-16 group">
-                          <img src={img} alt="preview" className="w-full h-full object-cover rounded border border-slate-200" />
-                          <button onClick={() => handleRemoveImageFromEdit(idx)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10">
-                            <X size={10} />
-                          </button>
-                       </div>
-                     ))}
-                   </div>
-                 ) : <p className="text-xs text-slate-400 italic">Sin imágenes.</p>}
-               </div>
-               
-               {/* Zone Management in Edit Mode */}
-               <div className="border-t border-slate-100 pt-3">
-                 <label className="text-xs text-slate-500 font-medium block mb-2">Configuración de Zonas</label>
-                 <div className="space-y-2 mb-3">
-                   {editForm.zones.map(z => (
-                     <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded text-sm">
-                       <span>{z.name} <span className="text-xs text-slate-400">({z.shifts.join(', ')})</span></span>
-                       <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14}/></button>
-                     </div>
-                   ))}
-                 </div>
-                 <div className="flex gap-2">
-                   <input 
-                      placeholder="Nueva Zona" 
-                      value={newZoneName} 
-                      onChange={e => setNewZoneName(e.target.value)}
-                      className="flex-1 p-2 border border-slate-300 rounded text-xs outline-none" 
-                   />
-                   <input 
-                      placeholder="Turnos (sep. comas)" 
-                      value={newZoneShifts} 
-                      onChange={e => setNewZoneShifts(e.target.value)}
-                      className="w-1/3 p-2 border border-slate-300 rounded text-xs outline-none" 
-                   />
-                   <button onClick={handleAddZone} className="bg-slate-200 text-slate-600 p-2 rounded hover:bg-slate-300"><Plus size={14}/></button>
-                 </div>
-               </div>
-
-               <div className="flex space-x-2 pt-2">
-                 <button onClick={handleSaveUnit} className="flex-1 bg-blue-600 text-white py-2 rounded text-sm font-medium hover:bg-blue-700">Guardar</button>
-                 <button onClick={() => { setIsEditing(false); setEditForm(unit); }} className="flex-1 bg-slate-100 text-slate-700 py-2 rounded text-sm font-medium hover:bg-slate-200">Cancelar</button>
-               </div>
-            </div>
-          ) : (
-            <div className="space-y-4 text-sm">
-              <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Cliente</p><p className="font-medium text-slate-800">{unit.clientName}</p></div>
-              <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Dirección</p><p className="font-medium text-slate-800">{unit.address}</p></div>
-              <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Descripción</p><p className="text-slate-600 leading-relaxed">{unit.description || "Sin descripción."}</p></div>
-              <div>
-                <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Zonas Activas</p>
-                <div className="flex flex-wrap gap-2">
-                  {unit.zones.map(z => (<span key={z.id} className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-xs border border-slate-200 font-medium">{z.name}</span>))}
+      {/* --- Management Team (Horizontal Large Cards) --- */}
+      {!isEditing && (
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center mb-6"><Users className="w-5 h-5 mr-2 text-slate-500" /> Equipo de Gestión y Supervisión</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                {/* Coordinator Card */}
+                <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
+                    <div className="w-40 h-40 rounded-full bg-blue-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
+                        {unit.coordinator?.photo ? <img src={unit.coordinator.photo} alt="Coord" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-blue-400 font-bold text-4xl">CO</div>}
+                    </div>
+                    <p className="text-base font-bold text-slate-800 mb-1">{unit.coordinator?.name || "Sin Asignar"}</p>
+                    <div className="flex items-center text-xs text-blue-700 bg-blue-100 px-3 py-1 rounded-full font-medium mb-3">
+                        <BadgeCheck size={12} className="mr-1"/> Coordinador General
+                    </div>
+                    {unit.coordinator?.phone && (
+                        <div className="flex items-center text-sm text-slate-600 mb-1">
+                            <Phone size={14} className="mr-2 text-slate-400"/> {unit.coordinator.phone}
+                        </div>
+                    )}
+                    {unit.coordinator?.email && (
+                        <div className="flex items-center text-sm text-slate-600">
+                            <Mail size={14} className="mr-2 text-slate-400"/> {unit.coordinator.email}
+                        </div>
+                    )}
                 </div>
-              </div>
+
+                {/* Resident Supervisor Card */}
+                <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
+                    <div className="w-40 h-40 rounded-full bg-indigo-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
+                        {unit.residentSupervisor?.photo ? <img src={unit.residentSupervisor.photo} alt="Res" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
+                    </div>
+                    <p className="text-base font-bold text-slate-800 mb-1">{unit.residentSupervisor?.name || "Sin Asignar"}</p>
+                    <div className="flex items-center text-xs text-indigo-700 bg-indigo-100 px-3 py-1 rounded-full font-medium mb-3">
+                        <ShieldCheck size={12} className="mr-1"/> Supervisor Residente
+                    </div>
+                    {unit.residentSupervisor?.phone && (
+                        <div className="flex items-center text-sm text-slate-600 mb-1">
+                            <Phone size={14} className="mr-2 text-slate-400"/> {unit.residentSupervisor.phone}
+                        </div>
+                    )}
+                    {unit.residentSupervisor?.email && (
+                        <div className="flex items-center text-sm text-slate-600">
+                            <Mail size={14} className="mr-2 text-slate-400"/> {unit.residentSupervisor.email}
+                        </div>
+                    )}
+                </div>
+
+                {/* Roving Supervisor Card */}
+                <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
+                    <div className="w-40 h-40 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
+                        {unit.rovingSupervisor?.photo ? <img src={unit.rovingSupervisor.photo} alt="Ronda" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
+                    </div>
+                    <p className="text-base font-bold text-slate-800 mb-1">{unit.rovingSupervisor?.name || "Sin Asignar"}</p>
+                    <div className="flex items-center text-xs text-slate-700 bg-slate-200 px-3 py-1 rounded-full font-medium mb-3">
+                        <UserCheck size={12} className="mr-1"/> Supervisor de Ronda
+                    </div>
+                    {unit.rovingSupervisor?.phone && (
+                        <div className="flex items-center text-sm text-slate-600 mb-1">
+                            <Phone size={14} className="mr-2 text-slate-400"/> {unit.rovingSupervisor.phone}
+                        </div>
+                    )}
+                    {unit.rovingSupervisor?.email && (
+                        <div className="flex items-center text-sm text-slate-600">
+                            <Mail size={14} className="mr-2 text-slate-400"/> {unit.rovingSupervisor.email}
+                        </div>
+                    )}
+                </div>
+
             </div>
-          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="col-span-1 space-y-6">
+            {/* Unit Details Card */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-slate-800 flex items-center"><MapPin className="w-5 h-5 mr-2 text-slate-500" /> Detalles Técnicos</h3>
+                {canEdit && !isEditing && (
+                <button onClick={() => setIsEditing(true)} className="text-blue-600 hover:text-blue-800 text-xs font-bold flex items-center bg-blue-50 px-2 py-1 rounded-md transition-colors"><Edit2 size={12} className="mr-1" /> Editar Info</button>
+                )}
+            </div>
+            
+            {isEditing ? (
+                <div className="space-y-4">
+                <div><label className="text-xs text-slate-500 font-medium block mb-1">Nombre Unidad</label><input type="text" value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
+                <div><label className="text-xs text-slate-500 font-medium block mb-1">Cliente</label><input type="text" value={editForm.clientName} onChange={(e) => setEditForm({...editForm, clientName: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
+                <div><label className="text-xs text-slate-500 font-medium block mb-1">Dirección</label><input type="text" value={editForm.address} onChange={(e) => setEditForm({...editForm, address: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
+                <div>
+                    <label className="text-xs text-slate-500 font-medium block mb-1">Estado</label>
+                    <select value={editForm.status} onChange={(e) => setEditForm({...editForm, status: e.target.value as UnitStatus})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500">
+                        <option value={UnitStatus.ACTIVE}>Activo</option>
+                        <option value={UnitStatus.PENDING}>Pendiente</option>
+                        <option value={UnitStatus.ISSUE}>Con Incidencias</option>
+                    </select>
+                </div>
+
+                {/* Supervisor Assignment Section in Edit Mode (USING SELECTORS) */}
+                <div className="border-t border-slate-100 pt-3">
+                    <label className="text-xs text-slate-500 font-medium block mb-3">Asignación de Supervisión</label>
+                    
+                    {/* Coordinator Selector */}
+                    <div className="bg-slate-50 p-2 rounded mb-2">
+                         <div className="flex items-center gap-2 mb-1">
+                             <BadgeCheck size={14} className="text-blue-600"/>
+                             <span className="text-xs font-bold text-slate-700">Coordinador</span>
+                         </div>
+                         <select 
+                            className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none bg-white"
+                            value={editForm.coordinator?.id || ''}
+                            onChange={(e) => handleSelectStaff('coordinator', e.target.value)}
+                         >
+                            <option value="">-- Seleccionar --</option>
+                            {availableStaff.filter(s => s.role === 'COORDINATOR').map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                         </select>
+                         {editForm.coordinator?.photo && <img src={editForm.coordinator.photo} alt="prev" className="w-8 h-8 rounded-full object-cover mt-2" />}
+                    </div>
+
+                    {/* Resident Supervisor Selector */}
+                    <div className="bg-slate-50 p-2 rounded mb-2">
+                         <div className="flex items-center gap-2 mb-1">
+                             <ShieldCheck size={14} className="text-indigo-600"/>
+                             <span className="text-xs font-bold text-slate-700">Supervisor Residente</span>
+                         </div>
+                         <select 
+                            className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none bg-white"
+                            value={editForm.residentSupervisor?.id || ''}
+                            onChange={(e) => handleSelectStaff('residentSupervisor', e.target.value)}
+                         >
+                            <option value="">-- Seleccionar --</option>
+                            {availableStaff.filter(s => s.role === 'RESIDENT_SUPERVISOR').map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                         </select>
+                         {editForm.residentSupervisor?.photo && <img src={editForm.residentSupervisor.photo} alt="prev" className="w-8 h-8 rounded-full object-cover mt-2" />}
+                    </div>
+
+                     {/* Roving Supervisor Selector */}
+                     <div className="bg-slate-50 p-2 rounded mb-2">
+                         <div className="flex items-center gap-2 mb-1">
+                             <UserCheck size={14} className="text-slate-600"/>
+                             <span className="text-xs font-bold text-slate-700">Supervisor de Ronda</span>
+                         </div>
+                         <select 
+                            className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none bg-white"
+                            value={editForm.rovingSupervisor?.id || ''}
+                            onChange={(e) => handleSelectStaff('rovingSupervisor', e.target.value)}
+                         >
+                            <option value="">-- Seleccionar --</option>
+                            {availableStaff.filter(s => s.role === 'ROVING_SUPERVISOR').map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                         </select>
+                         {editForm.rovingSupervisor?.photo && <img src={editForm.rovingSupervisor.photo} alt="prev" className="w-8 h-8 rounded-full object-cover mt-2" />}
+                    </div>
+                    
+                    <div className="text-xs text-slate-400 italic mt-1 text-center">
+                        * Gestiónalos en Configuración
+                    </div>
+                </div>
+
+                {/* Image Management Section */}
+                <div className="border-t border-slate-100 pt-3">
+                    <label className="text-xs text-slate-500 font-medium block mb-2">Gestión de Imágenes (Galería)</label>
+                    
+                    <div className="flex gap-2 mb-2">
+                        <input 
+                        type="text" 
+                        className="flex-1 border border-slate-300 rounded p-2 outline-none text-xs" 
+                        placeholder="URL de imagen..." 
+                        value={editImageUrl} 
+                        onChange={e => setEditImageUrl(e.target.value)} 
+                        />
+                        <label className="bg-slate-100 p-2 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                            <Camera size={14} className="text-slate-600"/>
+                            <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForEdit} />
+                        </label>
+                        <button onClick={handleAddImageToEdit} disabled={!editImageUrl} className="bg-blue-50 text-blue-600 p-2 rounded hover:bg-blue-100 disabled:opacity-50 border border-blue-100"><Plus size={14} /></button>
+                    </div>
+
+                    {editForm.images.length > 0 ? (
+                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                        {editForm.images.map((img, idx) => (
+                        <div key={idx} className="relative shrink-0 w-16 h-16 group">
+                            <img src={img} alt="preview" className="w-full h-full object-cover rounded border border-slate-200" />
+                            <button onClick={() => handleRemoveImageFromEdit(idx)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10">
+                                <X size={10} />
+                            </button>
+                        </div>
+                        ))}
+                    </div>
+                    ) : <p className="text-xs text-slate-400 italic">Sin imágenes.</p>}
+                </div>
+                
+                {/* Zone Management in Edit Mode */}
+                <div className="border-t border-slate-100 pt-3">
+                    <label className="text-xs text-slate-500 font-medium block mb-2">Configuración de Zonas</label>
+                    <div className="space-y-2 mb-3">
+                    {editForm.zones.map(z => (
+                        <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded text-sm">
+                        <span>{z.name} <span className="text-xs text-slate-400">({z.shifts.join(', ')})</span></span>
+                        <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14}/></button>
+                        </div>
+                    ))}
+                    </div>
+                    <div className="flex gap-2">
+                    <input 
+                        placeholder="Nueva Zona" 
+                        value={newZoneName} 
+                        onChange={e => setNewZoneName(e.target.value)}
+                        className="flex-1 p-2 border border-slate-300 rounded text-xs outline-none" 
+                    />
+                    <input 
+                        placeholder="Turnos (sep. comas)" 
+                        value={newZoneShifts} 
+                        onChange={e => setNewZoneShifts(e.target.value)}
+                        className="w-1/3 p-2 border border-slate-300 rounded text-xs outline-none" 
+                    />
+                    <button onClick={handleAddZone} className="bg-slate-200 text-slate-600 p-2 rounded hover:bg-slate-300"><Plus size={14}/></button>
+                    </div>
+                </div>
+
+                <div className="flex space-x-2 pt-2">
+                    <button onClick={handleSaveUnit} className="flex-1 bg-blue-600 text-white py-2 rounded text-sm font-medium hover:bg-blue-700">Guardar</button>
+                    <button onClick={() => { setIsEditing(false); setEditForm(unit); }} className="flex-1 bg-slate-100 text-slate-700 py-2 rounded text-sm font-medium hover:bg-slate-200">Cancelar</button>
+                </div>
+                </div>
+            ) : (
+                <div className="space-y-4 text-sm">
+                <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Cliente</p><p className="font-medium text-slate-800">{unit.clientName}</p></div>
+                <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Dirección</p><p className="font-medium text-slate-800">{unit.address}</p></div>
+                <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Descripción</p><p className="text-slate-600 leading-relaxed">{unit.description || "Sin descripción."}</p></div>
+                <div>
+                    <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Zonas Activas</p>
+                    <div className="flex flex-wrap gap-2">
+                    {unit.zones.map(z => (<span key={z.id} className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-xs border border-slate-200 font-medium">{z.name}</span>))}
+                    </div>
+                </div>
+                </div>
+            )}
+            </div>
         </div>
 
         <div className="col-span-1 lg:col-span-2 space-y-6">
