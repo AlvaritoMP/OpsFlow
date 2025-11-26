@@ -1,3 +1,4 @@
+
 export enum ResourceType {
   PERSONNEL = 'Personal',
   EQUIPMENT = 'Equipos/Maquinaria',
@@ -43,6 +44,7 @@ export interface OperationalLog {
   description: string;
   author: string;
   images?: string[]; // Evidence photos
+  responsibleIds?: string[]; // IDs of Personnel or ManagementStaff responsible for this event
 }
 
 export interface Training {
@@ -63,6 +65,19 @@ export interface AssignedAsset {
   notes?: string;
 }
 
+export interface MaintenanceRecord {
+  id: string;
+  date: string;
+  type: 'Preventivo' | 'Correctivo' | 'Supervision' | 'Calibracion';
+  description: string;
+  technician: string; // Quien realizo el trabajo
+  cost?: number;
+  status: 'Realizado' | 'Programado';
+  nextScheduledDate?: string; // Optional update for the main resource
+  responsibleIds?: string[]; // IDs of Personnel or ManagementStaff involved
+  images?: string[]; // Evidence photos for maintenance
+}
+
 export interface Resource {
   id: string;
   name: string;
@@ -77,6 +92,7 @@ export interface Resource {
   nextMaintenance?: string; // For machines
   trainings?: Training[]; // Specific for personnel
   assignedAssets?: AssignedAsset[]; // Inventory assigned to this worker
+  maintenanceHistory?: MaintenanceRecord[]; // Specific for Equipment history
   image?: string; // Photo of the resource (equipment/material/person)
 }
 

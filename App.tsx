@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, Shield, UserPlus, Camera, Image as ImageIcon, Briefcase } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
+import { ControlCenter } from './components/ControlCenter';
 import { MOCK_UNITS, MOCK_USERS, MOCK_MANAGEMENT_STAFF } from './constants';
-import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole } from './types';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType } from './types';
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [units, setUnits] = useState<Unit[]>(MOCK_UNITS);
   
@@ -103,9 +104,6 @@ const App: React.FC = () => {
     setNewUnitForm({ name: '', clientName: '', address: '', status: UnitStatus.ACTIVE });
     setNewUnitImages([]);
     setNewUnitImageUrl('');
-    
-    // Optional: Auto-select the new unit
-    // handleSelectUnit(newUnit.id);
   };
 
   const handleAddUser = () => {
@@ -156,6 +154,10 @@ const App: React.FC = () => {
 
 
   const renderContent = () => {
+    if (currentView === 'control-center') {
+      return <ControlCenter units={units} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} />;
+    }
+
     if (currentView === 'dashboard') {
       return <Dashboard units={units} onSelectUnit={handleSelectUnit} />;
     }
@@ -190,54 +192,62 @@ const App: React.FC = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {units.map(unit => (
-              <div 
-                key={unit.id} 
-                onClick={() => handleSelectUnit(unit.id)}
-                className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-lg transition-all cursor-pointer group overflow-hidden"
-              >
-                {/* Unit Image Cover */}
-                <div className="h-40 w-full overflow-hidden relative bg-slate-200">
-                  {unit.images && unit.images.length > 0 ? (
-                    <img 
-                      src={unit.images[0]} 
-                      alt={unit.name} 
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400">
-                      <Building size={48} />
-                    </div>
-                  )}
-                  <div className="absolute top-3 right-3">
-                     <span className={`text-xs font-bold px-3 py-1 rounded-full shadow-sm ${unit.status === 'Activo' ? 'bg-white/90 text-green-700 backdrop-blur-sm' : 'bg-white/90 text-red-700 backdrop-blur-sm'}`}>
-                      {unit.status}
-                    </span>
-                  </div>
-                </div>
+            {units.map(unit => {
+              const staffCount = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
+              const logisticsCount = unit.resources.filter(r => r.type !== ResourceType.PERSONNEL).length;
 
-                <div className="p-5">
-                  <h3 className="font-bold text-lg text-slate-800 mb-1">{unit.name}</h3>
-                  <p className="text-sm text-slate-500 mb-3">{unit.clientName}</p>
-                  
-                  <div className="flex items-center text-slate-500 text-sm mb-4">
-                    <MapPin size={16} className="mr-1.5 flex-shrink-0" />
-                    <span className="truncate">{unit.address}</span>
+              return (
+                <div 
+                  key={unit.id} 
+                  onClick={() => handleSelectUnit(unit.id)}
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-lg transition-all cursor-pointer group overflow-hidden"
+                >
+                  <div className="h-40 w-full overflow-hidden relative bg-slate-200">
+                    {unit.images && unit.images.length > 0 ? (
+                      <img 
+                        src={unit.images[0]} 
+                        alt={unit.name} 
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400">
+                        <Building size={48} />
+                      </div>
+                    )}
+                    <div className="absolute top-3 right-3">
+                      <span className={`text-xs font-bold px-3 py-1 rounded-full shadow-sm ${unit.status === 'Activo' ? 'bg-white/90 text-green-700 backdrop-blur-sm' : 'bg-white/90 text-red-700 backdrop-blur-sm'}`}>
+                        {unit.status}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="border-t border-slate-100 pt-3 flex justify-between text-xs font-medium text-slate-600">
-                    <div className="flex items-center">
-                      <Users size={14} className="mr-1.5" />
-                      {unit.resources.length} Recursos
+                  <div className="p-5">
+                    <h3 className="font-bold text-lg text-slate-800 mb-1">{unit.name}</h3>
+                    <p className="text-sm text-slate-500 mb-3">{unit.clientName}</p>
+                    
+                    <div className="flex items-center text-slate-500 text-sm mb-4">
+                      <MapPin size={16} className="mr-1.5 flex-shrink-0" />
+                      <span className="truncate">{unit.address}</span>
                     </div>
-                    <div className="flex items-center">
-                      <Building size={14} className="mr-1.5" />
-                      {unit.zones.length} Zonas
+
+                    <div className="border-t border-slate-100 pt-3 flex justify-between text-xs font-medium text-slate-600">
+                      <div className="flex items-center" title="Personal">
+                        <Users size={14} className="mr-1.5 text-blue-600" />
+                        {staffCount} Personal
+                      </div>
+                      <div className="flex items-center" title="Equipos y Materiales">
+                        <Package size={14} className="mr-1.5 text-orange-600" />
+                        {logisticsCount} Logística
+                      </div>
+                      <div className="flex items-center">
+                        <Building size={14} className="mr-1.5 text-slate-400" />
+                        {unit.zones.length} Zonas
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Add Unit Modal */}
@@ -515,6 +525,17 @@ const App: React.FC = () => {
             <LayoutDashboard size={20} />
             <span>Dashboard</span>
           </button>
+          
+          {currentUser.role !== 'CLIENT' && (
+             <button 
+                onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); }}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+              >
+                <LayoutList size={20} />
+                <span>Centro de Control</span>
+             </button>
+          )}
+
           <button 
             onClick={() => { setCurrentView('units'); setSelectedUnitId(null); }}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -585,8 +606,8 @@ const App: React.FC = () => {
           <div className="w-6"></div> {/* Spacer */}
         </header>
 
-        {/* Scrollable Content Area - Removed Padding from here to allow full bleed headers */}
-        <div className="flex-1 overflow-y-auto relative">
+        {/* Scrollable Content Area - FIXED LAYOUT for Control Center */}
+        <div className={`flex-1 relative ${currentView === 'control-center' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
            {renderContent()}
         </div>
       </main>

@@ -1,3 +1,4 @@
+
 import { ManagementStaff, ResourceType, StaffStatus, Unit, UnitStatus, User, UserRole } from "./types";
 
 // Helper to get a future date
@@ -141,6 +142,30 @@ export const MOCK_UNITS: Unit[] = [
         ]
       },
       {
+        id: 'r1-b',
+        name: 'Pedro Castillo (Limpieza)',
+        type: ResourceType.PERSONNEL,
+        quantity: 1,
+        status: StaffStatus.ACTIVE,
+        assignedZone: 'Sótanos',
+        assignedShift: 'Diurno',
+        compliancePercentage: 92,
+        trainings: [],
+        assignedAssets: []
+      },
+      {
+        id: 'r1-c',
+        name: 'Luisa Fernanda (Limpieza)',
+        type: ResourceType.PERSONNEL,
+        quantity: 1,
+        status: StaffStatus.ACTIVE,
+        assignedZone: 'Oficinas Piso 1-5',
+        assignedShift: 'Nocturno',
+        compliancePercentage: 98,
+        trainings: [],
+        assignedAssets: []
+      },
+      {
         id: 'r3',
         name: 'Lustradora Industrial Karcher',
         type: ResourceType.EQUIPMENT,
@@ -149,7 +174,38 @@ export const MOCK_UNITS: Unit[] = [
         assignedShift: 'N/A',
         nextMaintenance: getFutureDate(12),
         status: 'Operativo',
-        image: 'https://images.unsplash.com/photo-1581578731117-10d52143b1e8?q=80&w=400&auto=format&fit=crop'
+        image: 'https://images.unsplash.com/photo-1581578731117-10d52143b1e8?q=80&w=400&auto=format&fit=crop',
+        maintenanceHistory: [
+            {
+                id: 'm1',
+                date: '2023-08-15',
+                type: 'Preventivo',
+                description: 'Cambio de rodillos y revisión de motor.',
+                technician: 'TecniClean SAC',
+                status: 'Realizado',
+                images: ['https://images.unsplash.com/photo-1581092921461-eab62e97a783?q=80&w=400&auto=format&fit=crop']
+            },
+            {
+                id: 'm2',
+                date: '2023-09-20',
+                type: 'Supervision',
+                description: 'Revisión de operatividad por supervisor de ronda. Todo OK.',
+                technician: 'Miguel Angel',
+                status: 'Realizado'
+            }
+        ]
+      },
+      {
+        id: 'r3-b',
+        name: 'Aspiradora Industrial',
+        type: ResourceType.EQUIPMENT,
+        quantity: 1,
+        assignedZone: 'Oficinas Piso 1-5',
+        assignedShift: 'N/A',
+        nextMaintenance: getFutureDate(30),
+        status: 'Operativo',
+        image: 'https://images.unsplash.com/photo-1527011046414-4781f1f94f8c?q=80&w=400&auto=format&fit=crop',
+        maintenanceHistory: []
       },
       {
         id: 'r4',
@@ -161,6 +217,17 @@ export const MOCK_UNITS: Unit[] = [
         lastRestock: '2023-10-01',
         status: 'Stock OK',
         image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?q=80&w=400&auto=format&fit=crop'
+      },
+      {
+        id: 'r4-b',
+        name: 'Papel Higiénico Jumbo',
+        type: ResourceType.MATERIAL,
+        quantity: 100,
+        unitOfMeasure: 'Rollos',
+        assignedZone: 'Almacén Central',
+        lastRestock: '2023-10-05',
+        status: 'Stock Bajo',
+        image: 'https://images.unsplash.com/photo-1583947581924-860b89646c8e?q=80&w=400&auto=format&fit=crop'
       }
     ],
     logs: [
@@ -170,14 +237,15 @@ export const MOCK_UNITS: Unit[] = [
         type: 'Supervision', 
         description: 'Inspección de uniformes y EPPs completa. Todo conforme. Se adjuntan fotos de la formación matutina.', 
         author: 'Carlos Jefe Ops',
+        responsibleIds: ['ms5', 'r1'], // Miguel Angel (Ronda) and Juan Perez (Sup)
         images: [
           'https://images.unsplash.com/photo-1581579186913-45ac3e6e3dd2?q=80&w=400&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?q=80&w=400&auto=format&fit=crop'
         ]
       },
-      { id: 'l2', date: '2023-10-26', type: 'Capacitacion', description: 'Charla de seguridad sobre manejo de químicos.', author: 'Seguridad Industrial' },
-      { id: 'l3', date: '2023-10-27', type: 'Incidencia', description: 'Falta de personal por descanso médico. Se activó reemplazo (Maria Gomez).', author: 'RRHH' },
-      { id: 'l4', date: '2023-10-28', type: 'Coordinacion', description: 'Reunión con Admin del edificio para plan de limpieza de vidrios altos.', author: 'Gerente Cuenta' }
+      { id: 'l2', date: '2023-10-26', type: 'Capacitacion', description: 'Charla de seguridad sobre manejo de químicos.', author: 'Seguridad Industrial', responsibleIds: ['r2'] },
+      { id: 'l3', date: '2023-10-27', type: 'Incidencia', description: 'Falta de personal por descanso médico. Se activó reemplazo (Maria Gomez).', author: 'RRHH', responsibleIds: ['ms3'] },
+      { id: 'l4', date: '2023-10-28', type: 'Coordinacion', description: 'Reunión con Admin del edificio para plan de limpieza de vidrios altos.', author: 'Gerente Cuenta', responsibleIds: ['ms1'] }
     ],
     complianceHistory: [
       { month: 'Jul', score: 98 },
@@ -227,7 +295,18 @@ export const MOCK_UNITS: Unit[] = [
         assignedZone: 'Nave de Producción',
         status: 'En Reparación',
         nextMaintenance: getFutureDate(2),
-        image: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?q=80&w=400&auto=format&fit=crop'
+        image: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?q=80&w=400&auto=format&fit=crop',
+        maintenanceHistory: [
+             {
+                id: 'm3',
+                date: '2023-10-28',
+                type: 'Correctivo',
+                description: 'Falla en sistema de aspiración. Se solicitó repuesto.',
+                technician: 'Proveedor Externo',
+                status: 'Realizado',
+                images: ['https://images.unsplash.com/photo-1581092160562-40aa08e78837?q=80&w=400&auto=format&fit=crop']
+            }
+        ]
       }
     ],
     logs: [

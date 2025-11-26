@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck } from 'lucide-react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History } from 'lucide-react';
 import { generateExecutiveReport } from '../services/geminiService';
 
 interface UnitDetailProps {
@@ -53,6 +54,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   
+  // Maintenance History State (Equipment)
+  const [expandedEquipment, setExpandedEquipment] = useState<string | null>(null);
+  const [maintenanceResource, setMaintenanceResource] = useState<Resource | null>(null);
+  const [newMaintenanceForm, setNewMaintenanceForm] = useState({ date: '', type: 'Preventivo', description: '', technician: '' });
+  const [newMaintenanceResponsibles, setNewMaintenanceResponsibles] = useState<string[]>([]);
+  const [newMaintenanceImages, setNewMaintenanceImages] = useState<string[]>([]);
+  const [newMaintenanceImageUrl, setNewMaintenanceImageUrl] = useState('');
+  
   // Add Logistics Resource State
   const [showAddResourceModal, setShowAddResourceModal] = useState(false);
   const [newResourceType, setNewResourceType] = useState<ResourceType>(ResourceType.EQUIPMENT);
@@ -63,6 +72,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [newEventForm, setNewEventForm] = useState({ type: 'Coordinacion', date: '', description: '' });
   const [newEventImages, setNewEventImages] = useState<string[]>([]);
   const [newEventImageUrl, setNewEventImageUrl] = useState('');
+  const [newEventResponsibles, setNewEventResponsibles] = useState<string[]>([]);
   
   const [editingLog, setEditingLog] = useState<OperationalLog | null>(null);
   const [newLogImageUrl, setNewLogImageUrl] = useState('');
@@ -249,6 +259,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const togglePersonnelExpand = (id: string) => {
     setExpandedPersonnel(expandedPersonnel === id ? null : id);
   };
+  
+  const toggleEquipmentExpand = (id: string) => {
+    setExpandedEquipment(expandedEquipment === id ? null : id);
+  };
 
   // --- Logistics Actions ---
   const handleUpdateResource = () => {
@@ -292,7 +306,77 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setShowAddResourceModal(true);
   }
 
+  // --- Maintenance History (Equipment) Actions ---
+  const toggleMaintenanceResponsible = (id: string) => {
+      if (newMaintenanceResponsibles.includes(id)) {
+          setNewMaintenanceResponsibles(newMaintenanceResponsibles.filter(r => r !== id));
+      } else {
+          setNewMaintenanceResponsibles([...newMaintenanceResponsibles, id]);
+      }
+  };
+
+  const handleAddImageToMaintenance = () => {
+    if (!newMaintenanceImageUrl) return;
+    setNewMaintenanceImages([...newMaintenanceImages, newMaintenanceImageUrl]);
+    setNewMaintenanceImageUrl('');
+  };
+
+  const handleFileUploadForMaintenance = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const imageUrl = URL.createObjectURL(file);
+      setNewMaintenanceImages([...newMaintenanceImages, imageUrl]);
+    }
+  };
+
+  const handleAddMaintenance = () => {
+    if (!onUpdate || !maintenanceResource) return;
+    
+    const newRecord: MaintenanceRecord = {
+        id: `m-${Date.now()}`,
+        date: newMaintenanceForm.date,
+        type: newMaintenanceForm.type as any,
+        description: newMaintenanceForm.description,
+        technician: newMaintenanceForm.technician,
+        status: 'Realizado',
+        responsibleIds: newMaintenanceResponsibles,
+        images: newMaintenanceImages
+    };
+
+    const updatedResource = {
+        ...maintenanceResource,
+        maintenanceHistory: [...(maintenanceResource.maintenanceHistory || []), newRecord]
+    };
+
+    const updatedResources = unit.resources.map(r => r.id === maintenanceResource.id ? updatedResource : r);
+    onUpdate({ ...unit, resources: updatedResources });
+    
+    // Update local state and close modal
+    setMaintenanceResource(null); // Close modal after saving
+    setNewMaintenanceForm({ date: '', type: 'Preventivo', description: '', technician: '' });
+    setNewMaintenanceResponsibles([]);
+    setNewMaintenanceImages([]);
+  };
+
   // --- Event/Log Actions ---
+  const toggleEventResponsible = (id: string) => {
+    if (newEventResponsibles.includes(id)) {
+        setNewEventResponsibles(newEventResponsibles.filter(r => r !== id));
+    } else {
+        setNewEventResponsibles([...newEventResponsibles, id]);
+    }
+  };
+
+  const toggleEditLogResponsible = (id: string) => {
+    if (!editingLog) return;
+    const current = editingLog.responsibleIds || [];
+    if (current.includes(id)) {
+        setEditingLog({...editingLog, responsibleIds: current.filter(r => r !== id)});
+    } else {
+        setEditingLog({...editingLog, responsibleIds: [...current, id]});
+    }
+  };
+
   const handleCreateEvent = () => {
     if (!onUpdate) return;
     const newLog: OperationalLog = {
@@ -301,18 +385,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       type: newEventForm.type as any,
       description: newEventForm.description,
       author: userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin',
-      images: newEventImages 
+      images: newEventImages,
+      responsibleIds: newEventResponsibles
     };
     onUpdate({ ...unit, logs: [...unit.logs, newLog] });
     setShowEventModal(false);
     setNewEventForm({ type: 'Coordinacion', date: '', description: '' });
     setNewEventImages([]);
+    setNewEventResponsibles([]);
   };
 
   const handleAddImageToNewEvent = () => {
     if (!newEventImageUrl) return;
     setNewEventImages([...newEventImages, newEventImageUrl]);
     setNewEventImageUrl('');
+  };
+
+  const handleFileUploadForNewEvent = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const imageUrl = URL.createObjectURL(file);
+      setNewEventImages([...newEventImages, imageUrl]);
+    }
   };
 
   const handleUpdateLog = () => {
@@ -329,6 +423,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       images: [...(editingLog.images || []), newLogImageUrl]
     });
     setNewLogImageUrl('');
+  };
+
+  const handleFileUploadForLog = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (editingLog && e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        const imageUrl = URL.createObjectURL(file);
+        setEditingLog({
+            ...editingLog,
+            images: [...(editingLog.images || []), imageUrl]
+        });
+    }
   };
 
   // --- Helper Data ---
@@ -357,7 +462,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  // --- Render Sections ---
+  const getPersonName = (id: string) => {
+     // Try finding in unit personnel
+     const worker = personnel.find(p => p.id === id);
+     if (worker) return worker.name;
+     // Try finding in global management staff
+     const manager = availableStaff.find(m => m.id === id);
+     if (manager) return manager.name;
+     return id;
+  };
 
   const renderOverview = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
@@ -387,7 +500,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <h3 className="text-lg font-semibold text-slate-800 flex items-center mb-6"><Users className="w-5 h-5 mr-2 text-slate-500" /> Equipo de Gestión y Supervisión</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                
+                {/* ... (Existing Management Team Code) ... */}
                 {/* Coordinator Card */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-blue-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
@@ -408,8 +521,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </div>
                     )}
                 </div>
-
-                {/* Resident Supervisor Card */}
+                {/* ... Other Supervisors ... */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-indigo-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
                         {unit.residentSupervisor?.photo ? <img src={unit.residentSupervisor.photo} alt="Res" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
@@ -423,14 +535,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             <Phone size={14} className="mr-2 text-slate-400"/> {unit.residentSupervisor.phone}
                         </div>
                     )}
-                    {unit.residentSupervisor?.email && (
-                        <div className="flex items-center text-sm text-slate-600">
-                            <Mail size={14} className="mr-2 text-slate-400"/> {unit.residentSupervisor.email}
-                        </div>
-                    )}
                 </div>
-
-                {/* Roving Supervisor Card */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
                         {unit.rovingSupervisor?.photo ? <img src={unit.rovingSupervisor.photo} alt="Ronda" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
@@ -444,459 +549,464 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             <Phone size={14} className="mr-2 text-slate-400"/> {unit.rovingSupervisor.phone}
                         </div>
                     )}
-                    {unit.rovingSupervisor?.email && (
-                        <div className="flex items-center text-sm text-slate-600">
-                            <Mail size={14} className="mr-2 text-slate-400"/> {unit.rovingSupervisor.email}
-                        </div>
-                    )}
                 </div>
-
             </div>
         </div>
       )}
-
+      
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="col-span-1 space-y-6">
-            {/* Unit Details Card */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-slate-800 flex items-center"><MapPin className="w-5 h-5 mr-2 text-slate-500" /> Detalles Técnicos</h3>
-                {canEdit && !isEditing && (
-                <button onClick={() => setIsEditing(true)} className="text-blue-600 hover:text-blue-800 text-xs font-bold flex items-center bg-blue-50 px-2 py-1 rounded-md transition-colors"><Edit2 size={12} className="mr-1" /> Editar Info</button>
+        <div className="col-span-1 lg:col-span-2 space-y-6">
+          {/* General Information Card */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
+             <div className="absolute top-4 right-4 flex space-x-2">
+                {canEdit && (
+                  <button 
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="flex items-center bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    {isEditing ? <><Save size={16} className="mr-1.5"/> Guardar</> : <><Edit2 size={16} className="mr-1.5"/> Editar Información</>}
+                  </button>
                 )}
-            </div>
-            
-            {isEditing ? (
-                <div className="space-y-4">
-                <div><label className="text-xs text-slate-500 font-medium block mb-1">Nombre Unidad</label><input type="text" value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
-                <div><label className="text-xs text-slate-500 font-medium block mb-1">Cliente</label><input type="text" value={editForm.clientName} onChange={(e) => setEditForm({...editForm, clientName: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
-                <div><label className="text-xs text-slate-500 font-medium block mb-1">Dirección</label><input type="text" value={editForm.address} onChange={(e) => setEditForm({...editForm, address: e.target.value})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500" /></div>
-                <div>
-                    <label className="text-xs text-slate-500 font-medium block mb-1">Estado</label>
-                    <select value={editForm.status} onChange={(e) => setEditForm({...editForm, status: e.target.value as UnitStatus})} className="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500">
-                        <option value={UnitStatus.ACTIVE}>Activo</option>
-                        <option value={UnitStatus.PENDING}>Pendiente</option>
-                        <option value={UnitStatus.ISSUE}>Con Incidencias</option>
+             </div>
+
+             <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+               <Box className="w-5 h-5 mr-2 text-slate-500" /> Información General
+             </h3>
+             
+             {isEditing ? (
+               <div className="space-y-4">
+                  {/* ... (Existing Edit Form) ... */}
+                  <div><label className="block text-sm font-medium text-slate-700">Nombre Unidad</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} /></div>
+                  <div><label className="block text-sm font-medium text-slate-700">Cliente</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.clientName} onChange={e => setEditForm({...editForm, clientName: e.target.value})} /></div>
+                  <div><label className="block text-sm font-medium text-slate-700">Dirección</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} /></div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Estado</label>
+                    <select className="w-full border border-slate-300 rounded p-2" value={editForm.status} onChange={e => setEditForm({...editForm, status: e.target.value as UnitStatus})}>
+                      <option value={UnitStatus.ACTIVE}>Activo</option>
+                      <option value={UnitStatus.PENDING}>Pendiente</option>
+                      <option value={UnitStatus.ISSUE}>Con Incidencias</option>
                     </select>
-                </div>
+                  </div>
+                  <div><label className="block text-sm font-medium text-slate-700">Descripción Operativa</label><textarea className="w-full border border-slate-300 rounded p-2" value={editForm.description || ''} onChange={e => setEditForm({...editForm, description: e.target.value})} /></div>
 
-                {/* Supervisor Assignment Section in Edit Mode (USING SELECTORS) */}
-                <div className="border-t border-slate-100 pt-3">
-                    <label className="text-xs text-slate-500 font-medium block mb-3">Asignación de Supervisión</label>
-                    
-                    {/* Coordinator Selector */}
-                    <div className="bg-slate-50 p-2 rounded mb-2">
-                         <div className="flex items-center gap-2 mb-1">
-                             <BadgeCheck size={14} className="text-blue-600"/>
-                             <span className="text-xs font-bold text-slate-700">Coordinador</span>
-                         </div>
-                         <select 
-                            className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none bg-white"
-                            value={editForm.coordinator?.id || ''}
-                            onChange={(e) => handleSelectStaff('coordinator', e.target.value)}
-                         >
-                            <option value="">-- Seleccionar --</option>
-                            {availableStaff.filter(s => s.role === 'COORDINATOR').map(s => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                         </select>
-                         {editForm.coordinator?.photo && <img src={editForm.coordinator.photo} alt="prev" className="w-8 h-8 rounded-full object-cover mt-2" />}
-                    </div>
+                  {/* Staff Selectors */}
+                  <div>
+                      <label className="block text-sm font-medium text-slate-700">Coordinador General</label>
+                      <select className="w-full border border-slate-300 rounded p-2" value={editForm.coordinator?.id || ''} onChange={e => handleSelectStaff('coordinator', e.target.value)}>
+                          <option value="">Seleccionar...</option>
+                          {availableStaff.filter(s => s.role === 'COORDINATOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                  </div>
+                   {/* ... Other selectors ... */}
+                   <div><label className="block text-sm font-medium text-slate-700">Supervisor Residente</label><select className="w-full border border-slate-300 rounded p-2" value={editForm.residentSupervisor?.id || ''} onChange={e => handleSelectStaff('residentSupervisor', e.target.value)}><option value="">Seleccionar...</option>{availableStaff.filter(s => s.role === 'RESIDENT_SUPERVISOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                   <div><label className="block text-sm font-medium text-slate-700">Supervisor de Ronda</label><select className="w-full border border-slate-300 rounded p-2" value={editForm.rovingSupervisor?.id || ''} onChange={e => handleSelectStaff('rovingSupervisor', e.target.value)}><option value="">Seleccionar...</option>{availableStaff.filter(s => s.role === 'ROVING_SUPERVISOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
 
-                    {/* Resident Supervisor Selector */}
-                    <div className="bg-slate-50 p-2 rounded mb-2">
-                         <div className="flex items-center gap-2 mb-1">
-                             <ShieldCheck size={14} className="text-indigo-600"/>
-                             <span className="text-xs font-bold text-slate-700">Supervisor Residente</span>
-                         </div>
-                         <select 
-                            className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none bg-white"
-                            value={editForm.residentSupervisor?.id || ''}
-                            onChange={(e) => handleSelectStaff('residentSupervisor', e.target.value)}
-                         >
-                            <option value="">-- Seleccionar --</option>
-                            {availableStaff.filter(s => s.role === 'RESIDENT_SUPERVISOR').map(s => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                         </select>
-                         {editForm.residentSupervisor?.photo && <img src={editForm.residentSupervisor.photo} alt="prev" className="w-8 h-8 rounded-full object-cover mt-2" />}
-                    </div>
-
-                     {/* Roving Supervisor Selector */}
-                     <div className="bg-slate-50 p-2 rounded mb-2">
-                         <div className="flex items-center gap-2 mb-1">
-                             <UserCheck size={14} className="text-slate-600"/>
-                             <span className="text-xs font-bold text-slate-700">Supervisor de Ronda</span>
-                         </div>
-                         <select 
-                            className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none bg-white"
-                            value={editForm.rovingSupervisor?.id || ''}
-                            onChange={(e) => handleSelectStaff('rovingSupervisor', e.target.value)}
-                         >
-                            <option value="">-- Seleccionar --</option>
-                            {availableStaff.filter(s => s.role === 'ROVING_SUPERVISOR').map(s => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                         </select>
-                         {editForm.rovingSupervisor?.photo && <img src={editForm.rovingSupervisor.photo} alt="prev" className="w-8 h-8 rounded-full object-cover mt-2" />}
-                    </div>
-                    
-                    <div className="text-xs text-slate-400 italic mt-1 text-center">
-                        * Gestiónalos en Configuración
-                    </div>
-                </div>
-
-                {/* Image Management Section */}
-                <div className="border-t border-slate-100 pt-3">
-                    <label className="text-xs text-slate-500 font-medium block mb-2">Gestión de Imágenes (Galería)</label>
-                    
-                    <div className="flex gap-2 mb-2">
-                        <input 
-                        type="text" 
-                        className="flex-1 border border-slate-300 rounded p-2 outline-none text-xs" 
-                        placeholder="URL de imagen..." 
-                        value={editImageUrl} 
-                        onChange={e => setEditImageUrl(e.target.value)} 
-                        />
-                        <label className="bg-slate-100 p-2 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
-                            <Camera size={14} className="text-slate-600"/>
-                            <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForEdit} />
-                        </label>
-                        <button onClick={handleAddImageToEdit} disabled={!editImageUrl} className="bg-blue-50 text-blue-600 p-2 rounded hover:bg-blue-100 disabled:opacity-50 border border-blue-100"><Plus size={14} /></button>
-                    </div>
-
-                    {editForm.images.length > 0 ? (
-                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                        {editForm.images.map((img, idx) => (
-                        <div key={idx} className="relative shrink-0 w-16 h-16 group">
-                            <img src={img} alt="preview" className="w-full h-full object-cover rounded border border-slate-200" />
-                            <button onClick={() => handleRemoveImageFromEdit(idx)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10">
-                                <X size={10} />
-                            </button>
-                        </div>
-                        ))}
-                    </div>
-                    ) : <p className="text-xs text-slate-400 italic">Sin imágenes.</p>}
-                </div>
-                
-                {/* Zone Management in Edit Mode */}
-                <div className="border-t border-slate-100 pt-3">
-                    <label className="text-xs text-slate-500 font-medium block mb-2">Configuración de Zonas</label>
-                    <div className="space-y-2 mb-3">
+                  {/* Zones Management */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Gestión de Zonas y Turnos</label>
                     {editForm.zones.map(z => (
-                        <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded text-sm">
-                        <span>{z.name} <span className="text-xs text-slate-400">({z.shifts.join(', ')})</span></span>
-                        <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14}/></button>
+                        <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
+                            <div><span className="font-bold text-sm">{z.name}</span> <span className="text-xs text-slate-500">({z.shifts.join(', ')})</span></div>
+                            <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
                         </div>
                     ))}
+                    <div className="flex gap-2 mt-2">
+                        <input type="text" placeholder="Nombre Zona" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" value={newZoneName} onChange={e => setNewZoneName(e.target.value)} />
+                        <input type="text" placeholder="Turnos (sep. por coma)" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" value={newZoneShifts} onChange={e => setNewZoneShifts(e.target.value)} />
+                        <button onClick={handleAddZone} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">Agregar</button>
                     </div>
-                    <div className="flex gap-2">
-                    <input 
-                        placeholder="Nueva Zona" 
-                        value={newZoneName} 
-                        onChange={e => setNewZoneName(e.target.value)}
-                        className="flex-1 p-2 border border-slate-300 rounded text-xs outline-none" 
-                    />
-                    <input 
-                        placeholder="Turnos (sep. comas)" 
-                        value={newZoneShifts} 
-                        onChange={e => setNewZoneShifts(e.target.value)}
-                        className="w-1/3 p-2 border border-slate-300 rounded text-xs outline-none" 
-                    />
-                    <button onClick={handleAddZone} className="bg-slate-200 text-slate-600 p-2 rounded hover:bg-slate-300"><Plus size={14}/></button>
-                    </div>
-                </div>
+                  </div>
 
-                <div className="flex space-x-2 pt-2">
-                    <button onClick={handleSaveUnit} className="flex-1 bg-blue-600 text-white py-2 rounded text-sm font-medium hover:bg-blue-700">Guardar</button>
-                    <button onClick={() => { setIsEditing(false); setEditForm(unit); }} className="flex-1 bg-slate-100 text-slate-700 py-2 rounded text-sm font-medium hover:bg-slate-200">Cancelar</button>
-                </div>
-                </div>
-            ) : (
-                <div className="space-y-4 text-sm">
-                <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Cliente</p><p className="font-medium text-slate-800">{unit.clientName}</p></div>
-                <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Dirección</p><p className="font-medium text-slate-800">{unit.address}</p></div>
-                <div><p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Descripción</p><p className="text-slate-600 leading-relaxed">{unit.description || "Sin descripción."}</p></div>
-                <div>
-                    <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Zonas Activas</p>
+                  {/* Image Management */}
+                  <div className="pt-4 border-t border-slate-100">
+                     <label className="block text-sm font-medium text-slate-700 mb-2">Galería de Fotos</label>
+                     <div className="flex gap-2 mb-2">
+                        <input type="text" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" placeholder="URL Imagen" value={editImageUrl} onChange={e => setEditImageUrl(e.target.value)} />
+                        <label className="bg-slate-100 px-3 py-1.5 rounded cursor-pointer hover:bg-slate-200 border border-slate-200"><Camera size={18} className="text-slate-600"/><input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForEdit} /></label>
+                        <button onClick={handleAddImageToEdit} className="bg-slate-200 px-3 py-1.5 rounded text-sm hover:bg-slate-300">Añadir</button>
+                     </div>
+                     <div className="flex gap-2 overflow-x-auto pb-2">
+                        {editForm.images.map((img, idx) => (
+                            <div key={idx} className="relative shrink-0 w-20 h-20 group">
+                                <img src={img} alt="thumb" className="w-full h-full object-cover rounded border border-slate-200" />
+                                <button onClick={() => handleRemoveImageFromEdit(idx)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12}/></button>
+                            </div>
+                        ))}
+                     </div>
+                  </div>
+
+                  <button onClick={handleSaveUnit} className="w-full bg-blue-600 text-white py-2 rounded font-medium hover:bg-blue-700">Guardar Cambios</button>
+               </div>
+             ) : (
+               <div className="text-sm text-slate-600 space-y-3">
+                 <p className="line-clamp-3">{unit.description || "Sin descripción."}</p>
+                 <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div>
+                        <span className="block text-xs font-semibold text-slate-400 uppercase">Cliente</span>
+                        <span className="font-medium text-slate-900">{unit.clientName}</span>
+                    </div>
+                    <div>
+                        <span className="block text-xs font-semibold text-slate-400 uppercase">Ubicación</span>
+                        <span className="font-medium text-slate-900">{unit.address}</span>
+                    </div>
+                 </div>
+                 
+                 {/* Zones Read-Only */}
+                 <div className="pt-4">
+                    <span className="block text-xs font-semibold text-slate-400 uppercase mb-2">Zonas y Turnos</span>
                     <div className="flex flex-wrap gap-2">
-                    {unit.zones.map(z => (<span key={z.id} className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-xs border border-slate-200 font-medium">{z.name}</span>))}
+                        {unit.zones.map(z => (
+                            <span key={z.id} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
+                                {z.name} <span className="ml-1 text-slate-400">| {z.shifts.length} Turnos</span>
+                            </span>
+                        ))}
                     </div>
-                </div>
-                </div>
-            )}
-            </div>
-        </div>
-
-        <div className="col-span-1 lg:col-span-2 space-y-6">
-          <div className="bg-gradient-to-br from-indigo-50 to-white p-6 rounded-xl border border-indigo-100 shadow-sm">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold text-indigo-900 flex items-center"><BrainCircuit className="w-5 h-5 mr-2 text-indigo-600" /> Reporte Ejecutivo IA</h3>
-              {!aiReport && !isLoadingAi && (
-                <button onClick={handleGenerateReport} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center shadow-sm"><Sparkles className="w-4 h-4 mr-2" /> Generar Reporte</button>
-              )}
-            </div>
-            {isLoadingAi && <div className="flex flex-col items-center py-8 text-slate-500"><div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-2"></div><p className="text-sm">Analizando datos...</p></div>}
-            {aiReport && <div className="prose prose-sm prose-indigo max-w-none bg-white p-4 rounded-lg border border-indigo-100 max-h-60 overflow-y-auto custom-scrollbar"><div dangerouslySetInnerHTML={{ __html: aiReport.replace(/\n/g, '<br/>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} /></div>}
-            {!aiReport && !isLoadingAi && <p className="text-slate-500 text-sm">Genera un resumen ejecutivo instantáneo para el cliente analizando cumplimiento, personal y novedades.</p>}
+                 </div>
+               </div>
+             )}
           </div>
 
+          {/* Agenda / Upcoming Events */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
              <div className="flex justify-between items-center mb-4">
-               <h3 className="text-lg font-semibold text-slate-800 flex items-center"><Calendar className="w-5 h-5 mr-2 text-slate-500" /> Agenda Operativa</h3>
-               {canEdit && <button onClick={() => setShowEventModal(true)} className="text-blue-600 text-sm font-medium hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-blue-100 flex items-center"><PlusSquare size={16} className="mr-1.5" /> Agendar Evento</button>}
+                <h3 className="text-lg font-semibold text-slate-800 flex items-center">
+                  <Calendar className="w-5 h-5 mr-2 text-slate-500" /> Agenda Operativa (30 Días)
+                </h3>
+                {canEdit && <button onClick={() => setShowEventModal(true)} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium hover:bg-blue-100 flex items-center"><Plus size={14} className="mr-1"/> Agendar Evento</button>}
              </div>
-             {upcomingEvents.length > 0 ? (
-               <div className="space-y-3">
-                 {upcomingEvents.map((event, idx) => (
-                   <div key={idx} className="flex items-start p-3 bg-slate-50 rounded-lg border border-slate-100">
-                      <div className={`p-2 rounded-lg mr-3 shrink-0 ${event.type === 'maintenance' ? 'bg-orange-100 text-orange-600' : event.type === 'training' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
-                        {event.type === 'maintenance' ? <Truck size={18} /> : event.type === 'training' ? <HardHat size={18} /> : <Clock size={18} />}
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-800">{event.title}</h4>
-                        <p className="text-sm text-slate-600">{event.desc}</p>
-                        <p className="text-xs text-slate-500 mt-1 font-medium">{event.date}</p>
-                      </div>
-                   </div>
-                 ))}
-               </div>
-             ) : <p className="text-slate-500 text-sm italic py-4 text-center">No hay eventos programados.</p>}
+             
+             <div className="space-y-3">
+                {upcomingEvents.length > 0 ? upcomingEvents.slice(0, 5).map((ev, i) => (
+                    <div key={i} className="flex items-start p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
+                        <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 mr-3 ${ev.type === 'log' ? 'bg-blue-400' : ev.type === 'maintenance' ? 'bg-orange-400' : 'bg-green-400'}`} />
+                        <div>
+                            <p className="text-sm font-semibold text-slate-800">{ev.title} <span className="text-xs font-normal text-slate-500 ml-1">• {ev.date}</span></p>
+                            <p className="text-xs text-slate-600 line-clamp-1">{ev.desc}</p>
+                        </div>
+                    </div>
+                )) : <p className="text-slate-400 text-sm italic">No hay eventos próximos.</p>}
+             </div>
           </div>
         </div>
-      </div>
-      
-      {/* Quick Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg border border-slate-200"><p className="text-xs text-slate-500 uppercase tracking-wider">Personal</p><p className="text-2xl font-bold text-slate-800 mt-1">{personnel.length}</p></div>
-        <div className="bg-white p-4 rounded-lg border border-slate-200"><p className="text-xs text-slate-500 uppercase tracking-wider">Equipos</p><p className="text-2xl font-bold text-slate-800 mt-1">{equipment.length}</p></div>
-        <div className="bg-white p-4 rounded-lg border border-slate-200"><p className="text-xs text-slate-500 uppercase tracking-wider">Incidencias</p><p className="text-2xl font-bold text-slate-800 mt-1">{unit.logs.filter(l => l.type === 'Incidencia').length}</p></div>
-        <div className="bg-white p-4 rounded-lg border border-slate-200"><p className="text-xs text-slate-500 uppercase tracking-wider">Cumplimiento</p><p className="text-2xl font-bold text-emerald-600 mt-1">{unit.complianceHistory[unit.complianceHistory.length-1].score}%</p></div>
+
+        <div className="col-span-1 space-y-6">
+           {/* Compliance Mini Chart */}
+           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+             <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+               <ShieldCheck className="w-5 h-5 mr-2 text-slate-500" /> Nivel de Cumplimiento
+             </h3>
+             <div className="flex items-end space-x-2 h-32 w-full justify-between px-2">
+                {unit.complianceHistory.map((h, i) => (
+                    <div key={i} className="flex flex-col items-center flex-1 group relative">
+                        <div className="absolute -top-8 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">{h.score}%</div>
+                        <div 
+                           className={`w-full rounded-t transition-all duration-500 ${h.score >= 95 ? 'bg-green-500' : h.score >= 90 ? 'bg-yellow-400' : 'bg-red-500'}`} 
+                           style={{ height: `${h.score}%` }}
+                        ></div>
+                        <span className="text-xs text-slate-500 mt-2 font-medium">{h.month}</span>
+                    </div>
+                ))}
+             </div>
+           </div>
+
+           {/* AI Report Generator */}
+           <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-6 rounded-xl shadow-lg text-white">
+              <div className="flex items-start justify-between mb-4">
+                 <div>
+                    <h3 className="font-bold text-lg flex items-center"><Sparkles className="mr-2 text-yellow-300" size={18}/> OpsFlow AI</h3>
+                    <p className="text-indigo-200 text-xs mt-1">Generación de reportes inteligentes</p>
+                 </div>
+                 <BrainCircuit className="text-white/20" size={32} />
+              </div>
+              
+              {!aiReport ? (
+                  <button 
+                    onClick={handleGenerateReport} 
+                    disabled={isLoadingAi}
+                    className="w-full bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-lg py-2 text-sm font-medium transition-colors flex items-center justify-center"
+                  >
+                    {isLoadingAi ? <><span className="animate-spin mr-2">⏳</span> Generando...</> : "Generar Reporte Ejecutivo"}
+                  </button>
+              ) : (
+                  <div className="bg-white/10 backdrop-blur-md rounded-lg p-3 text-xs leading-relaxed max-h-60 overflow-y-auto custom-scrollbar border border-white/20">
+                      <div className="markdown-prose space-y-2">
+                         {aiReport.split('\n').map((line, i) => <p key={i}>{line}</p>)}
+                      </div>
+                  </div>
+              )}
+           </div>
+        </div>
       </div>
     </div>
   );
 
   const renderPersonnel = () => (
-    <div className="space-y-6 animate-in fade-in duration-300 pb-10">
-      <div className="flex justify-between items-center">
-         <div>
-          <h3 className="text-lg font-semibold text-slate-800">Dotación, Capacitaciones y Equipamiento</h3>
-          {canEdit && selectedPersonnelIds.length > 0 && <p className="text-xs text-blue-600 mt-1">{selectedPersonnelIds.length} seleccionados</p>}
-         </div>
-         <div className="flex space-x-3">
-            {canEdit && selectedPersonnelIds.length > 0 && (
-              <>
-                 <button onClick={() => setShowMassTrainingModal(true)} className="bg-blue-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-sm flex items-center"><Award size={16} className="mr-2" /> Asignar Capacitación</button>
-                 <button onClick={() => setShowAssetAssignmentModal(true)} className="bg-indigo-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm flex items-center"><Briefcase size={16} className="mr-2" /> Asignar Activo/EPP</button>
-              </>
-            )}
-            {canEdit && <button onClick={() => setShowAddWorkerModal(true)} className="text-blue-600 text-sm font-medium hover:underline flex items-center bg-blue-50 px-3 py-2 rounded-lg"><Plus size={16} className="mr-1" /> Agregar Colaborador</button>}
-         </div>
-      </div>
-      
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-        <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50">
-            <tr>
-              {canEdit && <th className="px-6 py-3 text-left w-10"><button onClick={selectAllPersonnel} className="text-slate-400 hover:text-slate-600">{selectedPersonnelIds.length > 0 && selectedPersonnelIds.length === personnel.length ? <CheckSquare size={18} /> : <Square size={18} />}</button></th>}
-              <th className="px-6 py-3 text-left w-10"></th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nombre</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Zona / Turno</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estado</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Cumplimiento</th>
-              {canEdit && <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-slate-200">
-            {personnel.map((p) => (
-              <React.Fragment key={p.id}>
-                <tr className={`hover:bg-slate-50 transition-colors ${selectedPersonnelIds.includes(p.id) ? 'bg-blue-50/50' : ''}`}>
-                  {canEdit && <td className="px-6 py-4"><button onClick={() => togglePersonnelSelection(p.id)} className="text-slate-400 hover:text-blue-600">{selectedPersonnelIds.includes(p.id) ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} />}</button></td>}
-                  <td className="px-6 py-4 text-slate-400 cursor-pointer" onClick={() => togglePersonnelExpand(p.id)}>{expandedPersonnel === p.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</td>
-                  <td className="px-6 py-4 whitespace-nowrap cursor-pointer" onClick={() => togglePersonnelExpand(p.id)}>
-                    <div className="flex items-center"><div className="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 overflow-hidden"><UserCheck size={16} /></div><div className="ml-4"><div className="text-sm font-medium text-slate-900">{p.name}</div><div className="text-xs text-slate-500">ID: {p.id}</div></div></div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-slate-900">{p.assignedZone}</div><div className="text-xs text-slate-500">{p.assignedShift}</div></td>
-                  <td className="px-6 py-4 whitespace-nowrap"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${STATUS_COLORS[p.status as keyof typeof STATUS_COLORS] || 'bg-gray-100 text-gray-800'}`}>{p.status}</span></td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500"><div className="flex items-center"><div className="w-16 bg-slate-200 rounded-full h-1.5 mr-2"><div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${p.compliancePercentage}%` }}></div></div><span>{p.compliancePercentage}%</span></div></td>
-                  {canEdit && (
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button onClick={() => setEditingResource(p)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded-full"><Edit2 size={16} /></button>
-                    </td>
+      <div className="space-y-6 animate-in fade-in duration-300 pb-10">
+          {/* Toolbar */}
+          <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <h3 className="font-bold text-slate-700 flex items-center"><Users className="mr-2"/> Dotación de Personal</h3>
+              <div className="flex gap-2">
+                  {selectedPersonnelIds.length > 0 && (
+                      <>
+                        <button onClick={() => setShowMassTrainingModal(true)} className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 flex items-center"><Award size={16} className="mr-1.5"/> Asignar Capacitación ({selectedPersonnelIds.length})</button>
+                        <button onClick={() => setShowAssetAssignmentModal(true)} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-indigo-100 flex items-center"><Briefcase size={16} className="mr-1.5"/> Asignar Activo/EPP ({selectedPersonnelIds.length})</button>
+                      </>
                   )}
-                </tr>
-                {expandedPersonnel === p.id && (
-                  <tr className="bg-slate-50 animate-in fade-in duration-200">
-                    <td colSpan={canEdit ? 7 : 6} className="px-6 py-4">
-                      <div className="flex flex-col md:flex-row gap-6 ml-12">
-                          {/* Trainings Section */}
-                          <div className={`flex-1 border-l-2 border-slate-200 pl-4`}>
-                            <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center"><Award className="w-4 h-4 mr-2 text-blue-500" /> Historial de Capacitaciones</h4>
-                            {p.trainings && p.trainings.length > 0 ? (
-                              <div className="space-y-2">
-                                {p.trainings.map(t => (
-                                  <div key={t.id} className="bg-white p-3 rounded border border-slate-200 shadow-sm flex justify-between items-center">
-                                    <div><p className="text-sm font-medium text-slate-800">{t.topic}</p><p className="text-xs text-slate-500">{t.date}</p></div>
-                                    <div className="text-right"><span className={`text-xs px-2 py-0.5 rounded-full ${t.status === 'Completado' ? 'bg-green-100 text-green-700' : t.status === 'Programado' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`}>{t.status}</span>{t.score && <p className="text-xs font-bold text-slate-600 mt-1">Nota: {t.score}</p>}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : <p className="text-sm text-slate-500 italic">No hay capacitaciones registradas.</p>}
-                          </div>
-                          
-                          {/* Assets / PPE Section */}
-                          <div className={`flex-1 border-l-2 border-slate-200 pl-4`}>
-                             <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center"><Briefcase className="w-4 h-4 mr-2 text-indigo-500" /> Inventario Asignado (Activos / EPPs)</h4>
-                             {p.assignedAssets && p.assignedAssets.length > 0 ? (
-                                <div className="space-y-2">
-                                   {p.assignedAssets.map(asset => (
-                                      <div key={asset.id} className="bg-white p-3 rounded border border-slate-200 shadow-sm flex items-start gap-3">
-                                         <div className="mt-1">{getAssetIcon(asset.type)}</div>
-                                         <div className="flex-1">
-                                            <p className="text-sm font-medium text-slate-800">{asset.name}</p>
-                                            <p className="text-xs text-slate-500">Entrega: {asset.dateAssigned}</p>
-                                            {asset.serialNumber && <p className="text-xs text-slate-400 mt-0.5 font-mono">SN: {asset.serialNumber}</p>}
-                                         </div>
-                                         <div className="text-xs font-semibold bg-slate-100 px-2 py-0.5 rounded text-slate-600">{asset.type}</div>
-                                      </div>
-                                   ))}
-                                </div>
-                             ) : <p className="text-sm text-slate-500 italic">Sin equipamiento asignado.</p>}
-                          </div>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
+                  {canEdit && <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"><UserPlus size={16} className="mr-1.5"/> Nuevo Colaborador</button>}
+              </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+             <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
+                    <tr>
+                        <th className="px-6 py-3 text-left"><button onClick={selectAllPersonnel} className="text-slate-400 hover:text-slate-600"><CheckSquare size={16}/></button></th>
+                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Colaborador</th>
+                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Zona / Turno</th>
+                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Estado</th>
+                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Cumplimiento</th>
+                        <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-200">
+                    {personnel.map((p) => (
+                        <React.Fragment key={p.id}>
+                            <tr className={`hover:bg-slate-50 transition-colors ${expandedPersonnel === p.id ? 'bg-slate-50' : ''}`}>
+                                <td className="px-6 py-4"><button onClick={() => togglePersonnelSelection(p.id)} className={`${selectedPersonnelIds.includes(p.id) ? 'text-blue-600' : 'text-slate-300'}`}>{selectedPersonnelIds.includes(p.id) ? <CheckSquare size={16}/> : <Square size={16}/>}</button></td>
+                                <td className="px-6 py-4 whitespace-nowrap flex items-center">
+                                    <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-xs text-slate-600 mr-3">{p.name.substring(0,2)}</div>
+                                    <div className="text-sm font-medium text-slate-900">{p.name}</div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{p.assignedZone} <span className="text-slate-400">•</span> {p.assignedShift}</td>
+                                <td className="px-6 py-4 whitespace-nowrap"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${STATUS_COLORS[p.status as keyof typeof STATUS_COLORS] || 'bg-gray-100'}`}>{p.status}</span></td>
+                                <td className="px-6 py-4 whitespace-nowrap"><div className="w-24 bg-slate-200 rounded-full h-1.5 mt-1"><div className="bg-green-500 h-1.5 rounded-full" style={{width: `${p.compliancePercentage}%`}}></div></div><span className="text-xs text-slate-500 mt-1 block">{p.compliancePercentage}%</span></td>
+                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium flex justify-end gap-2">
+                                    <button onClick={() => togglePersonnelExpand(p.id)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded">{expandedPersonnel === p.id ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}</button>
+                                    {canEdit && <button onClick={() => setEditingResource(p)} className="text-slate-400 hover:text-slate-600 p-1.5"><Edit2 size={16}/></button>}
+                                </td>
+                            </tr>
+                            {expandedPersonnel === p.id && (
+                                <tr>
+                                    <td colSpan={6} className="bg-slate-50 p-4 border-b border-slate-200 animate-in fade-in duration-200">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            {/* Trainings */}
+                                            <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                                                <h4 className="text-xs font-bold uppercase text-slate-500 mb-3 flex items-center"><Award className="mr-1.5" size={14}/> Historial de Capacitaciones</h4>
+                                                {p.trainings && p.trainings.length > 0 ? (
+                                                    <div className="space-y-2">
+                                                        {p.trainings.map(t => (
+                                                            <div key={t.id} className="flex justify-between items-center text-sm border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                                                                <div><span className="font-medium text-slate-800">{t.topic}</span><div className="text-xs text-slate-500">{t.date}</div></div>
+                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.status === 'Completado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{t.status}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : <p className="text-sm text-slate-400 italic">Sin capacitaciones registradas.</p>}
+                                            </div>
+                                            {/* Assigned Assets */}
+                                            <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                                                <h4 className="text-xs font-bold uppercase text-slate-500 mb-3 flex items-center"><Briefcase className="mr-1.5" size={14}/> Inventario Asignado</h4>
+                                                {p.assignedAssets && p.assignedAssets.length > 0 ? (
+                                                    <div className="space-y-2">
+                                                        {p.assignedAssets.map(asset => (
+                                                            <div key={asset.id} className="flex justify-between items-center text-sm border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                                                                <div className="flex items-center">
+                                                                    <div className="bg-slate-100 p-1.5 rounded mr-2">{getAssetIcon(asset.type)}</div>
+                                                                    <div><span className="font-medium text-slate-800">{asset.name}</span><div className="text-[10px] text-slate-400">Entregado: {asset.dateAssigned}</div></div>
+                                                                </div>
+                                                                {asset.serialNumber && <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-mono">{asset.serialNumber}</span>}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : <p className="text-sm text-slate-400 italic">Sin equipamiento asignado.</p>}
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                        </React.Fragment>
+                    ))}
+                </tbody>
+             </table>
+          </div>
       </div>
-    </div>
   );
 
   const renderLogistics = () => (
-    <div className="space-y-8 animate-in fade-in duration-300 pb-10">
-       <div className="flex justify-between items-center">
-          <h3 className="text-lg font-semibold text-slate-800 flex items-center"><Truck className="w-5 h-5 mr-2"/> Logística e Infraestructura</h3>
-          {canEdit && (
-            <div className="flex space-x-2">
-               <button onClick={() => openAddResourceModal(ResourceType.EQUIPMENT)} className="bg-white border border-slate-200 text-slate-700 text-sm px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors shadow-sm flex items-center font-medium"><Plus size={16} className="mr-2" /> Equipo</button>
-               <button onClick={() => openAddResourceModal(ResourceType.MATERIAL)} className="bg-white border border-slate-200 text-slate-700 text-sm px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors shadow-sm flex items-center font-medium"><Plus size={16} className="mr-2" /> Material</button>
-            </div>
-          )}
-       </div>
-
-       {/* Equipment Section */}
-       <div>
-         <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">Maquinaria y Equipos</h4>
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-           {equipment.map(eq => (
-             <div key={eq.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 relative group">
-               {canEdit && (
-                 <button onClick={() => setEditingResource(eq)} className="absolute top-2 right-2 p-1.5 bg-white text-blue-600 rounded-full shadow-sm hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity border border-slate-200">
-                   <Edit2 size={14} />
-                 </button>
-               )}
-               {eq.image && (
-                  <div className="w-full md:w-32 h-32 shrink-0 rounded-lg overflow-hidden bg-slate-100">
-                    <img src={eq.image} alt={eq.name} className="w-full h-full object-cover" />
-                  </div>
-               )}
-               <div className="flex-1 flex flex-col justify-between">
-                 <div>
-                   <div className="flex justify-between items-start pr-6">
-                     <h4 className="font-medium text-slate-900">{eq.name}</h4>
-                     <span className={`text-xs font-medium px-2 py-0.5 rounded ${STATUS_COLORS[eq.status as keyof typeof STATUS_COLORS] || 'bg-gray-100'}`}>{eq.status}</span>
-                   </div>
-                   <p className="text-sm text-slate-500 mt-1">Ubicación: {eq.assignedZone}</p>
-                 </div>
-                 <div className="mt-2 flex justify-between items-center text-xs text-slate-500">
-                   <span>Mantenimiento: {eq.nextMaintenance}</span>
-                   <button onClick={() => setEditingResource(eq)} className="text-indigo-600 hover:text-indigo-800 font-medium">Ver Ficha / Editar</button>
-                 </div>
-               </div>
+      <div className="space-y-8 animate-in fade-in duration-300 pb-10">
+         {/* Equipment Section (STACK LAYOUT) */}
+         <div>
+             <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-slate-700 text-lg flex items-center"><Truck className="mr-2"/> Maquinaria y Equipos</h3>
+                {canEdit && <button onClick={() => openAddResourceModal(ResourceType.EQUIPMENT)} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Agregar Equipo</button>}
              </div>
-           ))}
-           {equipment.length === 0 && <p className="text-slate-400 italic">No hay maquinaria asignada.</p>}
-         </div>
-       </div>
+             
+             <div className="flex flex-col gap-4">
+                 {equipment.map(eq => (
+                     <div key={eq.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col md:flex-row group transition-all hover:border-blue-300">
+                         {/* Image Side */}
+                         <div className="w-full md:w-48 h-40 md:h-auto bg-slate-100 relative shrink-0">
+                             {eq.image ? <img src={eq.image} alt={eq.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-400"><Box size={32}/></div>}
+                             <div className="absolute top-2 left-2"><span className={`text-[10px] font-bold px-2 py-1 rounded-full shadow-sm ${STATUS_COLORS[eq.status as keyof typeof STATUS_COLORS]}`}>{eq.status}</span></div>
+                         </div>
+                         
+                         {/* Content Side */}
+                         <div className="p-4 flex-1 flex flex-col justify-between">
+                             <div className="flex justify-between items-start">
+                                 <div>
+                                     <h4 className="font-bold text-slate-800 text-lg">{eq.name}</h4>
+                                     <p className="text-sm text-slate-500 flex items-center mt-1"><MapPin size={14} className="mr-1"/> {eq.assignedZone}</p>
+                                 </div>
+                                 <div className="flex gap-2">
+                                     {canEdit && <button onClick={() => setEditingResource(eq)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit2 size={18}/></button>}
+                                 </div>
+                             </div>
 
-       {/* Materials Section */}
-       <div>
-         <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">Abastecimiento Mensual (Insumos)</h4>
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-           {materials.map(m => (
-             <div key={m.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 relative group">
-                 {canEdit && (
-                   <button onClick={() => setEditingResource(m)} className="absolute top-2 right-2 p-1.5 bg-white text-blue-600 rounded-full shadow-sm hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity border border-slate-200">
-                     <Edit2 size={14} />
-                   </button>
-                 )}
-                 {m.image ? (
-                    <div className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-slate-100">
-                      <img src={m.image} alt={m.name} className="w-full h-full object-cover" />
-                    </div>
-                 ) : (
-                   <div className="w-16 h-16 shrink-0 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400"><Box size={24} /></div>
-                 )}
-                 <div className="flex-1">
-                   <h4 className="font-medium text-slate-900 text-sm">{m.name}</h4>
-                   <p className="text-sm text-slate-500 font-medium">{m.quantity} {m.unitOfMeasure}</p>
-                   <div className="flex items-center mt-1">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${STATUS_COLORS[m.status as keyof typeof STATUS_COLORS] || 'bg-gray-100'}`}>{m.status}</span>
-                      <span className="text-xs text-slate-400 ml-2">Repo: {m.lastRestock}</span>
-                   </div>
-                 </div>
+                             <div className="flex justify-between items-end mt-4">
+                                 <div>
+                                    <p className="text-xs text-slate-400 uppercase font-bold mb-1">Próximo Mantenimiento</p>
+                                    <div className="flex items-center text-sm font-medium text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 w-fit">
+                                        <Clock size={14} className="mr-1.5 text-orange-500"/> {eq.nextMaintenance || 'No programado'}
+                                    </div>
+                                 </div>
+                                 <button onClick={() => toggleEquipmentExpand(eq.id)} className="flex items-center text-sm text-blue-600 hover:text-blue-800 font-medium">
+                                     {expandedEquipment === eq.id ? 'Ocultar Historial' : 'Ver Historial'} {expandedEquipment === eq.id ? <ChevronUp size={16} className="ml-1"/> : <ChevronDown size={16} className="ml-1"/>}
+                                 </button>
+                             </div>
+                         </div>
+
+                         {/* Expanded History Section (Inline) */}
+                         {expandedEquipment === eq.id && (
+                             <div className="w-full border-t border-slate-200 bg-slate-50 p-4 md:w-96 md:border-t-0 md:border-l shrink-0 flex flex-col h-auto md:h-auto animate-in slide-in-from-right-4 duration-300">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h5 className="font-bold text-slate-700 text-sm flex items-center"><History size={14} className="mr-1.5"/> Historial Técnico</h5>
+                                    <button onClick={() => setMaintenanceResource(eq)} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 flex items-center"><Plus size={10} className="mr-1"/> Nuevo Reg.</button>
+                                </div>
+                                <div className="space-y-3 overflow-y-auto max-h-60 custom-scrollbar pr-1 flex-1">
+                                    {eq.maintenanceHistory && eq.maintenanceHistory.length > 0 ? eq.maintenanceHistory.map(record => (
+                                        <div key={record.id} className="bg-white p-2.5 rounded border border-slate-200 shadow-sm text-sm relative">
+                                            <div className="flex justify-between mb-1">
+                                                <span className="font-bold text-slate-800 text-xs">{record.date}</span>
+                                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${record.type === 'Correctivo' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{record.type}</span>
+                                            </div>
+                                            <p className="text-slate-600 text-xs leading-relaxed mb-2">{record.description}</p>
+                                            
+                                            {/* Evidence Images in History */}
+                                            {record.images && record.images.length > 0 && (
+                                                <div className="flex gap-1 mb-2 overflow-x-auto">
+                                                    {record.images.map((img, idx) => (
+                                                        <img key={idx} src={img} alt="evidencia" className="w-10 h-10 object-cover rounded border border-slate-100" />
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            <div className="border-t border-slate-100 pt-1.5 mt-1.5 flex justify-between items-center">
+                                                <div className="flex items-center text-[10px] text-slate-500">
+                                                    <UserCheck size={10} className="mr-1"/> 
+                                                    {record.technician}
+                                                </div>
+                                                {record.responsibleIds && record.responsibleIds.length > 0 && (
+                                                   <span className="text-[9px] bg-slate-100 text-slate-500 px-1 rounded" title="Responsables asignados">
+                                                       +{record.responsibleIds.length} inv.
+                                                   </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )) : <div className="text-center py-6 text-slate-400 italic text-xs">Sin registros de mantenimiento.</div>}
+                                </div>
+                             </div>
+                         )}
+                     </div>
+                 ))}
              </div>
-           ))}
-           {materials.length === 0 && <p className="text-slate-400 italic">No hay materiales registrados.</p>}
          </div>
-       </div>
-    </div>
+
+         {/* Materials Section */}
+         <div>
+             <div className="flex justify-between items-center mb-4 pt-4 border-t border-slate-200">
+                <h3 className="font-bold text-slate-700 text-lg flex items-center"><PackagePlus className="mr-2"/> Insumos y Materiales</h3>
+                {canEdit && <button onClick={() => openAddResourceModal(ResourceType.MATERIAL)} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Agregar Material</button>}
+             </div>
+             
+             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                 {materials.map(mat => (
+                     <div key={mat.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative group hover:shadow-md transition-shadow">
+                         {canEdit && <button onClick={() => setEditingResource(mat)} className="absolute top-2 right-2 p-1.5 bg-white/80 rounded-full text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={14}/></button>}
+                         
+                         <div className="h-24 w-full bg-slate-50 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
+                             {mat.image ? <img src={mat.image} className="w-full h-full object-cover" alt={mat.name} /> : <Box className="text-slate-300" size={32}/>}
+                         </div>
+                         
+                         <h4 className="font-bold text-slate-800 text-sm line-clamp-2 h-10 mb-1" title={mat.name}>{mat.name}</h4>
+                         <div className="flex justify-between items-end">
+                             <div>
+                                 <p className="text-xs text-slate-500">Stock Actual</p>
+                                 <p className="font-bold text-lg text-slate-800">{mat.quantity} <span className="text-xs font-normal text-slate-400">{mat.unitOfMeasure}</span></p>
+                             </div>
+                         </div>
+                         <div className={`mt-2 text-[10px] font-bold px-2 py-0.5 rounded text-center ${STATUS_COLORS[mat.status as keyof typeof STATUS_COLORS]}`}>{mat.status}</div>
+                         <p className="text-[10px] text-slate-400 mt-2 text-center">Reposición: {mat.lastRestock || '-'}</p>
+                     </div>
+                 ))}
+             </div>
+         </div>
+      </div>
   );
 
   const renderManagement = () => (
-    <div className="space-y-6 animate-in fade-in duration-300 pb-10">
-      <div className="flex justify-between items-center">
-         <h3 className="text-lg font-semibold text-slate-800">Bitácora de Gestión y Supervisión</h3>
-         {canEdit && <button onClick={() => setShowEventModal(true)} className="bg-slate-800 text-white text-sm px-3 py-2 rounded-lg hover:bg-slate-700 transition-colors shadow-sm">+ Nuevo Registro</button>}
-      </div>
-
-      <div className="relative border-l-2 border-slate-200 ml-3 space-y-8 pb-8">
-        {unit.logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((log) => (
-          <div key={log.id} className="mb-8 ml-6">
-            <div className={`absolute -left-[9px] mt-1.5 w-4 h-4 rounded-full border-2 border-white shadow-sm ${log.type === 'Incidencia' ? 'bg-red-500' : log.type === 'Supervision' ? 'bg-blue-500' : log.type === 'Capacitacion' ? 'bg-purple-500' : 'bg-slate-400'}`}></div>
-            <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative group">
-              {canEdit && (
-                 <button onClick={() => setEditingLog(log)} className="absolute top-2 right-2 text-slate-400 hover:text-blue-600 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <Edit2 size={16} />
-                 </button>
-              )}
-              <div className="flex justify-between items-start mb-1 pr-6">
-                <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${log.type === 'Incidencia' ? 'bg-red-50 text-red-600' : log.type === 'Supervision' ? 'bg-blue-50 text-blue-600' : log.type === 'Capacitacion' ? 'bg-purple-50 text-purple-600' : 'bg-slate-100 text-slate-600'}`}>{log.type}</span>
-                <span className="text-xs text-slate-400">{log.date}</span>
-              </div>
-              <h4 className="text-sm font-medium text-slate-900 mb-1">{log.author}</h4>
-              <p className="text-sm text-slate-600 mb-4">{log.description}</p>
-              
-              {/* Evidence Images */}
-              {log.images && log.images.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
-                   {log.images.map((img, idx) => (
-                     <div key={idx} className="aspect-square rounded-lg overflow-hidden border border-slate-100 relative group cursor-pointer">
-                        <img src={img} alt="Evidence" className="w-full h-full object-cover transition-transform group-hover:scale-105" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                     </div>
-                   ))}
-                </div>
-              )}
-            </div>
+      <div className="space-y-6 animate-in fade-in duration-300 pb-10">
+          <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-slate-700 text-lg flex items-center"><ClipboardList className="mr-2"/> Bitácora de Sucesos</h3>
+              {canEdit && <button onClick={() => setShowEventModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Nuevo Registro</button>}
           </div>
-        ))}
+
+          <div className="relative border-l-2 border-slate-200 ml-4 space-y-8">
+              {unit.logs.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
+                  <div key={log.id} className="relative pl-6">
+                      <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white shadow-sm ${log.type === 'Incidencia' ? 'bg-red-500' : log.type === 'Supervision' ? 'bg-blue-500' : 'bg-slate-400'}`}></div>
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex justify-between items-start mb-2">
+                              <div>
+                                  <div className="flex items-center space-x-2">
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${log.type === 'Incidencia' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}>{log.type}</span>
+                                    <span className="text-sm font-semibold text-slate-900">{log.date}</span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 mt-1">Registrado por: {log.author}</p>
+                              </div>
+                              {canEdit && <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-1"><Edit2 size={16}/></button>}
+                          </div>
+                          
+                          <p className="text-slate-700 text-sm leading-relaxed mb-3">{log.description}</p>
+                          
+                          {/* Responsible Staff Display */}
+                          {log.responsibleIds && log.responsibleIds.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mb-3">
+                                  {log.responsibleIds.map(rid => (
+                                      <span key={rid} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-50 text-slate-600 border border-slate-100">
+                                          <UserCheck size={10} className="mr-1"/> {getPersonName(rid)}
+                                      </span>
+                                  ))}
+                              </div>
+                          )}
+
+                          {/* Log Images Grid */}
+                          {log.images && log.images.length > 0 && (
+                              <div className="grid grid-cols-4 gap-2 mt-3">
+                                  {log.images.map((img, i) => (
+                                      <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-100 bg-slate-50">
+                                          <img src={img} alt="evidence" className="w-full h-full object-cover hover:scale-110 transition-transform duration-300 cursor-zoom-in" />
+                                      </div>
+                                  ))}
+                              </div>
+                          )}
+                      </div>
+                  </div>
+              ))}
+          </div>
       </div>
-    </div>
   );
+
 
   return (
     <div className="flex flex-col w-full relative min-h-screen">
@@ -930,255 +1040,440 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* --- MODALS --- */}
 
-      {/* Resource Edit Modal (Generic for Personnel, Material, Equipment) */}
-      {editingResource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
-                <div className="flex items-center">
-                   {editingResource.type === ResourceType.PERSONNEL ? <UserCheck className="mr-2"/> : <PackagePlus className="mr-2"/>}
-                   <h3 className="font-bold text-lg">
-                     {editingResource.type === ResourceType.MATERIAL ? 'Editar Material' : 
-                      editingResource.type === ResourceType.PERSONNEL ? 'Editar Colaborador' : 'Editar Equipo'}
-                   </h3>
-                </div>
-                <button onClick={() => setEditingResource(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
-             </div>
-             <div className="p-6 space-y-4 overflow-y-auto">
-                <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
-                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.name} onChange={e => setEditingResource({...editingResource, name: e.target.value})} />
-                </div>
-                
-                {editingResource.type === ResourceType.PERSONNEL ? (
-                  // --- FIELDS FOR PERSONNEL ---
-                  <>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona Asignada</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedZone} onChange={e => setEditingResource({...editingResource, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Turno</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}><option value="">Seleccionar Turno</option><option value="Diurno">Diurno</option><option value="Nocturno">Nocturno</option><option value="Rotativo">Rotativo</option></select></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Activo">Activo</option><option value="De Licencia">De Licencia</option><option value="Reemplazo Temporal">Reemplazo Temporal</option></select></div>
-                  </>
-                ) : editingResource.type === ResourceType.MATERIAL ? (
-                  // --- FIELDS FOR MATERIAL ---
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                       <div><label className="block text-sm font-medium text-slate-700 mb-1">Cantidad</label><input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.quantity} onChange={e => setEditingResource({...editingResource, quantity: Number(e.target.value)})} /></div>
-                       <div><label className="block text-sm font-medium text-slate-700 mb-1">Unidad</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-100" readOnly value={editingResource.unitOfMeasure} /></div>
+      {/* New Maintenance Entry Modal (Only for adding) */}
+      {maintenanceResource && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+             <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                <div className="bg-orange-600 text-white px-6 py-4 border-b border-orange-700 flex justify-between items-center shrink-0">
+                    <div className="flex items-center gap-2">
+                        <Wrench size={20}/>
+                        <div>
+                            <h3 className="font-bold text-lg">Nuevo Mantenimiento</h3>
+                            <p className="text-xs text-orange-200 font-medium">{maintenanceResource.name}</p>
+                        </div>
                     </div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Última Reposición</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.lastRestock || ''} onChange={e => setEditingResource({...editingResource, lastRestock: e.target.value})} /></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado Stock</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Stock OK">Stock OK</option><option value="Stock Bajo">Stock Bajo</option><option value="Agotado">Agotado</option></select></div>
-                  </>
-                ) : (
-                  // --- FIELDS FOR EQUIPMENT ---
-                  <>
-                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Ubicación (Zona)</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedZone} onChange={e => setEditingResource({...editingResource, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
-                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Próximo Mantenimiento</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.nextMaintenance || ''} onChange={e => setEditingResource({...editingResource, nextMaintenance: e.target.value})} /></div>
-                     
-                     {/* Equipment Photo Editing */}
-                     <div>
-                       <label className="block text-sm font-medium text-slate-700 mb-1">Foto Equipo</label>
-                       <div className="flex gap-2">
-                           <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL..." value={editingResource.image || ''} onChange={e => setEditingResource({...editingResource, image: e.target.value})} />
-                           <label className="bg-slate-100 p-2 rounded cursor-pointer hover:bg-slate-200 border border-slate-200">
-                             <Camera size={20} className="text-slate-600"/>
-                             <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                                if (e.target.files && e.target.files[0]) {
-                                  setEditingResource({...editingResource, image: URL.createObjectURL(e.target.files[0])});
-                                }
-                             }} />
-                           </label>
-                       </div>
-                       {editingResource.image && <img src={editingResource.image} alt="preview" className="mt-2 h-20 w-20 object-cover rounded border border-slate-200" />}
-                     </div>
-
-                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Operativo">Operativo</option><option value="En Reparación">En Reparación</option><option value="Baja">Baja</option></select></div>
-                  </>
-                )}
+                    <button onClick={() => setMaintenanceResource(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                </div>
                 
-                <div className="pt-2 flex flex-col gap-2">
-                  <button onClick={handleUpdateResource} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors"><Save size={16} className="inline mr-2"/> Guardar Cambios</button>
-                  <button onClick={handleDeleteResource} className="w-full bg-red-50 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-100 transition-colors flex items-center justify-center"><Trash2 size={16} className="mr-2"/> Eliminar Recurso</button>
+                <div className="p-6 overflow-y-auto flex-1 bg-slate-50">
+                    {/* Add New Record Form */}
+                    {canEdit && (
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                            <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center"><PlusSquare size={16} className="mr-2 text-blue-600"/> Registrar Evento</h4>
+                            <div className="space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs font-medium text-slate-500 block mb-1">Tipo</label>
+                                        <select className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" value={newMaintenanceForm.type} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, type: e.target.value})}>
+                                            <option value="Preventivo">Preventivo</option>
+                                            <option value="Correctivo">Correctivo</option>
+                                            <option value="Supervision">Supervisión</option>
+                                            <option value="Calibracion">Calibración</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-medium text-slate-500 block mb-1">Fecha</label>
+                                        <input type="date" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" value={newMaintenanceForm.date} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, date: e.target.value})} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-slate-500 block mb-1">Descripción del Trabajo</label>
+                                    <input type="text" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" placeholder="Detalle de lo realizado..." value={newMaintenanceForm.description} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, description: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-slate-500 block mb-1">Responsable Externo / Técnico</label>
+                                    <input type="text" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" placeholder="Nombre o Proveedor" value={newMaintenanceForm.technician} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, technician: e.target.value})} />
+                                </div>
+
+                                {/* Internal Responsibles Selection */}
+                                <div>
+                                   <label className="text-xs font-medium text-slate-500 block mb-2">Responsables / Involucrados (Internos)</label>
+                                   <div className="border border-slate-200 rounded-lg max-h-32 overflow-y-auto p-2 bg-slate-50 space-y-2">
+                                      <p className="text-[10px] text-slate-400 uppercase font-bold px-1">Equipo de Gestión</p>
+                                      {availableStaff.map(s => (
+                                          <div key={s.id} onClick={() => toggleMaintenanceResponsible(s.id)} className={`flex items-center p-1.5 rounded cursor-pointer transition-colors ${newMaintenanceResponsibles.includes(s.id) ? 'bg-orange-100 border border-orange-200' : 'hover:bg-slate-100 border border-transparent'}`}>
+                                              <div className={`w-3 h-3 border rounded mr-2 flex items-center justify-center ${newMaintenanceResponsibles.includes(s.id) ? 'bg-orange-600 border-orange-600' : 'border-slate-300 bg-white'}`}>
+                                                  {newMaintenanceResponsibles.includes(s.id) && <Plus size={10} className="text-white"/>}
+                                              </div>
+                                              <span className="text-xs text-slate-700">{s.name}</span>
+                                          </div>
+                                      ))}
+                                      
+                                      <p className="text-[10px] text-slate-400 uppercase font-bold px-1 mt-2">Personal Unidad</p>
+                                      {personnel.length > 0 ? personnel.map(p => (
+                                          <div key={p.id} onClick={() => toggleMaintenanceResponsible(p.id)} className={`flex items-center p-1.5 rounded cursor-pointer transition-colors ${newMaintenanceResponsibles.includes(p.id) ? 'bg-orange-100 border border-orange-200' : 'hover:bg-slate-100 border border-transparent'}`}>
+                                              <div className={`w-3 h-3 border rounded mr-2 flex items-center justify-center ${newMaintenanceResponsibles.includes(p.id) ? 'bg-orange-600 border-orange-600' : 'border-slate-300 bg-white'}`}>
+                                                  {newMaintenanceResponsibles.includes(p.id) && <Plus size={10} className="text-white"/>}
+                                              </div>
+                                              <span className="text-xs text-slate-700">{p.name}</span>
+                                          </div>
+                                      )) : <p className="text-[10px] text-slate-400 italic px-2">No hay personal operativo.</p>}
+                                   </div>
+                                </div>
+
+                                {/* Image Upload for Maintenance */}
+                                <div>
+                                   <label className="text-xs font-medium text-slate-500 block mb-1">Evidencias (Fotos)</label>
+                                   <div className="flex gap-2">
+                                     <input type="text" className="flex-1 border border-slate-300 rounded p-1.5 text-xs outline-none" placeholder="URL..." value={newMaintenanceImageUrl} onChange={e => setNewMaintenanceImageUrl(e.target.value)} />
+                                     <label className="bg-slate-100 p-1.5 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                        <Camera size={16} className="text-slate-600"/>
+                                        <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForMaintenance} />
+                                     </label>
+                                     <button onClick={handleAddImageToMaintenance} disabled={!newMaintenanceImageUrl} className="bg-slate-100 p-1.5 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={16}/></button>
+                                   </div>
+                                   {newMaintenanceImages.length > 0 && (
+                                     <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
+                                       {newMaintenanceImages.map((img, i) => (
+                                         <div key={i} className="w-10 h-10 shrink-0 relative group">
+                                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                            <button onClick={() => setNewMaintenanceImages(newMaintenanceImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={8} /></button>
+                                         </div>
+                                       ))}
+                                     </div>
+                                   )}
+                                </div>
+
+                                <button onClick={handleAddMaintenance} disabled={!newMaintenanceForm.date || !newMaintenanceForm.description} className="w-full bg-blue-600 text-white text-sm font-medium py-2 rounded hover:bg-blue-700 disabled:opacity-50">Guardar Registro</button>
+                            </div>
+                        </div>
+                    )}
                 </div>
              </div>
-          </div>
-        </div>
+         </div>
+      )}
+
+      {/* Resource Edit Modal */}
+      {editingResource && (
+         // ... [Resource Edit Modal same as before] ...
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+             {/* ... */}
+             <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
+                    <div className="flex items-center">
+                    {editingResource.type === ResourceType.PERSONNEL ? <UserCheck className="mr-2"/> : <PackagePlus className="mr-2"/>}
+                    <h3 className="font-bold text-lg">
+                        {editingResource.type === ResourceType.MATERIAL ? 'Editar Material' : 
+                        editingResource.type === ResourceType.PERSONNEL ? 'Editar Colaborador' : 'Editar Equipo'}
+                    </h3>
+                    </div>
+                    <button onClick={() => setEditingResource(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto">
+                    <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+                    <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.name} onChange={e => setEditingResource({...editingResource, name: e.target.value})} />
+                    </div>
+                    
+                    {editingResource.type === ResourceType.PERSONNEL ? (
+                    // --- FIELDS FOR PERSONNEL ---
+                    <>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona Asignada</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedZone} onChange={e => setEditingResource({...editingResource, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Turno</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}><option value="">Seleccionar Turno</option><option value="Diurno">Diurno</option><option value="Nocturno">Nocturno</option><option value="Rotativo">Rotativo</option></select></div>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Activo">Activo</option><option value="De Licencia">De Licencia</option><option value="Reemplazo Temporal">Reemplazo Temporal</option></select></div>
+                    </>
+                    ) : editingResource.type === ResourceType.MATERIAL ? (
+                    // --- FIELDS FOR MATERIAL ---
+                    <>
+                        <div className="grid grid-cols-2 gap-3">
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Cantidad</label><input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.quantity} onChange={e => setEditingResource({...editingResource, quantity: Number(e.target.value)})} /></div>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Unidad</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-100" readOnly value={editingResource.unitOfMeasure} /></div>
+                        </div>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Última Reposición</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.lastRestock || ''} onChange={e => setEditingResource({...editingResource, lastRestock: e.target.value})} /></div>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado Stock</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Stock OK">Stock OK</option><option value="Stock Bajo">Stock Bajo</option><option value="Agotado">Agotado</option></select></div>
+                    </>
+                    ) : (
+                    // --- FIELDS FOR EQUIPMENT ---
+                    <>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Ubicación (Zona)</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedZone} onChange={e => setEditingResource({...editingResource, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Próximo Mantenimiento (Agenda)</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.nextMaintenance || ''} onChange={e => setEditingResource({...editingResource, nextMaintenance: e.target.value})} /></div>
+                        
+                        {/* Equipment Photo Editing */}
+                        <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Foto Equipo</label>
+                        <div className="flex gap-2">
+                            <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL..." value={editingResource.image || ''} onChange={e => setEditingResource({...editingResource, image: e.target.value})} />
+                            <label className="bg-slate-100 p-2 rounded cursor-pointer hover:bg-slate-200 border border-slate-200">
+                                <Camera size={20} className="text-slate-600"/>
+                                <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                    setEditingResource({...editingResource, image: URL.createObjectURL(e.target.files[0])});
+                                    }
+                                }} />
+                            </label>
+                        </div>
+                        {editingResource.image && <img src={editingResource.image} alt="preview" className="mt-2 h-20 w-20 object-cover rounded border border-slate-200" />}
+                        </div>
+
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Operativo">Operativo</option><option value="En Reparación">En Reparación</option><option value="Baja">Baja</option></select></div>
+                    </>
+                    )}
+                    
+                    <div className="pt-2 flex flex-col gap-2">
+                    <button onClick={handleUpdateResource} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors"><Save size={16} className="inline mr-2"/> Guardar Cambios</button>
+                    <button onClick={handleDeleteResource} className="w-full bg-red-50 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-100 transition-colors flex items-center justify-center"><Trash2 size={16} className="mr-2"/> Eliminar Recurso</button>
+                    </div>
+                </div>
+             </div>
+         </div>
       )}
 
       {/* Add Resource Modal (Logistics) */}
       {showAddResourceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
-                <div className="flex items-center">
-                   <PackagePlus className="mr-2"/>
-                   <h3 className="font-bold text-lg">{newResourceType === ResourceType.MATERIAL ? 'Nuevo Material' : 'Nuevo Equipo'}</h3>
-                </div>
-                <button onClick={() => setShowAddResourceModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
-             </div>
-             <div className="p-6 space-y-4 overflow-y-auto">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Recurso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" placeholder={newResourceType === ResourceType.MATERIAL ? "Ej. Papel Toalla" : "Ej. Aspiradora"} value={newResourceForm.name} onChange={e => setNewResourceForm({...newResourceForm, name: e.target.value})} /></div>
-                
-                {newResourceType === ResourceType.MATERIAL ? (
-                   <div className="grid grid-cols-2 gap-3">
-                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Cantidad Inicial</label><input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.quantity} onChange={e => setNewResourceForm({...newResourceForm, quantity: Number(e.target.value)})} /></div>
-                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Unidad de Medida</label><input type="text" placeholder="Cajas, Litros..." className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.unitOfMeasure || ''} onChange={e => setNewResourceForm({...newResourceForm, unitOfMeasure: e.target.value})} /></div>
-                   </div>
-                ) : (
-                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona de Ubicación</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.assignedZone || ''} onChange={e => setNewResourceForm({...newResourceForm, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
-                )}
+          // ... [Identical to previous] ...
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              {/* ... */}
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  {/* ... */}
+                  <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
+                     <div className="flex items-center">
+                        <PackagePlus className="mr-2"/>
+                        <h3 className="font-bold text-lg">{newResourceType === ResourceType.MATERIAL ? 'Nuevo Material' : 'Nuevo Equipo'}</h3>
+                     </div>
+                     <button onClick={() => setShowAddResourceModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <div className="p-6 space-y-4 overflow-y-auto">
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Recurso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" placeholder={newResourceType === ResourceType.MATERIAL ? "Ej. Papel Toalla" : "Ej. Aspiradora"} value={newResourceForm.name} onChange={e => setNewResourceForm({...newResourceForm, name: e.target.value})} /></div>
+                     {/* ... (rest of form) ... */}
+                     {newResourceType === ResourceType.MATERIAL ? (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Cantidad Inicial</label><input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.quantity} onChange={e => setNewResourceForm({...newResourceForm, quantity: Number(e.target.value)})} /></div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Unidad de Medida</label><input type="text" placeholder="Cajas, Litros..." className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.unitOfMeasure || ''} onChange={e => setNewResourceForm({...newResourceForm, unitOfMeasure: e.target.value})} /></div>
+                        </div>
+                    ) : (
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona de Ubicación</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.assignedZone || ''} onChange={e => setNewResourceForm({...newResourceForm, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
+                    )}
 
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">URL Foto (Opcional)</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" placeholder="https://..." value={newResourceForm.image || ''} onChange={e => setNewResourceForm({...newResourceForm, image: e.target.value})} /></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">URL Foto (Opcional)</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" placeholder="https://..." value={newResourceForm.image || ''} onChange={e => setNewResourceForm({...newResourceForm, image: e.target.value})} /></div>
 
-                <button onClick={handleAddResource} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Agregar a Inventario</button>
-             </div>
+                    <button onClick={handleAddResource} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Agregar a Inventario</button>
+                  </div>
+              </div>
           </div>
-        </div>
       )}
 
       {/* Log Edit Modal */}
       {editingLog && (
+        // ... [Identical to previous] ...
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
-                <div className="flex items-center"><FileText className="mr-2"/><h3 className="font-bold text-lg">Editar Registro</h3></div>
-                <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
-             </div>
-             <div className="p-6 space-y-4 overflow-y-auto">
-                <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label>
-                   <textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={editingLog.description} onChange={e => setEditingLog({...editingLog, description: e.target.value})} />
+             {/* ... */}
+             <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                {/* ... */}
+                <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
+                    <div className="flex items-center"><FileText className="mr-2"/><h3 className="font-bold text-lg">Editar Registro</h3></div>
+                    <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
                 </div>
-                <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Agregar Foto (Evidencia)</label>
-                   <div className="flex gap-2">
-                     <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL de la imagen..." value={newLogImageUrl} onChange={e => setNewLogImageUrl(e.target.value)} />
-                     <button onClick={handleAddImageToLog} disabled={!newLogImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20} /></button>
-                   </div>
-                   {editingLog.images && editingLog.images.length > 0 && (
-                     <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
-                       {editingLog.images.map((img, i) => (
-                         <div key={i} className="w-16 h-16 shrink-0 relative group">
-                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
-                            <button onClick={() => setEditingLog({...editingLog, images: editingLog.images?.filter((_, idx) => idx !== i)})} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
-                         </div>
-                       ))}
+                <div className="p-6 space-y-4 overflow-y-auto">
+                    {/* ... */}
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label>
+                        <textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={editingLog.description} onChange={e => setEditingLog({...editingLog, description: e.target.value})} />
                      </div>
-                   )}
+                     
+                     {/* Edit Responsible Selection */}
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Responsables / Involucrados</label>
+                        <div className="border border-slate-200 rounded-lg max-h-40 overflow-y-auto p-2 bg-slate-50 space-y-2">
+                           <p className="text-xs text-slate-400 uppercase font-bold px-1">Equipo de Gestión</p>
+                           {availableStaff.map(s => (
+                               <div key={s.id} onClick={() => toggleEditLogResponsible(s.id)} className={`flex items-center p-2 rounded cursor-pointer transition-colors ${editingLog.responsibleIds?.includes(s.id) ? 'bg-blue-100 border-blue-200' : 'hover:bg-slate-100'}`}>
+                                   <div className={`w-4 h-4 border rounded mr-2 flex items-center justify-center ${editingLog.responsibleIds?.includes(s.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}>
+                                       {editingLog.responsibleIds?.includes(s.id) && <Plus size={12} className="text-white"/>}
+                                   </div>
+                                   <span className="text-sm text-slate-700">{s.name} <span className="text-xs text-slate-400">({s.role === 'COORDINATOR' ? 'Coord' : 'Sup'})</span></span>
+                               </div>
+                           ))}
+                           
+                           <p className="text-xs text-slate-400 uppercase font-bold px-1 mt-2">Personal Operativo</p>
+                           {personnel.length > 0 ? personnel.map(p => (
+                               <div key={p.id} onClick={() => toggleEditLogResponsible(p.id)} className={`flex items-center p-2 rounded cursor-pointer transition-colors ${editingLog.responsibleIds?.includes(p.id) ? 'bg-blue-100 border-blue-200' : 'hover:bg-slate-100'}`}>
+                                   <div className={`w-4 h-4 border rounded mr-2 flex items-center justify-center ${editingLog.responsibleIds?.includes(p.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}>
+                                       {editingLog.responsibleIds?.includes(p.id) && <Plus size={12} className="text-white"/>}
+                                   </div>
+                                   <span className="text-sm text-slate-700">{p.name}</span>
+                               </div>
+                           )) : <p className="text-xs text-slate-400 italic px-2">No hay personal operativo asignado.</p>}
+                        </div>
+                     </div>
+                     
+                     {/* Image Editing */}
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Agregar Foto (Evidencia)</label>
+                        <div className="flex gap-2">
+                            <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL de la imagen..." value={newLogImageUrl} onChange={e => setNewLogImageUrl(e.target.value)} />
+                            <label className="bg-slate-100 p-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                <Camera size={20} className="text-slate-600"/>
+                                <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForLog} />
+                            </label>
+                            <button onClick={handleAddImageToLog} disabled={!newLogImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20} /></button>
+                        </div>
+                        {editingLog.images && editingLog.images.length > 0 && (
+                            <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
+                            {editingLog.images.map((img, i) => (
+                                <div key={i} className="w-16 h-16 shrink-0 relative group">
+                                    <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                    <button onClick={() => setEditingLog({...editingLog, images: editingLog.images?.filter((_, idx) => idx !== i)})} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                                </div>
+                            ))}
+                            </div>
+                        )}
+                     </div>
+
+                     <button onClick={handleUpdateLog} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2"><Save size={16} className="inline mr-2"/> Actualizar Evento</button>
                 </div>
-                <button onClick={handleUpdateLog} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2"><Save size={16} className="inline mr-2"/> Actualizar Evento</button>
              </div>
-          </div>
         </div>
       )}
 
       {/* Mass Training Modal */}
       {showMassTrainingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
-                <div className="flex items-center"><Users className="mr-2"/><h3 className="font-bold text-lg">Asignar Capacitación</h3></div>
-                <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
-             </div>
-             <div className="p-6 space-y-4 overflow-y-auto">
-                <div className="bg-blue-50 text-blue-700 p-3 rounded-lg text-sm mb-4">Asignando a <strong>{selectedPersonnelIds.length}</strong> colaboradores seleccionados.</div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Tema / Curso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej. Seguridad en Altura" value={massTrainingForm.topic} onChange={e => setMassTrainingForm({...massTrainingForm, topic: e.target.value})} /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha Programada</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={massTrainingForm.date} onChange={e => setMassTrainingForm({...massTrainingForm, date: e.target.value})} /></div>
-                <button onClick={handleMassAssignTraining} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Confirmar Asignación</button>
-             </div>
+          // ... [Identical] ...
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              {/* ... */}
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  {/* ... */}
+                  <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
+                     <div className="flex items-center"><Users className="mr-2"/><h3 className="font-bold text-lg">Asignar Capacitación</h3></div>
+                     <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <div className="p-6 space-y-4 overflow-y-auto">
+                     <div className="bg-blue-50 text-blue-700 p-3 rounded-lg text-sm mb-4">Asignando a <strong>{selectedPersonnelIds.length}</strong> colaboradores seleccionados.</div>
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Tema / Curso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej. Seguridad en Altura" value={massTrainingForm.topic} onChange={e => setMassTrainingForm({...massTrainingForm, topic: e.target.value})} /></div>
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha Programada</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={massTrainingForm.date} onChange={e => setMassTrainingForm({...massTrainingForm, date: e.target.value})} /></div>
+                     <button onClick={handleMassAssignTraining} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Confirmar Asignación</button>
+                  </div>
+              </div>
           </div>
-        </div>
       )}
 
       {/* Mass Asset Assignment Modal */}
       {showAssetAssignmentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-indigo-600 text-white px-6 py-4 border-b border-indigo-700 flex justify-between items-center shrink-0">
-                <div className="flex items-center"><Briefcase className="mr-2"/><h3 className="font-bold text-lg">Asignar Equipamiento / EPP</h3></div>
-                <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
-             </div>
-             <div className="p-6 space-y-4 overflow-y-auto">
-                <div className="bg-indigo-50 text-indigo-700 p-3 rounded-lg text-sm mb-4">Entregando a <strong>{selectedPersonnelIds.length}</strong> colaboradores seleccionados.</div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Recurso</label>
-                  <select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" value={assetAssignmentForm.type} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, type: e.target.value})}>
-                     <option value="EPP">EPP (Protección Personal)</option>
-                     <option value="Uniforme">Uniforme / Ropa</option>
-                     <option value="Tecnologia">Tecnología (Laptop/Celular)</option>
-                     <option value="Herramienta">Herramienta</option>
-                     <option value="Otro">Otro</option>
-                  </select>
-                </div>
+          // ... [Identical] ...
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+               {/* ... */}
+               <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  <div className="bg-indigo-600 text-white px-6 py-4 border-b border-indigo-700 flex justify-between items-center shrink-0">
+                     <div className="flex items-center"><Briefcase className="mr-2"/><h3 className="font-bold text-lg">Asignar Equipamiento / EPP</h3></div>
+                     <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <div className="p-6 space-y-4 overflow-y-auto">
+                     {/* ... */}
+                     <div className="bg-indigo-50 text-indigo-700 p-3 rounded-lg text-sm mb-4">Entregando a <strong>{selectedPersonnelIds.length}</strong> colaboradores seleccionados.</div>
+                     
+                     <div>
+                     <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Recurso</label>
+                     <select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" value={assetAssignmentForm.type} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, type: e.target.value})}>
+                        <option value="EPP">EPP (Protección Personal)</option>
+                        <option value="Uniforme">Uniforme / Ropa</option>
+                        <option value="Tecnologia">Tecnología (Laptop/Celular)</option>
+                        <option value="Herramienta">Herramienta</option>
+                        <option value="Otro">Otro</option>
+                     </select>
+                     </div>
 
-                <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Ítem</label>
-                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder={assetAssignmentForm.type === 'Tecnologia' ? "Ej. Celular Samsung A54" : assetAssignmentForm.type === 'Uniforme' ? "Ej. Pantalón Drill Talla 32" : "Ej. Casco Dielectrico"} value={assetAssignmentForm.name} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, name: e.target.value})} />
-                </div>
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Ítem</label>
+                        <input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder={assetAssignmentForm.type === 'Tecnologia' ? "Ej. Celular Samsung A54" : assetAssignmentForm.type === 'Uniforme' ? "Ej. Pantalón Drill Talla 32" : "Ej. Casco Dielectrico"} value={assetAssignmentForm.name} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, name: e.target.value})} />
+                     </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" value={assetAssignmentForm.dateAssigned} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, dateAssigned: e.target.value})} /></div>
-                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Serie / Talla (Opcional)</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="SN-12345 o Talla M" value={assetAssignmentForm.serialNumber} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, serialNumber: e.target.value})} /></div>
-                </div>
+                     <div className="grid grid-cols-2 gap-3">
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" value={assetAssignmentForm.dateAssigned} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, dateAssigned: e.target.value})} /></div>
+                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Serie / Talla (Opcional)</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="SN-12345 o Talla M" value={assetAssignmentForm.serialNumber} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, serialNumber: e.target.value})} /></div>
+                     </div>
 
-                <button onClick={handleMassAssignAsset} disabled={!assetAssignmentForm.name || !assetAssignmentForm.dateAssigned} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors mt-2 disabled:opacity-50">Confirmar Entrega</button>
-             </div>
+                     <button onClick={handleMassAssignAsset} disabled={!assetAssignmentForm.name || !assetAssignmentForm.dateAssigned} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors mt-2 disabled:opacity-50">Confirmar Entrega</button>
+                  </div>
+               </div>
           </div>
-        </div>
       )}
       
       {/* Add Worker Modal */}
       {showAddWorkerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
-                <div className="flex items-center"><UserPlus className="mr-2"/><h3 className="font-bold text-lg">Agregar Colaborador</h3></div>
-                <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
-             </div>
-             <div className="p-6 space-y-4 overflow-y-auto">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej. Juan Perez" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona Asignada</label><select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newWorkerForm.zone} onChange={e => setNewWorkerForm({...newWorkerForm, zone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Turno</label><select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newWorkerForm.shift} onChange={e => setNewWorkerForm({...newWorkerForm, shift: e.target.value})}><option value="">Seleccionar Turno</option><option value="Diurno">Diurno</option><option value="Nocturno">Nocturno</option><option value="Rotativo">Rotativo</option></select></div>
-                <button onClick={handleAddWorker} disabled={!newWorkerForm.name || !newWorkerForm.zone} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50">Registrar Personal</button>
-             </div>
+          // ... [Identical] ...
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+               {/* ... */}
+               <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
+                     <div className="flex items-center"><UserPlus className="mr-2"/><h3 className="font-bold text-lg">Agregar Colaborador</h3></div>
+                     <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <div className="p-6 space-y-4 overflow-y-auto">
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej. Juan Perez" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} /></div>
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona Asignada</label><select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newWorkerForm.zone} onChange={e => setNewWorkerForm({...newWorkerForm, zone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Turno</label><select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newWorkerForm.shift} onChange={e => setNewWorkerForm({...newWorkerForm, shift: e.target.value})}><option value="">Seleccionar Turno</option><option value="Diurno">Diurno</option><option value="Nocturno">Nocturno</option><option value="Rotativo">Rotativo</option></select></div>
+                     <button onClick={handleAddWorker} disabled={!newWorkerForm.name || !newWorkerForm.zone} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50">Registrar Personal</button>
+                  </div>
+               </div>
           </div>
-        </div>
       )}
 
       {/* New Event Modal */}
       {showEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
-                <div className="flex items-center"><Calendar className="mr-2"/><h3 className="font-bold text-lg">Nuevo Evento</h3></div>
-                <button onClick={() => setShowEventModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
-             </div>
-             <div className="p-6 space-y-4 overflow-y-auto">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Evento</label><select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newEventForm.type} onChange={e => setNewEventForm({...newEventForm, type: e.target.value})}><option value="Coordinacion">Coordinación</option><option value="Supervision">Supervisión</option><option value="Visita Cliente">Visita Cliente</option><option value="Capacitacion">Capacitación</option></select></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newEventForm.date} onChange={e => setNewEventForm({...newEventForm, date: e.target.value})} /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none h-24" placeholder="Detalles del evento..." value={newEventForm.description} onChange={e => setNewEventForm({...newEventForm, description: e.target.value})} /></div>
-                
-                <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Evidencias (Fotos)</label>
-                   <div className="flex gap-2">
-                     <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL de la imagen..." value={newEventImageUrl} onChange={e => setNewEventImageUrl(e.target.value)} />
-                     <button onClick={handleAddImageToNewEvent} disabled={!newEventImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20} /></button>
-                   </div>
-                   {newEventImages.length > 0 && (
-                     <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
-                       {newEventImages.map((img, i) => (
-                         <div key={i} className="w-16 h-16 shrink-0 relative group">
-                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
-                            <button onClick={() => setNewEventImages(newEventImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
-                         </div>
-                       ))}
-                     </div>
-                   )}
-                </div>
+          // ... [Identical] ...
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              {/* ... */}
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                 <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
+                    <div className="flex items-center"><Calendar className="mr-2"/><h3 className="font-bold text-lg">Nuevo Evento</h3></div>
+                    <button onClick={() => setShowEventModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                 </div>
+                 <div className="p-6 space-y-4 overflow-y-auto">
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Evento</label><select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newEventForm.type} onChange={e => setNewEventForm({...newEventForm, type: e.target.value})}><option value="Coordinacion">Coordinación</option><option value="Supervision">Supervisión</option><option value="Visita Cliente">Visita Cliente</option><option value="Capacitacion">Capacitación</option></select></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newEventForm.date} onChange={e => setNewEventForm({...newEventForm, date: e.target.value})} /></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none h-24" placeholder="Detalles del evento..." value={newEventForm.description} onChange={e => setNewEventForm({...newEventForm, description: e.target.value})} /></div>
+                    
+                    {/* Responsible Selection */}
+                    <div>
+                       <label className="block text-sm font-medium text-slate-700 mb-2">Responsables / Involucrados</label>
+                       <div className="border border-slate-200 rounded-lg max-h-40 overflow-y-auto p-2 bg-slate-50 space-y-2">
+                          <p className="text-xs text-slate-400 uppercase font-bold px-1">Equipo de Gestión</p>
+                          {availableStaff.map(s => (
+                              <div key={s.id} onClick={() => toggleEventResponsible(s.id)} className={`flex items-center p-2 rounded cursor-pointer transition-colors ${newEventResponsibles.includes(s.id) ? 'bg-blue-100 border-blue-200' : 'hover:bg-slate-100'}`}>
+                                  <div className={`w-4 h-4 border rounded mr-2 flex items-center justify-center ${newEventResponsibles.includes(s.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}>
+                                      {newEventResponsibles.includes(s.id) && <Plus size={12} className="text-white"/>}
+                                  </div>
+                                  <span className="text-sm text-slate-700">{s.name} <span className="text-xs text-slate-400">({s.role === 'COORDINATOR' ? 'Coord' : 'Sup'})</span></span>
+                              </div>
+                          ))}
+                          
+                          <p className="text-xs text-slate-400 uppercase font-bold px-1 mt-2">Personal Operativo</p>
+                          {personnel.length > 0 ? personnel.map(p => (
+                              <div key={p.id} onClick={() => toggleEventResponsible(p.id)} className={`flex items-center p-2 rounded cursor-pointer transition-colors ${newEventResponsibles.includes(p.id) ? 'bg-blue-100 border-blue-200' : 'hover:bg-slate-100'}`}>
+                                  <div className={`w-4 h-4 border rounded mr-2 flex items-center justify-center ${newEventResponsibles.includes(p.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}>
+                                      {newEventResponsibles.includes(p.id) && <Plus size={12} className="text-white"/>}
+                                  </div>
+                                  <span className="text-sm text-slate-700">{p.name}</span>
+                              </div>
+                          )) : <p className="text-xs text-slate-400 italic px-2">No hay personal operativo asignado.</p>}
+                       </div>
+                    </div>
 
-                <button onClick={handleCreateEvent} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Agendar Evento</button>
-             </div>
+                    <div>
+                       <label className="block text-sm font-medium text-slate-700 mb-1">Evidencias (Fotos)</label>
+                       <div className="flex gap-2">
+                         <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL de la imagen..." value={newEventImageUrl} onChange={e => setNewEventImageUrl(e.target.value)} />
+                         <label className="bg-slate-100 p-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                            <Camera size={20} className="text-slate-600"/>
+                            <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForNewEvent} />
+                         </label>
+                         <button onClick={handleAddImageToNewEvent} disabled={!newEventImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20} /></button>
+                       </div>
+                       {newEventImages.length > 0 && (
+                         <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
+                           {newEventImages.map((img, i) => (
+                             <div key={i} className="w-16 h-16 shrink-0 relative group">
+                                <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                <button onClick={() => setNewEventImages(newEventImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                             </div>
+                           ))}
+                         </div>
+                       )}
+                    </div>
+
+                    <button onClick={handleCreateEvent} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Agendar Evento</button>
+                 </div>
+              </div>
           </div>
-        </div>
       )}
 
     </div>
