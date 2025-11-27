@@ -29,6 +29,7 @@ export type AppFeature =
   | 'LOGS' 
   | 'BLUEPRINT' 
   | 'CONTROL_CENTER' 
+  | 'REPORTS' // New Feature
   | 'SETTINGS';
 
 export interface PermissionRule {

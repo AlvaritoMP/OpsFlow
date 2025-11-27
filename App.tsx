@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
+import { Reports } from './components/Reports';
 import { MOCK_UNITS, MOCK_USERS, MOCK_MANAGEMENT_STAFF } from './constants';
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
@@ -12,7 +13,7 @@ import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission } from
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'reports'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [units, setUnits] = useState<Unit[]>(MOCK_UNITS);
   
@@ -215,6 +216,10 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (currentView === 'control-center') {
       return <ControlCenter units={units} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
+    }
+
+    if (currentView === 'reports') {
+      return <Reports units={units} />;
     }
 
     if (currentView === 'dashboard') {
@@ -797,6 +802,17 @@ const App: React.FC = () => {
               >
                 <Building size={20} />
                 <span>Unidades</span>
+              </button>
+          )}
+
+          {/* New Reports Link */}
+          {checkPermission(currentUser.role, 'REPORTS', 'view') && (
+              <button 
+                onClick={() => { setCurrentView('reports'); setSelectedUnitId(null); }}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'reports' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+              >
+                <FileBarChart size={20} />
+                <span>Informes y Analítica</span>
               </button>
           )}
           

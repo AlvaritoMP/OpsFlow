@@ -12,6 +12,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     LOGS: { view: true, edit: true },
     BLUEPRINT: { view: true, edit: true },
     CONTROL_CENTER: { view: true, edit: true },
+    REPORTS: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
   },
   OPERATIONS: {
@@ -22,6 +23,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     LOGS: { view: true, edit: true },
     BLUEPRINT: { view: true, edit: true },
     CONTROL_CENTER: { view: true, edit: true },
+    REPORTS: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
   },
   CLIENT: {
@@ -29,9 +31,10 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     UNIT_OVERVIEW: { view: true, edit: false },
     PERSONNEL: { view: true, edit: false },
     LOGISTICS: { view: true, edit: false },
-    LOGS: { view: true, edit: false }, // Can see logs but not edit
+    LOGS: { view: true, edit: false }, 
     BLUEPRINT: { view: true, edit: false },
     CONTROL_CENTER: { view: false, edit: false },
+    REPORTS: { view: true, edit: false }, // Client can view reports
     SETTINGS: { view: false, edit: false },
   }
 };
@@ -73,5 +76,6 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   LOGS: 'Bitácora y Eventos',
   BLUEPRINT: 'Planos y Mapas',
   CONTROL_CENTER: 'Centro de Control',
+  REPORTS: 'Informes y Analítica',
   SETTINGS: 'Configuración Sistema'
 };
