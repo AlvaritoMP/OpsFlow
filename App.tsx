@@ -1,10 +1,12 @@
+
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
 import { MOCK_UNITS, MOCK_USERS, MOCK_MANAGEMENT_STAFF } from './constants';
-import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType } from './types';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig } from './types';
+import { getApiConfig, saveApiConfig } from './services/inventoryService';
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -34,6 +36,10 @@ const App: React.FC = () => {
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
   const [newStaffForm, setNewStaffForm] = useState<Partial<ManagementStaff>>({ name: '', role: 'COORDINATOR', email: '' });
   const [newStaffPhotoUrl, setNewStaffPhotoUrl] = useState('');
+
+  // API Config State
+  const [apiConfig, setApiConfig] = useState<InventoryApiConfig>(getApiConfig());
+  const [isConfigSaved, setIsConfigSaved] = useState(false);
 
   // User / Role Context Simulation
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Default to Admin
@@ -150,6 +156,13 @@ const App: React.FC = () => {
       if (confirm('¿Eliminar este miembro del equipo de gestión?')) {
           setManagementStaff(managementStaff.filter(s => s.id !== staffId));
       }
+  };
+
+  // API Config Handlers
+  const handleSaveApiConfig = () => {
+    saveApiConfig(apiConfig);
+    setIsConfigSaved(true);
+    setTimeout(() => setIsConfigSaved(false), 3000);
   };
 
 
@@ -335,7 +348,7 @@ const App: React.FC = () => {
 
     if (currentView === 'settings') {
       return (
-        <div className="p-6 md:p-8 space-y-8 animate-in fade-in duration-500">
+        <div className="p-6 md:p-8 space-y-8 animate-in fade-in duration-500 pb-20">
            <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold text-slate-800">Configuración del Sistema</h1>
@@ -412,6 +425,70 @@ const App: React.FC = () => {
                          </button>
                      </div>
                  ))}
+             </div>
+           </div>
+
+           {/* --- API Configuration Section (NEW) --- */}
+           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <h3 className="font-bold text-slate-700 flex items-center"><Globe className="mr-2" size={18} /> Integraciones / API Inventario</h3>
+                {isConfigSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+             </div>
+             <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   <div className="space-y-4">
+                       <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
+                          <div>
+                              <p className="text-sm font-bold text-slate-800">Modo Simulación (Mock Data)</p>
+                              <p className="text-xs text-slate-500">Usar datos de prueba sin conectar al servidor real.</p>
+                          </div>
+                          <button onClick={() => setApiConfig({...apiConfig, useMock: !apiConfig.useMock})} className={`transition-colors ${apiConfig.useMock ? 'text-blue-600' : 'text-slate-400'}`}>
+                              {apiConfig.useMock ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+                          </button>
+                       </div>
+                       
+                       <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Server size={14} className="mr-1"/> Base URL</label>
+                          <input 
+                            type="text" 
+                            className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                            value={apiConfig.baseUrl}
+                            onChange={e => setApiConfig({...apiConfig, baseUrl: e.target.value})}
+                            disabled={apiConfig.useMock}
+                            placeholder="https://api.tu-servidor.com/v1"
+                          />
+                       </div>
+
+                       <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Key size={14} className="mr-1"/> API Key / Token</label>
+                          <input 
+                            type="password" 
+                            className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                            value={apiConfig.apiKey}
+                            onChange={e => setApiConfig({...apiConfig, apiKey: e.target.value})}
+                            disabled={apiConfig.useMock}
+                            placeholder="••••••••••••••••"
+                          />
+                       </div>
+                   </div>
+
+                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm text-slate-600 flex flex-col justify-between">
+                       <div>
+                         <h4 className="font-bold text-slate-800 mb-2">Instrucciones de Conexión</h4>
+                         <ul className="list-disc list-inside space-y-1 text-xs">
+                             <li>La API debe soportar método GET.</li>
+                             <li>Endpoint esperado: <code>/items/{'{sku}'}</code></li>
+                             <li>La respuesta debe ser JSON con los campos de stock y estado.</li>
+                             <li>El token se enviará como <code>Authorization: Bearer</code>.</li>
+                         </ul>
+                       </div>
+                       <div className="mt-4 text-right">
+                          <button onClick={handleSaveApiConfig} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center ml-auto">
+                              <Save size={16} className="mr-2"/> Guardar Configuración
+                          </button>
+                       </div>
+                   </div>
+                </div>
              </div>
            </div>
 

@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History } from 'lucide-react';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon } from 'lucide-react';
 import { generateExecutiveReport } from '../services/geminiService';
+import { syncResourceWithInventory } from '../services/inventoryService';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -53,6 +54,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
+  const [isSyncing, setIsSyncing] = useState<string | null>(null); // ID of resource currently syncing
   
   // Maintenance History State (Equipment)
   const [expandedEquipment, setExpandedEquipment] = useState<string | null>(null);
@@ -256,6 +258,40 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setNewWorkerForm({ name: '', zone: '', shift: '' });
   };
 
+  // NEW: Helper to add single Training/Asset directly from expanded view
+  const handleAddSingleTraining = (resourceId: string) => {
+      setSelectedPersonnelIds([resourceId]);
+      setShowMassTrainingModal(true);
+  };
+
+  const handleAddSingleAsset = (resourceId: string) => {
+      setSelectedPersonnelIds([resourceId]);
+      setShowAssetAssignmentModal(true);
+  };
+  
+  const handleDeleteTraining = (resourceId: string, trainingId: string) => {
+      if(!onUpdate) return;
+      const updatedResources = unit.resources.map(r => {
+          if (r.id === resourceId) {
+              return { ...r, trainings: r.trainings?.filter(t => t.id !== trainingId) };
+          }
+          return r;
+      });
+      onUpdate({ ...unit, resources: updatedResources });
+  };
+
+  const handleDeleteAsset = (resourceId: string, assetId: string) => {
+      if(!onUpdate) return;
+      const updatedResources = unit.resources.map(r => {
+          if (r.id === resourceId) {
+              return { ...r, assignedAssets: r.assignedAssets?.filter(a => a.id !== assetId) };
+          }
+          return r;
+      });
+      onUpdate({ ...unit, resources: updatedResources });
+  };
+
+
   const togglePersonnelExpand = (id: string) => {
     setExpandedPersonnel(expandedPersonnel === id ? null : id);
   };
@@ -264,7 +300,41 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setExpandedEquipment(expandedEquipment === id ? null : id);
   };
 
-  // --- Logistics Actions ---
+  // --- Logistics Actions (Updated for Integration) ---
+  const handleSyncInventory = async (resource: Resource) => {
+     if (!onUpdate || !resource.externalId) return;
+     
+     setIsSyncing(resource.id);
+     try {
+         const externalData = await syncResourceWithInventory(resource.externalId);
+         if (externalData) {
+             const updatedResources = unit.resources.map(r => r.id === resource.id ? {
+                 ...r,
+                 quantity: externalData.currentStock,
+                 status: externalData.status === 'Disponible' ? (r.type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo') : externalData.status,
+                 lastSync: new Date().toISOString()
+             } : r);
+             onUpdate({ ...unit, resources: updatedResources });
+             // If editing, update form too
+             if (editingResource?.id === resource.id) {
+                 setEditingResource({
+                     ...editingResource,
+                     quantity: externalData.currentStock,
+                     status: externalData.status === 'Disponible' ? (editingResource.type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo') : externalData.status,
+                     lastSync: new Date().toISOString()
+                 });
+             }
+         } else {
+             alert('No se encontró el SKU en el sistema externo.');
+         }
+     } catch (e) {
+         console.error(e);
+         alert('Error de conexión con App de Inventarios.');
+     } finally {
+         setIsSyncing(null);
+     }
+  };
+
   const handleUpdateResource = () => {
     if (!onUpdate || !editingResource) return;
     const updatedResources = unit.resources.map(r => r.id === editingResource.id ? editingResource : r);
@@ -293,16 +363,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       assignedZone: newResourceForm.assignedZone,
       nextMaintenance: newResourceForm.nextMaintenance,
       lastRestock: newResourceForm.lastRestock,
-      image: newResourceForm.image
+      image: newResourceForm.image,
+      externalId: newResourceForm.externalId // SKU
     };
     onUpdate({ ...unit, resources: [...unit.resources, newResource] });
     setShowAddResourceModal(false);
-    setNewResourceForm({ name: '', quantity: 1, status: 'Operativo' });
+    setNewResourceForm({ name: '', quantity: 1, status: 'Operativo', externalId: '' });
   };
 
   const openAddResourceModal = (type: ResourceType) => {
     setNewResourceType(type);
-    setNewResourceForm({ name: '', quantity: 1, status: type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo' });
+    setNewResourceForm({ name: '', quantity: 1, status: type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo', externalId: '' });
     setShowAddResourceModal(true);
   }
 
@@ -792,13 +863,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                             {/* Trainings */}
                                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                                                <h4 className="text-xs font-bold uppercase text-slate-500 mb-3 flex items-center"><Award className="mr-1.5" size={14}/> Historial de Capacitaciones</h4>
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <h4 className="text-xs font-bold uppercase text-slate-500 flex items-center"><Award className="mr-1.5" size={14}/> Historial de Capacitaciones</h4>
+                                                    {canEdit && <button onClick={() => handleAddSingleTraining(p.id)} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 flex items-center"><Plus size={10} className="mr-1"/> Agregar</button>}
+                                                </div>
                                                 {p.trainings && p.trainings.length > 0 ? (
                                                     <div className="space-y-2">
                                                         {p.trainings.map(t => (
                                                             <div key={t.id} className="flex justify-between items-center text-sm border-b border-slate-100 pb-2 last:border-0 last:pb-0">
                                                                 <div><span className="font-medium text-slate-800">{t.topic}</span><div className="text-xs text-slate-500">{t.date}</div></div>
-                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.status === 'Completado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{t.status}</span>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.status === 'Completado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{t.status}</span>
+                                                                    {canEdit && <button onClick={() => handleDeleteTraining(p.id, t.id)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
+                                                                </div>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -806,7 +883,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             </div>
                                             {/* Assigned Assets */}
                                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                                                <h4 className="text-xs font-bold uppercase text-slate-500 mb-3 flex items-center"><Briefcase className="mr-1.5" size={14}/> Inventario Asignado</h4>
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <h4 className="text-xs font-bold uppercase text-slate-500 flex items-center"><Briefcase className="mr-1.5" size={14}/> Inventario Asignado</h4>
+                                                    {canEdit && <button onClick={() => handleAddSingleAsset(p.id)} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 flex items-center"><Plus size={10} className="mr-1"/> Agregar</button>}
+                                                </div>
                                                 {p.assignedAssets && p.assignedAssets.length > 0 ? (
                                                     <div className="space-y-2">
                                                         {p.assignedAssets.map(asset => (
@@ -815,7 +895,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                                     <div className="bg-slate-100 p-1.5 rounded mr-2">{getAssetIcon(asset.type)}</div>
                                                                     <div><span className="font-medium text-slate-800">{asset.name}</span><div className="text-[10px] text-slate-400">Entregado: {asset.dateAssigned}</div></div>
                                                                 </div>
-                                                                {asset.serialNumber && <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-mono">{asset.serialNumber}</span>}
+                                                                <div className="flex items-center gap-2">
+                                                                    {asset.serialNumber && <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-mono">{asset.serialNumber}</span>}
+                                                                    {canEdit && <button onClick={() => handleDeleteAsset(p.id, asset.id)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
+                                                                </div>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -856,7 +939,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              <div className="flex justify-between items-start">
                                  <div>
                                      <h4 className="font-bold text-slate-800 text-lg">{eq.name}</h4>
-                                     <p className="text-sm text-slate-500 flex items-center mt-1"><MapPin size={14} className="mr-1"/> {eq.assignedZone}</p>
+                                     <div className="flex items-center text-sm text-slate-500 mt-1">
+                                        <MapPin size={14} className="mr-1"/> {eq.assignedZone}
+                                        {eq.externalId && <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded font-mono border border-purple-200 flex items-center"><LinkIcon size={10} className="mr-1"/> {eq.externalId}</span>}
+                                     </div>
                                  </div>
                                  <div className="flex gap-2">
                                      {canEdit && <button onClick={() => setEditingResource(eq)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit2 size={18}/></button>}
@@ -944,9 +1030,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  <p className="text-xs text-slate-500">Stock Actual</p>
                                  <p className="font-bold text-lg text-slate-800">{mat.quantity} <span className="text-xs font-normal text-slate-400">{mat.unitOfMeasure}</span></p>
                              </div>
+                             {/* Sync Button */}
+                             {canEdit && mat.externalId && (
+                                 <button 
+                                   onClick={() => handleSyncInventory(mat)} 
+                                   disabled={isSyncing === mat.id}
+                                   className="text-purple-500 hover:text-purple-700 p-1" 
+                                   title="Sincronizar Stock"
+                                 >
+                                     <RefreshCw size={16} className={isSyncing === mat.id ? 'animate-spin' : ''} />
+                                 </button>
+                             )}
                          </div>
                          <div className={`mt-2 text-[10px] font-bold px-2 py-0.5 rounded text-center ${STATUS_COLORS[mat.status as keyof typeof STATUS_COLORS]}`}>{mat.status}</div>
-                         <p className="text-[10px] text-slate-400 mt-2 text-center">Reposición: {mat.lastRestock || '-'}</p>
+                         
+                         <div className="mt-2 flex justify-between items-center border-t border-slate-100 pt-1.5">
+                            <span className="text-[10px] text-slate-400">Reposición: {mat.lastRestock || '-'}</span>
+                            {mat.externalId && <span className="text-[9px] bg-purple-50 text-purple-600 px-1 rounded border border-purple-100">{mat.externalId}</span>}
+                         </div>
                      </div>
                  ))}
              </div>
@@ -954,6 +1055,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       </div>
   );
 
+  // ... (Management Render - unchanged) ...
   const renderManagement = () => (
       <div className="space-y-6 animate-in fade-in duration-300 pb-10">
           <div className="flex justify-between items-center mb-4">
@@ -1039,8 +1141,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       </div>
 
       {/* --- MODALS --- */}
-
-      {/* New Maintenance Entry Modal (Only for adding) */}
+      
+      {/* ... [New Maintenance Entry Modal - Unchanged] ... */}
       {maintenanceResource && (
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -1145,9 +1247,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Resource Edit Modal */}
       {editingResource && (
-         // ... [Resource Edit Modal same as before] ...
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-             {/* ... */}
              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                 <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
                     <div className="flex items-center">
@@ -1173,9 +1273,33 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Activo">Activo</option><option value="De Licencia">De Licencia</option><option value="Reemplazo Temporal">Reemplazo Temporal</option></select></div>
                     </>
                     ) : editingResource.type === ResourceType.MATERIAL ? (
-                    // --- FIELDS FOR MATERIAL ---
+                    // --- FIELDS FOR MATERIAL (UPDATED FOR INTEGRATION) ---
                     <>
-                        <div className="grid grid-cols-2 gap-3">
+                         {/* Inventory Integration Input */}
+                         <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
+                             <label className="block text-xs font-bold text-purple-700 mb-1 uppercase">Sincronización de Inventario</label>
+                             <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    className="flex-1 border border-purple-200 rounded p-1.5 text-sm outline-none" 
+                                    placeholder="Código SKU / ID Externo" 
+                                    value={editingResource.externalId || ''} 
+                                    onChange={e => setEditingResource({...editingResource, externalId: e.target.value})} 
+                                />
+                                {editingResource.externalId && (
+                                    <button 
+                                      onClick={() => handleSyncInventory(editingResource)} 
+                                      className="bg-purple-600 text-white p-2 rounded hover:bg-purple-700 disabled:opacity-50"
+                                      disabled={isSyncing === editingResource.id}
+                                    >
+                                        <RefreshCw size={16} className={isSyncing === editingResource.id ? 'animate-spin' : ''} />
+                                    </button>
+                                )}
+                             </div>
+                             {editingResource.lastSync && <p className="text-[10px] text-purple-600 mt-1">Última sinc: {new Date(editingResource.lastSync).toLocaleString()}</p>}
+                         </div>
+
+                        <div className="grid grid-cols-2 gap-3 mt-2">
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Cantidad</label><input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.quantity} onChange={e => setEditingResource({...editingResource, quantity: Number(e.target.value)})} /></div>
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Unidad</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-100" readOnly value={editingResource.unitOfMeasure} /></div>
                         </div>
@@ -1183,8 +1307,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado Stock</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Stock OK">Stock OK</option><option value="Stock Bajo">Stock Bajo</option><option value="Agotado">Agotado</option></select></div>
                     </>
                     ) : (
-                    // --- FIELDS FOR EQUIPMENT ---
+                    // --- FIELDS FOR EQUIPMENT (UPDATED FOR INTEGRATION) ---
                     <>
+                        <div className="bg-purple-50 p-3 rounded-lg border border-purple-100 mb-2">
+                             <label className="block text-xs font-bold text-purple-700 mb-1 uppercase">Sincronización de Activo</label>
+                             <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    className="flex-1 border border-purple-200 rounded p-1.5 text-sm outline-none" 
+                                    placeholder="Código ID Activo Fijo" 
+                                    value={editingResource.externalId || ''} 
+                                    onChange={e => setEditingResource({...editingResource, externalId: e.target.value})} 
+                                />
+                             </div>
+                         </div>
+
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Ubicación (Zona)</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedZone} onChange={e => setEditingResource({...editingResource, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Próximo Mantenimiento (Agenda)</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.nextMaintenance || ''} onChange={e => setEditingResource({...editingResource, nextMaintenance: e.target.value})} /></div>
                         
@@ -1220,11 +1357,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Add Resource Modal (Logistics) */}
       {showAddResourceModal && (
-          // ... [Identical to previous] ...
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              {/* ... */}
               <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                  {/* ... */}
                   <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
                      <div className="flex items-center">
                         <PackagePlus className="mr-2"/>
@@ -1234,7 +1368,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
                   <div className="p-6 space-y-4 overflow-y-auto">
                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Recurso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" placeholder={newResourceType === ResourceType.MATERIAL ? "Ej. Papel Toalla" : "Ej. Aspiradora"} value={newResourceForm.name} onChange={e => setNewResourceForm({...newResourceForm, name: e.target.value})} /></div>
-                     {/* ... (rest of form) ... */}
+                     
+                     {/* External ID Input for New Resource */}
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Código SKU / ID Externo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-purple-50 border-purple-200 focus:border-purple-400" placeholder="Opcional para sincronización" value={newResourceForm.externalId || ''} onChange={e => setNewResourceForm({...newResourceForm, externalId: e.target.value})} /></div>
+
                      {newResourceType === ResourceType.MATERIAL ? (
                         <div className="grid grid-cols-2 gap-3">
                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Cantidad Inicial</label><input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.quantity} onChange={e => setNewResourceForm({...newResourceForm, quantity: Number(e.target.value)})} /></div>
@@ -1254,17 +1391,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Log Edit Modal */}
       {editingLog && (
-        // ... [Identical to previous] ...
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-             {/* ... */}
              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                {/* ... */}
                 <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
                     <div className="flex items-center"><FileText className="mr-2"/><h3 className="font-bold text-lg">Editar Registro</h3></div>
                     <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
                 </div>
                 <div className="p-6 space-y-4 overflow-y-auto">
-                    {/* ... */}
                      <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label>
                         <textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={editingLog.description} onChange={e => setEditingLog({...editingLog, description: e.target.value})} />
@@ -1327,11 +1460,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Mass Training Modal */}
       {showMassTrainingModal && (
-          // ... [Identical] ...
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              {/* ... */}
               <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                  {/* ... */}
                   <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
                      <div className="flex items-center"><Users className="mr-2"/><h3 className="font-bold text-lg">Asignar Capacitación</h3></div>
                      <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
@@ -1348,16 +1478,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Mass Asset Assignment Modal */}
       {showAssetAssignmentModal && (
-          // ... [Identical] ...
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-               {/* ... */}
                <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                   <div className="bg-indigo-600 text-white px-6 py-4 border-b border-indigo-700 flex justify-between items-center shrink-0">
                      <div className="flex items-center"><Briefcase className="mr-2"/><h3 className="font-bold text-lg">Asignar Equipamiento / EPP</h3></div>
                      <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
                   </div>
                   <div className="p-6 space-y-4 overflow-y-auto">
-                     {/* ... */}
                      <div className="bg-indigo-50 text-indigo-700 p-3 rounded-lg text-sm mb-4">Entregando a <strong>{selectedPersonnelIds.length}</strong> colaboradores seleccionados.</div>
                      
                      <div>
@@ -1389,9 +1516,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* Add Worker Modal */}
       {showAddWorkerModal && (
-          // ... [Identical] ...
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-               {/* ... */}
                <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                   <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
                      <div className="flex items-center"><UserPlus className="mr-2"/><h3 className="font-bold text-lg">Agregar Colaborador</h3></div>
@@ -1409,9 +1534,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* New Event Modal */}
       {showEventModal && (
-          // ... [Identical] ...
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              {/* ... */}
               <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                  <div className="bg-blue-600 text-white px-6 py-4 border-b border-blue-700 flex justify-between items-center shrink-0">
                     <div className="flex items-center"><Calendar className="mr-2"/><h3 className="font-bold text-lg">Nuevo Evento</h3></div>

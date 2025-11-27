@@ -20,6 +20,12 @@ export enum StaffStatus {
 export type UserRole = 'ADMIN' | 'OPERATIONS' | 'CLIENT';
 export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 
+export interface InventoryApiConfig {
+  baseUrl: string;
+  apiKey: string;
+  useMock: boolean;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -94,6 +100,10 @@ export interface Resource {
   assignedAssets?: AssignedAsset[]; // Inventory assigned to this worker
   maintenanceHistory?: MaintenanceRecord[]; // Specific for Equipment history
   image?: string; // Photo of the resource (equipment/material/person)
+  
+  // Integration Fields
+  externalId?: string; // SKU or External ID from Inventory App
+  lastSync?: string; // Timestamp of last sync
 }
 
 export interface Zone {
