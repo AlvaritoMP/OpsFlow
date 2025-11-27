@@ -20,6 +20,31 @@ export enum StaffStatus {
 export type UserRole = 'ADMIN' | 'OPERATIONS' | 'CLIENT';
 export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 
+// --- PERMISSIONS SYSTEM ---
+export type AppFeature = 
+  | 'DASHBOARD' 
+  | 'UNIT_OVERVIEW' 
+  | 'PERSONNEL' 
+  | 'LOGISTICS' 
+  | 'LOGS' 
+  | 'BLUEPRINT' 
+  | 'CONTROL_CENTER' 
+  | 'SETTINGS';
+
+export interface PermissionRule {
+  view: boolean;
+  edit: boolean;
+}
+
+export type RolePermissions = {
+  [key in AppFeature]: PermissionRule;
+};
+
+export type PermissionConfig = {
+  [role in UserRole]: RolePermissions;
+};
+// --------------------------
+
 export interface InventoryApiConfig {
   baseUrl: string;
   apiKey: string;
@@ -91,7 +116,7 @@ export interface Resource {
   quantity: number; // For materials
   unitOfMeasure?: string; // e.g., "Litros", "Cajas", "Unidad"
   status?: StaffStatus | string; // Specific to personnel or machine condition
-  assignedZone?: string; // Which specific zone inside the unit
+  assignedZones?: string[]; // Changed to array: Which specific zones inside the unit
   assignedShift?: string; // Morning, Afternoon, Night
   compliancePercentage?: number; // Daily/Monthly compliance
   lastRestock?: string; // For materials
@@ -106,10 +131,26 @@ export interface Resource {
   lastSync?: string; // Timestamp of last sync
 }
 
+export interface ZoneLayout {
+  x: number; // Grid column start (1-12)
+  y: number; // Grid row start (1-12)
+  w: number; // Width (cols span)
+  h: number; // Height (rows span)
+  color: string; // Hex or tailwind class
+  layerId?: string; // ID of the blueprint layer/page
+}
+
 export interface Zone {
   id: string;
   name: string; // e.g., "Lobby", "Piso 1", "Exteriores"
   shifts: string[]; // e.g., ["Turno Mañana", "Turno Tarde"]
+  area?: number; // Square meters
+  layout?: ZoneLayout; // Visual map representation
+}
+
+export interface BlueprintLayer {
+  id: string;
+  name: string; // e.g. "Piso 1", "Sótano", "Exteriores"
 }
 
 export interface UnitContact {
@@ -129,6 +170,7 @@ export interface Unit {
   description?: string; // Brief description of operations
   images: string[]; // Array of image URLs. Index 0 is cover.
   zones: Zone[];
+  blueprintLayers?: BlueprintLayer[]; // Multi-page support
   resources: Resource[];
   logs: OperationalLog[];
   complianceHistory: { month: string; score: number }[];

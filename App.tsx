@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
 import { MOCK_UNITS, MOCK_USERS, MOCK_MANAGEMENT_STAFF } from './constants';
-import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig } from './types';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
+import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission } from './services/permissionService';
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -45,6 +46,14 @@ const App: React.FC = () => {
   // Gemini API Config State
   const [geminiKey, setGeminiKey] = useState<string>(getGeminiApiKey() || '');
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
+
+  // Branding State
+  const [companyLogo, setCompanyLogo] = useState<string>(localStorage.getItem('OPSFLOW_LOGO') || 'https://via.placeholder.com/150x50?text=LOGO');
+  const [isLogoSaved, setIsLogoSaved] = useState(false);
+
+  // Permissions State
+  const [permissions, setPermissions] = useState<PermissionConfig>(getPermissions());
+  const [isPermsSaved, setIsPermsSaved] = useState(false);
 
   // User / Role Context Simulation
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Default to Admin
@@ -176,10 +185,36 @@ const App: React.FC = () => {
     setTimeout(() => setIsGeminiSaved(false), 3000);
   };
 
+  const handleSaveLogo = () => {
+      localStorage.setItem('OPSFLOW_LOGO', companyLogo);
+      setIsLogoSaved(true);
+      setTimeout(() => setIsLogoSaved(false), 3000);
+  };
+
+  // Permission Handlers
+  const handlePermissionChange = (role: UserRole, feature: AppFeature, type: 'view' | 'edit', value: boolean) => {
+    setPermissions(prev => ({
+        ...prev,
+        [role]: {
+            ...prev[role],
+            [feature]: {
+                ...prev[role][feature],
+                [type]: value
+            }
+        }
+    }));
+  };
+
+  const handleSavePermissions = () => {
+      savePermissions(permissions);
+      setIsPermsSaved(true);
+      setTimeout(() => setIsPermsSaved(false), 3000);
+  };
+
 
   const renderContent = () => {
     if (currentView === 'control-center') {
-      return <ControlCenter units={units} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} />;
+      return <ControlCenter units={units} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'dashboard') {
@@ -205,7 +240,7 @@ const App: React.FC = () => {
         <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-bold text-slate-800">Gestión de Unidades</h1>
-            {currentUser.role !== 'CLIENT' && (
+            {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
               <button 
                 onClick={() => setShowAddUnitModal(true)}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 transition-colors shadow-sm"
@@ -367,6 +402,120 @@ const App: React.FC = () => {
             </div>
            </div>
 
+           {/* --- PERMISSIONS MANAGEMENT (NEW) --- */}
+           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-700 flex items-center"><Shield className="mr-2" size={18} /> Control de Accesos y Permisos</h3>
+                    {isPermsSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                </div>
+                <div className="p-6">
+                    <p className="text-sm text-slate-600 mb-6">Defina qué pueden ver y editar los diferentes roles en la plataforma.</p>
+                    
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200">
+                            <thead>
+                                <tr>
+                                    <th className="px-4 py-3 bg-slate-50 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10">Módulo / Función</th>
+                                    {['ADMIN', 'OPERATIONS', 'CLIENT'].map(role => (
+                                        <th key={role} className="px-4 py-3 bg-slate-50 text-center text-xs font-bold text-slate-500 uppercase tracking-wider border-l border-slate-200">
+                                            {role === 'ADMIN' ? 'Admin' : role === 'OPERATIONS' ? 'Operaciones' : 'Cliente'}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-200">
+                                {(Object.keys(FEATURE_LABELS) as AppFeature[]).map(feature => (
+                                    <tr key={feature} className="hover:bg-slate-50">
+                                        <td className="px-4 py-3 text-sm font-medium text-slate-700 sticky left-0 bg-white">{FEATURE_LABELS[feature]}</td>
+                                        {['ADMIN', 'OPERATIONS', 'CLIENT'].map(roleStr => {
+                                            const role = roleStr as UserRole;
+                                            const perm = permissions[role][feature];
+                                            return (
+                                                <td key={role} className="px-4 py-3 text-center border-l border-slate-200">
+                                                    <div className="flex flex-col items-center gap-2">
+                                                        <label className="flex items-center space-x-2 cursor-pointer text-xs">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                                checked={perm.view}
+                                                                onChange={(e) => handlePermissionChange(role, feature, 'view', e.target.checked)}
+                                                            />
+                                                            <span className={perm.view ? 'text-slate-700' : 'text-slate-400'}>Ver</span>
+                                                        </label>
+                                                        <label className="flex items-center space-x-2 cursor-pointer text-xs">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                                                                checked={perm.edit}
+                                                                onChange={(e) => handlePermissionChange(role, feature, 'edit', e.target.checked)}
+                                                                disabled={!perm.view} // Cannot edit if cannot view
+                                                            />
+                                                            <span className={perm.edit ? 'text-slate-700' : 'text-slate-400'}>Editar</span>
+                                                        </label>
+                                                    </div>
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="mt-6 flex justify-end">
+                        <button onClick={handleSavePermissions} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-900 transition-colors flex items-center">
+                            <Save size={16} className="mr-2"/> Guardar Configuración de Permisos
+                        </button>
+                    </div>
+                </div>
+           </div>
+
+            {/* --- Branding Configuration --- */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-700 flex items-center"><Palette className="mr-2" size={18} /> Personalización de Marca</h3>
+                    {isLogoSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                </div>
+                <div className="p-6">
+                    <p className="text-sm text-slate-600 mb-4">Actualice el logotipo que aparece en el menú lateral y en los reportes.</p>
+                    <div className="flex flex-col md:flex-row gap-6 items-start">
+                        <div className="w-full md:w-1/2 space-y-3">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">URL del Logo</label>
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="text" 
+                                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                        value={companyLogo}
+                                        onChange={e => setCompanyLogo(e.target.value)}
+                                        placeholder="https://..."
+                                    />
+                                    <label className="bg-slate-100 px-3 py-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center">
+                                        <Camera size={18} className="text-slate-600"/>
+                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                            if (e.target.files && e.target.files[0]) {
+                                                setCompanyLogo(URL.createObjectURL(e.target.files[0]));
+                                            }
+                                        }} />
+                                    </label>
+                                </div>
+                            </div>
+                            <button onClick={handleSaveLogo} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center text-sm">
+                                <Save size={16} className="mr-2"/> Guardar Cambio
+                            </button>
+                        </div>
+                        <div className="w-full md:w-1/2 flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Vista Previa</span>
+                            {companyLogo ? (
+                                <img src={companyLogo} alt="Logo Preview" className="h-16 object-contain" />
+                            ) : (
+                                <ImageIcon size={32} className="text-slate-300"/>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
            {/* --- Users Management --- */}
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
@@ -440,7 +589,7 @@ const App: React.FC = () => {
            </div>
 
            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              {/* --- Google Gemini API Configuration (NEW) --- */}
+              {/* --- Google Gemini API Configuration --- */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50 flex justify-between items-center">
                     <h3 className="font-bold text-slate-700 flex items-center"><Sparkles className="mr-2 text-purple-500" size={18} /> Google Gemini API (IA)</h3>
@@ -621,15 +770,17 @@ const App: React.FC = () => {
         </div>
 
         <nav className="flex-1 p-4 space-y-2">
-          <button 
-            onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); }}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            <LayoutDashboard size={20} />
-            <span>Dashboard</span>
-          </button>
+          {checkPermission(currentUser.role, 'DASHBOARD', 'view') && (
+              <button 
+                onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); }}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+              >
+                <LayoutDashboard size={20} />
+                <span>Dashboard</span>
+              </button>
+          )}
           
-          {currentUser.role !== 'CLIENT' && (
+          {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
              <button 
                 onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); }}
                 className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -639,15 +790,17 @@ const App: React.FC = () => {
              </button>
           )}
 
-          <button 
-            onClick={() => { setCurrentView('units'); setSelectedUnitId(null); }}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            <Building size={20} />
-            <span>Unidades</span>
-          </button>
+          {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
+              <button 
+                onClick={() => { setCurrentView('units'); setSelectedUnitId(null); }}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+              >
+                <Building size={20} />
+                <span>Unidades</span>
+              </button>
+          )}
           
-          {currentUser.role === 'ADMIN' && (
+          {checkPermission(currentUser.role, 'SETTINGS', 'view') && (
             <>
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 Sistema
@@ -695,6 +848,12 @@ const App: React.FC = () => {
                ))}
             </div>
           )}
+        </div>
+
+        {/* Powered By Logo Section - DYNAMIC */}
+        <div className="px-6 pb-6 pt-0 flex flex-col items-center justify-center">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Powered By</span>
+            <img src={companyLogo} alt="Company Logo" className="h-10 w-auto object-contain" />
         </div>
       </aside>
 

@@ -1,9 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers } from 'lucide-react';
 import { generateExecutiveReport } from '../services/geminiService';
 import { syncResourceWithInventory } from '../services/inventoryService';
+import { checkPermission } from '../services/permissionService';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -26,7 +27,7 @@ const STATUS_COLORS = {
 };
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, onBack, onUpdate }) => {
-  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview'>('overview');
+  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint'>('overview');
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
   
@@ -50,7 +51,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [assetAssignmentForm, setAssetAssignmentForm] = useState({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState({ name: '', zone: '', shift: '' });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string }>({ name: '', zones: [], shift: '' });
 
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -67,7 +68,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Add Logistics Resource State
   const [showAddResourceModal, setShowAddResourceModal] = useState(false);
   const [newResourceType, setNewResourceType] = useState<ResourceType>(ResourceType.EQUIPMENT);
-  const [newResourceForm, setNewResourceForm] = useState<Partial<Resource>>({ name: '', quantity: 1, status: 'Operativo' });
+  const [newResourceForm, setNewResourceForm] = useState<Partial<Resource>>({ name: '', quantity: 1, status: 'Operativo', assignedZones: [] });
 
   // Log/Event State
   const [showEventModal, setShowEventModal] = useState(false);
@@ -79,12 +80,75 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [editingLog, setEditingLog] = useState<OperationalLog | null>(null);
   const [newLogImageUrl, setNewLogImageUrl] = useState('');
 
-  const canEdit = userRole === 'ADMIN' || userRole === 'OPERATIONS';
+  // Blueprint State
+  const [isEditingBlueprint, setIsEditingBlueprint] = useState(false);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(null); // NEW: Manage layers
+  const [gridRows, setGridRows] = useState(12); // Dynamic rows
+
+  // Drag & Resize State for Zones
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [interactionState, setInteractionState] = useState<{
+      type: 'idle' | 'drag' | 'resize';
+      zoneId: string | null;
+      startGridX: number;
+      startGridY: number;
+      startLayout: { x: number, y: number, w: number, h: number };
+  }>({ type: 'idle', zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:1,y:1,w:1,h:1} });
+
+
+  // --- PERMISSIONS CHECKS ---
+  const canEditGeneral = checkPermission(userRole, 'UNIT_OVERVIEW', 'edit');
+  const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
+  const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
+  const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
+  const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit');
 
   // CRITICAL FIX: Sync local edit state when parent unit prop changes
   useEffect(() => {
     setEditForm(unit);
   }, [unit]);
+
+  // Initial Layer Set
+  useEffect(() => {
+    if (!activeLayerId && unit.blueprintLayers && unit.blueprintLayers.length > 0) {
+        setActiveLayerId(unit.blueprintLayers[0].id);
+    }
+  }, [unit, activeLayerId]);
+
+  // Infinite Canvas Logic - Initial Calculation
+  useEffect(() => {
+    let maxRow = 12;
+    unit.zones.forEach(z => {
+        if (z.layout && (z.layout.y + z.layout.h) > maxRow) {
+            maxRow = z.layout.y + z.layout.h + 2;
+        }
+    });
+    setGridRows(maxRow);
+  }, [unit.zones]);
+
+  // Handle Bottom Edge Resize (Infinite Canvas)
+  const handleMapResizeStart = (e: React.MouseEvent) => {
+    if (!isEditingBlueprint) return;
+    e.preventDefault();
+    
+    const startY = e.clientY;
+    const startRows = gridRows;
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+        const deltaY = moveEvent.clientY - startY;
+        const addedRows = Math.floor(deltaY / 60); // approx 60px per row
+        setGridRows(Math.max(12, startRows + addedRows));
+    };
+    
+    const handleMouseUp = () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
 
   // --- AI Reporting ---
   const handleGenerateReport = async () => {
@@ -110,10 +174,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const handleAddZone = () => {
     if (!newZoneName) return;
-    const newZone = {
+    const newZone: Zone = {
       id: `z-${Date.now()}`,
       name: newZoneName,
-      shifts: newZoneShifts.split(',').map(s => s.trim()).filter(s => s !== '')
+      shifts: newZoneShifts.split(',').map(s => s.trim()).filter(s => s !== ''),
+      layout: { 
+          x: 1, y: 1, w: 2, h: 2, color: '#e2e8f0',
+          layerId: activeLayerId || undefined // Assign to current layer
+      }, 
+      area: 0
     };
     if (newZone.shifts.length === 0) newZone.shifts = ['Diurno']; // Default
     
@@ -131,6 +200,34 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       zones: editForm.zones.filter(z => z.id !== zoneId)
     });
   };
+
+  // --- Blueprint Layer Management ---
+  const handleAddLayer = () => {
+      if(!onUpdate) return;
+      const newLayer = { id: `bl-${Date.now()}`, name: `Nivel ${ (unit.blueprintLayers?.length || 0) + 1}` };
+      const updatedLayers = [...(unit.blueprintLayers || []), newLayer];
+      onUpdate({ ...unit, blueprintLayers: updatedLayers });
+      setActiveLayerId(newLayer.id);
+  };
+
+  const handleDeleteLayer = (layerId: string) => {
+      if(!onUpdate) return;
+      if (confirm('¿Eliminar este nivel y todas sus zonas?')) {
+          const updatedLayers = (unit.blueprintLayers || []).filter(l => l.id !== layerId);
+          // Also remove zones in this layer
+          const updatedZones = unit.zones.filter(z => z.layout?.layerId !== layerId);
+          onUpdate({ ...unit, blueprintLayers: updatedLayers, zones: updatedZones });
+          if (updatedLayers.length > 0) setActiveLayerId(updatedLayers[0].id);
+          else setActiveLayerId(null);
+      }
+  };
+
+  const handleRenameLayer = (layerId: string, newName: string) => {
+      if (!onUpdate) return;
+      const updatedLayers = (unit.blueprintLayers || []).map(l => l.id === layerId ? { ...l, name: newName } : l);
+      onUpdate({ ...unit, blueprintLayers: updatedLayers });
+  };
+
 
   // --- Edit Unit Images ---
   const handleAddImageToEdit = () => {
@@ -170,6 +267,97 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              }
          });
      }
+  };
+
+  // --- BLUEPRINT INTERACTION LOGIC ---
+
+  // 2. Handle Zone Drag & Drop
+  const handleGridMouseDown = (e: React.MouseEvent, zone: Zone, type: 'drag' | 'resize') => {
+      if (!isEditingBlueprint || !gridRef.current) return;
+      e.stopPropagation(); // Prevent triggering parent clicks
+      e.preventDefault();  // Prevent text selection
+
+      const gridRect = gridRef.current.getBoundingClientRect();
+      const cellWidth = gridRect.width / 12; // 12 column grid
+      const cellHeight = gridRect.height / gridRows; // DYNAMIC row grid
+
+      // Calculate initial mouse grid position
+      const startGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
+      const startGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
+
+      setInteractionState({
+          type,
+          zoneId: zone.id,
+          startGridX,
+          startGridY,
+          startLayout: { ...(zone.layout || {x:1,y:1,w:2,h:2,color:'#ccc', layerId: activeLayerId || undefined}) }
+      });
+      setSelectedZoneId(zone.id);
+  };
+
+  const handleGridMouseMove = (e: React.MouseEvent) => {
+      if (interactionState.type === 'idle' || !gridRef.current || !interactionState.zoneId) return;
+
+      const gridRect = gridRef.current.getBoundingClientRect();
+      const cellWidth = gridRect.width / 12;
+      const cellHeight = gridRect.height / gridRows; // DYNAMIC
+      
+      const currentGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
+      const currentGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
+
+      const deltaX = currentGridX - interactionState.startGridX;
+      const deltaY = currentGridY - interactionState.startGridY;
+
+      const zonesCopy = [...unit.zones];
+      const zoneIndex = zonesCopy.findIndex(z => z.id === interactionState.zoneId);
+      if (zoneIndex === -1) return;
+
+      const zone = { ...zonesCopy[zoneIndex] };
+      const baseLayout = interactionState.startLayout;
+
+      if (interactionState.type === 'drag') {
+          // Update X/Y
+          let newX = baseLayout.x + deltaX;
+          let newY = baseLayout.y + deltaY;
+          
+          // Boundaries (12 columns, gridRows rows)
+          newX = Math.max(1, Math.min(newX, 13 - baseLayout.w));
+          newY = Math.max(1, Math.min(newY, (gridRows + 1) - baseLayout.h)); // Use dynamic gridRows
+
+          zone.layout = { ...baseLayout, x: newX, y: newY };
+
+      } else if (interactionState.type === 'resize') {
+          // Update W/H
+          let newW = baseLayout.w + deltaX;
+          let newH = baseLayout.h + deltaY;
+
+          // Min Size & Boundaries
+          newW = Math.max(1, Math.min(newW, 13 - baseLayout.x));
+          newH = Math.max(1, Math.min(newH, (gridRows + 1) - baseLayout.y));
+
+          zone.layout = { ...baseLayout, w: newW, h: newH };
+      }
+
+      // Optimistic update
+      zonesCopy[zoneIndex] = zone;
+      if (onUpdate) onUpdate({ ...unit, zones: zonesCopy });
+  };
+
+  const handleGridMouseUp = () => {
+      setInteractionState({ type: 'idle', zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:0,y:0,w:0,h:0} });
+  };
+
+  const updateSelectedZoneDetails = (key: string, value: any) => {
+      if (!selectedZoneId || !onUpdate) return;
+      const zonesCopy = unit.zones.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
+      if (key === 'color') {
+           // Color is nested in layout
+           const target = unit.zones.find(z => z.id === selectedZoneId);
+           if (target) {
+               zonesCopy.splice(zonesCopy.indexOf(target), 1, { ...target, layout: { ...target.layout!, color: value } });
+           }
+      }
+      onUpdate({ ...unit, zones: zonesCopy });
   };
 
 
@@ -247,7 +435,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       type: ResourceType.PERSONNEL,
       quantity: 1,
       status: StaffStatus.ACTIVE,
-      assignedZone: newWorkerForm.zone,
+      assignedZones: newWorkerForm.zones, // Use array
       assignedShift: newWorkerForm.shift,
       compliancePercentage: 100,
       trainings: [],
@@ -255,7 +443,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     };
     onUpdate({ ...unit, resources: [...unit.resources, newWorker] });
     setShowAddWorkerModal(false);
-    setNewWorkerForm({ name: '', zone: '', shift: '' });
+    setNewWorkerForm({ name: '', zones: [], shift: '' });
   };
 
   // NEW: Helper to add single Training/Asset directly from expanded view
@@ -360,7 +548,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       quantity: newResourceForm.quantity || 1,
       status: newResourceType === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo',
       unitOfMeasure: newResourceForm.unitOfMeasure,
-      assignedZone: newResourceForm.assignedZone,
+      assignedZones: newResourceForm.assignedZones || [],
       nextMaintenance: newResourceForm.nextMaintenance,
       lastRestock: newResourceForm.lastRestock,
       image: newResourceForm.image,
@@ -368,12 +556,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     };
     onUpdate({ ...unit, resources: [...unit.resources, newResource] });
     setShowAddResourceModal(false);
-    setNewResourceForm({ name: '', quantity: 1, status: 'Operativo', externalId: '' });
+    setNewResourceForm({ name: '', quantity: 1, status: 'Operativo', externalId: '', assignedZones: [] });
   };
 
   const openAddResourceModal = (type: ResourceType) => {
     setNewResourceType(type);
-    setNewResourceForm({ name: '', quantity: 1, status: type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo', externalId: '' });
+    setNewResourceForm({ name: '', quantity: 1, status: type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo', externalId: '', assignedZones: [] });
     setShowAddResourceModal(true);
   }
 
@@ -543,6 +731,412 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      return id;
   };
 
+  // Helper component for multi-zone selection
+  const ZoneMultiSelect = ({ selectedZones, onChange }: { selectedZones: string[], onChange: (zones: string[]) => void }) => {
+     const toggleZone = (zoneName: string) => {
+        if (selectedZones.includes(zoneName)) {
+           onChange(selectedZones.filter(z => z !== zoneName));
+        } else {
+           onChange([...selectedZones, zoneName]);
+        }
+     }
+     
+     return (
+        <div className="border border-slate-300 rounded-lg p-2 max-h-32 overflow-y-auto bg-white">
+           {unit.zones.map(z => (
+               <label key={z.id} className="flex items-center p-1 hover:bg-slate-50 cursor-pointer text-sm">
+                   <input 
+                      type="checkbox" 
+                      className="mr-2"
+                      checked={selectedZones.includes(z.name)}
+                      onChange={() => toggleZone(z.name)}
+                   />
+                   <span className="text-slate-700">{z.name}</span>
+               </label>
+           ))}
+           {unit.zones.length === 0 && <span className="text-xs text-slate-400 italic p-1">No hay zonas definidas.</span>}
+        </div>
+     );
+  };
+
+  // --- BLUEPRINT RENDERER ---
+  const renderBlueprint = () => {
+    const selectedZone = unit.zones.find(z => z.id === selectedZoneId);
+    
+    // Filter resources that have this zone in their assignedZones array
+    const zoneResources = selectedZone ? unit.resources.filter(r => r.assignedZones?.includes(selectedZone.name)) : [];
+    
+    // Split for better display in sidebar
+    const zonePersonnel = zoneResources.filter(r => r.type === ResourceType.PERSONNEL);
+    const zoneEquipment = zoneResources.filter(r => r.type === ResourceType.EQUIPMENT);
+    const zoneMaterials = zoneResources.filter(r => r.type === ResourceType.MATERIAL);
+
+    // Summary Calculations for Header
+    const totalArea = unit.zones.reduce((acc, z) => acc + (z.area || 0), 0);
+    const totalPersonnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
+    const totalEquipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT).length;
+    const totalMaterials = unit.resources.filter(r => r.type === ResourceType.MATERIAL).length;
+    
+    // Filter zones for current layer
+    const activeLayers = unit.blueprintLayers || [];
+    const currentZones = unit.zones.filter(z => !activeLayerId || z.layout?.layerId === activeLayerId || (!z.layout?.layerId && activeLayers.length > 0 && activeLayerId === activeLayers[0].id));
+
+    return (
+    <div className="flex flex-col h-full animate-in fade-in duration-300 pb-10">
+       
+       {/* 1. TOP SUMMARY HEADER */}
+       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                  <p className="text-xs text-slate-500 uppercase font-bold">Área Total</p>
+                  <p className="text-xl font-bold text-slate-800">{totalArea} m²</p>
+              </div>
+              <div className="p-2 bg-slate-100 rounded-lg text-slate-500"><Maximize size={20}/></div>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                  <p className="text-xs text-slate-500 uppercase font-bold">Dotación Total</p>
+                  <p className="text-xl font-bold text-slate-800">{totalPersonnel}</p>
+              </div>
+              <div className="p-2 bg-blue-100 rounded-lg text-blue-600"><Users size={20}/></div>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                  <p className="text-xs text-slate-500 uppercase font-bold">Maquinaria</p>
+                  <p className="text-xl font-bold text-slate-800">{totalEquipment}</p>
+              </div>
+              <div className="p-2 bg-orange-100 rounded-lg text-orange-600"><Truck size={20}/></div>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                  <p className="text-xs text-slate-500 uppercase font-bold">Insumos/Mat</p>
+                  <p className="text-xl font-bold text-slate-800">{totalMaterials}</p>
+              </div>
+              <div className="p-2 bg-purple-100 rounded-lg text-purple-600"><Package size={20}/></div>
+          </div>
+       </div>
+
+       {/* Toolbar & Layer Tabs */}
+       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-20 mb-4">
+           <div className="flex justify-between items-center mb-4">
+               <div>
+                   <h3 className="font-bold text-slate-700 text-lg flex items-center"><LayoutGrid className="mr-2"/> Plano de Distribución</h3>
+                   <p className="text-xs text-slate-500">Distribución de zonas por niveles.</p>
+               </div>
+               {canEditBlueprint && (
+                   <button 
+                      onClick={() => setIsEditingBlueprint(!isEditingBlueprint)} 
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center shadow-sm ${isEditingBlueprint ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                   >
+                       {isEditingBlueprint ? <CheckSquare size={16} className="mr-2"/> : <Edit2 size={16} className="mr-2"/>} 
+                       {isEditingBlueprint ? 'Finalizar Edición' : 'Editar Plano'}
+                   </button>
+               )}
+           </div>
+
+           {/* Layer Tabs */}
+           <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-100">
+                {activeLayers.map(layer => (
+                    <div 
+                        key={layer.id}
+                        className={`px-4 py-2 rounded-t-lg text-sm font-medium cursor-pointer flex items-center gap-2 border-b-2 transition-colors
+                            ${activeLayerId === layer.id ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}
+                        `}
+                        onClick={() => setActiveLayerId(layer.id)}
+                    >
+                        <Layers size={14}/>
+                        {isEditingBlueprint ? (
+                            <input 
+                                type="text" 
+                                className="bg-transparent border-b border-slate-300 outline-none w-20 text-xs" 
+                                value={layer.name} 
+                                onChange={(e) => handleRenameLayer(layer.id, e.target.value)}
+                                onClick={e => e.stopPropagation()}
+                            />
+                        ) : (
+                            <span>{layer.name}</span>
+                        )}
+                        {isEditingBlueprint && (
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteLayer(layer.id); }} className="text-slate-300 hover:text-red-500"><X size={12}/></button>
+                        )}
+                    </div>
+                ))}
+                
+                {isEditingBlueprint && (
+                    <button onClick={handleAddLayer} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-full transition-colors" title="Agregar Nivel/Página">
+                        <Plus size={16}/>
+                    </button>
+                )}
+           </div>
+       </div>
+
+       <div className="flex flex-col lg:flex-row gap-6 h-[700px] lg:h-[600px]">
+           {/* MAP CANVAS */}
+           <div 
+              className="flex-1 bg-slate-900 rounded-xl relative overflow-hidden shadow-inner border border-slate-700 select-none flex flex-col"
+           >
+              {/* Scrollable Container */}
+              <div 
+                  ref={gridRef}
+                  className="flex-1 overflow-auto relative custom-scrollbar bg-slate-900"
+                  onMouseMove={handleGridMouseMove}
+                  onMouseUp={handleGridMouseUp}
+                  onMouseLeave={handleGridMouseUp}
+              >
+                  {/* Grid Background Pattern */}
+                  <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '8.33% 8.33%' }}></div>
+                  
+                  {/* Grid Container (12 cols x 12 rows fixed per page) */}
+                  <div 
+                    className="grid grid-cols-12 gap-2 w-full p-8 min-h-[600px] min-w-[600px]"
+                    style={{ gridTemplateRows: `repeat(${gridRows}, minmax(60px, 1fr))` }} // Dynamic Rows
+                  >
+                      {currentZones.map(zone => {
+                          // Count resources in this zone (checking inclusion in array)
+                          const zP = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.assignedZones?.includes(zone.name)).length;
+                          const zE = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT && r.assignedZones?.includes(zone.name)).length;
+                          const zM = unit.resources.filter(r => r.type === ResourceType.MATERIAL && r.assignedZones?.includes(zone.name)).length;
+                          
+                          // Defaults if no layout
+                          const layout = zone.layout || { x: 1, y: 1, w: 2, h: 2, color: '#94a3b8' };
+                          const isSelected = selectedZoneId === zone.id;
+                          
+                          return (
+                              <div 
+                                    key={zone.id}
+                                    onMouseDown={(e) => isEditingBlueprint ? handleGridMouseDown(e, zone, 'drag') : setSelectedZoneId(zone.id)}
+                                    onClick={() => !isEditingBlueprint && setSelectedZoneId(zone.id)}
+                                    className={`rounded-xl flex flex-col shadow-lg transition-all border-2 relative overflow-hidden group
+                                        ${isEditingBlueprint ? 'cursor-move' : 'cursor-pointer'}
+                                        ${isSelected ? 'ring-4 ring-white ring-offset-2 ring-offset-slate-900 z-20 shadow-2xl scale-[1.02]' : 'border-transparent/20 hover:scale-[1.01]'}
+                                    `}
+                                    style={{
+                                        gridColumnStart: layout.x,
+                                        gridColumnEnd: `span ${layout.w}`,
+                                        gridRowStart: layout.y,
+                                        gridRowEnd: `span ${layout.h}`,
+                                        backgroundColor: layout.color,
+                                        color: '#1e293b'
+                                    }}
+                              >
+                                  {/* Zone Header */}
+                                  <div className="flex justify-between items-center p-3 bg-white/20 backdrop-blur-sm">
+                                      <span className="font-bold text-xs md:text-sm leading-tight uppercase tracking-wide truncate">{zone.name}</span>
+                                      {isEditingBlueprint && <Move size={12} className="opacity-50"/>}
+                                  </div>
+                                  
+                                  {/* Zone Content (Icons) */}
+                                  <div className="flex-1 p-2 flex flex-col justify-center items-center gap-2">
+                                      <div className="flex gap-4 items-center justify-center">
+                                          {zP > 0 && (
+                                              <div className="flex flex-col items-center">
+                                                  <Users size={24} className="mb-0.5 opacity-80" />
+                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zP}</span>
+                                              </div>
+                                          )}
+                                          {zE > 0 && (
+                                              <div className="flex flex-col items-center">
+                                                  <Truck size={24} className="mb-0.5 opacity-80" />
+                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zE}</span>
+                                              </div>
+                                          )}
+                                            {zM > 0 && (
+                                              <div className="flex flex-col items-center">
+                                                  <Package size={24} className="mb-0.5 opacity-80" />
+                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zM}</span>
+                                              </div>
+                                          )}
+                                      </div>
+                                  </div>
+
+                                  {/* Zone Footer */}
+                                  <div className="p-2 flex justify-between items-end">
+                                      <div className="text-[10px] bg-white/50 px-2 py-0.5 rounded-full font-mono font-medium backdrop-blur-sm shadow-sm">
+                                          {zone.area || 0} m²
+                                      </div>
+                                      
+                                      {/* Resize Handle (Only visible in edit mode) */}
+                                      {isEditingBlueprint && (
+                                          <div 
+                                              className="w-6 h-6 bg-white rounded-full shadow-md flex items-center justify-center cursor-se-resize hover:scale-110 transition-transform absolute bottom-1 right-1"
+                                              onMouseDown={(e) => handleGridMouseDown(e, zone, 'resize')}
+                                          >
+                                              <Maximize2 size={12} className="text-slate-600"/>
+                                          </div>
+                                      )}
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+              </div>
+              
+              {/* Bottom Resize Handle for Infinite Canvas */}
+              {isEditingBlueprint && (
+                  <div 
+                    className="h-4 bg-slate-800 border-t border-slate-700 cursor-ns-resize flex items-center justify-center hover:bg-slate-700 transition-colors z-30"
+                    onMouseDown={handleMapResizeStart}
+                    title="Arrastrar para ampliar el mapa hacia abajo"
+                  >
+                      <GripHorizontal className="text-slate-500" size={16}/>
+                  </div>
+              )}
+           </div>
+
+           {/* DYNAMIC SIDEBAR */}
+           <div className="w-full lg:w-96 flex flex-col gap-6 h-full">
+               
+               {/* 1. Edit Zone Details Panel */}
+               {selectedZone ? (
+                   <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-5 flex flex-col animate-in slide-in-from-right duration-300">
+                       <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                           <div className="flex items-center">
+                               <div className="w-4 h-4 rounded-full mr-2 shadow-sm" style={{ backgroundColor: selectedZone.layout?.color }}></div>
+                               <h4 className="font-bold text-slate-800">Detalle de Zona</h4>
+                           </div>
+                           <button onClick={() => setSelectedZoneId(null)} className="text-slate-400 hover:text-slate-600"><X size={16}/></button>
+                       </div>
+                       
+                       <div className="space-y-4 mb-4">
+                            {/* Editable Fields */}
+                           <div className="grid grid-cols-2 gap-4">
+                               <div>
+                                   <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nombre</label>
+                                   {isEditingBlueprint ? (
+                                       <input type="text" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" value={selectedZone.name} onChange={e => updateSelectedZoneDetails('name', e.target.value)} />
+                                   ) : <p className="text-sm font-medium">{selectedZone.name}</p>}
+                               </div>
+                               <div>
+                                   <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Área (m²)</label>
+                                   {isEditingBlueprint ? (
+                                       <input type="number" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" value={selectedZone.area || 0} onChange={e => updateSelectedZoneDetails('area', Number(e.target.value))} />
+                                   ) : <p className="text-sm font-medium">{selectedZone.area} m²</p>}
+                               </div>
+                           </div>
+                           
+                           {isEditingBlueprint && (
+                               <div>
+                                   <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Color Identificativo</label>
+                                   <div className="flex gap-2 flex-wrap">
+                                       {['#dbeafe', '#dcfce7', '#fef3c7', '#fee2e2', '#f3e8ff', '#ffedd5', '#e2e8f0', '#cbd5e1'].map(c => (
+                                           <div 
+                                             key={c} 
+                                             onClick={() => updateSelectedZoneDetails('color', c)}
+                                             className={`w-8 h-8 rounded-full cursor-pointer shadow-sm border-2 transition-transform hover:scale-110 ${selectedZone.layout?.color === c ? 'border-slate-800 scale-110' : 'border-transparent'}`}
+                                             style={{ backgroundColor: c }}
+                                           />
+                                       ))}
+                                   </div>
+                               </div>
+                           )}
+                       </div>
+
+                       {/* 2. Resources List for Selected Zone (CATEGORIZED) */}
+                       <div className="border-t border-slate-100 pt-4 flex-1 overflow-hidden flex flex-col">
+                            <h5 className="font-bold text-slate-600 text-sm mb-3 flex items-center"><ClipboardList className="mr-2" size={16}/> Recursos Asignados</h5>
+                            
+                            <div className="overflow-y-auto pr-1 custom-scrollbar space-y-4 flex-1">
+                                {zoneResources.length === 0 && (
+                                    <div className="text-center py-6 text-slate-400 text-sm italic border-2 border-dashed border-slate-100 rounded-lg">
+                                        Zona libre de recursos asignados.
+                                    </div>
+                                )}
+                                
+                                {/* PERSONNEL GROUP */}
+                                {zonePersonnel.length > 0 && (
+                                    <div>
+                                        <h6 className="text-[10px] font-bold text-blue-500 uppercase mb-2">Personal ({zonePersonnel.length})</h6>
+                                        <div className="space-y-2">
+                                            {zonePersonnel.map(res => {
+                                                const isShared = (res.assignedZones?.length || 0) > 1;
+                                                return (
+                                                <div key={res.id} className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center justify-between">
+                                                    <div className="flex items-center">
+                                                        <div className={`p-1 rounded-full mr-2 ${isShared ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-100 text-blue-600'}`}>
+                                                            {isShared ? <Share2 size={12}/> : <UserCheck size={12}/>}
+                                                        </div>
+                                                        <div className="truncate">
+                                                            <p className="text-xs font-bold text-slate-700">{res.name}</p>
+                                                            <p className="text-[9px] text-slate-500">
+                                                                {isShared 
+                                                                  ? `Compartido (${res.assignedZones?.length} zonas)` 
+                                                                  : 'Exclusivo'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className={`w-2 h-2 rounded-full ${res.status === 'Activo' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                                </div>
+                                            )})}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* EQUIPMENT GROUP */}
+                                {zoneEquipment.length > 0 && (
+                                    <div>
+                                        <h6 className="text-[10px] font-bold text-orange-500 uppercase mb-2">Maquinaria ({zoneEquipment.length})</h6>
+                                        <div className="space-y-2">
+                                            {zoneEquipment.map(res => {
+                                                const isShared = (res.assignedZones?.length || 0) > 1;
+                                                return (
+                                                <div key={res.id} className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center justify-between">
+                                                    <div className="flex items-center">
+                                                        <div className={`p-1 rounded-full mr-2 ${isShared ? 'bg-indigo-100 text-indigo-600' : 'bg-orange-100 text-orange-600'}`}>
+                                                            {isShared ? <Share2 size={12}/> : <Truck size={12}/>}
+                                                        </div>
+                                                        <div className="truncate">
+                                                            <p className="text-xs font-bold text-slate-700">{res.name}</p>
+                                                            <p className="text-[9px] text-slate-500">{isShared ? `Compartido (${res.assignedZones?.length})` : 'Exclusivo'}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )})}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* MATERIALS GROUP */}
+                                {zoneMaterials.length > 0 && (
+                                    <div>
+                                        <h6 className="text-[10px] font-bold text-purple-500 uppercase mb-2">Insumos ({zoneMaterials.length})</h6>
+                                        <div className="space-y-2">
+                                            {zoneMaterials.map(res => {
+                                                const isShared = (res.assignedZones?.length || 0) > 1;
+                                                return (
+                                                <div key={res.id} className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center justify-between">
+                                                    <div className="flex items-center">
+                                                        <div className={`p-1 rounded-full mr-2 ${isShared ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600'}`}>
+                                                            {isShared ? <Share2 size={12}/> : <Package size={12}/>}
+                                                        </div>
+                                                        <div className="truncate">
+                                                            <p className="text-xs font-bold text-slate-700">{res.name}</p>
+                                                            <p className="text-[9px] text-slate-500">{isShared ? `Compartido (${res.assignedZones?.length})` : 'Exclusivo'}</p>
+                                                        </div>
+                                                    </div>
+                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${res.status === 'Stock Bajo' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                                        {res.quantity}
+                                                    </span>
+                                                </div>
+                                            )})}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                       </div>
+                   </div>
+               ) : (
+                   // Placeholder State
+                   <div className="bg-slate-50 rounded-xl border border-slate-200 border-dashed h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center">
+                       <LayoutGrid size={48} className="mb-4 opacity-20"/>
+                       <h4 className="font-bold text-slate-500">Ninguna Zona Seleccionada</h4>
+                       <p className="text-sm mt-2">Haz clic en una zona del mapa para ver sus detalles, editarla o consultar los recursos asignados.</p>
+                   </div>
+               )}
+           </div>
+       </div>
+    </div>
+  )};
+
   const renderOverview = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       {/* Photo Gallery */}
@@ -630,7 +1224,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {/* General Information Card */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
              <div className="absolute top-4 right-4 flex space-x-2">
-                {canEdit && (
+                {canEditGeneral && (
                   <button 
                     onClick={() => setIsEditing(!isEditing)}
                     className="flex items-center bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
@@ -706,7 +1300,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      </div>
                   </div>
 
-                  <button onClick={handleSaveUnit} className="w-full bg-blue-600 text-white py-2 rounded font-medium hover:bg-blue-700">Guardar Cambios</button>
+                  <button onClick={handleSaveUnit} className="w-full bg-blue-600 text-white py-2.5 rounded font-medium hover:bg-blue-700">Guardar Cambios</button>
                </div>
              ) : (
                <div className="text-sm text-slate-600 space-y-3">
@@ -743,7 +1337,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <h3 className="text-lg font-semibold text-slate-800 flex items-center">
                   <Calendar className="w-5 h-5 mr-2 text-slate-500" /> Agenda Operativa (30 Días)
                 </h3>
-                {canEdit && <button onClick={() => setShowEventModal(true)} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium hover:bg-blue-100 flex items-center"><Plus size={14} className="mr-1"/> Agendar Evento</button>}
+                {canEditLogs && <button onClick={() => setShowEventModal(true)} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium hover:bg-blue-100 flex items-center"><Plus size={14} className="mr-1"/> Agendar Evento</button>}
              </div>
              
              <div className="space-y-3">
@@ -817,13 +1411,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
               <h3 className="font-bold text-slate-700 flex items-center"><Users className="mr-2"/> Dotación de Personal</h3>
               <div className="flex gap-2">
-                  {selectedPersonnelIds.length > 0 && (
+                  {selectedPersonnelIds.length > 0 && canEditPersonnel && (
                       <>
                         <button onClick={() => setShowMassTrainingModal(true)} className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 flex items-center"><Award size={16} className="mr-1.5"/> Asignar Capacitación ({selectedPersonnelIds.length})</button>
                         <button onClick={() => setShowAssetAssignmentModal(true)} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-indigo-100 flex items-center"><Briefcase size={16} className="mr-1.5"/> Asignar Activo/EPP ({selectedPersonnelIds.length})</button>
                       </>
                   )}
-                  {canEdit && <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"><UserPlus size={16} className="mr-1.5"/> Nuevo Colaborador</button>}
+                  {canEditPersonnel && <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"><UserPlus size={16} className="mr-1.5"/> Nuevo Colaborador</button>}
               </div>
           </div>
 
@@ -832,7 +1426,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                     <tr>
-                        <th className="px-6 py-3 text-left"><button onClick={selectAllPersonnel} className="text-slate-400 hover:text-slate-600"><CheckSquare size={16}/></button></th>
+                        <th className="px-6 py-3 text-left"><button onClick={selectAllPersonnel} disabled={!canEditPersonnel} className="text-slate-400 hover:text-slate-600 disabled:opacity-50"><CheckSquare size={16}/></button></th>
                         <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Colaborador</th>
                         <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Zona / Turno</th>
                         <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Estado</th>
@@ -844,17 +1438,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     {personnel.map((p) => (
                         <React.Fragment key={p.id}>
                             <tr className={`hover:bg-slate-50 transition-colors ${expandedPersonnel === p.id ? 'bg-slate-50' : ''}`}>
-                                <td className="px-6 py-4"><button onClick={() => togglePersonnelSelection(p.id)} className={`${selectedPersonnelIds.includes(p.id) ? 'text-blue-600' : 'text-slate-300'}`}>{selectedPersonnelIds.includes(p.id) ? <CheckSquare size={16}/> : <Square size={16}/>}</button></td>
+                                <td className="px-6 py-4"><button disabled={!canEditPersonnel} onClick={() => togglePersonnelSelection(p.id)} className={`${selectedPersonnelIds.includes(p.id) ? 'text-blue-600' : 'text-slate-300'} disabled:opacity-50`}>{selectedPersonnelIds.includes(p.id) ? <CheckSquare size={16}/> : <Square size={16}/>}</button></td>
                                 <td className="px-6 py-4 whitespace-nowrap flex items-center">
                                     <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-xs text-slate-600 mr-3">{p.name.substring(0,2)}</div>
                                     <div className="text-sm font-medium text-slate-900">{p.name}</div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{p.assignedZone} <span className="text-slate-400">•</span> {p.assignedShift}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                                   {p.assignedZones && p.assignedZones.length > 0 ? (
+                                     <span title={p.assignedZones.join(', ')}>
+                                       {p.assignedZones.length > 1 ? `${p.assignedZones.length} Zonas` : p.assignedZones[0]}
+                                     </span>
+                                   ) : <span className="text-slate-400">Sin Zona</span>}
+                                   <span className="text-slate-400 mx-1">•</span> {p.assignedShift}
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${STATUS_COLORS[p.status as keyof typeof STATUS_COLORS] || 'bg-gray-100'}`}>{p.status}</span></td>
                                 <td className="px-6 py-4 whitespace-nowrap"><div className="w-24 bg-slate-200 rounded-full h-1.5 mt-1"><div className="bg-green-500 h-1.5 rounded-full" style={{width: `${p.compliancePercentage}%`}}></div></div><span className="text-xs text-slate-500 mt-1 block">{p.compliancePercentage}%</span></td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium flex justify-end gap-2">
                                     <button onClick={() => togglePersonnelExpand(p.id)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded">{expandedPersonnel === p.id ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}</button>
-                                    {canEdit && <button onClick={() => setEditingResource(p)} className="text-slate-400 hover:text-slate-600 p-1.5"><Edit2 size={16}/></button>}
+                                    {canEditPersonnel && <button onClick={() => setEditingResource(p)} className="text-slate-400 hover:text-slate-600 p-1.5"><Edit2 size={16}/></button>}
                                 </td>
                             </tr>
                             {expandedPersonnel === p.id && (
@@ -865,7 +1466,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
                                                 <div className="flex justify-between items-center mb-3">
                                                     <h4 className="text-xs font-bold uppercase text-slate-500 flex items-center"><Award className="mr-1.5" size={14}/> Historial de Capacitaciones</h4>
-                                                    {canEdit && <button onClick={() => handleAddSingleTraining(p.id)} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 flex items-center"><Plus size={10} className="mr-1"/> Agregar</button>}
+                                                    {canEditPersonnel && <button onClick={() => handleAddSingleTraining(p.id)} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 flex items-center"><Plus size={10} className="mr-1"/> Agregar</button>}
                                                 </div>
                                                 {p.trainings && p.trainings.length > 0 ? (
                                                     <div className="space-y-2">
@@ -874,7 +1475,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                                 <div><span className="font-medium text-slate-800">{t.topic}</span><div className="text-xs text-slate-500">{t.date}</div></div>
                                                                 <div className="flex items-center gap-2">
                                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.status === 'Completado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{t.status}</span>
-                                                                    {canEdit && <button onClick={() => handleDeleteTraining(p.id, t.id)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
+                                                                    {canEditPersonnel && <button onClick={() => handleDeleteTraining(p.id, t.id)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -885,7 +1486,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
                                                 <div className="flex justify-between items-center mb-3">
                                                     <h4 className="text-xs font-bold uppercase text-slate-500 flex items-center"><Briefcase className="mr-1.5" size={14}/> Inventario Asignado</h4>
-                                                    {canEdit && <button onClick={() => handleAddSingleAsset(p.id)} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 flex items-center"><Plus size={10} className="mr-1"/> Agregar</button>}
+                                                    {canEditPersonnel && <button onClick={() => handleAddSingleAsset(p.id)} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 flex items-center"><Plus size={10} className="mr-1"/> Agregar</button>}
                                                 </div>
                                                 {p.assignedAssets && p.assignedAssets.length > 0 ? (
                                                     <div className="space-y-2">
@@ -897,7 +1498,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
                                                                     {asset.serialNumber && <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-mono">{asset.serialNumber}</span>}
-                                                                    {canEdit && <button onClick={() => handleDeleteAsset(p.id, asset.id)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
+                                                                    {canEditPersonnel && <button onClick={() => handleDeleteAsset(p.id, asset.id)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -922,7 +1523,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          <div>
              <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-slate-700 text-lg flex items-center"><Truck className="mr-2"/> Maquinaria y Equipos</h3>
-                {canEdit && <button onClick={() => openAddResourceModal(ResourceType.EQUIPMENT)} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Agregar Equipo</button>}
+                {canEditLogistics && <button onClick={() => openAddResourceModal(ResourceType.EQUIPMENT)} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Agregar Equipo</button>}
              </div>
              
              <div className="flex flex-col gap-4">
@@ -940,12 +1541,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  <div>
                                      <h4 className="font-bold text-slate-800 text-lg">{eq.name}</h4>
                                      <div className="flex items-center text-sm text-slate-500 mt-1">
-                                        <MapPin size={14} className="mr-1"/> {eq.assignedZone}
+                                        <MapPin size={14} className="mr-1"/> 
+                                        {eq.assignedZones && eq.assignedZones.length > 0 ? (
+                                           <span title={eq.assignedZones.join(', ')}>
+                                              {eq.assignedZones.length > 1 ? `${eq.assignedZones.length} Zonas asignadas` : eq.assignedZones[0]}
+                                           </span>
+                                        ) : 'Sin Asignación'}
                                         {eq.externalId && <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded font-mono border border-purple-200 flex items-center"><LinkIcon size={10} className="mr-1"/> {eq.externalId}</span>}
                                      </div>
                                  </div>
                                  <div className="flex gap-2">
-                                     {canEdit && <button onClick={() => setEditingResource(eq)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit2 size={18}/></button>}
+                                     {canEditLogistics && <button onClick={() => setEditingResource(eq)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit2 size={18}/></button>}
                                  </div>
                              </div>
 
@@ -967,7 +1573,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              <div className="w-full border-t border-slate-200 bg-slate-50 p-4 md:w-96 md:border-t-0 md:border-l shrink-0 flex flex-col h-auto md:h-auto animate-in slide-in-from-right-4 duration-300">
                                 <div className="flex justify-between items-center mb-3">
                                     <h5 className="font-bold text-slate-700 text-sm flex items-center"><History size={14} className="mr-1.5"/> Historial Técnico</h5>
-                                    <button onClick={() => setMaintenanceResource(eq)} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 flex items-center"><Plus size={10} className="mr-1"/> Nuevo Reg.</button>
+                                    {canEditLogistics && <button onClick={() => setMaintenanceResource(eq)} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 flex items-center"><Plus size={10} className="mr-1"/> Nuevo Reg.</button>}
                                 </div>
                                 <div className="space-y-3 overflow-y-auto max-h-60 custom-scrollbar pr-1 flex-1">
                                     {eq.maintenanceHistory && eq.maintenanceHistory.length > 0 ? eq.maintenanceHistory.map(record => (
@@ -1012,13 +1618,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          <div>
              <div className="flex justify-between items-center mb-4 pt-4 border-t border-slate-200">
                 <h3 className="font-bold text-slate-700 text-lg flex items-center"><PackagePlus className="mr-2"/> Insumos y Materiales</h3>
-                {canEdit && <button onClick={() => openAddResourceModal(ResourceType.MATERIAL)} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Agregar Material</button>}
+                {canEditLogistics && <button onClick={() => openAddResourceModal(ResourceType.MATERIAL)} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Agregar Material</button>}
              </div>
              
              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                  {materials.map(mat => (
                      <div key={mat.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative group hover:shadow-md transition-shadow">
-                         {canEdit && <button onClick={() => setEditingResource(mat)} className="absolute top-2 right-2 p-1.5 bg-white/80 rounded-full text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={14}/></button>}
+                         {canEditLogistics && <button onClick={() => setEditingResource(mat)} className="absolute top-2 right-2 p-1.5 bg-white/80 rounded-full text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={14}/></button>}
                          
                          <div className="h-24 w-full bg-slate-50 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
                              {mat.image ? <img src={mat.image} className="w-full h-full object-cover" alt={mat.name} /> : <Box className="text-slate-300" size={32}/>}
@@ -1031,7 +1637,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  <p className="font-bold text-lg text-slate-800">{mat.quantity} <span className="text-xs font-normal text-slate-400">{mat.unitOfMeasure}</span></p>
                              </div>
                              {/* Sync Button */}
-                             {canEdit && mat.externalId && (
+                             {canEditLogistics && mat.externalId && (
                                  <button 
                                    onClick={() => handleSyncInventory(mat)} 
                                    disabled={isSyncing === mat.id}
@@ -1045,7 +1651,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          <div className={`mt-2 text-[10px] font-bold px-2 py-0.5 rounded text-center ${STATUS_COLORS[mat.status as keyof typeof STATUS_COLORS]}`}>{mat.status}</div>
                          
                          <div className="mt-2 flex justify-between items-center border-t border-slate-100 pt-1.5">
-                            <span className="text-[10px] text-slate-400">Reposición: {mat.lastRestock || '-'}</span>
+                            <span className="text-[10px] text-slate-400">
+                                {mat.assignedZones && mat.assignedZones.length > 0 ? (
+                                    mat.assignedZones.length > 1 ? `${mat.assignedZones.length} Zonas` : mat.assignedZones[0]
+                                ) : 'Sin Zona'}
+                            </span>
                             {mat.externalId && <span className="text-[9px] bg-purple-50 text-purple-600 px-1 rounded border border-purple-100">{mat.externalId}</span>}
                          </div>
                      </div>
@@ -1060,7 +1670,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       <div className="space-y-6 animate-in fade-in duration-300 pb-10">
           <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-slate-700 text-lg flex items-center"><ClipboardList className="mr-2"/> Bitácora de Sucesos</h3>
-              {canEdit && <button onClick={() => setShowEventModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Nuevo Registro</button>}
+              {canEditLogs && <button onClick={() => setShowEventModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Nuevo Registro</button>}
           </div>
 
           <div className="relative border-l-2 border-slate-200 ml-4 space-y-8">
@@ -1076,7 +1686,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   </div>
                                   <p className="text-xs text-slate-500 mt-1">Registrado por: {log.author}</p>
                               </div>
-                              {canEdit && <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-1"><Edit2 size={16}/></button>}
+                              {canEditLogs && <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-1"><Edit2 size={16}/></button>}
                           </div>
                           
                           <p className="text-slate-700 text-sm leading-relaxed mb-3">{log.description}</p>
@@ -1125,11 +1735,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           </div>
         </div>
         <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-full md:w-fit overflow-x-auto">
-          {['overview', 'personnel', 'logistics', 'management'].map(t => (
-            <button key={t} onClick={() => setActiveTab(t as any)} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === t ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-               {t === 'overview' ? 'General' : t === 'personnel' ? 'Personal' : t === 'logistics' ? 'Logística' : 'Supervisión'}
-            </button>
-          ))}
+          {checkPermission(userRole, 'UNIT_OVERVIEW', 'view') && (
+              <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'overview' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>General</button>
+          )}
+          {checkPermission(userRole, 'PERSONNEL', 'view') && (
+              <button onClick={() => setActiveTab('personnel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'personnel' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Personal</button>
+          )}
+          {checkPermission(userRole, 'LOGISTICS', 'view') && (
+              <button onClick={() => setActiveTab('logistics')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'logistics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Logística</button>
+          )}
+          {checkPermission(userRole, 'LOGS', 'view') && (
+              <button onClick={() => setActiveTab('management')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'management' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Supervisión</button>
+          )}
+          {checkPermission(userRole, 'BLUEPRINT', 'view') && (
+              <button onClick={() => setActiveTab('blueprint')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'blueprint' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Plano</button>
+          )}
         </div>
       </div>
 
@@ -1138,11 +1758,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'personnel' && renderPersonnel()}
         {activeTab === 'logistics' && renderLogistics()}
         {activeTab === 'management' && renderManagement()}
+        {activeTab === 'blueprint' && renderBlueprint()}
       </div>
-
-      {/* --- MODALS --- */}
       
-      {/* ... [New Maintenance Entry Modal - Unchanged] ... */}
+      {/* ... [Modals Section - same structure, just wrapped in conditional logic where necessary] ... */}
+      
+      {/* ... (Existing Modals remain unchanged in structure, but triggers are guarded by permissions) ... */}
+      {/* Example: Maintenance Modal only renders if logic above allows setting state */}
+      
+      {/* [The rest of the Modals code is omitted for brevity as it relies on state variables which are now controlled by buttons guarded by permissions] */}
+      {/* I will include the modals just to be safe and ensure the file is complete */}
+      
+      {/* ... [New Maintenance Entry Modal] ... */}
       {maintenanceResource && (
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -1159,87 +1786,85 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 
                 <div className="p-6 overflow-y-auto flex-1 bg-slate-50">
                     {/* Add New Record Form */}
-                    {canEdit && (
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                            <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center"><PlusSquare size={16} className="mr-2 text-blue-600"/> Registrar Evento</h4>
-                            <div className="space-y-3">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label className="text-xs font-medium text-slate-500 block mb-1">Tipo</label>
-                                        <select className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" value={newMaintenanceForm.type} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, type: e.target.value})}>
-                                            <option value="Preventivo">Preventivo</option>
-                                            <option value="Correctivo">Correctivo</option>
-                                            <option value="Supervision">Supervisión</option>
-                                            <option value="Calibracion">Calibración</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-medium text-slate-500 block mb-1">Fecha</label>
-                                        <input type="date" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" value={newMaintenanceForm.date} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, date: e.target.value})} />
-                                    </div>
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center"><PlusSquare size={16} className="mr-2 text-blue-600"/> Registrar Evento</h4>
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-medium text-slate-500 block mb-1">Tipo</label>
+                                    <select className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" value={newMaintenanceForm.type} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, type: e.target.value})}>
+                                        <option value="Preventivo">Preventivo</option>
+                                        <option value="Correctivo">Correctivo</option>
+                                        <option value="Supervision">Supervisión</option>
+                                        <option value="Calibracion">Calibración</option>
+                                    </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-medium text-slate-500 block mb-1">Descripción del Trabajo</label>
-                                    <input type="text" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" placeholder="Detalle de lo realizado..." value={newMaintenanceForm.description} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, description: e.target.value})} />
+                                    <label className="text-xs font-medium text-slate-500 block mb-1">Fecha</label>
+                                    <input type="date" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" value={newMaintenanceForm.date} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, date: e.target.value})} />
                                 </div>
-                                <div>
-                                    <label className="text-xs font-medium text-slate-500 block mb-1">Responsable Externo / Técnico</label>
-                                    <input type="text" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" placeholder="Nombre o Proveedor" value={newMaintenanceForm.technician} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, technician: e.target.value})} />
-                                </div>
-
-                                {/* Internal Responsibles Selection */}
-                                <div>
-                                   <label className="text-xs font-medium text-slate-500 block mb-2">Responsables / Involucrados (Internos)</label>
-                                   <div className="border border-slate-200 rounded-lg max-h-32 overflow-y-auto p-2 bg-slate-50 space-y-2">
-                                      <p className="text-[10px] text-slate-400 uppercase font-bold px-1">Equipo de Gestión</p>
-                                      {availableStaff.map(s => (
-                                          <div key={s.id} onClick={() => toggleMaintenanceResponsible(s.id)} className={`flex items-center p-1.5 rounded cursor-pointer transition-colors ${newMaintenanceResponsibles.includes(s.id) ? 'bg-orange-100 border border-orange-200' : 'hover:bg-slate-100 border border-transparent'}`}>
-                                              <div className={`w-3 h-3 border rounded mr-2 flex items-center justify-center ${newMaintenanceResponsibles.includes(s.id) ? 'bg-orange-600 border-orange-600' : 'border-slate-300 bg-white'}`}>
-                                                  {newMaintenanceResponsibles.includes(s.id) && <Plus size={10} className="text-white"/>}
-                                              </div>
-                                              <span className="text-xs text-slate-700">{s.name}</span>
-                                          </div>
-                                      ))}
-                                      
-                                      <p className="text-[10px] text-slate-400 uppercase font-bold px-1 mt-2">Personal Unidad</p>
-                                      {personnel.length > 0 ? personnel.map(p => (
-                                          <div key={p.id} onClick={() => toggleMaintenanceResponsible(p.id)} className={`flex items-center p-1.5 rounded cursor-pointer transition-colors ${newMaintenanceResponsibles.includes(p.id) ? 'bg-orange-100 border border-orange-200' : 'hover:bg-slate-100 border border-transparent'}`}>
-                                              <div className={`w-3 h-3 border rounded mr-2 flex items-center justify-center ${newMaintenanceResponsibles.includes(p.id) ? 'bg-orange-600 border-orange-600' : 'border-slate-300 bg-white'}`}>
-                                                  {newMaintenanceResponsibles.includes(p.id) && <Plus size={10} className="text-white"/>}
-                                              </div>
-                                              <span className="text-xs text-slate-700">{p.name}</span>
-                                          </div>
-                                      )) : <p className="text-[10px] text-slate-400 italic px-2">No hay personal operativo.</p>}
-                                   </div>
-                                </div>
-
-                                {/* Image Upload for Maintenance */}
-                                <div>
-                                   <label className="text-xs font-medium text-slate-500 block mb-1">Evidencias (Fotos)</label>
-                                   <div className="flex gap-2">
-                                     <input type="text" className="flex-1 border border-slate-300 rounded p-1.5 text-xs outline-none" placeholder="URL..." value={newMaintenanceImageUrl} onChange={e => setNewMaintenanceImageUrl(e.target.value)} />
-                                     <label className="bg-slate-100 p-1.5 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
-                                        <Camera size={16} className="text-slate-600"/>
-                                        <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForMaintenance} />
-                                     </label>
-                                     <button onClick={handleAddImageToMaintenance} disabled={!newMaintenanceImageUrl} className="bg-slate-100 p-1.5 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={16}/></button>
-                                   </div>
-                                   {newMaintenanceImages.length > 0 && (
-                                     <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
-                                       {newMaintenanceImages.map((img, i) => (
-                                         <div key={i} className="w-10 h-10 shrink-0 relative group">
-                                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
-                                            <button onClick={() => setNewMaintenanceImages(newMaintenanceImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={8} /></button>
-                                         </div>
-                                       ))}
-                                     </div>
-                                   )}
-                                </div>
-
-                                <button onClick={handleAddMaintenance} disabled={!newMaintenanceForm.date || !newMaintenanceForm.description} className="w-full bg-blue-600 text-white text-sm font-medium py-2 rounded hover:bg-blue-700 disabled:opacity-50">Guardar Registro</button>
                             </div>
+                            <div>
+                                <label className="text-xs font-medium text-slate-500 block mb-1">Descripción del Trabajo</label>
+                                <input type="text" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" placeholder="Detalle de lo realizado..." value={newMaintenanceForm.description} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, description: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-slate-500 block mb-1">Responsable Externo / Técnico</label>
+                                <input type="text" className="w-full border border-slate-300 rounded p-1.5 text-sm outline-none" placeholder="Nombre o Proveedor" value={newMaintenanceForm.technician} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, technician: e.target.value})} />
+                            </div>
+
+                            {/* Internal Responsibles Selection */}
+                            <div>
+                                <label className="text-xs font-medium text-slate-500 block mb-2">Responsables / Involucrados (Internos)</label>
+                                <div className="border border-slate-200 rounded-lg max-h-32 overflow-y-auto p-2 bg-slate-50 space-y-2">
+                                    <p className="text-[10px] text-slate-400 uppercase font-bold px-1">Equipo de Gestión</p>
+                                    {availableStaff.map(s => (
+                                        <div key={s.id} onClick={() => toggleMaintenanceResponsible(s.id)} className={`flex items-center p-1.5 rounded cursor-pointer transition-colors ${newMaintenanceResponsibles.includes(s.id) ? 'bg-orange-100 border border-orange-200' : 'hover:bg-slate-100 border border-transparent'}`}>
+                                            <div className={`w-3 h-3 border rounded mr-2 flex items-center justify-center ${newMaintenanceResponsibles.includes(s.id) ? 'bg-orange-600 border-orange-600' : 'border-slate-300 bg-white'}`}>
+                                                {newMaintenanceResponsibles.includes(s.id) && <Plus size={10} className="text-white"/>}
+                                            </div>
+                                            <span className="text-xs text-slate-700">{s.name}</span>
+                                        </div>
+                                    ))}
+                                    
+                                    <p className="text-[10px] text-slate-400 uppercase font-bold px-1 mt-2">Personal Unidad</p>
+                                    {personnel.length > 0 ? personnel.map(p => (
+                                        <div key={p.id} onClick={() => toggleMaintenanceResponsible(p.id)} className={`flex items-center p-1.5 rounded cursor-pointer transition-colors ${newMaintenanceResponsibles.includes(p.id) ? 'bg-orange-100 border border-orange-200' : 'hover:bg-slate-100 border border-transparent'}`}>
+                                            <div className={`w-3 h-3 border rounded mr-2 flex items-center justify-center ${newMaintenanceResponsibles.includes(p.id) ? 'bg-orange-600 border-orange-600' : 'border-slate-300 bg-white'}`}>
+                                                {newMaintenanceResponsibles.includes(p.id) && <Plus size={10} className="text-white"/>}
+                                            </div>
+                                            <span className="text-xs text-slate-700">{p.name}</span>
+                                        </div>
+                                    )) : <p className="text-[10px] text-slate-400 italic px-2">No hay personal operativo.</p>}
+                                </div>
+                            </div>
+
+                            {/* Image Upload for Maintenance */}
+                            <div>
+                                <label className="text-xs font-medium text-slate-500 block mb-1">Evidencias (Fotos)</label>
+                                <div className="flex gap-2">
+                                    <input type="text" className="flex-1 border border-slate-300 rounded p-1.5 text-xs outline-none" placeholder="URL..." value={newMaintenanceImageUrl} onChange={e => setNewMaintenanceImageUrl(e.target.value)} />
+                                    <label className="bg-slate-100 p-1.5 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                    <Camera size={16} className="text-slate-600"/>
+                                    <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForMaintenance} />
+                                    </label>
+                                    <button onClick={handleAddImageToMaintenance} disabled={!newMaintenanceImageUrl} className="bg-slate-100 p-1.5 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={16}/></button>
+                                </div>
+                                {newMaintenanceImages.length > 0 && (
+                                    <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
+                                    {newMaintenanceImages.map((img, i) => (
+                                        <div key={i} className="w-10 h-10 shrink-0 relative group">
+                                        <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                        <button onClick={() => setNewMaintenanceImages(newMaintenanceImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={8} /></button>
+                                        </div>
+                                    ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <button onClick={handleAddMaintenance} disabled={!newMaintenanceForm.date || !newMaintenanceForm.description} className="w-full bg-blue-600 text-white text-sm font-medium py-2 rounded hover:bg-blue-700 disabled:opacity-50">Guardar Registro</button>
                         </div>
-                    )}
+                    </div>
                 </div>
              </div>
          </div>
@@ -1268,7 +1893,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     {editingResource.type === ResourceType.PERSONNEL ? (
                     // --- FIELDS FOR PERSONNEL ---
                     <>
-                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona Asignada</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedZone} onChange={e => setEditingResource({...editingResource, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
+                        <div>
+                           <label className="block text-sm font-medium text-slate-700 mb-1">Zonas Asignadas</label>
+                           <ZoneMultiSelect 
+                             selectedZones={editingResource.assignedZones || []} 
+                             onChange={(zones) => setEditingResource({...editingResource, assignedZones: zones})} 
+                           />
+                        </div>
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Turno</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}><option value="">Seleccionar Turno</option><option value="Diurno">Diurno</option><option value="Nocturno">Nocturno</option><option value="Rotativo">Rotativo</option></select></div>
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Estado</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}><option value="Activo">Activo</option><option value="De Licencia">De Licencia</option><option value="Reemplazo Temporal">Reemplazo Temporal</option></select></div>
                     </>
@@ -1299,6 +1930,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              {editingResource.lastSync && <p className="text-[10px] text-purple-600 mt-1">Última sinc: {new Date(editingResource.lastSync).toLocaleString()}</p>}
                          </div>
 
+                        {/* Zone Selector for Material */}
+                        <div className="mt-2">
+                           <label className="block text-sm font-medium text-slate-700 mb-1">Zonas de Ubicación</label>
+                           <ZoneMultiSelect 
+                             selectedZones={editingResource.assignedZones || []} 
+                             onChange={(zones) => setEditingResource({...editingResource, assignedZones: zones})} 
+                           />
+                        </div>
+
                         <div className="grid grid-cols-2 gap-3 mt-2">
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Cantidad</label><input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.quantity} onChange={e => setEditingResource({...editingResource, quantity: Number(e.target.value)})} /></div>
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Unidad</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-100" readOnly value={editingResource.unitOfMeasure} /></div>
@@ -1322,7 +1962,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              </div>
                          </div>
 
-                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Ubicación (Zona)</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedZone} onChange={e => setEditingResource({...editingResource, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
+                        <div>
+                           <label className="block text-sm font-medium text-slate-700 mb-1">Ubicación (Zonas)</label>
+                           <ZoneMultiSelect 
+                             selectedZones={editingResource.assignedZones || []} 
+                             onChange={(zones) => setEditingResource({...editingResource, assignedZones: zones})} 
+                           />
+                        </div>
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Próximo Mantenimiento (Agenda)</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.nextMaintenance || ''} onChange={e => setEditingResource({...editingResource, nextMaintenance: e.target.value})} /></div>
                         
                         {/* Equipment Photo Editing */}
@@ -1372,13 +2018,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      {/* External ID Input for New Resource */}
                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Código SKU / ID Externo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-purple-50 border-purple-200 focus:border-purple-400" placeholder="Opcional para sincronización" value={newResourceForm.externalId || ''} onChange={e => setNewResourceForm({...newResourceForm, externalId: e.target.value})} /></div>
 
+                     {/* Zone Selection - NOW FOR BOTH TYPES */}
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Zonas de Ubicación</label>
+                        <ZoneMultiSelect 
+                           selectedZones={newResourceForm.assignedZones || []} 
+                           onChange={(zones) => setNewResourceForm({...newResourceForm, assignedZones: zones})} 
+                        />
+                     </div>
+
                      {newResourceType === ResourceType.MATERIAL ? (
                         <div className="grid grid-cols-2 gap-3">
                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Cantidad Inicial</label><input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.quantity} onChange={e => setNewResourceForm({...newResourceForm, quantity: Number(e.target.value)})} /></div>
                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Unidad de Medida</label><input type="text" placeholder="Cajas, Litros..." className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.unitOfMeasure || ''} onChange={e => setNewResourceForm({...newResourceForm, unitOfMeasure: e.target.value})} /></div>
                         </div>
                     ) : (
-                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona de Ubicación</label><select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.assignedZone || ''} onChange={e => setNewResourceForm({...newResourceForm, assignedZone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
+                        null
                     )}
 
                     <div><label className="block text-sm font-medium text-slate-700 mb-1">URL Foto (Opcional)</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" placeholder="https://..." value={newResourceForm.image || ''} onChange={e => setNewResourceForm({...newResourceForm, image: e.target.value})} /></div>
@@ -1524,9 +2179,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
                   <div className="p-6 space-y-4 overflow-y-auto">
                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej. Juan Perez" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} /></div>
-                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Zona Asignada</label><select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newWorkerForm.zone} onChange={e => setNewWorkerForm({...newWorkerForm, zone: e.target.value})}><option value="">Seleccionar Zona</option>{unit.zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}</select></div>
+                     
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Zonas Asignadas</label>
+                        <ZoneMultiSelect 
+                           selectedZones={newWorkerForm.zones}
+                           onChange={(zones) => setNewWorkerForm({...newWorkerForm, zones: zones})}
+                        />
+                     </div>
+
                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Turno</label><select className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" value={newWorkerForm.shift} onChange={e => setNewWorkerForm({...newWorkerForm, shift: e.target.value})}><option value="">Seleccionar Turno</option><option value="Diurno">Diurno</option><option value="Nocturno">Nocturno</option><option value="Rotativo">Rotativo</option></select></div>
-                     <button onClick={handleAddWorker} disabled={!newWorkerForm.name || !newWorkerForm.zone} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50">Registrar Personal</button>
+                     <button onClick={handleAddWorker} disabled={!newWorkerForm.name || newWorkerForm.zones.length === 0} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50">Registrar Personal</button>
                   </div>
                </div>
           </div>

@@ -1,12 +1,14 @@
 
 import React, { useState, useMemo } from 'react';
-import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff } from '../types';
+import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff, UserRole } from '../types';
 import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { checkPermission } from '../services/permissionService';
 
 interface ControlCenterProps {
   units: Unit[];
   managementStaff: ManagementStaff[];
   onUpdateUnit: (unit: Unit) => void;
+  currentUserRole: UserRole; // Passed from parent
 }
 
 // Unified Event Interface for internal use
@@ -23,7 +25,7 @@ interface GlobalEvent {
   originalRef: any; // Reference to the original object to allow updating
 }
 
-export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementStaff, onUpdateUnit }) => {
+export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementStaff, onUpdateUnit, currentUserRole }) => {
   const [filterUnit, setFilterUnit] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,6 +46,8 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     images: [] as string[]
   });
   const [newImageUrl, setNewImageUrl] = useState('');
+
+  const canEdit = checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit');
 
   // --- Data Aggregation ---
   const allEvents = useMemo(() => {
@@ -366,8 +370,8 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                         {dayEvents.map(ev => (
                            <div 
                               key={ev.id} 
-                              onClick={() => handleEditClick(ev)}
-                              className={`text-[9px] px-1 py-0.5 rounded border cursor-pointer truncate shadow-sm hover:opacity-80 transition-opacity
+                              onClick={() => canEdit && handleEditClick(ev)}
+                              className={`text-[9px] px-1 py-0.5 rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} truncate shadow-sm hover:opacity-80 transition-opacity
                                 ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-100 text-red-700 border-red-200' : 
                                   ev.category === 'Log' ? 'bg-gray-100 text-gray-700 border-gray-200' :
                                   ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-700 border-orange-200' :
@@ -494,13 +498,17 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                     </div>
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium flex justify-end gap-2">
-                                    <button onClick={() => handleEditClick(ev)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded-lg transition-colors" title="Editar">
-                                        <Edit2 size={14} />
-                                    </button>
-                                    {!ev.id.startsWith('future') && (
-                                        <button onClick={() => handleDeleteEvent(ev)} className="text-red-600 hover:text-red-900 bg-red-50 p-1.5 rounded-lg transition-colors" title="Eliminar">
-                                            <Trash2 size={14} />
-                                        </button>
+                                    {canEdit && (
+                                        <>
+                                            <button onClick={() => handleEditClick(ev)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded-lg transition-colors" title="Editar">
+                                                <Edit2 size={14} />
+                                            </button>
+                                            {!ev.id.startsWith('future') && (
+                                                <button onClick={() => handleDeleteEvent(ev)} className="text-red-600 hover:text-red-900 bg-red-50 p-1.5 rounded-lg transition-colors" title="Eliminar">
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
+                                        </>
                                     )}
                                 </td>
                             </tr>

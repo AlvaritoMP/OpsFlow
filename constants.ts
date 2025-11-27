@@ -1,4 +1,7 @@
 
+
+
+
 import { ManagementStaff, ResourceType, StaffStatus, Unit, UnitStatus, User, UserRole } from "./types";
 
 // Helper to get a future date
@@ -99,10 +102,40 @@ export const MOCK_UNITS: Unit[] = [
         phone: '+51 966 999 000',
         photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop'
     },
+    blueprintLayers: [
+        { id: 'bl1', name: 'Planta Baja' },
+        { id: 'bl2', name: 'Sótanos' },
+        { id: 'bl3', name: 'Pisos Superiores' }
+    ],
     zones: [
-      { id: 'z1', name: 'Recepción / Lobby', shifts: ['Diurno', 'Nocturno'] },
-      { id: 'z2', name: 'Oficinas Piso 1-5', shifts: ['Nocturno'] },
-      { id: 'z3', name: 'Sótanos', shifts: ['Diurno'] }
+      { 
+          id: 'z1', 
+          name: 'Recepción / Lobby', 
+          shifts: ['Diurno', 'Nocturno'],
+          area: 120,
+          layout: { x: 1, y: 4, w: 4, h: 3, color: '#dbeafe', layerId: 'bl1' } // Ground Floor
+      },
+      { 
+          id: 'z2', 
+          name: 'Oficinas Piso 1-5', 
+          shifts: ['Nocturno'],
+          area: 450,
+          layout: { x: 5, y: 1, w: 6, h: 6, color: '#f3e8ff', layerId: 'bl3' } // Upper Floors
+      },
+      { 
+          id: 'z3', 
+          name: 'Sótanos', 
+          shifts: ['Diurno'],
+          area: 300,
+          layout: { x: 1, y: 1, w: 10, h: 6, color: '#e2e8f0', layerId: 'bl2' } // Basement
+      },
+      { 
+        id: 'z_ext', 
+        name: 'Almacén Central', 
+        shifts: ['Diurno'],
+        area: 45,
+        layout: { x: 1, y: 1, w: 3, h: 3, color: '#ffedd5', layerId: 'bl1' } // Ground Floor
+    }
     ],
     resources: [
       {
@@ -111,7 +144,7 @@ export const MOCK_UNITS: Unit[] = [
         type: ResourceType.PERSONNEL,
         quantity: 1,
         status: StaffStatus.ACTIVE,
-        assignedZone: 'General',
+        assignedZones: ['Recepción / Lobby', 'Oficinas Piso 1-5', 'Sótanos'], 
         assignedShift: 'Diurno',
         compliancePercentage: 100,
         trainings: [
@@ -130,7 +163,7 @@ export const MOCK_UNITS: Unit[] = [
         type: ResourceType.PERSONNEL,
         quantity: 1,
         status: StaffStatus.REPLACED,
-        assignedZone: 'Recepción / Lobby',
+        assignedZones: ['Recepción / Lobby'],
         assignedShift: 'Diurno',
         compliancePercentage: 95,
         trainings: [
@@ -147,7 +180,7 @@ export const MOCK_UNITS: Unit[] = [
         type: ResourceType.PERSONNEL,
         quantity: 1,
         status: StaffStatus.ACTIVE,
-        assignedZone: 'Sótanos',
+        assignedZones: ['Sótanos', 'Almacén Central'],
         assignedShift: 'Diurno',
         compliancePercentage: 92,
         trainings: [],
@@ -159,7 +192,7 @@ export const MOCK_UNITS: Unit[] = [
         type: ResourceType.PERSONNEL,
         quantity: 1,
         status: StaffStatus.ACTIVE,
-        assignedZone: 'Oficinas Piso 1-5',
+        assignedZones: ['Oficinas Piso 1-5'],
         assignedShift: 'Nocturno',
         compliancePercentage: 98,
         trainings: [],
@@ -170,7 +203,7 @@ export const MOCK_UNITS: Unit[] = [
         name: 'Lustradora Industrial Karcher',
         type: ResourceType.EQUIPMENT,
         quantity: 2,
-        assignedZone: 'Sótanos',
+        assignedZones: ['Sótanos', 'Recepción / Lobby'],
         assignedShift: 'N/A',
         nextMaintenance: getFutureDate(12),
         status: 'Operativo',
@@ -200,7 +233,7 @@ export const MOCK_UNITS: Unit[] = [
         name: 'Aspiradora Industrial',
         type: ResourceType.EQUIPMENT,
         quantity: 1,
-        assignedZone: 'Oficinas Piso 1-5',
+        assignedZones: ['Oficinas Piso 1-5'],
         assignedShift: 'N/A',
         nextMaintenance: getFutureDate(30),
         status: 'Operativo',
@@ -213,7 +246,7 @@ export const MOCK_UNITS: Unit[] = [
         type: ResourceType.MATERIAL,
         quantity: 50,
         unitOfMeasure: 'Litros',
-        assignedZone: 'Almacén Central',
+        assignedZones: ['Almacén Central', 'Sótanos'],
         lastRestock: '2023-10-01',
         status: 'Stock OK',
         image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?q=80&w=400&auto=format&fit=crop'
@@ -224,7 +257,7 @@ export const MOCK_UNITS: Unit[] = [
         type: ResourceType.MATERIAL,
         quantity: 100,
         unitOfMeasure: 'Rollos',
-        assignedZone: 'Almacén Central',
+        assignedZones: ['Almacén Central', 'Oficinas Piso 1-5', 'Recepción / Lobby'],
         lastRestock: '2023-10-05',
         status: 'Stock Bajo',
         image: 'https://images.unsplash.com/photo-1583947581924-860b89646c8e?q=80&w=400&auto=format&fit=crop'
@@ -264,9 +297,13 @@ export const MOCK_UNITS: Unit[] = [
     images: [
       'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?q=80&w=800&auto=format&fit=crop'
     ],
+    blueprintLayers: [
+        { id: 'bl4', name: 'Nave Central' },
+        { id: 'bl5', name: 'Almacenes' }
+    ],
     zones: [
-      { id: 'z4', name: 'Nave de Producción', shifts: ['Turno A', 'Turno B', 'Turno C'] },
-      { id: 'z5', name: 'Comedores', shifts: ['Turno A', 'Turno B'] }
+      { id: 'z4', name: 'Nave de Producción', shifts: ['Turno A', 'Turno B', 'Turno C'], area: 1200, layout: { x: 1, y: 1, w: 8, h: 8, color: '#e0f2fe', layerId: 'bl4' } },
+      { id: 'z5', name: 'Comedores', shifts: ['Turno A', 'Turno B'], area: 150, layout: { x: 9, y: 1, w: 3, h: 4, color: '#fef3c7', layerId: 'bl4' } }
     ],
     resources: [
       {
@@ -275,7 +312,7 @@ export const MOCK_UNITS: Unit[] = [
         type: ResourceType.PERSONNEL,
         quantity: 5,
         status: StaffStatus.ACTIVE,
-        assignedZone: 'Nave de Producción',
+        assignedZones: ['Nave de Producción'],
         assignedShift: 'Turno C',
         compliancePercentage: 88,
         trainings: [
@@ -292,7 +329,7 @@ export const MOCK_UNITS: Unit[] = [
         name: 'Barredora Mecánica',
         type: ResourceType.EQUIPMENT,
         quantity: 1,
-        assignedZone: 'Nave de Producción',
+        assignedZones: ['Nave de Producción'],
         status: 'En Reparación',
         nextMaintenance: getFutureDate(2),
         image: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?q=80&w=400&auto=format&fit=crop',
