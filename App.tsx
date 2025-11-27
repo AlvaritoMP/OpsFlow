@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
 import { MOCK_UNITS, MOCK_USERS, MOCK_MANAGEMENT_STAFF } from './constants';
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
+import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -39,7 +40,11 @@ const App: React.FC = () => {
 
   // API Config State
   const [apiConfig, setApiConfig] = useState<InventoryApiConfig>(getApiConfig());
-  const [isConfigSaved, setIsConfigSaved] = useState(false);
+  const [isInventoryConfigSaved, setIsInventoryConfigSaved] = useState(false);
+
+  // Gemini API Config State
+  const [geminiKey, setGeminiKey] = useState<string>(getGeminiApiKey() || '');
+  const [isGeminiSaved, setIsGeminiSaved] = useState(false);
 
   // User / Role Context Simulation
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Default to Admin
@@ -161,8 +166,14 @@ const App: React.FC = () => {
   // API Config Handlers
   const handleSaveApiConfig = () => {
     saveApiConfig(apiConfig);
-    setIsConfigSaved(true);
-    setTimeout(() => setIsConfigSaved(false), 3000);
+    setIsInventoryConfigSaved(true);
+    setTimeout(() => setIsInventoryConfigSaved(false), 3000);
+  };
+
+  const handleSaveGeminiKey = () => {
+    saveGeminiApiKey(geminiKey);
+    setIsGeminiSaved(true);
+    setTimeout(() => setIsGeminiSaved(false), 3000);
   };
 
 
@@ -428,69 +439,84 @@ const App: React.FC = () => {
              </div>
            </div>
 
-           {/* --- API Configuration Section (NEW) --- */}
-           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                <h3 className="font-bold text-slate-700 flex items-center"><Globe className="mr-2" size={18} /> Integraciones / API Inventario</h3>
-                {isConfigSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-             </div>
-             <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   <div className="space-y-4">
-                       <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
-                          <div>
-                              <p className="text-sm font-bold text-slate-800">Modo Simulación (Mock Data)</p>
-                              <p className="text-xs text-slate-500">Usar datos de prueba sin conectar al servidor real.</p>
-                          </div>
-                          <button onClick={() => setApiConfig({...apiConfig, useMock: !apiConfig.useMock})} className={`transition-colors ${apiConfig.useMock ? 'text-blue-600' : 'text-slate-400'}`}>
-                              {apiConfig.useMock ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-                          </button>
-                       </div>
-                       
-                       <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Server size={14} className="mr-1"/> Base URL</label>
-                          <input 
-                            type="text" 
-                            className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
-                            value={apiConfig.baseUrl}
-                            onChange={e => setApiConfig({...apiConfig, baseUrl: e.target.value})}
-                            disabled={apiConfig.useMock}
-                            placeholder="https://api.tu-servidor.com/v1"
-                          />
-                       </div>
-
-                       <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Key size={14} className="mr-1"/> API Key / Token</label>
-                          <input 
-                            type="password" 
-                            className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
-                            value={apiConfig.apiKey}
-                            onChange={e => setApiConfig({...apiConfig, apiKey: e.target.value})}
-                            disabled={apiConfig.useMock}
-                            placeholder="••••••••••••••••"
-                          />
-                       </div>
-                   </div>
-
-                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm text-slate-600 flex flex-col justify-between">
-                       <div>
-                         <h4 className="font-bold text-slate-800 mb-2">Instrucciones de Conexión</h4>
-                         <ul className="list-disc list-inside space-y-1 text-xs">
-                             <li>La API debe soportar método GET.</li>
-                             <li>Endpoint esperado: <code>/items/{'{sku}'}</code></li>
-                             <li>La respuesta debe ser JSON con los campos de stock y estado.</li>
-                             <li>El token se enviará como <code>Authorization: Bearer</code>.</li>
-                         </ul>
-                       </div>
-                       <div className="mt-4 text-right">
-                          <button onClick={handleSaveApiConfig} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center ml-auto">
-                              <Save size={16} className="mr-2"/> Guardar Configuración
-                          </button>
-                       </div>
-                   </div>
+           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {/* --- Google Gemini API Configuration (NEW) --- */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-700 flex items-center"><Sparkles className="mr-2 text-purple-500" size={18} /> Google Gemini API (IA)</h3>
+                    {isGeminiSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
                 </div>
-             </div>
+                <div className="p-6 space-y-4">
+                    <p className="text-sm text-slate-600">Configura tu clave API para habilitar la generación de reportes ejecutivos inteligentes.</p>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Key size={14} className="mr-1"/> API Key</label>
+                      <input 
+                        type="password" 
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                        value={geminiKey}
+                        onChange={e => setGeminiKey(e.target.value)}
+                        placeholder="Pegar API Key de Google AI Studio..."
+                      />
+                    </div>
+                    <div className="flex justify-between items-center mt-4">
+                       <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-xs text-purple-600 hover:text-purple-800 underline">Obtener API Key</a>
+                       <button onClick={handleSaveGeminiKey} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center">
+                          <Save size={16} className="mr-2"/> Guardar API Key
+                       </button>
+                    </div>
+                </div>
+              </div>
+
+              {/* --- API Configuration Section (Inventory) --- */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-700 flex items-center"><Globe className="mr-2" size={18} /> API Inventario (Integración)</h3>
+                    {isInventoryConfigSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                </div>
+                <div className="p-6">
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
+                            <div>
+                                <p className="text-sm font-bold text-slate-800">Modo Simulación</p>
+                                <p className="text-xs text-slate-500">Usar datos de prueba.</p>
+                            </div>
+                            <button onClick={() => setApiConfig({...apiConfig, useMock: !apiConfig.useMock})} className={`transition-colors ${apiConfig.useMock ? 'text-blue-600' : 'text-slate-400'}`}>
+                                {apiConfig.useMock ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+                            </button>
+                        </div>
+                        
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Server size={14} className="mr-1"/> Base URL</label>
+                            <input 
+                              type="text" 
+                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                              value={apiConfig.baseUrl}
+                              onChange={e => setApiConfig({...apiConfig, baseUrl: e.target.value})}
+                              disabled={apiConfig.useMock}
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Key size={14} className="mr-1"/> Token</label>
+                            <input 
+                              type="password" 
+                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                              value={apiConfig.apiKey}
+                              onChange={e => setApiConfig({...apiConfig, apiKey: e.target.value})}
+                              disabled={apiConfig.useMock}
+                            />
+                        </div>
+
+                        <div className="mt-4 text-right">
+                            <button onClick={handleSaveApiConfig} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center ml-auto">
+                                <Save size={16} className="mr-2"/> Guardar Configuración
+                            </button>
+                        </div>
+                    </div>
+                </div>
+              </div>
            </div>
+
 
            {/* Add User Modal */}
            {showAddUserModal && (

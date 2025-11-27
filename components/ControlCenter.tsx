@@ -1,6 +1,7 @@
+
 import React, { useState, useMemo } from 'react';
 import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff } from '../types';
-import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon } from 'lucide-react';
+import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
 
 interface ControlCenterProps {
   units: Unit[];
@@ -59,7 +60,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
           category: 'Log',
           type: log.type,
           description: log.description,
-          status: 'Registrado', // Logs generally don't have status, but we can infer or leave generic
+          status: 'Registrado',
           originalRef: log
         });
       });
@@ -82,7 +83,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
               originalRef: maint
             });
           });
-          // Future maintenance from 'nextMaintenance' could be added here as a projection
+          // Future maintenance
           if (res.nextMaintenance) {
              events.push({
                 id: `future-${res.id}`,
@@ -94,7 +95,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                 description: `Mantenimiento Programado: ${res.name}`,
                 status: 'Pendiente',
                 resourceName: res.name,
-                originalRef: res // Pointing to resource for nextMaintenance update
+                originalRef: res 
              });
           }
         }
@@ -140,18 +141,10 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     setEditingEvent(event);
     const ref = event.originalRef;
     
-    let responsibleIds: string[] = [];
-    let images: string[] = [];
-    
-    if (event.category === 'Log') {
-        responsibleIds = ref.responsibleIds || [];
-        images = ref.images || [];
-    } else if (event.category === 'Maintenance' && !event.id.startsWith('future')) {
-        responsibleIds = ref.responsibleIds || [];
-        images = ref.images || [];
-    }
+    // Always load responsibles and images if they exist on the ref object
+    const responsibleIds = ref.responsibleIds || [];
+    const images = ref.images || [];
 
-    // Populate form with all available data from the original reference
     setEditForm({
       description: event.description,
       status: event.status || '',
@@ -162,6 +155,42 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       score: event.category === 'Training' ? (ref.score || 0) : 0,
       images: images
     });
+  };
+
+  const handleDeleteEvent = (event: GlobalEvent) => {
+    if (!confirm('¿Estás seguro de eliminar este registro permanentemente?')) return;
+
+    const unitIndex = units.findIndex(u => u.id === event.unitId);
+    if (unitIndex === -1) return;
+    
+    const updatedUnit = { ...units[unitIndex] };
+
+    if (event.category === 'Log') {
+        updatedUnit.logs = updatedUnit.logs.filter(l => l.id !== event.id);
+    } else if (event.category === 'Maintenance' && !event.id.startsWith('future')) {
+        updatedUnit.resources = updatedUnit.resources.map(res => {
+            if (res.maintenanceHistory) {
+                return {
+                    ...res,
+                    maintenanceHistory: res.maintenanceHistory.filter(m => m.id !== event.id)
+                };
+            }
+            return res;
+        });
+    } else if (event.category === 'Training') {
+        updatedUnit.resources = updatedUnit.resources.map(res => {
+            if (res.trainings) {
+                return {
+                    ...res,
+                    trainings: res.trainings.filter(t => t.id !== event.id)
+                };
+            }
+            return res;
+        });
+    }
+
+    onUpdateUnit(updatedUnit);
+    if (editingEvent?.id === event.id) setEditingEvent(null);
   };
 
   const toggleResponsible = (id: string) => {
@@ -194,16 +223,12 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   const handleSaveEdit = () => {
     if (!editingEvent) return;
 
-    // 1. Find the target unit
     const unitIndex = units.findIndex(u => u.id === editingEvent.unitId);
     if (unitIndex === -1) return;
     
-    // 2. Create a shallow copy of the unit to allow modification
     const updatedUnit = { ...units[unitIndex] };
 
-    // 3. Logic Branching based on Category
     if (editingEvent.category === 'Log') {
-       // --- UPDATE LOG ---
        updatedUnit.logs = updatedUnit.logs.map(l => {
           if (l.id === editingEvent.id) {
               return {
@@ -212,18 +237,16 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                   type: editForm.type as any,
                   description: editForm.description,
                   author: editForm.authorOrTechnician,
-                  responsibleIds: editForm.responsibleIds, // Save responsibles
-                  images: editForm.images // Save images
+                  responsibleIds: editForm.responsibleIds,
+                  images: editForm.images
               };
           }
           return l;
        });
 
     } else if (editingEvent.category === 'Training') {
-       // --- UPDATE TRAINING ---
        updatedUnit.resources = updatedUnit.resources.map(res => {
           if (!res.trainings) return res;
-          // Check if this resource has the training
           const hasTraining = res.trainings.some(t => t.id === editingEvent.id);
           if (!hasTraining) return res;
 
@@ -242,22 +265,16 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
        });
 
     } else if (editingEvent.category === 'Maintenance') {
-       // --- UPDATE MAINTENANCE ---
-       
        if (editingEvent.id.startsWith('future-')) {
-          // Case A: Future Projection (Updating nextMaintenance date on the Resource)
           updatedUnit.resources = updatedUnit.resources.map(res => 
              res.id === editingEvent.originalRef.id ? { ...res, nextMaintenance: editForm.date } : res
           );
        } else {
-          // Case B: Historical Record
           updatedUnit.resources = updatedUnit.resources.map(res => {
              if (!res.maintenanceHistory) return res;
-             
              const hasRecord = res.maintenanceHistory.some(m => m.id === editingEvent.id);
              if (!hasRecord) return res;
 
-             // Map the history array
              return {
                  ...res,
                  maintenanceHistory: res.maintenanceHistory.map(m => 
@@ -268,8 +285,8 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                         description: editForm.description,
                         technician: editForm.authorOrTechnician,
                         status: editForm.status as any,
-                        responsibleIds: editForm.responsibleIds, // Save responsibles
-                        images: editForm.images // Save images
+                        responsibleIds: editForm.responsibleIds,
+                        images: editForm.images
                     } : m
                  )
              };
@@ -277,9 +294,9 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
        }
     }
 
-    // 4. Propagate Update
     onUpdateUnit(updatedUnit);
     setEditingEvent(null);
+    alert('Cambios guardados exitosamente.');
   };
 
   // --- Calendar Logic ---
@@ -306,7 +323,6 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
      return 'bg-gray-100 text-gray-600';
   }
 
-  // --- Helpers ---
   const getUnitPersonnel = (unitId: string) => {
       const unit = units.find(u => u.id === unitId);
       return unit ? unit.resources.filter(r => r.type === ResourceType.PERSONNEL) : [];
@@ -324,7 +340,6 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     
     return (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-fit">
-         {/* Calendar Header */}
          <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50 sticky top-0 z-10">
             <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-slate-200 rounded-full"><ChevronLeft size={20}/></button>
             <h3 className="font-bold text-lg text-slate-800 capitalize">
@@ -333,12 +348,10 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
             <button onClick={() => changeMonth(1)} className="p-2 hover:bg-slate-200 rounded-full"><ChevronRight size={20}/></button>
          </div>
 
-         {/* Days Header */}
          <div className="grid grid-cols-7 text-center bg-slate-100 border-b border-slate-200 text-xs font-semibold text-slate-500 py-2">
             <div>Dom</div><div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div>
          </div>
 
-         {/* Grid */}
          <div className="grid grid-cols-7 auto-rows-fr">
             {blanks.map((_, i) => <div key={`blank-${i}`} className="h-24 bg-slate-50/50 border-b border-r border-slate-100"></div>)}
             {daySlots.map(day => {
@@ -374,6 +387,9 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       </div>
     );
   };
+
+  // Helper to determine if we show full edit features
+  const isTrackableRecord = editingEvent?.category === 'Log' || (editingEvent?.category === 'Maintenance' && !editingEvent.id.startsWith('future'));
 
   return (
     <div className="p-6 md:p-8 space-y-4 animate-in fade-in duration-500 h-full flex flex-col">
@@ -420,7 +436,6 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
 
        {/* Split View Content */}
        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 overflow-hidden">
-          
           {/* Left: Calendar */}
           <div className="lg:w-5/12 h-full overflow-y-auto custom-scrollbar pr-1">
              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><CalendarIcon size={16} className="mr-2"/> Vista Mensual</h3>
@@ -466,24 +481,27 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                         {ev.status && <span className={`px-1.5 py-0.5 inline-flex text-[10px] leading-4 font-semibold rounded-full ${getStatusColor(ev.status)}`}>
                                             {ev.status}
                                         </span>}
-                                        {/* Visual Feedback: Responsibles */}
-                                        {(ev.category === 'Log' || ev.category === 'Maintenance') && (ev.originalRef.responsibleIds?.length > 0) && (
+                                        {(ev.originalRef.responsibleIds?.length > 0) && (
                                             <span className="px-1.5 py-0.5 inline-flex text-[10px] leading-4 font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200 flex items-center">
                                                 <UserCheck size={10} className="mr-1"/> {ev.originalRef.responsibleIds?.length} Resp.
                                             </span>
                                         )}
-                                        {/* Visual Feedback: Images */}
-                                        {(ev.category === 'Log' || ev.category === 'Maintenance') && (ev.originalRef.images?.length > 0) && (
+                                        {(ev.originalRef.images?.length > 0) && (
                                             <span className="px-1.5 py-0.5 inline-flex text-[10px] leading-4 font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200 flex items-center">
                                                 <ImageIcon size={10} className="mr-1"/> {ev.originalRef.images?.length}
                                             </span>
                                         )}
                                     </div>
                                 </td>
-                                <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                                    <button onClick={() => handleEditClick(ev)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded-lg transition-colors">
+                                <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium flex justify-end gap-2">
+                                    <button onClick={() => handleEditClick(ev)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded-lg transition-colors" title="Editar">
                                         <Edit2 size={14} />
                                     </button>
+                                    {!ev.id.startsWith('future') && (
+                                        <button onClick={() => handleDeleteEvent(ev)} className="text-red-600 hover:text-red-900 bg-red-50 p-1.5 rounded-lg transition-colors" title="Eliminar">
+                                            <Trash2 size={14} />
+                                        </button>
+                                    )}
                                 </td>
                             </tr>
                         ))}
@@ -518,7 +536,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                         <label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label>
                         <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} />
                     </div>
-                    {/* Dynamic Type Selector */}
+                    {/* Log Type */}
                     {editingEvent.category === 'Log' && (
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Evento</label>
@@ -532,6 +550,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                             </select>
                         </div>
                     )}
+                    {/* Maintenance Type */}
                     {editingEvent.category === 'Maintenance' && !editingEvent.id.startsWith('future') && (
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Tipo Mantenimiento</label>
@@ -550,8 +569,8 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                    <textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-20" value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} />
                 </div>
 
-                {/* Author / Technician Input */}
-                {(editingEvent.category === 'Log' || (editingEvent.category === 'Maintenance' && !editingEvent.id.startsWith('future'))) && (
+                {/* Author / Technician Input - Show for Log AND Maintenance */}
+                {isTrackableRecord && (
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">{editingEvent.category === 'Log' ? 'Autor' : 'Proveedor / Técnico Externo'}</label>
                         <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editForm.authorOrTechnician} onChange={e => setEditForm({...editForm, authorOrTechnician: e.target.value})} />
@@ -581,7 +600,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                 )}
 
                 {/* Responsible Selection (Logs AND Maintenance) */}
-                {(editingEvent.category === 'Log' || (editingEvent.category === 'Maintenance' && !editingEvent.id.startsWith('future'))) && (
+                {isTrackableRecord && (
                     <div>
                        <label className="block text-sm font-medium text-slate-700 mb-2">Responsables / Involucrados</label>
                        <div className="border border-slate-200 rounded-lg max-h-40 overflow-y-auto p-2 bg-slate-50 space-y-2">
@@ -609,7 +628,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                 )}
                 
                 {/* Image Management (Logs AND Maintenance) */}
-                {(editingEvent.category === 'Log' || (editingEvent.category === 'Maintenance' && !editingEvent.id.startsWith('future'))) && (
+                {isTrackableRecord && (
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Evidencias (Fotos)</label>
                         <div className="flex gap-2">

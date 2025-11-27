@@ -1,10 +1,20 @@
 import { GoogleGenAI } from "@google/genai";
 import { Unit } from "../types";
 
+const GEMINI_STORAGE_KEY = 'OPSFLOW_GEMINI_KEY';
+
+export const getGeminiApiKey = (): string | null => {
+  return localStorage.getItem(GEMINI_STORAGE_KEY) || process.env.API_KEY || null;
+};
+
+export const saveGeminiApiKey = (key: string) => {
+  localStorage.setItem(GEMINI_STORAGE_KEY, key);
+};
+
 const getAiClient = () => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = getGeminiApiKey();
   if (!apiKey) {
-    console.error("API Key not found");
+    // console.error("API Key not found"); // Optional logging
     return null;
   }
   return new GoogleGenAI({ apiKey });
@@ -12,7 +22,7 @@ const getAiClient = () => {
 
 export const generateExecutiveReport = async (unit: Unit): Promise<string> => {
   const ai = getAiClient();
-  if (!ai) return "Error: No se ha configurado la API Key.";
+  if (!ai) return "Error: No se ha configurado la API Key de Gemini. Ve a Configuración > Integraciones para añadirla.";
 
   try {
     const prompt = `
@@ -40,6 +50,6 @@ export const generateExecutiveReport = async (unit: Unit): Promise<string> => {
     return response.text || "No se pudo generar el reporte.";
   } catch (error) {
     console.error("Error generating report:", error);
-    return "Ocurrió un error al generar el reporte con IA.";
+    return "Ocurrió un error al generar el reporte con IA. Verifica tu API Key.";
   }
 };
