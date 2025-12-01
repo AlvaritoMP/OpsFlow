@@ -17,7 +17,7 @@ export enum StaffStatus {
   REPLACED = 'Reemplazo Temporal',
 }
 
-export type UserRole = 'ADMIN' | 'OPERATIONS' | 'CLIENT';
+export type UserRole = 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'CLIENT';
 export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 
 // --- PERMISSIONS SYSTEM ---
@@ -59,6 +59,7 @@ export interface User {
   email: string;
   role: UserRole;
   avatar?: string;
+  linkedClientNames?: string[]; // Changed to array: Links user to specific Client Companies
 }
 
 export interface ManagementStaff {

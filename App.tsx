@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2 } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -31,8 +32,9 @@ const App: React.FC = () => {
 
   // User Management State
   const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [newUserForm, setNewUserForm] = useState({ name: '', email: '', role: 'OPERATIONS' as UserRole });
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userForm, setUserForm] = useState<{name: string, email: string, role: UserRole, linkedClientNames: string[]}>({ name: '', email: '', role: 'OPERATIONS', linkedClientNames: [] });
   
   // Management Staff State (Supervisors/Coordinators)
   const [managementStaff, setManagementStaff] = useState<ManagementStaff[]>(MOCK_MANAGEMENT_STAFF);
@@ -128,28 +130,66 @@ const App: React.FC = () => {
     setNewUnitImageUrl('');
   };
 
-  const handleAddUser = () => {
-    if (!newUserForm.name || !newUserForm.email) return;
-    const newUser: User = {
-      id: `u${Date.now()}`,
-      name: newUserForm.name,
-      email: newUserForm.email,
-      role: newUserForm.role,
-      avatar: newUserForm.name.substring(0,2).toUpperCase()
-    };
-    setUsers([...users, newUser]);
-    setShowAddUserModal(false);
-    setNewUserForm({ name: '', email: '', role: 'OPERATIONS' });
+  // --- USER MANAGEMENT HANDLERS ---
+  const openAddUserModal = () => {
+      setEditingUser(null);
+      setUserForm({ name: '', email: '', role: 'OPERATIONS', linkedClientNames: [] });
+      setShowUserModal(true);
+  };
+
+  const openEditUserModal = (user: User) => {
+      setEditingUser(user);
+      setUserForm({ 
+          name: user.name, 
+          email: user.email, 
+          role: user.role, 
+          linkedClientNames: user.linkedClientNames || [] 
+      });
+      setShowUserModal(true);
+  };
+
+  const handleToggleLinkedClient = (clientName: string) => {
+      if (userForm.linkedClientNames.includes(clientName)) {
+          setUserForm({ ...userForm, linkedClientNames: userForm.linkedClientNames.filter(c => c !== clientName) });
+      } else {
+          setUserForm({ ...userForm, linkedClientNames: [...userForm.linkedClientNames, clientName] });
+      }
+  };
+
+  const handleSaveUser = () => {
+    if (!userForm.name || !userForm.email) return;
+    
+    const isRestrictedRole = ['CLIENT', 'OPERATIONS', 'OPERATIONS_SUPERVISOR'].includes(userForm.role);
+
+    if (editingUser) {
+        // Update existing
+        const updatedUsers = users.map(u => u.id === editingUser.id ? {
+            ...u,
+            name: userForm.name,
+            email: userForm.email,
+            role: userForm.role,
+            linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined
+        } : u);
+        setUsers(updatedUsers);
+    } else {
+        // Create new
+        const newUser: User = {
+          id: `u${Date.now()}`,
+          name: userForm.name,
+          email: userForm.email,
+          role: userForm.role,
+          avatar: userForm.name.substring(0,2).toUpperCase(),
+          linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined
+        };
+        setUsers([...users, newUser]);
+    }
+    setShowUserModal(false);
   };
 
   const handleDeleteUser = (userId: string) => {
     if (confirm('¿Eliminar usuario?')) {
       setUsers(users.filter(u => u.id !== userId));
     }
-  };
-
-  const handleChangeUserRole = (userId: string, newRole: UserRole) => {
-    setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
   };
 
   // Management Staff Handlers
@@ -213,24 +253,55 @@ const App: React.FC = () => {
       setTimeout(() => setIsPermsSaved(false), 3000);
   };
 
+  // --- UNIT FILTERING LOGIC ---
+  // Now applies to ANY role that has linkedClientNames
+  const visibleUnits = React.useMemo(() => {
+      if (currentUser.role === 'ADMIN') return units;
+      
+      // If user has linked clients, filter by them
+      if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
+          return units.filter(u => currentUser.linkedClientNames?.includes(u.clientName));
+      }
+      
+      // If no linked clients (and not admin), behavior depends on role.
+      // Usually Operations sees ALL if not restricted.
+      // Client sees NONE if not linked.
+      if (currentUser.role === 'CLIENT') return [];
+      
+      return units;
+  }, [units, currentUser]);
+
+  // Extract unique client names for the dropdown
+  const availableClients = React.useMemo(() => {
+      const names = new Set(units.map(u => u.clientName));
+      return Array.from(names);
+  }, [units]);
+
 
   const renderContent = () => {
     if (currentView === 'control-center') {
-      return <ControlCenter units={units} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
+      return <ControlCenter units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'reports') {
-      return <Reports units={units} />;
+      return <Reports units={visibleUnits} />;
     }
 
     if (currentView === 'dashboard') {
-      return <Dashboard units={units} onSelectUnit={handleSelectUnit} />;
+      return <Dashboard units={visibleUnits} onSelectUnit={handleSelectUnit} />;
     }
 
     if (currentView === 'units') {
       if (selectedUnitId) {
         const unit = units.find(u => u.id === selectedUnitId);
         if (!unit) return <div className="p-8">Unidad no encontrada</div>;
+        
+        // Security check: Ensure user can see this unit
+        const isLinked = currentUser.linkedClientNames?.includes(unit.clientName);
+        if (currentUser.role !== 'ADMIN' && currentUser.linkedClientNames?.length && !isLinked) {
+             return <div className="p-8 text-red-600 font-bold">Acceso Denegado a esta Unidad.</div>;
+        }
+
         return (
           <UnitDetail 
             unit={unit} 
@@ -257,7 +328,7 @@ const App: React.FC = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {units.map(unit => {
+            {visibleUnits.map(unit => {
               const staffCount = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
               const logisticsCount = unit.resources.filter(r => r.type !== ResourceType.PERSONNEL).length;
               const pendingRequestsCount = unit.requests?.filter(r => r.status === 'PENDING').length || 0;
@@ -332,6 +403,13 @@ const App: React.FC = () => {
                 </div>
               );
             })}
+            
+            {visibleUnits.length === 0 && (
+                <div className="col-span-1 md:col-span-3 p-12 text-center text-slate-400 bg-white rounded-xl border border-dashed border-slate-300">
+                    <Building size={48} className="mx-auto mb-4 opacity-20"/>
+                    <p>No se encontraron unidades asignadas a su cuenta.</p>
+                </div>
+            )}
           </div>
 
           {/* Add Unit Modal */}
@@ -441,9 +519,9 @@ const App: React.FC = () => {
                             <thead>
                                 <tr>
                                     <th className="px-4 py-3 bg-slate-50 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10">Módulo / Función</th>
-                                    {['ADMIN', 'OPERATIONS', 'CLIENT'].map(role => (
+                                    {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'].map(role => (
                                         <th key={role} className="px-4 py-3 bg-slate-50 text-center text-xs font-bold text-slate-500 uppercase tracking-wider border-l border-slate-200">
-                                            {role === 'ADMIN' ? 'Admin' : role === 'OPERATIONS' ? 'Operaciones' : 'Cliente'}
+                                            {role === 'ADMIN' ? 'Admin' : role === 'OPERATIONS' ? 'Operaciones' : role === 'OPERATIONS_SUPERVISOR' ? 'Sup. Ops' : 'Cliente'}
                                         </th>
                                     ))}
                                 </tr>
@@ -452,7 +530,7 @@ const App: React.FC = () => {
                                 {(Object.keys(FEATURE_LABELS) as AppFeature[]).map(feature => (
                                     <tr key={feature} className="hover:bg-slate-50">
                                         <td className="px-4 py-3 text-sm font-medium text-slate-700 sticky left-0 bg-white">{FEATURE_LABELS[feature]}</td>
-                                        {['ADMIN', 'OPERATIONS', 'CLIENT'].map(roleStr => {
+                                        {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'].map(roleStr => {
                                             const role = roleStr as UserRole;
                                             const perm = permissions[role][feature];
                                             return (
@@ -545,7 +623,7 @@ const App: React.FC = () => {
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                <h3 className="font-bold text-slate-700 flex items-center"><Users className="mr-2" size={18} /> Usuarios Registrados</h3>
-               <button onClick={() => setShowAddUserModal(true)} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
+               <button onClick={openAddUserModal} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
                   <UserPlus size={14} className="mr-1.5" /> Nuevo Usuario
                </button>
              </div>
@@ -555,6 +633,7 @@ const App: React.FC = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Usuario</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Email</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Rol</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Empresa(s) Asignada(s)</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
                   </tr>
                 </thead>
@@ -567,17 +646,19 @@ const App: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{u.email}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <select 
-                            value={u.role}
-                            onChange={(e) => handleChangeUserRole(u.id, e.target.value as UserRole)}
-                            className="bg-white border border-slate-200 text-slate-700 text-xs rounded-md px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500"
-                          >
-                             <option value="ADMIN">Administrador</option>
-                             <option value="OPERATIONS">Operaciones</option>
-                             <option value="CLIENT">Cliente</option>
-                          </select>
+                          <span className="text-xs font-medium bg-slate-100 px-2 py-1 rounded-full text-slate-600">{u.role}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                            {u.linkedClientNames && u.linkedClientNames.length > 0 ? (
+                                <span className="block truncate max-w-xs" title={u.linkedClientNames.join(', ')}>
+                                    {u.linkedClientNames.join(', ')}
+                                </span>
+                            ) : (
+                                <span className="text-slate-300 italic">Global / Sin asignar</span>
+                            )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">
+                           <button onClick={() => openEditUserModal(u)} className="text-blue-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 mr-2"><Edit2 size={16}/></button>
                            <button onClick={() => handleDeleteUser(u.id)} className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50"><Trash2 size={16}/></button>
                         </td>
                      </tr>
@@ -692,26 +773,58 @@ const App: React.FC = () => {
            </div>
 
 
-           {/* Add User Modal */}
-           {showAddUserModal && (
+           {/* Add/Edit User Modal */}
+           {showUserModal && (
              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                 <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
                   <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                      <h3 className="font-bold text-lg flex items-center"><UserPlus className="mr-2" size={20}/> Nuevo Usuario</h3>
-                      <button onClick={() => setShowAddUserModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                      <h3 className="font-bold text-lg flex items-center">
+                          {editingUser ? <><Edit2 className="mr-2" size={20}/> Editar Usuario</> : <><UserPlus className="mr-2" size={20}/> Nuevo Usuario</>}
+                      </h3>
+                      <button onClick={() => setShowUserModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
                   </div>
                   <div className="p-6 space-y-4">
-                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newUserForm.name} onChange={e => setNewUserForm({...newUserForm, name: e.target.value})} /></div>
-                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Email</label><input type="email" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newUserForm.email} onChange={e => setNewUserForm({...newUserForm, email: e.target.value})} /></div>
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} /></div>
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Email</label><input type="email" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} /></div>
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Rol</label>
-                        <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newUserForm.role} onChange={e => setNewUserForm({...newUserForm, role: e.target.value as UserRole})}>
+                        <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value as UserRole})}>
                           <option value="OPERATIONS">Operaciones</option>
+                          <option value="OPERATIONS_SUPERVISOR">Supervisor Operaciones</option>
                           <option value="CLIENT">Cliente</option>
-                          <option value="ADMIN">Admin</option>
+                          <option value="ADMIN">Administrador</option>
                         </select>
                       </div>
-                      <button onClick={handleAddUser} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Crear Usuario</button>
+                      
+                      {/* Linked Client Selection for ALL relevant roles */}
+                      {['CLIENT', 'OPERATIONS', 'OPERATIONS_SUPERVISOR'].includes(userForm.role) && (
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-2">Empresas / Clientes Asignados</label>
+                              <div className="border border-slate-300 rounded-lg p-2 bg-slate-50 max-h-40 overflow-y-auto">
+                                  {availableClients.length === 0 && <p className="text-xs text-slate-400 italic p-1">No hay clientes (unidades) disponibles.</p>}
+                                  {availableClients.map(clientName => (
+                                      <label key={clientName} className="flex items-center p-1.5 hover:bg-slate-100 rounded cursor-pointer">
+                                          <input 
+                                            type="checkbox" 
+                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 mr-2"
+                                            checked={userForm.linkedClientNames.includes(clientName)}
+                                            onChange={() => handleToggleLinkedClient(clientName)}
+                                          />
+                                          <span className="text-sm text-slate-700">{clientName}</span>
+                                      </label>
+                                  ))}
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">
+                                  {userForm.linkedClientNames.length > 0 
+                                    ? `Seleccionados: ${userForm.linkedClientNames.length}` 
+                                    : "Ninguno seleccionado (Verá todo si es Operaciones, nada si es Cliente)"}
+                              </p>
+                          </div>
+                      )}
+
+                      <button onClick={handleSaveUser} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">
+                          {editingUser ? 'Guardar Cambios' : 'Crear Usuario'}
+                      </button>
                   </div>
                 </div>
              </div>

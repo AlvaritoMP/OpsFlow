@@ -28,6 +28,18 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     CLIENT_REQUESTS: { view: true, edit: true }, // Ops can view and edit (resolve)
     SETTINGS: { view: false, edit: false },
   },
+  OPERATIONS_SUPERVISOR: {
+    DASHBOARD: { view: true, edit: false },
+    UNIT_OVERVIEW: { view: true, edit: true },
+    PERSONNEL: { view: true, edit: true },
+    LOGISTICS: { view: true, edit: true },
+    LOGS: { view: true, edit: true },
+    BLUEPRINT: { view: true, edit: true },
+    CONTROL_CENTER: { view: true, edit: true },
+    REPORTS: { view: true, edit: true },
+    CLIENT_REQUESTS: { view: true, edit: true },
+    SETTINGS: { view: false, edit: false },
+  },
   CLIENT: {
     DASHBOARD: { view: true, edit: false },
     UNIT_OVERVIEW: { view: true, edit: false },
@@ -48,6 +60,7 @@ export const getPermissions = (): PermissionConfig => {
     if (stored) {
       // Merge with default to ensure new features are covered
       const parsed = JSON.parse(stored);
+      // Ensure new roles are merged if they didn't exist in storage
       return { ...DEFAULT_PERMISSIONS, ...parsed };
     }
   } catch (e) {

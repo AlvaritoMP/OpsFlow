@@ -1,4 +1,5 @@
 
+
 import { ManagementStaff, ResourceType, StaffStatus, Unit, UnitStatus, User, UserRole } from "./types";
 
 // Helper to get a future date
@@ -42,7 +43,7 @@ const generateMockRoster = (days: number, shiftPattern: 'Day' | 'Night' | 'Mixed
 export const MOCK_USERS: User[] = [
   { id: 'u1', name: 'Admin General', email: 'admin@opsflow.com', role: 'ADMIN', avatar: 'AD' },
   { id: 'u2', name: 'Carlos Ops', email: 'carlos@opsflow.com', role: 'OPERATIONS', avatar: 'CO' },
-  { id: 'u3', name: 'Cliente Visor', email: 'gerente@cliente.com', role: 'CLIENT', avatar: 'CL' },
+  { id: 'u3', name: 'Cliente Visor', email: 'gerente@cliente.com', role: 'CLIENT', avatar: 'CL', linkedClientNames: ['Grupo Financiero Horizonte'] },
 ];
 
 export const MOCK_MANAGEMENT_STAFF: ManagementStaff[] = [
