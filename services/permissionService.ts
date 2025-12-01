@@ -13,6 +13,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     BLUEPRINT: { view: true, edit: true },
     CONTROL_CENTER: { view: true, edit: true },
     REPORTS: { view: true, edit: true },
+    CLIENT_REQUESTS: { view: true, edit: true }, // Admin can view and edit (resolve)
     SETTINGS: { view: true, edit: true },
   },
   OPERATIONS: {
@@ -24,6 +25,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     BLUEPRINT: { view: true, edit: true },
     CONTROL_CENTER: { view: true, edit: true },
     REPORTS: { view: true, edit: true },
+    CLIENT_REQUESTS: { view: true, edit: true }, // Ops can view and edit (resolve)
     SETTINGS: { view: false, edit: false },
   },
   CLIENT: {
@@ -34,7 +36,8 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     LOGS: { view: true, edit: false }, 
     BLUEPRINT: { view: true, edit: false },
     CONTROL_CENTER: { view: false, edit: false },
-    REPORTS: { view: true, edit: false }, // Client can view reports
+    REPORTS: { view: true, edit: false }, 
+    CLIENT_REQUESTS: { view: true, edit: true }, // Client can View and Edit (Create)
     SETTINGS: { view: false, edit: false },
   }
 };
@@ -77,5 +80,6 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   BLUEPRINT: 'Planos y Mapas',
   CONTROL_CENTER: 'Centro de Control',
   REPORTS: 'Informes y Analítica',
+  CLIENT_REQUESTS: 'Requerimientos Cliente', // New Label
   SETTINGS: 'Configuración Sistema'
 };

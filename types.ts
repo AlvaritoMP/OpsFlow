@@ -29,7 +29,8 @@ export type AppFeature =
   | 'LOGS' 
   | 'BLUEPRINT' 
   | 'CONTROL_CENTER' 
-  | 'REPORTS' // New Feature
+  | 'REPORTS' 
+  | 'CLIENT_REQUESTS' // New Feature
   | 'SETTINGS';
 
 export interface PermissionRule {
@@ -79,6 +80,33 @@ export interface OperationalLog {
   responsibleIds?: string[]; // IDs of Personnel or ManagementStaff responsible for this event
 }
 
+export interface RequestComment {
+  id: string;
+  author: string; // Name of user
+  role: UserRole;
+  date: string; // ISO String
+  text: string;
+}
+
+export interface ClientRequest {
+  id: string;
+  date: string;
+  category: 'PERSONNEL' | 'LOGISTICS' | 'GENERAL';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED';
+  description: string;
+  author: string; // User name (Client)
+  attachments?: string[]; // Photos uploaded by client upon creation
+  relatedResourceId?: string; // Optional: ID of specific worker or equipment involved
+  
+  // Resolution & Thread
+  response?: string; // Admin main response/solution summary
+  responseAttachments?: string[]; // Admin response evidence (photos, docs)
+  resolvedDate?: string;
+  
+  comments?: RequestComment[]; // Discussion thread
+}
+
 export interface Training {
   id: string;
   topic: string;
@@ -110,6 +138,16 @@ export interface MaintenanceRecord {
   images?: string[]; // Evidence photos for maintenance
 }
 
+// --- ROSTERING TYPES ---
+export type ShiftType = 'Day' | 'Night' | 'OFF' | 'Vacation' | 'Sick';
+
+export interface DailyShift {
+    date: string; // YYYY-MM-DD
+    type: ShiftType;
+    hours: number;
+}
+// -----------------------
+
 export interface Resource {
   id: string;
   name: string;
@@ -124,6 +162,7 @@ export interface Resource {
   nextMaintenance?: string; // For machines
   trainings?: Training[]; // Specific for personnel
   assignedAssets?: AssignedAsset[]; // Inventory assigned to this worker
+  workSchedule?: DailyShift[]; // ROSTERING DATA
   maintenanceHistory?: MaintenanceRecord[]; // Specific for Equipment history
   image?: string; // Photo of the resource (equipment/material/person)
   
@@ -174,6 +213,7 @@ export interface Unit {
   blueprintLayers?: BlueprintLayer[]; // Multi-page support
   resources: Resource[];
   logs: OperationalLog[];
+  requests: ClientRequest[]; // New field for Client Requests
   complianceHistory: { month: string; score: number }[];
   
   // Management Team

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -117,6 +117,7 @@ const App: React.FC = () => {
       zones: [],
       resources: [],
       logs: [],
+      requests: [],
       complianceHistory: [{ month: 'Actual', score: 100 }] // Default start
     };
 
@@ -259,12 +260,13 @@ const App: React.FC = () => {
             {units.map(unit => {
               const staffCount = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
               const logisticsCount = unit.resources.filter(r => r.type !== ResourceType.PERSONNEL).length;
+              const pendingRequestsCount = unit.requests?.filter(r => r.status === 'PENDING').length || 0;
 
               return (
                 <div 
                   key={unit.id} 
                   onClick={() => handleSelectUnit(unit.id)}
-                  className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-lg transition-all cursor-pointer group overflow-hidden"
+                  className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all cursor-pointer group overflow-hidden relative ${pendingRequestsCount > 0 ? 'ring-2 ring-orange-500 shadow-md' : 'border border-slate-200'}`}
                 >
                   <div className="h-40 w-full overflow-hidden relative bg-slate-200">
                     {unit.images && unit.images.length > 0 ? (
@@ -278,11 +280,22 @@ const App: React.FC = () => {
                         <Building size={48} />
                       </div>
                     )}
+                    
+                    {/* Status Badge */}
                     <div className="absolute top-3 right-3">
                       <span className={`text-xs font-bold px-3 py-1 rounded-full shadow-sm ${unit.status === 'Activo' ? 'bg-white/90 text-green-700 backdrop-blur-sm' : 'bg-white/90 text-red-700 backdrop-blur-sm'}`}>
                         {unit.status}
                       </span>
                     </div>
+
+                    {/* Pending Requests Alert Badge (Top Left) */}
+                    {pendingRequestsCount > 0 && (
+                      <div className="absolute top-3 left-3 z-10 animate-pulse">
+                        <span className="bg-orange-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full shadow-md flex items-center border border-white">
+                           <Bell size={12} className="mr-1.5 fill-white"/> {pendingRequestsCount} Nuevos Req.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-5">
@@ -308,6 +321,13 @@ const App: React.FC = () => {
                         {unit.zones.length} Zonas
                       </div>
                     </div>
+                    
+                    {/* Visual cue in footer if requests exist */}
+                    {pendingRequestsCount > 0 && (
+                       <div className="mt-3 pt-2 border-t border-orange-100 flex items-center justify-center text-orange-600 text-xs font-bold">
+                           <MessageCircle size={14} className="mr-1.5"/> Atención Requerida
+                       </div>
+                    )}
                   </div>
                 </div>
               );

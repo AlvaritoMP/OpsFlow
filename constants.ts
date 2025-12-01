@@ -1,7 +1,4 @@
 
-
-
-
 import { ManagementStaff, ResourceType, StaffStatus, Unit, UnitStatus, User, UserRole } from "./types";
 
 // Helper to get a future date
@@ -9,6 +6,37 @@ const getFutureDate = (days: number) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
     return d.toISOString().split('T')[0];
+};
+
+// Helper to generate mock roster
+const generateMockRoster = (days: number, shiftPattern: 'Day' | 'Night' | 'Mixed') => {
+    const roster = [];
+    const today = new Date();
+    // Start from beginning of current week (approx)
+    today.setDate(today.getDate() - today.getDay() + 1); 
+    
+    for (let i = 0; i < days; i++) {
+        const d = new Date(today);
+        d.setDate(today.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        
+        // Simple Logic
+        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+        let type: any = 'OFF';
+        let hours = 0;
+
+        if (!isWeekend) {
+            if (shiftPattern === 'Day') { type = 'Day'; hours = 8; }
+            else if (shiftPattern === 'Night') { type = 'Night'; hours = 8; }
+            else { type = i % 2 === 0 ? 'Day' : 'Night'; hours = 8; }
+        } else {
+             // Some weekends working
+             if (Math.random() > 0.7) { type = 'Day'; hours = 8; }
+        }
+
+        roster.push({ date: dateStr, type, hours });
+    }
+    return roster;
 };
 
 export const MOCK_USERS: User[] = [
@@ -147,6 +175,7 @@ export const MOCK_UNITS: Unit[] = [
         assignedZones: ['Recepción / Lobby', 'Oficinas Piso 1-5', 'Sótanos'], 
         assignedShift: 'Diurno',
         compliancePercentage: 100,
+        workSchedule: generateMockRoster(14, 'Day'),
         trainings: [
           { id: 't1', topic: 'Liderazgo de Equipos', date: '2023-09-15', status: 'Completado', score: 95 },
           { id: 't2', topic: 'Seguridad y Salud en el Trabajo', date: getFutureDate(5), status: 'Programado' }
@@ -166,6 +195,7 @@ export const MOCK_UNITS: Unit[] = [
         assignedZones: ['Recepción / Lobby'],
         assignedShift: 'Diurno',
         compliancePercentage: 95,
+        workSchedule: generateMockRoster(14, 'Day'),
         trainings: [
           { id: 't3', topic: 'Uso de Químicos Industriales', date: '2023-08-10', status: 'Completado', score: 88 }
         ],
@@ -183,6 +213,7 @@ export const MOCK_UNITS: Unit[] = [
         assignedZones: ['Sótanos', 'Almacén Central'],
         assignedShift: 'Diurno',
         compliancePercentage: 92,
+        workSchedule: generateMockRoster(14, 'Mixed'),
         trainings: [],
         assignedAssets: []
       },
@@ -195,6 +226,7 @@ export const MOCK_UNITS: Unit[] = [
         assignedZones: ['Oficinas Piso 1-5'],
         assignedShift: 'Nocturno',
         compliancePercentage: 98,
+        workSchedule: generateMockRoster(14, 'Night'),
         trainings: [],
         assignedAssets: []
       },
@@ -280,6 +312,37 @@ export const MOCK_UNITS: Unit[] = [
       { id: 'l3', date: '2023-10-27', type: 'Incidencia', description: 'Falta de personal por descanso médico. Se activó reemplazo (Maria Gomez).', author: 'RRHH', responsibleIds: ['ms3'] },
       { id: 'l4', date: '2023-10-28', type: 'Coordinacion', description: 'Reunión con Admin del edificio para plan de limpieza de vidrios altos.', author: 'Gerente Cuenta', responsibleIds: ['ms1'] }
     ],
+    requests: [
+        {
+            id: 'req1',
+            date: '2023-10-20',
+            category: 'LOGISTICS',
+            priority: 'MEDIUM',
+            status: 'RESOLVED',
+            description: 'Se requiere aumentar la dotación de papel higiénico para los baños del piso 2 por evento corporativo.',
+            author: 'Cliente Visor',
+            relatedResourceId: 'r4-b',
+            response: 'Se coordinó despacho extra de 20 rollos para el evento.',
+            responseAttachments: ['https://images.unsplash.com/photo-1583947581924-860b89646c8e?q=80&w=400&auto=format&fit=crop'],
+            resolvedDate: '2023-10-21',
+            comments: [
+                { id: 'c1', author: 'Cliente Visor', role: 'CLIENT', date: '2023-10-20T10:00:00', text: 'Por favor confirmar hora de entrega.' },
+                { id: 'c2', author: 'Roberto Gomez', role: 'OPERATIONS', date: '2023-10-20T10:30:00', text: 'Confirmado para las 14:00 horas.' }
+            ]
+        },
+        {
+            id: 'req2',
+            date: '2023-11-05',
+            category: 'PERSONNEL',
+            priority: 'HIGH',
+            status: 'PENDING',
+            description: 'El personal de limpieza nocturna debe poner mayor atención en la sala de reuniones principal.',
+            author: 'Cliente Visor',
+            relatedResourceId: 'r1-c',
+            comments: [],
+            attachments: ['https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&w=400&auto=format&fit=crop']
+        }
+    ],
     complianceHistory: [
       { month: 'Jul', score: 98 },
       { month: 'Ago', score: 96 },
@@ -315,6 +378,7 @@ export const MOCK_UNITS: Unit[] = [
         assignedZones: ['Nave de Producción'],
         assignedShift: 'Turno C',
         compliancePercentage: 88,
+        workSchedule: generateMockRoster(14, 'Night'),
         trainings: [
            { id: 't4', topic: 'Protocolos HACCP', date: '2023-09-01', status: 'Completado', score: 92 },
            { id: 't5', topic: 'Bloqueo y Etiquetado (LOTO)', date: '2023-10-05', status: 'Completado', score: 100 }
@@ -358,6 +422,7 @@ export const MOCK_UNITS: Unit[] = [
         ]
       }
     ],
+    requests: [],
     complianceHistory: [
       { month: 'Jul', score: 92 },
       { month: 'Ago', score: 94 },

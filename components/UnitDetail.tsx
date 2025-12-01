@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers } from 'lucide-react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 
@@ -13,7 +13,7 @@ interface UnitDetailProps {
   onUpdate?: (updatedUnit: Unit) => void;
 }
 
-const STATUS_COLORS = {
+const STATUS_COLORS: Record<string, string> = {
   'Activo': 'bg-green-100 text-green-700',
   'De Licencia': 'bg-yellow-100 text-yellow-700',
   'Reemplazo Temporal': 'bg-orange-100 text-orange-700',
@@ -25,8 +25,28 @@ const STATUS_COLORS = {
   'Baja': 'bg-gray-100 text-gray-700',
 };
 
+const REQUEST_STATUS_STYLES = {
+    'PENDING': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    'IN_PROGRESS': 'bg-blue-100 text-blue-800 border-blue-200',
+    'RESOLVED': 'bg-green-100 text-green-800 border-green-200'
+};
+
+const PRIORITY_STYLES = {
+    'LOW': 'bg-slate-100 text-slate-600',
+    'MEDIUM': 'bg-orange-100 text-orange-600',
+    'HIGH': 'bg-red-100 text-red-600 font-bold'
+};
+
+// Helper to start weeks on Monday
+const getMonday = (d: Date) => {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+  return new Date(date.setDate(diff));
+}
+
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, onBack, onUpdate }) => {
-  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint'>('overview');
+  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
   
   // Edit Unit General Info State
   const [isEditing, setIsEditing] = useState(false);
@@ -36,9 +56,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [editImageUrl, setEditImageUrl] = useState('');
 
   // Personnel State
+  const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>('list'); // New View Mode
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
   
+  // Roster State
+  const [rosterStartDate, setRosterStartDate] = useState(getMonday(new Date()));
+
   // Mass Training State
   const [showMassTrainingModal, setShowMassTrainingModal] = useState(false);
   const [massTrainingForm, setMassTrainingForm] = useState({ topic: '', date: '', status: 'Programado' });
@@ -77,6 +101,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [editingLog, setEditingLog] = useState<OperationalLog | null>(null);
   const [newLogImageUrl, setNewLogImageUrl] = useState('');
 
+  // Client Requests State
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [newRequestForm, setNewRequestForm] = useState<{ category: string, description: string, priority: string, relatedResourceId: string }>({
+      category: 'GENERAL',
+      description: '',
+      priority: 'MEDIUM',
+      relatedResourceId: ''
+  });
+  // Client Request Attachments (New Feature)
+  const [newRequestImages, setNewRequestImages] = useState<string[]>([]);
+  const [newRequestImageUrl, setNewRequestImageUrl] = useState('');
+
+  const [editingRequest, setEditingRequest] = useState<ClientRequest | null>(null); // For tracking/discussion
+  const [resolveAttachments, setResolveAttachments] = useState<string[]>([]);
+  const [resolveImageUrl, setResolveImageUrl] = useState('');
+  
+  // Inline Comments State (Map requestId -> draft text)
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+
+
   // Blueprint State
   const [isEditingBlueprint, setIsEditingBlueprint] = useState(false);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
@@ -100,6 +144,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
   const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
   const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit');
+  const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
+  const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
 
   // CRITICAL FIX: Sync local edit state when parent unit prop changes
   useEffect(() => {
@@ -251,6 +297,106 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          });
      }
   };
+
+  // --- CLIENT REQUESTS HANDLERS ---
+  const handleAddImageToRequest = () => {
+    if (!newRequestImageUrl) return;
+    setNewRequestImages([...newRequestImages, newRequestImageUrl]);
+    setNewRequestImageUrl('');
+  };
+
+  const handleFileUploadForRequest = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const imageUrl = URL.createObjectURL(file);
+      setNewRequestImages([...newRequestImages, imageUrl]);
+    }
+  };
+
+  const handleCreateRequest = () => {
+      if(!onUpdate) return;
+      
+      const newRequest: ClientRequest = {
+          id: `req-${Date.now()}`,
+          date: new Date().toISOString().split('T')[0],
+          category: newRequestForm.category as any,
+          priority: newRequestForm.priority as any,
+          status: 'PENDING',
+          description: newRequestForm.description,
+          author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
+          relatedResourceId: newRequestForm.relatedResourceId || undefined,
+          attachments: newRequestImages,
+          comments: []
+      };
+
+      const updatedRequests = [...(unit.requests || []), newRequest];
+      onUpdate({ ...unit, requests: updatedRequests });
+      setShowRequestModal(false);
+      setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
+      setNewRequestImages([]);
+  };
+
+  const handleUpdateRequestStatus = (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[]) => {
+      if(!onUpdate || !editingRequest) return;
+      const updatedRequests = (unit.requests || []).map(req => {
+          if (req.id === editingRequest.id) {
+              return { 
+                  ...req, 
+                  status, 
+                  response: response || req.response,
+                  responseAttachments: attachments || req.responseAttachments,
+                  resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : req.resolvedDate
+              };
+          }
+          return req;
+      });
+      onUpdate({ ...unit, requests: updatedRequests });
+      setEditingRequest(null);
+      setResolveAttachments([]);
+  };
+  
+  const handleAddResolveImage = () => {
+    if (!resolveImageUrl) return;
+    setResolveAttachments([...resolveAttachments, resolveImageUrl]);
+    setResolveImageUrl('');
+  };
+
+  const handleFileUploadForResolve = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const imageUrl = URL.createObjectURL(file);
+      setResolveAttachments([...resolveAttachments, imageUrl]);
+    }
+  };
+
+  const handleRemoveResolveImage = (index: number) => {
+      setResolveAttachments(resolveAttachments.filter((_, i) => i !== index));
+  };
+
+  // INLINE COMMENTS HANDLER
+  const handleInlineCommentSubmit = (reqId: string) => {
+      const text = commentDrafts[reqId];
+      if (!onUpdate || !text || !text.trim()) return;
+
+      const newComment = {
+          id: `c-${Date.now()}`,
+          author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
+          role: userRole,
+          date: new Date().toISOString(),
+          text: text
+      };
+
+      const updatedRequests = (unit.requests || []).map(req => {
+          if (req.id === reqId) {
+              return { ...req, comments: [...(req.comments || []), newComment] };
+          }
+          return req;
+      });
+
+      onUpdate({ ...unit, requests: updatedRequests });
+      setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
+  };
+
 
   // --- BLUEPRINT INTERACTION LOGIC ---
 
@@ -470,6 +616,101 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const toggleEquipmentExpand = (id: string) => {
     setExpandedEquipment(expandedEquipment === id ? null : id);
   };
+
+  // --- ROSTERING LOGIC ---
+  const changeRosterDate = (days: number) => {
+      const newDate = new Date(rosterStartDate);
+      newDate.setDate(newDate.getDate() + days);
+      setRosterStartDate(getMonday(newDate));
+  };
+
+  const getRosterDates = () => {
+      const dates = [];
+      const monday = new Date(rosterStartDate);
+      for (let i = 0; i < 7; i++) {
+          const d = new Date(monday);
+          d.setDate(monday.getDate() + i);
+          dates.push(d);
+      }
+      return dates;
+  };
+
+  const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
+     if(!onUpdate) return;
+     
+     // Cycle: Day -> Night -> OFF -> Day
+     let nextType: ShiftType = 'Day';
+     let hours = 8;
+     if (currentType === 'Day') { nextType = 'Night'; hours = 8; }
+     else if (currentType === 'Night') { nextType = 'OFF'; hours = 0; }
+     else if (currentType === 'OFF') { nextType = 'Day'; hours = 8; }
+     else { nextType = 'Day'; hours = 8; }
+
+     const updatedResources = unit.resources.map(r => {
+         if (r.id === resourceId) {
+             const schedule = r.workSchedule ? [...r.workSchedule] : [];
+             const existingIdx = schedule.findIndex(s => s.date === date);
+             if (existingIdx >= 0) {
+                 schedule[existingIdx] = { date, type: nextType, hours };
+             } else {
+                 schedule.push({ date, type: nextType, hours });
+             }
+             return { ...r, workSchedule: schedule };
+         }
+         return r;
+     });
+     onUpdate({ ...unit, resources: updatedResources });
+  };
+
+  const handleReplicateWeek = () => {
+      if (!onUpdate) return;
+      
+      const currentWeekDates = getRosterDates().map(d => d.toISOString().split('T')[0]);
+      
+      const updatedResources = unit.resources.map(r => {
+          if (r.type !== ResourceType.PERSONNEL) return r;
+          
+          const schedule = r.workSchedule ? [...r.workSchedule] : [];
+          
+          // Iterate over current week dates to find shifts to copy
+          currentWeekDates.forEach(dateStr => {
+              const shift = schedule.find(s => s.date === dateStr);
+              if (shift) {
+                  // Calculate target date (+7 days)
+                  const targetDate = new Date(dateStr);
+                  targetDate.setDate(targetDate.getDate() + 7);
+                  const targetDateStr = targetDate.toISOString().split('T')[0];
+                  
+                  // Remove existing shift at target date if any
+                  const existingIdx = schedule.findIndex(s => s.date === targetDateStr);
+                  if (existingIdx > -1) schedule.splice(existingIdx, 1);
+                  
+                  // Add copy
+                  schedule.push({
+                      date: targetDateStr,
+                      type: shift.type,
+                      hours: shift.hours
+                  });
+              }
+          });
+          
+          return { ...r, workSchedule: schedule };
+      });
+      
+      onUpdate({ ...unit, resources: updatedResources });
+      alert("Se han replicado los turnos a la próxima semana.");
+  };
+
+  const getShiftColor = (type: string) => {
+      switch(type) {
+          case 'Day': return 'bg-blue-500 text-white hover:bg-blue-600';
+          case 'Night': return 'bg-indigo-600 text-white hover:bg-indigo-700';
+          case 'OFF': return 'bg-slate-200 text-slate-500 hover:bg-slate-300';
+          case 'Vacation': return 'bg-orange-400 text-white hover:bg-orange-500';
+          default: return 'bg-slate-100 text-slate-400 hover:bg-slate-200';
+      }
+  };
+
 
   // --- Logistics Actions (Updated for Integration) ---
   const handleSyncInventory = async (resource: Resource) => {
@@ -705,10 +946,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const getPersonName = (id: string) => {
-     // Try finding in unit personnel
      const worker = personnel.find(p => p.id === id);
      if (worker) return worker.name;
-     // Try finding in global management staff
      const manager = availableStaff.find(m => m.id === id);
      if (manager) return manager.name;
      return id;
@@ -741,6 +980,169 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
      );
   };
+
+  // --- CLIENT REQUESTS RENDERER ---
+  const renderClientRequests = () => {
+    const requests = unit.requests || [];
+    
+    return (
+        <div className="space-y-6 animate-in fade-in duration-300 pb-10">
+            <div className="flex justify-between items-center mb-4">
+                <div>
+                   <h3 className="font-bold text-slate-700 text-lg flex items-center"><MessageSquarePlus className="mr-2"/> Requerimientos y Observaciones</h3>
+                   <p className="text-slate-500 text-sm">Solicitudes directas del cliente y seguimiento de acuerdos.</p>
+                </div>
+                {canCreateRequests && (
+                    <button 
+                       onClick={() => setShowRequestModal(true)} 
+                       className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"
+                    >
+                        <Plus size={16} className="mr-1.5"/> Nueva Solicitud
+                    </button>
+                )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+                {requests.length === 0 && (
+                    <div className="bg-slate-50 rounded-xl border border-slate-200 border-dashed p-10 flex flex-col items-center justify-center text-slate-400">
+                        <MessageSquarePlus size={48} className="mb-4 opacity-30"/>
+                        <p className="font-medium">No hay requerimientos registrados.</p>
+                    </div>
+                )}
+                
+                {requests.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(req => {
+                    const relatedRes = req.relatedResourceId ? unit.resources.find(r => r.id === req.relatedResourceId) : null;
+                    const hasAttachments = req.attachments && req.attachments.length > 0;
+
+                    return (
+                        <div key={req.id} className={`bg-white rounded-xl border shadow-sm transition-shadow hover:shadow-md ${req.status === 'RESOLVED' ? 'border-l-4 border-l-green-500 border-slate-200' : 'border-l-4 border-l-yellow-500 border-slate-200'}`}>
+                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
+                                 {/* LEFT COLUMN: DETAILS */}
+                                 <div className="lg:col-span-2 p-5 border-b lg:border-b-0 lg:border-r border-slate-100">
+                                     <div className="flex justify-between items-start mb-3">
+                                         <div>
+                                             <div className="flex items-center gap-2 mb-1">
+                                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${REQUEST_STATUS_STYLES[req.status]}`}>
+                                                     {req.status === 'IN_PROGRESS' ? 'En Proceso' : req.status === 'RESOLVED' ? 'Resuelto' : 'Pendiente'}
+                                                 </span>
+                                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${PRIORITY_STYLES[req.priority]}`}>
+                                                     {req.priority === 'HIGH' ? 'Alta' : req.priority === 'MEDIUM' ? 'Media' : 'Baja'}
+                                                 </span>
+                                                 <span className="text-xs text-slate-400 font-mono">{req.date}</span>
+                                             </div>
+                                             <h4 className="font-bold text-slate-800 text-sm">
+                                                 {req.category === 'PERSONNEL' ? 'Personal' : req.category === 'LOGISTICS' ? 'Logística' : 'General'}
+                                                 {relatedRes && <span className="font-normal text-slate-500 ml-1">sobre: {relatedRes.name}</span>}
+                                             </h4>
+                                         </div>
+                                         
+                                         {/* Old Edit Button - Kept for Resolving/Changing Status */}
+                                         <button 
+                                            onClick={() => {
+                                                setEditingRequest(req);
+                                                setResolveAttachments(req.responseAttachments || []);
+                                            }} 
+                                            className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200"
+                                            title="Gestionar Estado / Resolver"
+                                         >
+                                             <Edit2 size={14}/>
+                                         </button>
+                                     </div>
+                                     
+                                     <p className="text-slate-700 text-sm mb-4 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
+                                        "{req.description}"
+                                     </p>
+
+                                     {hasAttachments && (
+                                         <div className="mb-4">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 flex items-center"><Paperclip size={10} className="mr-1"/> Evidencias Cliente</p>
+                                            <div className="flex gap-2 overflow-x-auto pb-1">
+                                                {req.attachments!.map((img, i) => (
+                                                    <div key={i} className="w-16 h-16 shrink-0 rounded border border-slate-200 overflow-hidden bg-slate-100">
+                                                        <img src={img} className="w-full h-full object-cover" alt="client attachment" />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                         </div>
+                                     )}
+
+                                     <div className="text-xs text-slate-400 flex items-center justify-between border-t border-slate-50 pt-2">
+                                         <span>Autor: {req.author}</span>
+                                         {req.resolvedDate && <span className="text-green-600 font-bold flex items-center"><CheckCircle size={12} className="mr-1"/> Resuelto el: {req.resolvedDate}</span>}
+                                     </div>
+
+                                     {/* Resolved Response Preview */}
+                                     {req.status === 'RESOLVED' && req.response && (
+                                         <div className="mt-2 pt-2 border-t border-slate-100">
+                                             <p className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center"><UserCheck size={12} className="mr-1"/> Solución Final:</p>
+                                             <p className="text-sm text-slate-600 line-clamp-2">{req.response}</p>
+                                         </div>
+                                     )}
+                                 </div>
+
+                                 {/* RIGHT COLUMN: INLINE CHAT */}
+                                 <div className="bg-slate-50/50 flex flex-col h-full min-h-[250px] lg:h-auto border-l border-slate-100">
+                                     <div className="p-3 border-b border-slate-200 bg-slate-50">
+                                         <h6 className="text-[10px] uppercase font-bold text-slate-500 flex items-center">
+                                             <MessageCircle size={12} className="mr-1.5" /> Discusión / Chat
+                                         </h6>
+                                     </div>
+                                     
+                                     {/* Scrollable Messages */}
+                                     <div className="flex-1 p-3 overflow-y-auto custom-scrollbar space-y-3 max-h-60 lg:max-h-80">
+                                        {(!req.comments || req.comments.length === 0) ? (
+                                            <div className="h-full flex flex-col items-center justify-center text-slate-300">
+                                                <MessageSquarePlus size={24} className="mb-1 opacity-50"/>
+                                                <span className="text-xs">Sin comentarios</span>
+                                            </div>
+                                        ) : (
+                                            req.comments.map(comment => (
+                                                <div key={comment.id} className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}>
+                                                    <div className={`relative px-3 py-2 rounded-lg text-xs max-w-[90%] ${
+                                                        comment.role === userRole 
+                                                        ? 'bg-blue-100 text-blue-900 rounded-br-none' 
+                                                        : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm'
+                                                    }`}>
+                                                        <p>{comment.text}</p>
+                                                    </div>
+                                                    <span className="text-[9px] text-slate-400 mt-1 px-1">
+                                                    {comment.author}
+                                                    </span>
+                                                </div>
+                                            ))
+                                        )}
+                                     </div>
+
+                                     {/* Input Area */}
+                                     <div className="p-3 border-t border-slate-200 bg-white">
+                                         <div className="flex gap-2">
+                                             <input 
+                                                 type="text" 
+                                                 className="flex-1 border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500"
+                                                 placeholder="Escribir comentario..."
+                                                 value={commentDrafts[req.id] || ''}
+                                                 onChange={(e) => setCommentDrafts({...commentDrafts, [req.id]: e.target.value})}
+                                                 onKeyDown={(e) => e.key === 'Enter' && handleInlineCommentSubmit(req.id)}
+                                             />
+                                             <button 
+                                                 onClick={() => handleInlineCommentSubmit(req.id)} 
+                                                 disabled={!commentDrafts[req.id]?.trim()} 
+                                                 className="bg-slate-800 text-white p-1.5 rounded-md hover:bg-slate-900 disabled:opacity-50 transition-colors"
+                                             >
+                                                 <Send size={14} />
+                                             </button>
+                                         </div>
+                                     </div>
+                                 </div>
+                             </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+  };
+
 
   // --- BLUEPRINT RENDERER ---
   const renderBlueprint = () => {
@@ -1148,7 +1550,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <h3 className="text-lg font-semibold text-slate-800 flex items-center mb-6"><Users className="w-5 h-5 mr-2 text-slate-500" /> Equipo de Gestión y Supervisión</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* ... (Existing Management Team Code) ... */}
                 {/* Coordinator Card */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-blue-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
@@ -1169,7 +1570,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </div>
                     )}
                 </div>
-                {/* ... Other Supervisors ... */}
+                {/* Resident Supervisor */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-indigo-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
                         {unit.residentSupervisor?.photo ? <img src={unit.residentSupervisor.photo} alt="Res" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
@@ -1184,6 +1585,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </div>
                     )}
                 </div>
+                {/* Roving Supervisor */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
                         {unit.rovingSupervisor?.photo ? <img src={unit.rovingSupervisor.photo} alt="Ronda" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
@@ -1223,7 +1625,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              
              {isEditing ? (
                <div className="space-y-4">
-                  {/* ... (Existing Edit Form) ... */}
                   <div><label className="block text-sm font-medium text-slate-700">Nombre Unidad</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} /></div>
                   <div><label className="block text-sm font-medium text-slate-700">Cliente</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.clientName} onChange={e => setEditForm({...editForm, clientName: e.target.value})} /></div>
                   <div><label className="block text-sm font-medium text-slate-700">Dirección</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} /></div>
@@ -1245,7 +1646,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           {availableStaff.filter(s => s.role === 'COORDINATOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                   </div>
-                   {/* ... Other selectors ... */}
                    <div><label className="block text-sm font-medium text-slate-700">Supervisor Residente</label><select className="w-full border border-slate-300 rounded p-2" value={editForm.residentSupervisor?.id || ''} onChange={e => handleSelectStaff('residentSupervisor', e.target.value)}><option value="">Seleccionar...</option>{availableStaff.filter(s => s.role === 'RESIDENT_SUPERVISOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
                    <div><label className="block text-sm font-medium text-slate-700">Supervisor de Ronda</label><select className="w-full border border-slate-300 rounded p-2" value={editForm.rovingSupervisor?.id || ''} onChange={e => handleSelectStaff('rovingSupervisor', e.target.value)}><option value="">Seleccionar...</option>{availableStaff.filter(s => s.role === 'ROVING_SUPERVISOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
 
@@ -1362,319 +1762,492 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   );
 
   const renderPersonnel = () => (
-      <div className="space-y-6 animate-in fade-in duration-300 pb-10">
-          {/* Toolbar */}
-          <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="font-bold text-slate-700 flex items-center"><Users className="mr-2"/> Dotación de Personal</h3>
-              <div className="flex gap-2">
-                  {selectedPersonnelIds.length > 0 && canEditPersonnel && (
-                      <>
-                        <button onClick={() => setShowMassTrainingModal(true)} className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 flex items-center"><Award size={16} className="mr-1.5"/> Asignar Capacitación ({selectedPersonnelIds.length})</button>
-                        <button onClick={() => setShowAssetAssignmentModal(true)} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-indigo-100 flex items-center"><Briefcase size={16} className="mr-1.5"/> Asignar Activo/EPP ({selectedPersonnelIds.length})</button>
-                      </>
-                  )}
-                  {canEditPersonnel && <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"><UserPlus size={16} className="mr-1.5"/> Nuevo Colaborador</button>}
-              </div>
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-800">Gestión de Personal ({personnel.length})</h3>
+          <p className="text-slate-500 text-sm">Administración de colaboradores, asistencias y capacitaciones.</p>
+        </div>
+        {canEditPersonnel && (
+          <div className="flex gap-2">
+             <div className="bg-slate-100 rounded-lg p-1 flex">
+                 <button 
+                    onClick={() => setPersonnelViewMode('list')} 
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'list' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                 >
+                     <Users size={14} className="mr-1.5"/> Lista
+                 </button>
+                 <button 
+                    onClick={() => setPersonnelViewMode('roster')} 
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'roster' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                 >
+                     <Calendar size={14} className="mr-1.5"/> Turnos / Rostering
+                 </button>
+             </div>
+             
+            {selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
+              <>
+                <button onClick={() => setShowMassTrainingModal(true)} className="bg-indigo-50 text-indigo-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors flex items-center">
+                   <Award size={16} className="mr-2"/> + Capacitación ({selectedPersonnelIds.length})
+                </button>
+                <button onClick={() => setShowAssetAssignmentModal(true)} className="bg-orange-50 text-orange-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors flex items-center">
+                   <Briefcase size={16} className="mr-2"/> + Entrega EPP ({selectedPersonnelIds.length})
+                </button>
+              </>
+            )}
+            <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+              <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
+            </button>
           </div>
-          {/* ... Table omitted for brevity but remains same ... */}
-          {/* Table */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-             <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
-                    <tr>
-                        <th className="px-6 py-3 text-left"><button onClick={selectAllPersonnel} disabled={!canEditPersonnel} className="text-slate-400 hover:text-slate-600 disabled:opacity-50"><CheckSquare size={16}/></button></th>
-                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Colaborador</th>
-                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Zona / Turno</th>
-                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Estado</th>
-                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Cumplimiento</th>
-                        <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                    {personnel.map((p) => (
-                        <React.Fragment key={p.id}>
-                            <tr className={`hover:bg-slate-50 transition-colors ${expandedPersonnel === p.id ? 'bg-slate-50' : ''}`}>
-                                <td className="px-6 py-4"><button disabled={!canEditPersonnel} onClick={() => togglePersonnelSelection(p.id)} className={`${selectedPersonnelIds.includes(p.id) ? 'text-blue-600' : 'text-slate-300'} disabled:opacity-50`}>{selectedPersonnelIds.includes(p.id) ? <CheckSquare size={16}/> : <Square size={16}/>}</button></td>
-                                <td className="px-6 py-4 whitespace-nowrap flex items-center">
-                                    <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-xs text-slate-600 mr-3">{p.name.substring(0,2)}</div>
-                                    <div className="text-sm font-medium text-slate-900">{p.name}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                                   {p.assignedZones && p.assignedZones.length > 0 ? (
-                                     <span title={p.assignedZones.join(', ')}>
-                                       {p.assignedZones.length > 1 ? `${p.assignedZones.length} Zonas` : p.assignedZones[0]}
-                                     </span>
-                                   ) : <span className="text-slate-400">Sin Zona</span>}
-                                   <span className="text-slate-400 mx-1">•</span> {p.assignedShift}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${STATUS_COLORS[p.status as keyof typeof STATUS_COLORS] || 'bg-gray-100'}`}>{p.status}</span></td>
-                                <td className="px-6 py-4 whitespace-nowrap"><div className="w-24 bg-slate-200 rounded-full h-1.5 mt-1"><div className="bg-green-500 h-1.5 rounded-full" style={{width: `${p.compliancePercentage}%`}}></div></div><span className="text-xs text-slate-500 mt-1 block">{p.compliancePercentage}%</span></td>
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium flex justify-end gap-2">
-                                    <button onClick={() => togglePersonnelExpand(p.id)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded">{expandedPersonnel === p.id ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}</button>
-                                    {canEditPersonnel && <button onClick={() => setEditingResource(p)} className="text-slate-400 hover:text-slate-600 p-1.5"><Edit2 size={16}/></button>}
-                                </td>
-                            </tr>
-                            {expandedPersonnel === p.id && (
-                                <tr>
-                                    <td colSpan={6} className="bg-slate-50 p-4 border-b border-slate-200 animate-in fade-in duration-200">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                            {/* Trainings */}
-                                            <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                                                <div className="flex justify-between items-center mb-3">
-                                                    <h4 className="text-xs font-bold uppercase text-slate-500 flex items-center"><Award className="mr-1.5" size={14}/> Historial de Capacitaciones</h4>
-                                                    {canEditPersonnel && <button onClick={() => handleAddSingleTraining(p.id)} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 flex items-center"><Plus size={10} className="mr-1"/> Agregar</button>}
-                                                </div>
-                                                {p.trainings && p.trainings.length > 0 ? (
-                                                    <div className="space-y-2">
-                                                        {p.trainings.map(t => (
-                                                            <div key={t.id} className="flex justify-between items-center text-sm border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-                                                                <div><span className="font-medium text-slate-800">{t.topic}</span><div className="text-xs text-slate-500">{t.date}</div></div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.status === 'Completado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{t.status}</span>
-                                                                    {canEditPersonnel && <button onClick={() => handleDeleteTraining(p.id, t.id)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : <p className="text-sm text-slate-400 italic">Sin capacitaciones registradas.</p>}
-                                            </div>
-                                            {/* Assigned Assets */}
-                                            <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                                                <div className="flex justify-between items-center mb-3">
-                                                    <h4 className="text-xs font-bold uppercase text-slate-500 flex items-center"><Briefcase className="mr-1.5" size={14}/> Inventario Asignado</h4>
-                                                    {canEditPersonnel && <button onClick={() => handleAddSingleAsset(p.id)} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 flex items-center"><Plus size={10} className="mr-1"/> Agregar</button>}
-                                                </div>
-                                                {p.assignedAssets && p.assignedAssets.length > 0 ? (
-                                                    <div className="space-y-2">
-                                                        {p.assignedAssets.map(asset => (
-                                                            <div key={asset.id} className="flex justify-between items-center text-sm border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-                                                                <div className="flex items-center">
-                                                                    <div className="bg-slate-100 p-1.5 rounded mr-2">{getAssetIcon(asset.type)}</div>
-                                                                    <div><span className="font-medium text-slate-800">{asset.name}</span><div className="text-[10px] text-slate-400">Entregado: {asset.dateAssigned}</div></div>
-                                                                </div>
-                                                                <div className="flex items-center gap-2">
-                                                                    {asset.serialNumber && <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-mono">{asset.serialNumber}</span>}
-                                                                    {canEditPersonnel && <button onClick={() => handleDeleteAsset(p.id, asset.id)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : <p className="text-sm text-slate-400 italic">Sin equipamiento asignado.</p>}
+        )}
+      </div>
+
+      {personnelViewMode === 'list' ? (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+         {/* Table Header */}
+         <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">
+            <div className="col-span-1 flex items-center justify-center">
+               <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            </div>
+            <div className="col-span-4 md:col-span-3">Colaborador</div>
+            <div className="col-span-3 md:col-span-2 text-center">Estado</div>
+            <div className="col-span-2 hidden md:block text-center">Turno</div>
+            <div className="col-span-2 hidden md:block text-center">Cumplimiento</div>
+            <div className="col-span-4 md:col-span-2 text-right">Acciones</div>
+         </div>
+
+         <div className="divide-y divide-slate-100">
+            {personnel.map(worker => (
+              <div key={worker.id} className="group transition-colors hover:bg-slate-50">
+                 {/* Main Row */}
+                 <div className="grid grid-cols-12 p-4 items-center">
+                    <div className="col-span-1 flex items-center justify-center">
+                       <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    </div>
+                    <div className="col-span-4 md:col-span-3 flex items-center">
+                       <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-3 shrink-0">
+                          {worker.name.charAt(0)}
+                       </div>
+                       <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
+                          <p className="text-xs text-slate-500 truncate">{worker.type}</p>
+                       </div>
+                    </div>
+                    <div className="col-span-3 md:col-span-2 text-center">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[worker.status as string] || 'bg-slate-100 text-slate-800'}`}>
+                           {worker.status}
+                        </span>
+                    </div>
+                    <div className="col-span-2 hidden md:block text-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
+                    <div className="col-span-2 hidden md:block text-center">
+                        <div className="flex items-center justify-center">
+                            <div className="w-16 bg-slate-200 rounded-full h-1.5 mr-2">
+                                <div className={`h-1.5 rounded-full ${worker.compliancePercentage && worker.compliancePercentage >= 90 ? 'bg-green-500' : 'bg-yellow-500'}`} style={{ width: `${worker.compliancePercentage}%` }}></div>
+                            </div>
+                            <span className="text-xs font-medium">{worker.compliancePercentage}%</span>
+                        </div>
+                    </div>
+                    <div className="col-span-4 md:col-span-2 flex justify-end items-center gap-2">
+                        <button onClick={() => togglePersonnelExpand(worker.id)} className="text-slate-400 hover:text-blue-600 p-1">
+                            {expandedPersonnel === worker.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                        </button>
+                        {canEditPersonnel && (
+                            <button onClick={() => { setEditingResource(worker); /* logic to open modal */ }} className="text-slate-400 hover:text-blue-600 p-1">
+                                <Edit2 size={16} />
+                            </button>
+                        )}
+                    </div>
+                 </div>
+
+                 {/* Expanded Details */}
+                 {expandedPersonnel === worker.id && (
+                    <div className="bg-slate-50/50 p-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2 duration-200">
+                        {/* Training History */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <div className="flex justify-between items-center mb-3">
+                                <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center"><Award size={14} className="mr-1.5"/> Capacitaciones</h5>
+                                {canEditPersonnel && <button onClick={() => handleAddSingleTraining(worker.id)} className="text-xs text-blue-600 hover:underline flex items-center"><Plus size={12} className="mr-1"/> Agregar</button>}
+                            </div>
+                            <div className="space-y-2">
+                                {(worker.trainings || []).length > 0 ? worker.trainings?.map(t => (
+                                    <div key={t.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
+                                        <div>
+                                            <p className="font-medium text-slate-700">{t.topic}</p>
+                                            <p className="text-xs text-slate-500">{t.date} • {t.status}</p>
+                                        </div>
+                                        <div className="flex items-center">
+                                            {t.score && <span className={`text-xs font-bold px-1.5 py-0.5 rounded mr-2 ${t.score >= 13 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{t.score}</span>}
+                                            {canEditPersonnel && <button onClick={() => handleDeleteTraining(worker.id, t.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={12}/></button>}
+                                        </div>
+                                    </div>
+                                )) : <p className="text-xs text-slate-400 italic">Sin registro de capacitaciones.</p>}
+                            </div>
+                        </div>
+
+                        {/* Assigned Assets */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <div className="flex justify-between items-center mb-3">
+                                <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center"><Briefcase size={14} className="mr-1.5"/> Dotación (EPP / Activos)</h5>
+                                {canEditPersonnel && <button onClick={() => handleAddSingleAsset(worker.id)} className="text-xs text-orange-600 hover:underline flex items-center"><Plus size={12} className="mr-1"/> Asignar</button>}
+                            </div>
+                            <div className="space-y-2">
+                                {(worker.assignedAssets || []).length > 0 ? worker.assignedAssets?.map(a => (
+                                    <div key={a.id} className="flex justify-between items-center text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
+                                        <div className="flex items-center">
+                                            <div className="mr-2">{getAssetIcon(a.type)}</div>
+                                            <div>
+                                                <p className="font-medium text-slate-700">{a.name}</p>
+                                                <p className="text-xs text-slate-500">{a.dateAssigned} {a.serialNumber && `• SN: ${a.serialNumber}`}</p>
                                             </div>
                                         </div>
-                                    </td>
-                                </tr>
-                            )}
-                        </React.Fragment>
-                    ))}
-                </tbody>
-             </table>
-          </div>
+                                        {canEditPersonnel && <button onClick={() => handleDeleteAsset(worker.id, a.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={12}/></button>}
+                                    </div>
+                                )) : <p className="text-xs text-slate-400 italic">Sin activos asignados.</p>}
+                            </div>
+                        </div>
+                    </div>
+                 )}
+              </div>
+            ))}
+            {personnel.length === 0 && (
+                <div className="p-8 text-center text-slate-400">
+                    <Users size={48} className="mx-auto mb-2 opacity-20"/>
+                    <p>No hay personal registrado en esta unidad.</p>
+                </div>
+            )}
+         </div>
       </div>
+      ) : (
+          // --- ROSTER VIEW (GRID) ---
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+             {/* Roster Controls */}
+             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
+                <div className="flex items-center space-x-2">
+                    <button onClick={() => changeRosterDate(-7)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600"><ChevronLeft size={18}/></button>
+                    <div className="flex items-center space-x-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+                        <Calendar size={14} className="text-slate-500"/>
+                        <span className="text-sm font-bold text-slate-700">
+                             {getRosterDates()[0].toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })} 
+                             {' - '} 
+                             {getRosterDates()[6].toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                    </div>
+                    <button onClick={() => changeRosterDate(7)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600"><ChevronRight size={18}/></button>
+                </div>
+                
+                <div className="flex items-center space-x-4">
+                    <div className="text-xs text-slate-400 font-medium">Click en turno para cambiar</div>
+                    <button 
+                        onClick={handleReplicateWeek}
+                        className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
+                        title="Copiar estos turnos a la próxima semana"
+                    >
+                        <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
+                    </button>
+                </div>
+             </div>
+             
+             {/* Roster Grid */}
+             <div className="overflow-x-auto">
+                 <table className="min-w-full divide-y divide-slate-200">
+                     <thead className="bg-white">
+                         <tr>
+                             <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-white z-10 w-48 border-r border-slate-100">Colaborador</th>
+                             {getRosterDates().map((date, i) => (
+                                 <th key={i} className={`px-2 py-3 text-center text-xs font-bold uppercase tracking-wider min-w-[80px] ${date.toDateString() === new Date().toDateString() ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>
+                                     <div className="flex flex-col">
+                                         <span>{date.toLocaleDateString('es-ES', { weekday: 'short' })}</span>
+                                         <span className="text-xs opacity-70">{date.getDate()}</span>
+                                     </div>
+                                 </th>
+                             ))}
+                             <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Horas</th>
+                         </tr>
+                     </thead>
+                     <tbody className="bg-white divide-y divide-slate-100">
+                         {personnel.map(worker => {
+                             // Calculate total hours in view
+                             const dates = getRosterDates();
+                             const totalHours = dates.reduce((acc, d) => {
+                                 const dateStr = d.toISOString().split('T')[0];
+                                 const shift = worker.workSchedule?.find(s => s.date === dateStr);
+                                 return acc + (shift?.hours || 0);
+                             }, 0);
+
+                             return (
+                                 <tr key={worker.id} className="hover:bg-slate-50/50">
+                                     <td className="px-4 py-3 whitespace-nowrap sticky left-0 bg-white z-10 border-r border-slate-100">
+                                         <div className="flex items-center">
+                                             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
+                                                 {worker.name.charAt(0)}
+                                             </div>
+                                             <div>
+                                                 <p className="text-sm font-medium text-slate-900 truncate max-w-[120px]" title={worker.name}>{worker.name}</p>
+                                                 <p className="text-[10px] text-slate-400">{worker.assignedShift || 'N/A'}</p>
+                                             </div>
+                                         </div>
+                                     </td>
+                                     {getRosterDates().map((date, i) => {
+                                         const dateStr = date.toISOString().split('T')[0];
+                                         const shift = worker.workSchedule?.find(s => s.date === dateStr);
+                                         const type = shift?.type || 'OFF';
+                                         
+                                         return (
+                                             <td key={i} className="px-2 py-3 text-center relative group">
+                                                 <button 
+                                                     onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
+                                                     className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
+                                                 >
+                                                     {type === 'Day' ? 'Dia' : type === 'Night' ? 'Noc' : type}
+                                                 </button>
+                                             </td>
+                                         );
+                                     })}
+                                     <td className="px-4 py-3 text-center whitespace-nowrap">
+                                         <span className="text-sm font-bold text-slate-700">{totalHours}</span>
+                                         <span className="text-xs text-slate-400 ml-1">h</span>
+                                     </td>
+                                 </tr>
+                             );
+                         })}
+                     </tbody>
+                 </table>
+             </div>
+          </div>
+      )}
+
+    </div>
   );
 
   const renderLogistics = () => (
-      <div className="space-y-8 animate-in fade-in duration-300 pb-10">
-         {/* Equipment Section (STACK LAYOUT) */}
-         <div>
-             <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-slate-700 text-lg flex items-center"><Truck className="mr-2"/> Maquinaria y Equipos</h3>
-                {canEditLogistics && <button onClick={() => openAddResourceModal(ResourceType.EQUIPMENT)} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Agregar Equipo</button>}
-             </div>
-             
-             <div className="flex flex-col gap-4">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-800">Logística y Equipamiento</h3>
+          <p className="text-slate-500 text-sm">Control de inventario, maquinaria y materiales.</p>
+        </div>
+        {canEditLogistics && (
+          <div className="flex gap-2">
+             <button onClick={() => openAddResourceModal(ResourceType.EQUIPMENT)} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center">
+                <Truck size={16} className="mr-2"/> + Maquinaria
+             </button>
+             <button onClick={() => openAddResourceModal(ResourceType.MATERIAL)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+                <Package size={16} className="mr-2"/> + Material
+             </button>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+         {/* Equipment Section */}
+         <div className="space-y-4">
+             <h4 className="font-bold text-slate-700 flex items-center text-sm uppercase tracking-wide"><Truck size={16} className="mr-2"/> Equipos y Maquinaria</h4>
+             <div className="space-y-3">
                  {equipment.map(eq => (
-                     <div key={eq.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col md:flex-row group transition-all hover:border-blue-300">
-                         {/* Image Side */}
-                         <div className="w-full md:w-48 h-40 md:h-auto bg-slate-100 relative shrink-0">
-                             {eq.image ? <img src={eq.image} alt={eq.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-400"><Box size={32}/></div>}
-                             <div className="absolute top-2 left-2"><span className={`text-[10px] font-bold px-2 py-1 rounded-full shadow-sm ${STATUS_COLORS[eq.status as keyof typeof STATUS_COLORS]}`}>{eq.status}</span></div>
-                         </div>
-                         
-                         {/* Content Side */}
-                         <div className="p-4 flex-1 flex flex-col justify-between">
-                             <div className="flex justify-between items-start">
-                                 <div>
-                                     <h4 className="font-bold text-slate-800 text-lg">{eq.name}</h4>
-                                     <div className="flex items-center text-sm text-slate-500 mt-1">
-                                        <MapPin size={14} className="mr-1"/> 
-                                        {eq.assignedZones && eq.assignedZones.length > 0 ? (
-                                           <span title={eq.assignedZones.join(', ')}>
-                                              {eq.assignedZones.length > 1 ? `${eq.assignedZones.length} Zonas asignadas` : eq.assignedZones[0]}
-                                           </span>
-                                        ) : 'Sin Asignación'}
-                                        {eq.externalId && <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded font-mono border border-purple-200 flex items-center"><LinkIcon size={10} className="mr-1"/> {eq.externalId}</span>}
+                     <div key={eq.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden group">
+                         <div className="p-4 flex gap-4">
+                             <div className="w-20 h-20 rounded-lg bg-slate-100 shrink-0 overflow-hidden">
+                                 {eq.image ? <img src={eq.image} alt={eq.name} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><Truck size={24}/></div>}
+                             </div>
+                             <div className="flex-1 min-w-0">
+                                 <div className="flex justify-between items-start">
+                                     <div>
+                                         <h5 className="font-bold text-slate-800 text-sm truncate">{eq.name}</h5>
+                                         <div className="flex items-center gap-2 mt-1">
+                                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${STATUS_COLORS[eq.status as string] || 'bg-slate-100 text-slate-600'}`}>{eq.status}</span>
+                                             {eq.nextMaintenance && <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full flex items-center"><Wrench size={10} className="mr-1"/> Mant: {eq.nextMaintenance}</span>}
+                                         </div>
+                                     </div>
+                                     <div className="flex gap-1">
+                                         {eq.externalId && (
+                                             <button 
+                                                onClick={() => handleSyncInventory(eq)} 
+                                                disabled={isSyncing === eq.id}
+                                                className={`p-1.5 rounded hover:bg-slate-100 ${isSyncing === eq.id ? 'animate-spin text-blue-600' : 'text-slate-400 hover:text-blue-600'}`} 
+                                                title="Sincronizar Stock"
+                                             >
+                                                 <RefreshCw size={14}/>
+                                             </button>
+                                         )}
+                                         <button onClick={() => toggleEquipmentExpand(eq.id)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600">
+                                            {expandedEquipment === eq.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                         </button>
+                                         {canEditLogistics && (
+                                            <button onClick={() => setEditingResource(eq)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Edit2 size={14}/></button>
+                                         )}
                                      </div>
                                  </div>
-                                 <div className="flex gap-2">
-                                     {canEditLogistics && <button onClick={() => setEditingResource(eq)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit2 size={18}/></button>}
-                                 </div>
-                             </div>
-
-                             <div className="flex justify-between items-end mt-4">
-                                 <div>
-                                    <p className="text-xs text-slate-400 uppercase font-bold mb-1">Próximo Mantenimiento</p>
-                                    <div className="flex items-center text-sm font-medium text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 w-fit">
-                                        <Clock size={14} className="mr-1.5 text-orange-500"/> {eq.nextMaintenance || 'No programado'}
-                                    </div>
-                                 </div>
-                                 <button onClick={() => toggleEquipmentExpand(eq.id)} className="flex items-center text-sm text-blue-600 hover:text-blue-800 font-medium">
-                                     {expandedEquipment === eq.id ? 'Ocultar Historial' : 'Ver Historial'} {expandedEquipment === eq.id ? <ChevronUp size={16} className="ml-1"/> : <ChevronDown size={16} className="ml-1"/>}
-                                 </button>
+                                 <p className="text-xs text-slate-500 mt-2 line-clamp-1">Ubicación: {eq.assignedZones?.join(', ') || 'Sin asignar'}</p>
                              </div>
                          </div>
-
-                         {/* Expanded History Section (Inline) */}
+                         
+                         {/* Maintenance History Expanded */}
                          {expandedEquipment === eq.id && (
-                             <div className="w-full border-t border-slate-200 bg-slate-50 p-4 md:w-96 md:border-t-0 md:border-l shrink-0 flex flex-col h-auto md:h-auto animate-in slide-in-from-right-4 duration-300">
-                                <div className="flex justify-between items-center mb-3">
-                                    <h5 className="font-bold text-slate-700 text-sm flex items-center"><History size={14} className="mr-1.5"/> Historial Técnico</h5>
-                                    {canEditLogistics && <button onClick={() => setMaintenanceResource(eq)} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 flex items-center"><Plus size={10} className="mr-1"/> Nuevo Reg.</button>}
-                                </div>
-                                <div className="space-y-3 overflow-y-auto max-h-60 custom-scrollbar pr-1 flex-1">
-                                    {eq.maintenanceHistory && eq.maintenanceHistory.length > 0 ? eq.maintenanceHistory.map(record => (
-                                        <div key={record.id} className="bg-white p-2.5 rounded border border-slate-200 shadow-sm text-sm relative">
-                                            <div className="flex justify-between mb-1">
-                                                <span className="font-bold text-slate-800 text-xs">{record.date}</span>
-                                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${record.type === 'Correctivo' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{record.type}</span>
-                                            </div>
-                                            <p className="text-slate-600 text-xs leading-relaxed mb-2">{record.description}</p>
-                                            
-                                            {/* Evidence Images in History */}
-                                            {record.images && record.images.length > 0 && (
-                                                <div className="flex gap-1 mb-2 overflow-x-auto">
-                                                    {record.images.map((img, idx) => (
-                                                        <img key={idx} src={img} alt="evidencia" className="w-10 h-10 object-cover rounded border border-slate-100" />
-                                                    ))}
-                                                </div>
-                                            )}
-
-                                            <div className="border-t border-slate-100 pt-1.5 mt-1.5 flex justify-between items-center">
-                                                <div className="flex items-center text-[10px] text-slate-500">
-                                                    <UserCheck size={10} className="mr-1"/> 
-                                                    {record.technician}
-                                                </div>
-                                                {record.responsibleIds && record.responsibleIds.length > 0 && (
-                                                   <span className="text-[9px] bg-slate-100 text-slate-500 px-1 rounded" title="Responsables asignados">
-                                                       +{record.responsibleIds.length} inv.
-                                                   </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )) : <div className="text-center py-6 text-slate-400 italic text-xs">Sin registros de mantenimiento.</div>}
-                                </div>
+                             <div className="bg-slate-50 border-t border-slate-100 p-4">
+                                 <div className="flex justify-between items-center mb-3">
+                                     <h6 className="text-xs font-bold text-slate-500 uppercase">Historial de Mantenimiento</h6>
+                                     {canEditLogistics && (
+                                         <button 
+                                            onClick={() => { setMaintenanceResource(eq); /* Should trigger modal logic */ }} 
+                                            className="text-xs bg-white border border-slate-300 px-2 py-1 rounded hover:bg-slate-100 text-slate-600 flex items-center"
+                                         >
+                                             <Plus size={12} className="mr-1"/> Registrar
+                                         </button>
+                                     )}
+                                 </div>
+                                 <div className="space-y-3">
+                                     {(eq.maintenanceHistory || []).length > 0 ? eq.maintenanceHistory?.map(m => (
+                                         <div key={m.id} className="text-sm bg-white p-2 rounded border border-slate-200">
+                                             <div className="flex justify-between">
+                                                 <span className="font-bold text-slate-700">{m.type}</span>
+                                                 <span className="text-xs text-slate-400">{m.date}</span>
+                                             </div>
+                                             <p className="text-xs text-slate-600 mt-1">{m.description}</p>
+                                             <p className="text-[10px] text-slate-400 mt-1">Téc: {m.technician} • Estado: {m.status}</p>
+                                         </div>
+                                     )) : <p className="text-xs text-slate-400 italic text-center py-2">Sin registros.</p>}
+                                 </div>
                              </div>
                          )}
                      </div>
                  ))}
+                 {equipment.length === 0 && <p className="text-sm text-slate-400 italic">No hay equipos registrados.</p>}
              </div>
          </div>
 
          {/* Materials Section */}
-         <div>
-             <div className="flex justify-between items-center mb-4 pt-4 border-t border-slate-200">
-                <h3 className="font-bold text-slate-700 text-lg flex items-center"><PackagePlus className="mr-2"/> Insumos y Materiales</h3>
-                {canEditLogistics && <button onClick={() => openAddResourceModal(ResourceType.MATERIAL)} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Agregar Material</button>}
-             </div>
-             
-             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+         <div className="space-y-4">
+             <h4 className="font-bold text-slate-700 flex items-center text-sm uppercase tracking-wide"><Package size={16} className="mr-2"/> Insumos y Materiales</h4>
+             <div className="grid grid-cols-1 gap-3">
                  {materials.map(mat => (
-                     <div key={mat.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative group hover:shadow-md transition-shadow">
-                         {canEditLogistics && <button onClick={() => setEditingResource(mat)} className="absolute top-2 right-2 p-1.5 bg-white/80 rounded-full text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={14}/></button>}
-                         
-                         <div className="h-24 w-full bg-slate-50 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
-                             {mat.image ? <img src={mat.image} className="w-full h-full object-cover" alt={mat.name} /> : <Box className="text-slate-300" size={32}/>}
+                     <div key={mat.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex gap-4 items-center group">
+                         <div className="w-12 h-12 rounded bg-purple-50 flex items-center justify-center text-purple-600 shrink-0 border border-purple-100">
+                             {mat.image ? <img src={mat.image} alt={mat.name} className="w-full h-full object-cover rounded"/> : <Package size={20}/>}
                          </div>
-                         
-                         <h4 className="font-bold text-slate-800 text-sm line-clamp-2 h-10 mb-1" title={mat.name}>{mat.name}</h4>
-                         <div className="flex justify-between items-end">
-                             <div>
-                                 <p className="text-xs text-slate-500">Stock Actual</p>
-                                 <p className="font-bold text-lg text-slate-800">{mat.quantity} <span className="text-xs font-normal text-slate-400">{mat.unitOfMeasure}</span></p>
+                         <div className="flex-1 min-w-0">
+                             <div className="flex justify-between items-start">
+                                 <div>
+                                     <h5 className="font-bold text-slate-800 text-sm truncate">{mat.name}</h5>
+                                     <p className="text-xs text-slate-500">Stock: <span className="font-bold text-slate-700">{mat.quantity} {mat.unitOfMeasure}</span></p>
+                                 </div>
+                                 <div className="flex gap-1">
+                                      {mat.externalId && (
+                                         <button 
+                                            onClick={() => handleSyncInventory(mat)} 
+                                            disabled={isSyncing === mat.id}
+                                            className={`p-1 rounded hover:bg-slate-100 ${isSyncing === mat.id ? 'animate-spin text-blue-600' : 'text-slate-400 hover:text-blue-600'}`}
+                                         >
+                                             <RefreshCw size={14}/>
+                                         </button>
+                                      )}
+                                      {canEditLogistics && (
+                                         <button onClick={() => setEditingResource(mat)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Edit2 size={14}/></button>
+                                      )}
+                                 </div>
                              </div>
-                             {/* Sync Button */}
-                             {canEditLogistics && mat.externalId && (
-                                 <button 
-                                   onClick={() => handleSyncInventory(mat)} 
-                                   disabled={isSyncing === mat.id}
-                                   className="text-purple-500 hover:text-purple-700 p-1" 
-                                   title="Sincronizar Stock"
-                                 >
-                                     <RefreshCw size={16} className={isSyncing === mat.id ? 'animate-spin' : ''} />
-                                 </button>
-                             )}
-                         </div>
-                         <div className={`mt-2 text-[10px] font-bold px-2 py-0.5 rounded text-center ${STATUS_COLORS[mat.status as keyof typeof STATUS_COLORS]}`}>{mat.status}</div>
-                         
-                         <div className="mt-2 flex justify-between items-center border-t border-slate-100 pt-1.5">
-                            <span className="text-[10px] text-slate-400">
-                                {mat.assignedZones && mat.assignedZones.length > 0 ? (
-                                    mat.assignedZones.length > 1 ? `${mat.assignedZones.length} Zonas` : mat.assignedZones[0]
-                                ) : 'Sin Zona'}
-                            </span>
-                            {mat.externalId && <span className="text-[9px] bg-purple-50 text-purple-600 px-1 rounded border border-purple-100">{mat.externalId}</span>}
+                             <div className="flex items-center gap-2 mt-1.5">
+                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${STATUS_COLORS[mat.status as string] || 'bg-slate-100 text-slate-600'}`}>{mat.status}</span>
+                                 <span className="text-[10px] text-slate-400">Restock: {mat.lastRestock || '-'}</span>
+                             </div>
                          </div>
                      </div>
                  ))}
+                 {materials.length === 0 && <p className="text-sm text-slate-400 italic">No hay materiales registrados.</p>}
              </div>
          </div>
       </div>
+    </div>
   );
 
-  // ... (Management Render - unchanged) ...
   const renderManagement = () => (
-      <div className="space-y-6 animate-in fade-in duration-300 pb-10">
-          <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-slate-700 text-lg flex items-center"><ClipboardList className="mr-2"/> Bitácora de Sucesos</h3>
-              {canEditLogs && <button onClick={() => setShowEventModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"><Plus size={16} className="mr-1.5"/> Nuevo Registro</button>}
-          </div>
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+       <div className="flex justify-between items-center">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-800">Supervisión y Bitácora</h3>
+          <p className="text-slate-500 text-sm">Registro de eventos, incidencias y visitas.</p>
+        </div>
+        {canEditLogs && (
+          <button onClick={() => setShowEventModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+             <Plus size={18} className="mr-2" /> Registrar Evento
+          </button>
+        )}
+      </div>
 
-          <div className="relative border-l-2 border-slate-200 ml-4 space-y-8">
-              {unit.logs.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
-                  <div key={log.id} className="relative pl-6">
-                      <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white shadow-sm ${log.type === 'Incidencia' ? 'bg-red-500' : log.type === 'Supervision' ? 'bg-blue-500' : 'bg-slate-400'}`}></div>
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                          <div className="flex justify-between items-start mb-2">
-                              <div>
-                                  <div className="flex items-center space-x-2">
-                                    <span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${log.type === 'Incidencia' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}>{log.type}</span>
-                                    <span className="text-sm font-semibold text-slate-900">{log.date}</span>
-                                  </div>
-                                  <p className="text-xs text-slate-500 mt-1">Registrado por: {log.author}</p>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="divide-y divide-slate-100">
+              {[...unit.logs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
+                  <div key={log.id} className="p-6 hover:bg-slate-50 transition-colors">
+                      <div className="flex flex-col md:flex-row gap-4">
+                          <div className="flex-shrink-0 flex flex-col items-center">
+                              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs mb-2">
+                                  {new Date(log.date).getDate()}
+                                  <span className="block text-[8px] uppercase">{new Date(log.date).toLocaleString('default', { month: 'short' })}</span>
                               </div>
-                              {canEditLogs && <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-1"><Edit2 size={16}/></button>}
+                              <div className={`h-full w-0.5 bg-slate-200 my-2`}></div>
                           </div>
-                          
-                          <p className="text-slate-700 text-sm leading-relaxed mb-3">{log.description}</p>
-                          
-                          {/* Responsible Staff Display */}
-                          {log.responsibleIds && log.responsibleIds.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mb-3">
-                                  {log.responsibleIds.map(rid => (
-                                      <span key={rid} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-50 text-slate-600 border border-slate-100">
-                                          <UserCheck size={10} className="mr-1"/> {getPersonName(rid)}
+                          <div className="flex-1">
+                              <div className="flex justify-between items-start mb-2">
+                                  <div>
+                                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mb-2
+                                          ${log.type === 'Incidencia' ? 'bg-red-100 text-red-800' : 
+                                            log.type === 'Supervision' ? 'bg-blue-100 text-blue-800' : 
+                                            log.type === 'Capacitacion' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                          {log.type}
                                       </span>
-                                  ))}
+                                      <h4 className="text-base font-bold text-slate-800">{log.description}</h4>
+                                  </div>
+                                  {canEditLogs && (
+                                      <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                                          <Edit2 size={16}/>
+                                      </button>
+                                  )}
                               </div>
-                          )}
+                              
+                              <div className="flex flex-wrap gap-4 text-sm text-slate-500 mb-3">
+                                  <span className="flex items-center"><UserCheck size={14} className="mr-1.5"/> Autor: {log.author}</span>
+                                  {log.responsibleIds && log.responsibleIds.length > 0 && (
+                                      <span className="flex items-center"><Users size={14} className="mr-1.5"/> {log.responsibleIds.length} Involucrados</span>
+                                  )}
+                              </div>
+                              
+                              {/* Responsible avatars if any */}
+                              {log.responsibleIds && log.responsibleIds.length > 0 && (
+                                  <div className="flex -space-x-2 mb-3">
+                                      {log.responsibleIds.map(rid => {
+                                          const name = getPersonName(rid);
+                                          return (
+                                              <div key={rid} className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[10px] font-bold text-slate-600" title={name}>
+                                                  {name.charAt(0)}
+                                              </div>
+                                          );
+                                      })}
+                                  </div>
+                              )}
 
-                          {/* Log Images Grid */}
-                          {log.images && log.images.length > 0 && (
-                              <div className="grid grid-cols-4 gap-2 mt-3">
-                                  {log.images.map((img, i) => (
-                                      <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-100 bg-slate-50">
-                                          <img src={img} alt="evidence" className="w-full h-full object-cover hover:scale-110 transition-transform duration-300 cursor-zoom-in" />
-                                      </div>
-                                  ))}
-                              </div>
-                          )}
+                              {/* Images */}
+                              {log.images && log.images.length > 0 && (
+                                  <div className="flex gap-2 overflow-x-auto pb-2">
+                                      {log.images.map((img, i) => (
+                                          <div key={i} className="h-20 w-20 shrink-0 rounded-lg overflow-hidden border border-slate-200">
+                                              <img src={img} alt="Evidence" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" />
+                                          </div>
+                                      ))}
+                                  </div>
+                              )}
+                          </div>
                       </div>
                   </div>
               ))}
+              {unit.logs.length === 0 && (
+                  <div className="p-12 text-center text-slate-400">
+                      <ClipboardList size={48} className="mx-auto mb-4 opacity-20"/>
+                      <p>No hay registros en la bitácora aún.</p>
+                  </div>
+              )}
           </div>
       </div>
+    </div>
   );
-
 
   return (
     <div className="flex flex-col w-full relative min-h-screen">
@@ -1706,6 +2279,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {checkPermission(userRole, 'BLUEPRINT', 'view') && (
               <button onClick={() => setActiveTab('blueprint')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'blueprint' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Plano</button>
           )}
+          {checkPermission(userRole, 'CLIENT_REQUESTS', 'view') && (
+              <button onClick={() => setActiveTab('requests')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'requests' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Requerimientos</button>
+          )}
         </div>
       </div>
 
@@ -1715,9 +2291,654 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'logistics' && renderLogistics()}
         {activeTab === 'management' && renderManagement()}
         {activeTab === 'blueprint' && renderBlueprint()}
+        {activeTab === 'requests' && renderClientRequests()}
       </div>
       
-      {/* ... (Existing Modals remain unchanged) ... */}
+      {/* --- MODALS SECTION --- */}
+      
+      {/* 1. Client Request Modal (Updated with Photos) */}
+      {showRequestModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                  <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                      <h3 className="font-bold text-lg flex items-center"><MessageSquarePlus className="mr-2" size={20}/> Nuevo Requerimiento</h3>
+                      <button onClick={() => setShowRequestModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                      <p className="text-sm text-slate-600">Por favor, detalle su observación o solicitud para que nuestro equipo pueda atenderla.</p>
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Categoría</label>
+                          <select 
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                            value={newRequestForm.category}
+                            onChange={(e) => setNewRequestForm({...newRequestForm, category: e.target.value, relatedResourceId: ''})}
+                          >
+                              <option value="GENERAL">General / Adicional</option>
+                              <option value="PERSONNEL">Personal</option>
+                              <option value="LOGISTICS">Logística (Equipos/Insumos)</option>
+                          </select>
+                      </div>
+
+                      {newRequestForm.category === 'PERSONNEL' && (
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Trabajador Relacionado (Opcional)</label>
+                              <select 
+                                className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                value={newRequestForm.relatedResourceId}
+                                onChange={(e) => setNewRequestForm({...newRequestForm, relatedResourceId: e.target.value})}
+                              >
+                                  <option value="">-- Seleccionar Trabajador --</option>
+                                  {unit.resources.filter(r => r.type === ResourceType.PERSONNEL).map(p => (
+                                      <option key={p.id} value={p.id}>{p.name}</option>
+                                  ))}
+                              </select>
+                          </div>
+                      )}
+
+                      {newRequestForm.category === 'LOGISTICS' && (
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Recurso Relacionado (Opcional)</label>
+                              <select 
+                                className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                value={newRequestForm.relatedResourceId}
+                                onChange={(e) => setNewRequestForm({...newRequestForm, relatedResourceId: e.target.value})}
+                              >
+                                  <option value="">-- Seleccionar Equipo/Insumo --</option>
+                                  {unit.resources.filter(r => r.type !== ResourceType.PERSONNEL).map(r => (
+                                      <option key={r.id} value={r.id}>{r.name}</option>
+                                  ))}
+                              </select>
+                          </div>
+                      )}
+
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Prioridad</label>
+                          <select 
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                            value={newRequestForm.priority}
+                            onChange={(e) => setNewRequestForm({...newRequestForm, priority: e.target.value})}
+                          >
+                              <option value="LOW">Baja</option>
+                              <option value="MEDIUM">Media</option>
+                              <option value="HIGH">Alta</option>
+                          </select>
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label>
+                          <textarea 
+                             className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" 
+                             placeholder="Describa su solicitud..."
+                             value={newRequestForm.description}
+                             onChange={(e) => setNewRequestForm({...newRequestForm, description: e.target.value})}
+                          />
+                      </div>
+                      
+                      {/* NEW: Client Attachments */}
+                      <div>
+                           <label className="block text-sm font-medium text-slate-700 mb-1">Evidencias / Fotos (Opcional)</label>
+                           <div className="flex gap-2">
+                               <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL..." value={newRequestImageUrl} onChange={e => setNewRequestImageUrl(e.target.value)} />
+                                <label className="bg-slate-100 p-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                  <Camera size={20} className="text-slate-600"/>
+                                  <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForRequest} />
+                                </label>
+                               <button onClick={handleAddImageToRequest} disabled={!newRequestImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20}/></button>
+                           </div>
+                           {newRequestImages.length > 0 && (
+                               <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
+                                   {newRequestImages.map((img, i) => (
+                                       <div key={i} className="w-16 h-16 shrink-0 relative group">
+                                           <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                           <button onClick={() => setNewRequestImages(newRequestImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                                       </div>
+                                   ))}
+                               </div>
+                           )}
+                      </div>
+
+                      <button 
+                        onClick={handleCreateRequest} 
+                        disabled={!newRequestForm.description}
+                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50"
+                      >
+                          Enviar Solicitud
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* 2. Tracking / Resolution / Comment Modal (Replaces old Admin Resolve Modal) */}
+      {editingRequest && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-lg flex flex-col animate-in fade-in zoom-in-95 duration-200 max-h-[90vh]">
+                  <div className="bg-slate-800 text-white px-6 py-4 rounded-t-xl flex justify-between items-center shrink-0">
+                      <h3 className="font-bold text-lg flex items-center"><Edit2 className="mr-2" size={20}/> Seguimiento de Solicitud</h3>
+                      <button onClick={() => setEditingRequest(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+                      {/* Original Request Info */}
+                      <div className="mb-6">
+                          <div className="flex justify-between items-start mb-2">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${REQUEST_STATUS_STYLES[editingRequest.status]}`}>
+                                 {editingRequest.status === 'IN_PROGRESS' ? 'En Proceso' : editingRequest.status === 'RESOLVED' ? 'Resuelto' : 'Pendiente'}
+                              </span>
+                              <span className="text-xs text-slate-400">{editingRequest.date}</span>
+                          </div>
+                          <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-100 italic mb-3">"{editingRequest.description}"</p>
+                          
+                          {/* Client Attachments Display */}
+                          {editingRequest.attachments && editingRequest.attachments.length > 0 && (
+                             <div className="mb-3">
+                                 <p className="text-xs font-bold text-slate-400 uppercase mb-1 flex items-center"><Paperclip size={12} className="mr-1"/> Adjuntos del Cliente</p>
+                                 <div className="flex gap-2 overflow-x-auto pb-1">
+                                     {editingRequest.attachments.map((img, i) => (
+                                         <div key={i} className="w-20 h-20 shrink-0 rounded border border-slate-200 overflow-hidden">
+                                             <img src={img} className="w-full h-full object-cover" alt="client attachment" />
+                                         </div>
+                                     ))}
+                                 </div>
+                             </div>
+                          )}
+                      </div>
+
+                      {/* Comment Thread (Chat) - Kept for legacy/detail view, but now primarily inline */}
+                      <div className="mb-6 border-t border-slate-100 pt-4">
+                          <h4 className="font-bold text-slate-700 text-sm mb-3 flex items-center"><MessageCircle size={16} className="mr-2"/> Historial de Comentarios</h4>
+                          <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100 max-h-60 overflow-y-auto custom-scrollbar">
+                              {(!editingRequest.comments || editingRequest.comments.length === 0) && (
+                                  <p className="text-xs text-slate-400 italic text-center">No hay comentarios aún.</p>
+                              )}
+                              {editingRequest.comments?.map(comment => (
+                                  <div key={comment.id} className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}>
+                                      <div className={`max-w-[85%] rounded-lg p-3 text-sm ${comment.role === userRole ? 'bg-blue-100 text-blue-900 rounded-br-none' : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'}`}>
+                                          <p>{comment.text}</p>
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 mt-1 px-1">
+                                          {comment.author} • {new Date(comment.date).toLocaleDateString()}
+                                      </span>
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+
+                      {/* Admin Resolution Section (Only visible to non-clients or if resolved) */}
+                      {(userRole !== 'CLIENT' || editingRequest.status === 'RESOLVED') && (
+                          <div className="border-t border-slate-100 pt-4 mt-4">
+                              <h4 className="font-bold text-slate-700 text-sm mb-3 flex items-center"><CheckCircle size={16} className="mr-2"/> Resolución / Cambio de Estado</h4>
+                              
+                              {userRole !== 'CLIENT' ? (
+                                  <div className="space-y-4">
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Nuevo Estado</label>
+                                          <select 
+                                            className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                            defaultValue={editingRequest.status}
+                                            id="resolve-status"
+                                          >
+                                              <option value="PENDING">Pendiente</option>
+                                              <option value="IN_PROGRESS">En Proceso</option>
+                                              <option value="RESOLVED">Resuelto</option>
+                                          </select>
+                                      </div>
+
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Respuesta Final / Resumen</label>
+                                          <textarea 
+                                             className="w-full border border-slate-300 rounded-lg p-2 outline-none h-20" 
+                                             placeholder="Indique las acciones tomadas..."
+                                             defaultValue={editingRequest.response || ''}
+                                             id="resolve-response"
+                                          />
+                                      </div>
+
+                                      {/* NEW: Admin Attachments (Sustento) */}
+                                      <div>
+                                           <label className="block text-sm font-medium text-slate-700 mb-1">Evidencias de Respuesta (Fotos/Docs)</label>
+                                           <div className="flex gap-2">
+                                               <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL..." value={resolveImageUrl} onChange={e => setResolveImageUrl(e.target.value)} />
+                                                <label className="bg-slate-100 p-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                                  <Camera size={20} className="text-slate-600"/>
+                                                  <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForResolve} />
+                                                </label>
+                                               <button onClick={handleAddResolveImage} disabled={!resolveImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20}/></button>
+                                           </div>
+                                           {resolveAttachments.length > 0 && (
+                                               <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
+                                                   {resolveAttachments.map((img, i) => (
+                                                       <div key={i} className="w-16 h-16 shrink-0 relative group">
+                                                           <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="admin ev" />
+                                                           <button onClick={() => handleRemoveResolveImage(i)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                                                       </div>
+                                                   ))}
+                                               </div>
+                                           )}
+                                      </div>
+
+                                      <button 
+                                        onClick={() => {
+                                            const status = (document.getElementById('resolve-status') as HTMLSelectElement).value as any;
+                                            const response = (document.getElementById('resolve-response') as HTMLTextAreaElement).value;
+                                            handleUpdateRequestStatus(status, response, resolveAttachments);
+                                        }} 
+                                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                                      >
+                                          Actualizar Estado
+                                      </button>
+                                  </div>
+                              ) : (
+                                  <div className="bg-green-50 p-4 rounded-lg border border-green-100">
+                                      <p className="text-sm font-bold text-green-800 mb-1">Respuesta Final:</p>
+                                      <p className="text-sm text-green-700">{editingRequest.response || "Sin respuesta final registrada."}</p>
+                                      {/* Show attachments preview in read-only mode */}
+                                      {editingRequest.responseAttachments && editingRequest.responseAttachments.length > 0 && (
+                                         <div className="flex gap-2 mt-2 pt-2 border-t border-green-200/50">
+                                            {editingRequest.responseAttachments.map((att, i) => (
+                                                <div key={i} className="w-12 h-12 rounded border border-green-200 overflow-hidden"><img src={att} className="w-full h-full object-cover"/></div>
+                                            ))}
+                                         </div>
+                                     )}
+                                  </div>
+                              )}
+                          </div>
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* 3. New Event Modal */}
+      {showEventModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                <h3 className="font-bold text-lg flex items-center"><Plus className="mr-2" size={20}/> Nuevo Evento</h3>
+                <button onClick={() => setShowEventModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+             </div>
+             <div className="p-6 space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Evento</label>
+                    <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newEventForm.type} onChange={e => setNewEventForm({...newEventForm,type: e.target.value})}>
+                        <option value="Coordinacion">Coordinación</option>
+                        <option value="Supervision">Supervisión</option>
+                        <option value="Incidencia">Incidencia</option>
+                        <option value="Capacitacion">Capacitación</option>
+                        <option value="Visita Cliente">Visita Cliente</option>
+                    </select>
+                </div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newEventForm.date} onChange={e => setNewEventForm({...newEventForm, date: e.target.value})} /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={newEventForm.description} onChange={e => setNewEventForm({...newEventForm, description: e.target.value})} /></div>
+                
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-2">Responsables / Involucrados</label>
+                   <div className="border border-slate-200 rounded-lg max-h-32 overflow-y-auto p-2 bg-slate-50 space-y-1">
+                      <p className="text-xs text-slate-400 uppercase font-bold px-1">Staff Gestión</p>
+                      {availableStaff.map(s => (
+                          <div key={s.id} onClick={() => toggleEventResponsible(s.id)} className={`flex items-center p-1.5 rounded cursor-pointer ${newEventResponsibles.includes(s.id) ? 'bg-blue-100' : 'hover:bg-slate-100'}`}>
+                              <div className={`w-3 h-3 border rounded mr-2 ${newEventResponsibles.includes(s.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}></div>
+                              <span className="text-xs text-slate-700">{s.name}</span>
+                          </div>
+                      ))}
+                      <p className="text-xs text-slate-400 uppercase font-bold px-1 mt-2">Personal Unidad</p>
+                      {personnel.map(p => (
+                          <div key={p.id} onClick={() => toggleEventResponsible(p.id)} className={`flex items-center p-1.5 rounded cursor-pointer ${newEventResponsibles.includes(p.id) ? 'bg-blue-100' : 'hover:bg-slate-100'}`}>
+                              <div className={`w-3 h-3 border rounded mr-2 ${newEventResponsibles.includes(p.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}></div>
+                              <span className="text-xs text-slate-700">{p.name}</span>
+                          </div>
+                      ))}
+                   </div>
+                </div>
+
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Fotos (Evidencias)</label>
+                   <div className="flex gap-2">
+                     <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL..." value={newEventImageUrl} onChange={e => setNewEventImageUrl(e.target.value)} />
+                      <label className="bg-slate-100 p-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                        <Camera size={20} className="text-slate-600"/>
+                        <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForNewEvent} />
+                      </label>
+                     <button onClick={handleAddImageToNewEvent} disabled={!newEventImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20}/></button>
+                   </div>
+                   {newEventImages.length > 0 && (
+                     <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
+                       {newEventImages.map((img, i) => (
+                         <div key={i} className="w-12 h-12 shrink-0 relative group">
+                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <button onClick={() => setNewEventImages(newEventImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                </div>
+
+                <button onClick={handleCreateEvent} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Guardar Evento</button>
+             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 4. Add Worker Modal */}
+      {showAddWorkerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                <h3 className="font-bold text-lg flex items-center"><UserPlus className="mr-2" size={20}/> Nuevo Colaborador</h3>
+                <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+             </div>
+             <div className="p-6 space-y-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} /></div>
+                
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Zona(s) Asignada(s)</label>
+                    <ZoneMultiSelect 
+                        selectedZones={newWorkerForm.zones}
+                        onChange={(zones) => setNewWorkerForm({...newWorkerForm, zones})}
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
+                    <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.shift} onChange={e => setNewWorkerForm({...newWorkerForm, shift: e.target.value})}>
+                        <option value="">Seleccionar...</option>
+                        <option value="Diurno">Diurno</option>
+                        <option value="Nocturno">Nocturno</option>
+                        <option value="Mixto">Mixto</option>
+                    </select>
+                </div>
+                <button onClick={handleAddWorker} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Registrar Colaborador</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Mass Training Modal */}
+      {showMassTrainingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                <h3 className="font-bold text-lg flex items-center"><Award className="mr-2" size={20}/> Registrar Capacitación</h3>
+                <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+             </div>
+             <div className="p-6 space-y-4">
+                <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Tema / Curso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.topic} onChange={e => setMassTrainingForm({...massTrainingForm, topic: e.target.value})} /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.date} onChange={e => setMassTrainingForm({...massTrainingForm, date: e.target.value})} /></div>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
+                    <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.status} onChange={e => setMassTrainingForm({...massTrainingForm, status: e.target.value})}>
+                        <option value="Programado">Programado</option>
+                        <option value="Completado">Completado</option>
+                    </select>
+                </div>
+                <button onClick={handleMassAssignTraining} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Guardar Capacitación</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Mass Asset Assignment Modal (Was missing in previous provided text) */}
+      {showAssetAssignmentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             <div className="bg-orange-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                <h3 className="font-bold text-lg flex items-center"><Briefcase className="mr-2" size={20}/> Asignar EPP / Activo</h3>
+                <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+             </div>
+             <div className="p-6 space-y-4">
+                <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Activo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" placeholder="Ej. Botas de Seguridad" value={assetAssignmentForm.name} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, name: e.target.value})} /></div>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                    <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={assetAssignmentForm.type} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, type: e.target.value})}>
+                        <option value="EPP">EPP</option>
+                        <option value="Uniforme">Uniforme</option>
+                        <option value="Tecnologia">Tecnología (Celular/Laptop)</option>
+                        <option value="Herramienta">Herramienta</option>
+                        <option value="Otro">Otro</option>
+                    </select>
+                </div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={assetAssignmentForm.dateAssigned} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, dateAssigned: e.target.value})} /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">N° Serie (Opcional)</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={assetAssignmentForm.serialNumber} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, serialNumber: e.target.value})} /></div>
+                
+                <button onClick={handleMassAssignAsset} className="w-full bg-orange-600 text-white py-2.5 rounded-lg font-medium hover:bg-orange-700 transition-colors mt-2">Registrar Entrega</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Edit Resource Modal */}
+      {editingResource && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                  <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                      <h3 className="font-bold text-lg flex items-center"><Edit2 className="mr-2" size={20}/> Editar Recurso</h3>
+                      <button onClick={() => setEditingResource(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.name} onChange={e => setEditingResource({...editingResource, name: e.target.value})} /></div>
+                      
+                      {editingResource.type === ResourceType.PERSONNEL && (
+                          <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
+                                  <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}>
+                                      <option value="Diurno">Diurno</option>
+                                      <option value="Nocturno">Nocturno</option>
+                                      <option value="Mixto">Mixto</option>
+                                  </select>
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
+                                  <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}>
+                                      <option value="Activo">Activo</option>
+                                      <option value="De Licencia">De Licencia</option>
+                                      <option value="Reemplazo Temporal">Reemplazo Temporal</option>
+                                  </select>
+                              </div>
+                          </div>
+                      )}
+
+                      {/* Zone Multi-Select for Edit */}
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Zona(s) Asignada(s)</label>
+                          <ZoneMultiSelect 
+                              selectedZones={editingResource.assignedZones || []}
+                              onChange={(zones) => setEditingResource({...editingResource, assignedZones: zones})}
+                          />
+                      </div>
+                      
+                      {/* Only for Logistics: Edit SKU */}
+                      {editingResource.type !== ResourceType.PERSONNEL && (
+                           <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><LinkIcon size={12} className="mr-1"/> Código SKU / ID Externo</label>
+                              <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none font-mono text-sm" value={editingResource.externalId || ''} onChange={e => setEditingResource({...editingResource, externalId: e.target.value})} />
+                          </div>
+                      )}
+
+                      <div className="flex gap-2 pt-2">
+                          <button onClick={handleDeleteResource} className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-100 transition-colors border border-red-100 flex items-center justify-center"><Trash2 size={16} className="mr-2"/> Eliminar</button>
+                          <button onClick={handleUpdateResource} className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors">Guardar Cambios</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+      
+      {/* 8. Add Resource Modal (Logistics) */}
+      {showAddResourceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                <h3 className="font-bold text-lg flex items-center">
+                    {newResourceType === ResourceType.EQUIPMENT ? <Truck className="mr-2" size={20}/> : <Package className="mr-2" size={20}/>} 
+                    Nuevo {newResourceType === ResourceType.EQUIPMENT ? 'Equipo' : 'Material'}
+                </h3>
+                <button onClick={() => setShowAddResourceModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+             </div>
+             <div className="p-6 space-y-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.name} onChange={e => setNewResourceForm({...newResourceForm, name: e.target.value})} /></div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Cantidad</label>
+                        <input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.quantity} onChange={e => setNewResourceForm({...newResourceForm, quantity: Number(e.target.value)})} />
+                    </div>
+                    {newResourceType === ResourceType.MATERIAL && (
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Unidad Medida</label>
+                            <input type="text" placeholder="Ej. Litros" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.unitOfMeasure || ''} onChange={e => setNewResourceForm({...newResourceForm, unitOfMeasure: e.target.value})} />
+                        </div>
+                    )}
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Zona(s) Asignada(s)</label>
+                    <ZoneMultiSelect 
+                        selectedZones={newResourceForm.assignedZones || []}
+                        onChange={(zones) => setNewResourceForm({...newResourceForm, assignedZones: zones})}
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><LinkIcon size={12} className="mr-1"/> SKU (Opcional)</label>
+                    <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none font-mono text-sm" value={newResourceForm.externalId || ''} onChange={e => setNewResourceForm({...newResourceForm, externalId: e.target.value})} />
+                </div>
+
+                <button onClick={handleAddResource} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Registrar</button>
+             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 9. Maintenance Modal (Triggered by maintenanceResource state) */}
+      {maintenanceResource && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             <div className="bg-orange-500 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                <h3 className="font-bold text-lg flex items-center"><Wrench className="mr-2" size={20}/> Registrar Mantenimiento</h3>
+                <button onClick={() => setMaintenanceResource(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+             </div>
+             <div className="p-6 space-y-4">
+                <p className="text-sm text-slate-600">Equipo: <span className="font-bold">{maintenanceResource.name}</span></p>
+                <div className="grid grid-cols-2 gap-4">
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.date} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, date: e.target.value})} /></div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                        <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.type} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, type: e.target.value})}>
+                            <option value="Preventivo">Preventivo</option>
+                            <option value="Correctivo">Correctivo</option>
+                            <option value="Supervision">Supervisión</option>
+                            <option value="Calibracion">Calibración</option>
+                        </select>
+                    </div>
+                </div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.description} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, description: e.target.value})} /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Técnico / Proveedor</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.technician} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, technician: e.target.value})} /></div>
+                
+                {/* Responsibles Selection */}
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-2">Responsables / Involucrados</label>
+                   <div className="border border-slate-200 rounded-lg max-h-32 overflow-y-auto p-2 bg-slate-50 space-y-1">
+                      {availableStaff.map(s => (
+                          <div key={s.id} onClick={() => toggleMaintenanceResponsible(s.id)} className={`flex items-center p-1.5 rounded cursor-pointer ${newMaintenanceResponsibles.includes(s.id) ? 'bg-orange-100' : 'hover:bg-slate-100'}`}>
+                              <div className={`w-3 h-3 border rounded mr-2 ${newMaintenanceResponsibles.includes(s.id) ? 'bg-orange-600 border-orange-600' : 'border-slate-300 bg-white'}`}></div>
+                              <span className="text-xs text-slate-700">{s.name}</span>
+                          </div>
+                      ))}
+                   </div>
+                </div>
+
+                 {/* Image Upload for Maintenance */}
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Fotos (Evidencias)</label>
+                   <div className="flex gap-2">
+                     <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL..." value={newMaintenanceImageUrl} onChange={e => setNewMaintenanceImageUrl(e.target.value)} />
+                      <label className="bg-slate-100 p-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                        <Camera size={20} className="text-slate-600"/>
+                        <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForMaintenance} />
+                      </label>
+                     <button onClick={handleAddImageToMaintenance} disabled={!newMaintenanceImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20}/></button>
+                   </div>
+                   {newMaintenanceImages.length > 0 && (
+                     <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
+                       {newMaintenanceImages.map((img, i) => (
+                         <div key={i} className="w-12 h-12 shrink-0 relative group">
+                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <button onClick={() => setNewMaintenanceImages(newMaintenanceImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                </div>
+
+                <button onClick={handleAddMaintenance} className="w-full bg-orange-600 text-white py-2.5 rounded-lg font-medium hover:bg-orange-700 transition-colors mt-2">Guardar Registro</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 10. Edit Log Modal */}
+      {editingLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                <h3 className="font-bold text-lg flex items-center"><Edit2 className="mr-2" size={20}/> Editar Registro</h3>
+                <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+             </div>
+             <div className="p-6 space-y-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingLog.date} onChange={e => setEditingLog({...editingLog, date: e.target.value})} /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={editingLog.description} onChange={e => setEditingLog({...editingLog, description: e.target.value})} /></div>
+                
+                 {/* Responsible Selection in Edit Log */}
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-2">Responsables / Involucrados</label>
+                   <div className="border border-slate-200 rounded-lg max-h-32 overflow-y-auto p-2 bg-slate-50 space-y-1">
+                      <p className="text-xs text-slate-400 uppercase font-bold px-1">Staff Gestión</p>
+                      {availableStaff.map(s => (
+                          <div key={s.id} onClick={() => toggleEditLogResponsible(s.id)} className={`flex items-center p-1.5 rounded cursor-pointer ${editingLog.responsibleIds?.includes(s.id) ? 'bg-blue-100' : 'hover:bg-slate-100'}`}>
+                              <div className={`w-3 h-3 border rounded mr-2 ${editingLog.responsibleIds?.includes(s.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}></div>
+                              <span className="text-xs text-slate-700">{s.name}</span>
+                          </div>
+                      ))}
+                      <p className="text-xs text-slate-400 uppercase font-bold px-1 mt-2">Personal Unidad</p>
+                      {personnel.map(p => (
+                          <div key={p.id} onClick={() => toggleEditLogResponsible(p.id)} className={`flex items-center p-1.5 rounded cursor-pointer ${editingLog.responsibleIds?.includes(p.id) ? 'bg-blue-100' : 'hover:bg-slate-100'}`}>
+                              <div className={`w-3 h-3 border rounded mr-2 ${editingLog.responsibleIds?.includes(p.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}></div>
+                              <span className="text-xs text-slate-700">{p.name}</span>
+                          </div>
+                      ))}
+                   </div>
+                </div>
+
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Agregar Fotos</label>
+                   <div className="flex gap-2">
+                     <input type="text" className="flex-1 border border-slate-300 rounded-lg p-2 outline-none text-sm" placeholder="URL..." value={newLogImageUrl} onChange={e => setNewLogImageUrl(e.target.value)} />
+                      <label className="bg-slate-100 p-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center">
+                        <Camera size={20} className="text-slate-600"/>
+                        <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForLog} />
+                      </label>
+                     <button onClick={handleAddImageToLog} className="bg-slate-100 p-2 rounded hover:bg-slate-200"><Plus size={20}/></button>
+                   </div>
+                   {editingLog.images && (
+                     <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
+                       {editingLog.images.map((img, i) => (
+                         <div key={i} className="w-12 h-12 shrink-0 relative group">
+                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <button onClick={() => setEditingLog({...editingLog, images: editingLog.images?.filter((_, idx) => idx !== i)})} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                </div>
+                <button onClick={handleUpdateLog} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Guardar Cambios</button>
+             </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
