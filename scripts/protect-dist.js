@@ -1,10 +1,9 @@
 // Script para proteger el index.html compilado después del build
-import { readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync, copyFileSync } from 'fs';
 import { join } from 'path';
 
 const distDir = join(process.cwd(), 'dist');
 const distIndexPath = join(distDir, 'index.html');
-const distIndexTsxPath = join(distDir, 'index.tsx');
 const sourceIndexPath = join(process.cwd(), 'index.html');
 
 console.log('🔍 Verificando dist/ después del build...');
@@ -34,7 +33,7 @@ if (distContent.includes('/index.tsx')) {
     if (jsFile) {
       console.log(`✓ Encontrado archivo JS compilado: ${jsFile}`);
       
-      // Reemplazar la referencia a /index.tsx con la referencia correcta al JS compilado
+      // Reemplazar TODAS las referencias a /index.tsx con la referencia correcta al JS compilado
       distContent = distContent.replace(
         /<script[^>]*src=["']\/index\.tsx["'][^>]*><\/script>/gi,
         `<script type="module" crossorigin src="/assets/${jsFile}"></script>`
@@ -74,14 +73,7 @@ if (!distContent.includes('/assets/main-') || !distContent.includes('.js')) {
 
 console.log('✓ dist/index.html tiene la referencia correcta al JS compilado');
 
-// Eliminar index.tsx si existe en dist (no debería estar ahí)
-if (existsSync(distIndexTsxPath)) {
-  console.log('⚠ Eliminando index.tsx de dist/ (no debería estar ahí)');
-  unlinkSync(distIndexTsxPath);
-  console.log('✓ index.tsx eliminado de dist/');
-}
-
-// Listar todos los archivos .tsx en dist/ y eliminarlos
+// Eliminar TODOS los archivos .tsx de dist/ (no deberían estar ahí)
 console.log('🔍 Buscando archivos .tsx en dist/...');
 const distFiles = readdirSync(distDir);
 const tsxFiles = distFiles.filter(f => f.endsWith('.tsx'));
@@ -101,6 +93,26 @@ if (distContent.includes('/index.tsx')) {
   console.error('✗ ERROR: El index.html compilado AÚN tiene referencia a /index.tsx después de la corrección!');
   console.error('  Esto no debería suceder.');
   process.exit(1);
+}
+
+// CRÍTICO: Hacer una copia de seguridad del index.html compilado para evitar que se sobrescriba
+const backupPath = join(distDir, 'index.html.backup');
+writeFileSync(backupPath, distContent, 'utf-8');
+console.log('✓ Copia de seguridad del index.html compilado creada');
+
+// Verificar que el index.html fuente no se haya copiado sobre el compilado
+const sourceContent = readFileSync(sourceIndexPath, 'utf-8');
+if (sourceContent.includes('/index.tsx') && distContent.includes('/index.tsx')) {
+  console.error('✗ ERROR: El index.html fuente se ha copiado sobre el compilado!');
+  console.error('  Restaurando desde la copia de seguridad...');
+  if (existsSync(backupPath)) {
+    const backupContent = readFileSync(backupPath, 'utf-8');
+    writeFileSync(distIndexPath, backupContent, 'utf-8');
+    console.log('✓ index.html restaurado desde la copia de seguridad');
+  } else {
+    console.error('✗ No se encontró la copia de seguridad!');
+    process.exit(1);
+  }
 }
 
 console.log('✅ dist/index.html está protegido y listo para producción');

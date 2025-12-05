@@ -10,7 +10,7 @@ cmds = [
   "node scripts/protect-dist.js"
 ]
 
-# Asegurar que el index.html compilado no se sobrescriba
-# Copiar solo los archivos necesarios después del build
+# CRÍTICO: Ejecutar el script de protección ANTES de iniciar Caddy
+# Esto garantiza que el index.html compilado esté correcto incluso si se sobrescribió
 [phases.start]
-cmd = "exec caddy run --config /assets/Caddyfile --adapter caddyfile 2>&1"
+cmd = "node scripts/protect-dist.js && exec caddy run --config /assets/Caddyfile --adapter caddyfile 2>&1"

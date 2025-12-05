@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
       },
       build: {
         outDir: 'dist',
+        // Asegurar que el index.html compilado no se sobrescriba
+        emptyOutDir: true,
         rollupOptions: {
           input: {
             main: path.resolve(__dirname, 'index.html')
