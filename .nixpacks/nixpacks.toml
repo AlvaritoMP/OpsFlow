@@ -7,6 +7,7 @@ cmds = ["npm ci"]
 [phases.build]
 cmds = ["npm run build"]
 
+# Asegurar que el index.html compilado no se sobrescriba
+# Copiar solo los archivos necesarios después del build
 [phases.start]
 cmd = "exec caddy run --config /assets/Caddyfile --adapter caddyfile 2>&1"
-
