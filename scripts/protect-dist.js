@@ -1,5 +1,5 @@
 // Script para proteger el index.html compilado después del build
-import { readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync, copyFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 const distDir = join(process.cwd(), 'dist');
@@ -7,6 +7,8 @@ const distIndexPath = join(distDir, 'index.html');
 const sourceIndexPath = join(process.cwd(), 'index.html');
 
 console.log('🔍 Verificando dist/ después del build...');
+console.log('📁 Directorio dist:', distDir);
+console.log('📄 Archivo index.html compilado:', distIndexPath);
 
 // Verificar que dist/index.html existe
 if (!existsSync(distIndexPath)) {
@@ -16,6 +18,8 @@ if (!existsSync(distIndexPath)) {
 
 // Leer el contenido del index.html compilado
 let distContent = readFileSync(distIndexPath, 'utf-8');
+console.log('📝 Contenido del index.html compilado (primeros 500 caracteres):');
+console.log(distContent.substring(0, 500));
 
 // CRÍTICO: Si el index.html tiene referencia a /index.tsx, corregirlo automáticamente
 if (distContent.includes('/index.tsx')) {
@@ -27,6 +31,7 @@ if (distContent.includes('/index.tsx')) {
   const assetsDir = join(distDir, 'assets');
   if (existsSync(assetsDir)) {
     const assetsFiles = readdirSync(assetsDir);
+    console.log('📦 Archivos en dist/assets/:', assetsFiles);
     const jsFile = assetsFiles.find(f => f.startsWith('main-') && f.endsWith('.js'));
     const cssFile = assetsFiles.find(f => f.startsWith('main-') && f.endsWith('.css'));
     
@@ -53,8 +58,11 @@ if (distContent.includes('/index.tsx')) {
       // Guardar el archivo corregido
       writeFileSync(distIndexPath, distContent, 'utf-8');
       console.log('✅ index.html corregido automáticamente');
+      console.log('📝 Contenido corregido (primeros 500 caracteres):');
+      console.log(distContent.substring(0, 500));
     } else {
       console.error('✗ No se encontró el archivo JS compilado en dist/assets/');
+      console.error('  Archivos disponibles:', assetsFiles);
       process.exit(1);
     }
   } else {
@@ -92,6 +100,7 @@ distContent = readFileSync(distIndexPath, 'utf-8');
 if (distContent.includes('/index.tsx')) {
   console.error('✗ ERROR: El index.html compilado AÚN tiene referencia a /index.tsx después de la corrección!');
   console.error('  Esto no debería suceder.');
+  console.error('  Contenido actual:', distContent);
   process.exit(1);
 }
 

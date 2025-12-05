@@ -12,5 +12,6 @@ cmds = [
 
 # CRÍTICO: Ejecutar el script de protección ANTES de iniciar Caddy
 # Esto garantiza que el index.html compilado esté correcto incluso si se sobrescribió
+# Usar bash -c para asegurar que el script se ejecute correctamente
 [phases.start]
-cmd = "node scripts/protect-dist.js && exec caddy run --config /assets/Caddyfile --adapter caddyfile 2>&1"
+cmd = "bash -c 'node scripts/protect-dist.js && exec caddy run --config /assets/Caddyfile --adapter caddyfile 2>&1'"
