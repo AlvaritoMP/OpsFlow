@@ -11,8 +11,11 @@
 	}
 	
 	# CRÍTICO: Interceptar /index.tsx ANTES de file_server
-	# Usar route en lugar de handle para mayor prioridad
-	route /index.tsx {
+	# Usar @matcher con path exacto y handle para interceptar
+	@index_tsx {
+		path /index.tsx
+	}
+	handle @index_tsx {
 		rewrite * /assets/main-y7AYQDTU.js
 		header Content-Type "application/javascript; charset=utf-8"
 		header Cache-Control "public, max-age=31536000, immutable"
