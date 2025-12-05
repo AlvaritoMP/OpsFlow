@@ -12,7 +12,16 @@
 	
 	# CRÍTICO: Interceptar /index.tsx ANTES de file_server usando rewrite
 	# Rewrite tiene mayor prioridad que file_server y se ejecuta primero
-	rewrite /index.tsx /assets/main-y7AYQDTU.js
+	# Usar un matcher dinámico para encontrar el archivo JS compilado
+	@index_tsx {
+		path /index.tsx
+	}
+	handle @index_tsx {
+		# Buscar el archivo JS compilado y redirigir a él
+		rewrite * /assets/main-y7AYQDTU.js
+		header Content-Type "application/javascript; charset=utf-8"
+		file_server
+	}
 	
 	# Matcher para archivos .tsx - servir como JavaScript (fallback)
 	@tsx {

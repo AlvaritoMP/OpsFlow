@@ -12,6 +12,6 @@ cmds = [
 
 # CRÍTICO: Ejecutar el script de protección ANTES de iniciar Caddy
 # Esto garantiza que el index.html compilado esté correcto incluso si se sobrescribió
-# IMPORTANTE: Nixpacks detecta Caddy automáticamente, pero podemos sobrescribir el comando de inicio
+# El script restaurará desde backup si existe, o corregirá el index.html si tiene /index.tsx
 [phases.start]
-cmd = "bash -c 'cd /app && node scripts/protect-dist.js && exec caddy run --config /assets/Caddyfile --adapter caddyfile 2>&1'"
+cmd = "bash scripts/start.sh"

@@ -5,10 +5,19 @@ import { join } from 'path';
 const distDir = join(process.cwd(), 'dist');
 const distIndexPath = join(distDir, 'index.html');
 const sourceIndexPath = join(process.cwd(), 'index.html');
+const backupPath = join(distDir, 'index.html.backup');
 
 console.log('🔍 Verificando dist/ después del build...');
 console.log('📁 Directorio dist:', distDir);
 console.log('📄 Archivo index.html compilado:', distIndexPath);
+
+// CRÍTICO: Si existe un backup, restaurarlo primero (esto significa que el script se ejecutó durante el build)
+if (existsSync(backupPath)) {
+  console.log('📦 Restaurando index.html desde backup...');
+  const backupContent = readFileSync(backupPath, 'utf-8');
+  writeFileSync(distIndexPath, backupContent, 'utf-8');
+  console.log('✅ index.html restaurado desde backup');
+}
 
 // Verificar que dist/index.html existe
 if (!existsSync(distIndexPath)) {
@@ -54,6 +63,12 @@ if (distContent.includes('/index.tsx')) {
           );
         }
       }
+      
+      // Eliminar el script de debug si existe
+      distContent = distContent.replace(
+        /<script>[\s\S]*?console\.log\(['"]HTML cargado[\s\S]*?<\/script>/gi,
+        ''
+      );
       
       // Guardar el archivo corregido
       writeFileSync(distIndexPath, distContent, 'utf-8');
@@ -129,24 +144,8 @@ if (distContent.includes('/index.tsx')) {
 }
 
 // CRÍTICO: Hacer una copia de seguridad del index.html compilado para evitar que se sobrescriba
-const backupPath = join(distDir, 'index.html.backup');
 writeFileSync(backupPath, distContent, 'utf-8');
-console.log('✓ Copia de seguridad del index.html compilado creada');
-
-// Verificar que el index.html fuente no se haya copiado sobre el compilado
-const sourceContent = readFileSync(sourceIndexPath, 'utf-8');
-if (sourceContent.includes('/index.tsx') && distContent.includes('/index.tsx')) {
-  console.error('✗ ERROR: El index.html fuente se ha copiado sobre el compilado!');
-  console.error('  Restaurando desde la copia de seguridad...');
-  if (existsSync(backupPath)) {
-    const backupContent = readFileSync(backupPath, 'utf-8');
-    writeFileSync(distIndexPath, backupContent, 'utf-8');
-    console.log('✓ index.html restaurado desde la copia de seguridad');
-  } else {
-    console.error('✗ No se encontró la copia de seguridad!');
-    process.exit(1);
-  }
-}
+console.log('✓ Copia de seguridad del index.html compilado creada/actualizada');
 
 console.log('✅ dist/index.html está protegido y listo para producción');
 console.log('✅ No hay archivos .tsx en dist/');
