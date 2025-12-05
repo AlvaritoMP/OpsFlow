@@ -11,7 +11,7 @@
 	}
 	
 	# CRÍTICO: Interceptar /index.tsx ANTES de file_server usando rewrite
-	# Rewrite tiene mayor prioridad que file_server
+	# Rewrite tiene mayor prioridad que file_server y se ejecuta primero
 	rewrite /index.tsx /assets/main-y7AYQDTU.js
 	
 	# Matcher para archivos .tsx - servir como JavaScript (fallback)
