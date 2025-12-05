@@ -1,0 +1,46 @@
+:80 {
+	# Servir archivos estáticos desde el directorio dist
+	root * /app/dist
+	
+	# Configurar tipos MIME explícitamente para archivos JavaScript
+	@js {
+		path *.js
+		path *.mjs
+	}
+	header @js {
+		Content-Type "application/javascript; charset=utf-8"
+	}
+	
+	# Configurar tipos MIME para otros archivos
+	@css {
+		path *.css
+	}
+	header @css {
+		Content-Type "text/css; charset=utf-8"
+	}
+	
+	@html {
+		path *.html
+	}
+	header @html {
+		Content-Type "text/html; charset=utf-8"
+	}
+	
+	# Configurar headers de seguridad
+	header {
+		# Headers de seguridad
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		X-XSS-Protection "1; mode=block"
+	}
+	
+	# Servir archivos estáticos
+	file_server
+	
+	# Para SPA: redirigir todas las rutas a index.html
+	try_files {path} /index.html
+	
+	# Comprimir respuestas
+	encode gzip zstd
+}
+
