@@ -61,8 +61,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       {/* Charts Area */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h3 className="text-lg font-semibold text-slate-800 mb-4">Cumplimiento del Servicio (Mes Actual)</h3>
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-64 w-full" style={{ minHeight: '256px', minWidth: '100%' }}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={256}>
             <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 20 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
               <XAxis type="number" domain={[0, 100]} />

@@ -5,9 +5,11 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      root: '.',
       server: {
         port: 3000,
-        host: '0.0.0.0',
+        host: 'localhost',
+        strictPort: true, // Falla si el puerto está ocupado - así sabes que debes cerrar el proceso anterior
       },
       plugins: [react()],
       define: {
@@ -17,6 +19,14 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
+        }
+      },
+      build: {
+        outDir: 'dist',
+        rollupOptions: {
+          input: {
+            main: path.resolve(__dirname, 'index.html')
+          }
         }
       }
     };

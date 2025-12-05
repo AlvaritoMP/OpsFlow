@@ -1,14 +1,15 @@
 
-import React, { useState } from 'react';
-import { Unit, ResourceType } from '../types';
-import { Sparkles, BrainCircuit, FileText, Download, Filter, Table2, CheckSquare, Square } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Unit, ResourceType, ManagementStaff } from '../types';
+import { Sparkles, BrainCircuit, FileText, Download, Filter, Table2, CheckSquare, Square, Archive, Users } from 'lucide-react';
 import { generateExecutiveReport } from '../services/geminiService';
+import { managementStaffService } from '../services/managementStaffService';
 
 interface ReportsProps {
   units: Unit[];
 }
 
-type DataSource = 'PERSONNEL' | 'LOGISTICS' | 'LOGS';
+type DataSource = 'PERSONNEL' | 'LOGISTICS' | 'LOGS' | 'MANAGEMENT_STAFF';
 
 export const Reports: React.FC<ReportsProps> = ({ units }) => {
   const [activeTab, setActiveTab] = useState<'ai' | 'export'>('ai');
@@ -21,12 +22,31 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
   // Data Export State
   const [dataSource, setDataSource] = useState<DataSource>('PERSONNEL');
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [includeArchivedStaff, setIncludeArchivedStaff] = useState(false);
+  const [managementStaff, setManagementStaff] = useState<ManagementStaff[]>([]);
+  const [archivedStaff, setArchivedStaff] = useState<ManagementStaff[]>([]);
+  
+  // Load management staff data
+  useEffect(() => {
+    const loadStaff = async () => {
+      try {
+        const active = await managementStaffService.getAll(false);
+        const archived = await managementStaffService.getArchived();
+        setManagementStaff(active);
+        setArchivedStaff(archived);
+      } catch (error) {
+        console.error('Error loading management staff:', error);
+      }
+    };
+    loadStaff();
+  }, []);
   
   // Available Columns Definition
   const columnsConfig: Record<DataSource, string[]> = {
-    PERSONNEL: ['Unidad', 'Nombre', 'Turno', 'Estado', 'Cumplimiento', 'Zonas Asignadas'],
+    PERSONNEL: ['Unidad', 'Nombre', 'DNI', 'Turno', 'Estado', 'Estado Personal', 'Fecha Inicio', 'Fecha Fin', 'Cumplimiento', 'Zonas Asignadas', 'Archivado'],
     LOGISTICS: ['Unidad', 'Nombre', 'Tipo', 'Cantidad', 'Estado', 'Ubicación', 'SKU'],
-    LOGS: ['Unidad', 'Fecha', 'Tipo', 'Descripción', 'Autor']
+    LOGS: ['Unidad', 'Fecha', 'Tipo', 'Descripción', 'Autor'],
+    MANAGEMENT_STAFF: ['Nombre', 'DNI', 'Rol', 'Email', 'Teléfono', 'Estado', 'Fecha Inicio', 'Fecha Fin', 'Archivado']
   };
 
   const handleGenerateAiReport = async () => {
@@ -62,16 +82,46 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
   const getFlattenedData = () => {
     let data: any[] = [];
     
+    if (dataSource === 'MANAGEMENT_STAFF') {
+      const staffToInclude = includeArchivedStaff 
+        ? [...managementStaff, ...archivedStaff]
+        : managementStaff;
+      
+      staffToInclude.forEach(staff => {
+        data.push({
+          'Nombre': staff.name,
+          'DNI': staff.dni || '-',
+          'Rol': staff.role === 'COORDINATOR' ? 'Coordinador' : staff.role === 'RESIDENT_SUPERVISOR' ? 'Supervisor Residente' : 'Supervisor de Ronda',
+          'Email': staff.email || '-',
+          'Teléfono': staff.phone || '-',
+          'Estado': staff.status === 'cesado' ? 'Cesado' : 'Activo',
+          'Fecha Inicio': staff.startDate ? new Date(staff.startDate).toLocaleDateString('es-ES') : '-',
+          'Fecha Fin': staff.endDate ? new Date(staff.endDate).toLocaleDateString('es-ES') : '-',
+          'Archivado': staff.archived ? 'Sí' : 'No'
+        });
+      });
+      return data;
+    }
+    
     units.forEach(u => {
       if (dataSource === 'PERSONNEL') {
-        u.resources.filter(r => r.type === ResourceType.PERSONNEL).forEach(r => {
+        const personnel = includeArchivedPersonnel 
+          ? u.resources.filter(r => r.type === ResourceType.PERSONNEL)
+          : u.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
+        
+        personnel.forEach(r => {
           data.push({
             'Unidad': u.name,
             'Nombre': r.name,
-            'Turno': r.assignedShift,
-            'Estado': r.status,
-            'Cumplimiento': r.compliancePercentage + '%',
-            'Zonas Asignadas': r.assignedZones?.join(', ') || ''
+            'DNI': r.dni || '-',
+            'Turno': r.assignedShift || '-',
+            'Estado': r.status || '-',
+            'Estado Personal': r.personnelStatus === 'cesado' ? 'Cesado' : 'Activo',
+            'Fecha Inicio': r.startDate ? new Date(r.startDate).toLocaleDateString('es-ES') : '-',
+            'Fecha Fin': r.endDate ? new Date(r.endDate).toLocaleDateString('es-ES') : '-',
+            'Cumplimiento': (r.compliancePercentage || 0) + '%',
+            'Zonas Asignadas': r.assignedZones?.join(', ') || '-',
+            'Archivado': r.archived ? 'Sí' : 'No'
           });
         });
       } else if (dataSource === 'LOGISTICS') {
@@ -222,6 +272,7 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
                              <option value="PERSONNEL">Personal Operativo</option>
                              <option value="LOGISTICS">Inventario y Logística</option>
                              <option value="LOGS">Bitácora de Eventos</option>
+                             <option value="MANAGEMENT_STAFF">Equipo de Supervisión</option>
                           </select>
                        </div>
 
@@ -244,6 +295,32 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
                                 </button>
                              ))}
                           </div>
+                          {(dataSource === 'MANAGEMENT_STAFF' || dataSource === 'PERSONNEL') && (
+                            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <label className="flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={dataSource === 'MANAGEMENT_STAFF' ? includeArchivedStaff : includeArchivedPersonnel}
+                                  onChange={(e) => {
+                                    if (dataSource === 'MANAGEMENT_STAFF') {
+                                      setIncludeArchivedStaff(e.target.checked);
+                                    } else {
+                                      setIncludeArchivedPersonnel(e.target.checked);
+                                    }
+                                  }}
+                                  className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 mr-2"
+                                />
+                                <span className="text-sm text-slate-700 flex items-center">
+                                  <Archive size={14} className="mr-1.5" />
+                                  Incluir trabajadores archivados
+                                  {dataSource === 'MANAGEMENT_STAFF' && ` (${archivedStaff.length} registros)`}
+                                </span>
+                              </label>
+                              <p className="text-xs text-slate-500 mt-2 ml-6">
+                                Los trabajadores archivados permanecen en la base de datos para consultas históricas y reportes.
+                              </p>
+                            </div>
+                          )}
                        </div>
                     </div>
                  </div>

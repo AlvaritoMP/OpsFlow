@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy } from 'lucide-react';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 
@@ -46,7 +46,31 @@ const getMonday = (d: Date) => {
 }
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, onBack, onUpdate }) => {
+  // Mantener el tab activo incluso cuando la unidad se actualiza
   const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
+  const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
+  const previousUnitIdRef = useRef<string>(unit.id);
+  
+  // Sincronizar el ref con el estado
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+  
+  // Restaurar el tab activo si la unidad cambia pero es la misma unidad (solo actualización de datos)
+  useEffect(() => {
+    // Si es la misma unidad (mismo ID), mantener el tab activo
+    if (previousUnitIdRef.current === unit.id) {
+      // Si el tab cambió inesperadamente, restaurarlo
+      if (activeTab !== activeTabRef.current && activeTabRef.current !== 'overview') {
+        setActiveTab(activeTabRef.current);
+      }
+    } else {
+      // Nueva unidad, resetear a overview
+      setActiveTab('overview');
+      activeTabRef.current = 'overview';
+    }
+    previousUnitIdRef.current = unit.id;
+  }, [unit.id]); // Solo cuando cambia el ID de la unidad
   
   // Edit Unit General Info State
   const [isEditing, setIsEditing] = useState(false);
@@ -60,6 +84,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
   
+  // Loading and notification states
+  const [isSavingWorker, setIsSavingWorker] = useState(false);
+  const [isUpdatingResource, setIsUpdatingResource] = useState(false);
+  const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  
   // Roster State
   const [rosterStartDate, setRosterStartDate] = useState(getMonday(new Date()));
 
@@ -72,7 +102,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [assetAssignmentForm, setAssetAssignmentForm] = useState({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string }>({ name: '', zones: [], shift: '' });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; startDate?: string; endDate?: string }>({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
 
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -556,23 +586,76 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
   };
 
-  const handleAddWorker = () => {
-    if (!onUpdate) return;
-    const newWorker: Resource = {
-      id: `r-${Date.now()}`,
-      name: newWorkerForm.name,
-      type: ResourceType.PERSONNEL,
-      quantity: 1,
-      status: StaffStatus.ACTIVE,
-      assignedZones: newWorkerForm.zones, // Use array
-      assignedShift: newWorkerForm.shift,
-      compliancePercentage: 100,
-      trainings: [],
-      assignedAssets: []
-    };
-    onUpdate({ ...unit, resources: [...unit.resources, newWorker] });
-    setShowAddWorkerModal(false);
-    setNewWorkerForm({ name: '', zones: [], shift: '' });
+  const handleAddWorker = async () => {
+    if (!onUpdate || !newWorkerForm.name) {
+      setNotification({ type: 'error', message: 'Por favor, complete el nombre del trabajador' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    setIsSavingWorker(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      const newWorker = await resourcesService.create({
+        name: newWorkerForm.name,
+        type: ResourceType.PERSONNEL,
+        quantity: 1,
+        status: StaffStatus.ACTIVE,
+        assignedZones: newWorkerForm.zones,
+        assignedShift: newWorkerForm.shift,
+        compliancePercentage: 100,
+        dni: newWorkerForm.dni || undefined,
+        startDate: newWorkerForm.startDate || undefined,
+        endDate: newWorkerForm.endDate || undefined,
+        personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
+        archived: false,
+        trainings: [],
+        assignedAssets: []
+      }, unit.id);
+      
+      // Actualizar solo los recursos localmente para mantener el tab activo
+      const updatedResources = [...unit.resources, newWorker];
+      const currentTab = activeTabRef.current; // Guardar el tab actual
+      onUpdate({ ...unit, resources: updatedResources });
+      
+      // Asegurar que el tab se mantenga
+      setTimeout(() => {
+        if (activeTab !== currentTab) {
+          setActiveTab(currentTab);
+        }
+      }, 100);
+      
+      // Cerrar modal y limpiar formulario
+      setShowAddWorkerModal(false);
+      setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
+      setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+      
+      // Recargar en segundo plano para sincronizar con BD (sin afectar la UI)
+      setTimeout(async () => {
+        try {
+          const { unitsService } = await import('../services/unitsService');
+          const refreshedUnit = await unitsService.getById(unit.id);
+          if (refreshedUnit && onUpdate) {
+            const savedTab = activeTabRef.current; // Guardar el tab antes de actualizar
+            onUpdate({ ...refreshedUnit });
+            // Restaurar el tab activo después de la actualización
+            setTimeout(() => {
+              if (activeTab !== savedTab) {
+                setActiveTab(savedTab);
+              }
+            }, 50);
+          }
+        } catch (error) {
+          console.error('Error al sincronizar unidad:', error);
+        }
+      }, 500);
+    } catch (error) {
+      console.error('Error al agregar trabajador:', error);
+      setNotification({ type: 'error', message: 'Error al agregar el trabajador. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
   };
 
   // NEW: Helper to add single Training/Asset directly from expanded view
@@ -747,11 +830,56 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      }
   };
 
-  const handleUpdateResource = () => {
+  const handleUpdateResource = async () => {
     if (!onUpdate || !editingResource) return;
-    const updatedResources = unit.resources.map(r => r.id === editingResource.id ? editingResource : r);
-    onUpdate({ ...unit, resources: updatedResources });
-    setEditingResource(null);
+    setIsUpdatingResource(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      await resourcesService.update(editingResource.id, editingResource);
+      
+      // Actualizar solo el recurso localmente para mantener el tab activo
+      const updatedResources = unit.resources.map(r => r.id === editingResource.id ? editingResource : r);
+      const currentTab = activeTabRef.current; // Guardar el tab actual
+      onUpdate({ ...unit, resources: updatedResources });
+      
+      // Asegurar que el tab se mantenga
+      setTimeout(() => {
+        if (activeTab !== currentTab) {
+          setActiveTab(currentTab);
+        }
+      }, 100);
+      
+      // Cerrar modal y mostrar notificación
+      setEditingResource(null);
+      setNotification({ type: 'success', message: 'Trabajador actualizado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+      
+      // Recargar en segundo plano para sincronizar con BD (sin afectar la UI)
+      setTimeout(async () => {
+        try {
+          const { unitsService } = await import('../services/unitsService');
+          const refreshedUnit = await unitsService.getById(unit.id);
+          if (refreshedUnit && onUpdate) {
+            const savedTab = activeTabRef.current; // Guardar el tab antes de actualizar
+            onUpdate({ ...refreshedUnit });
+            // Restaurar el tab activo después de la actualización
+            setTimeout(() => {
+              if (activeTab !== savedTab) {
+                setActiveTab(savedTab);
+              }
+            }, 50);
+          }
+        } catch (error) {
+          console.error('Error al sincronizar unidad:', error);
+        }
+      }, 500);
+    } catch (error) {
+      console.error('Error al actualizar trabajador:', error);
+      setNotification({ type: 'error', message: 'Error al actualizar el trabajador. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsUpdatingResource(false);
+    }
   };
 
   const handleDeleteResource = () => {
@@ -920,7 +1048,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // --- Helper Data ---
-  const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL);
+  const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
   const materials = unit.resources.filter(r => r.type === ResourceType.MATERIAL);
 
@@ -1802,59 +1930,143 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         )}
       </div>
 
+      {/* Notification Toast */}
+      {notification && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
+          notification.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'
+        }`}>
+          {notification.type === 'success' ? (
+            <CheckCircle size={20} className="text-green-600" />
+          ) : (
+            <AlertCircle size={20} className="text-red-600" />
+          )}
+          <span className="font-medium">{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="text-slate-400 hover:text-slate-600">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {personnelViewMode === 'list' ? (
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
          {/* Table Header */}
-         <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">
+         <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2">
             <div className="col-span-1 flex items-center justify-center">
                <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
             </div>
-            <div className="col-span-4 md:col-span-3">Colaborador</div>
-            <div className="col-span-3 md:col-span-2 text-center">Estado</div>
-            <div className="col-span-2 hidden md:block text-center">Turno</div>
-            <div className="col-span-2 hidden md:block text-center">Cumplimiento</div>
-            <div className="col-span-4 md:col-span-2 text-right">Acciones</div>
+            <div className="col-span-3 md:col-span-2">Colaborador</div>
+            <div className="col-span-2 hidden md:block text-center">DNI</div>
+            <div className="col-span-2 text-center">Estado</div>
+            <div className="col-span-2 hidden md:block text-center">Fechas</div>
+            <div className="col-span-1 hidden md:block text-center">Turno</div>
+            <div className="col-span-1 hidden md:block text-center">Cumpl.</div>
+            <div className="col-span-3 md:col-span-2 text-right">Acciones</div>
          </div>
 
          <div className="divide-y divide-slate-100">
             {personnel.map(worker => (
               <div key={worker.id} className="group transition-colors hover:bg-slate-50">
                  {/* Main Row */}
-                 <div className="grid grid-cols-12 p-4 items-center">
+                 <div className={`grid grid-cols-12 p-4 items-center gap-2 ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
                     <div className="col-span-1 flex items-center justify-center">
-                       <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                       <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
                     </div>
-                    <div className="col-span-4 md:col-span-3 flex items-center">
-                       <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-3 shrink-0">
+                    <div className="col-span-3 md:col-span-2 flex items-center min-w-0">
+                       <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
                           {worker.name.charAt(0)}
                        </div>
-                       <div className="min-w-0">
+                       <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
-                          <p className="text-xs text-slate-500 truncate">{worker.type}</p>
+                          <p className="text-xs text-slate-500 truncate">{worker.assignedZones?.join(', ') || 'Sin zona'}</p>
                        </div>
                     </div>
-                    <div className="col-span-3 md:col-span-2 text-center">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[worker.status as string] || 'bg-slate-100 text-slate-800'}`}>
-                           {worker.status}
+                    <div className="col-span-2 hidden md:flex items-center justify-center text-sm text-slate-500 font-mono">
+                       {worker.dni || <span className="text-slate-300 italic">-</span>}
+                    </div>
+                    <div className="col-span-2 flex items-center justify-center">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          worker.personnelStatus === 'cesado' 
+                            ? 'bg-red-100 text-red-700' 
+                            : STATUS_COLORS[worker.status as string] || 'bg-green-100 text-green-700'
+                        }`}>
+                           {worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo')}
                         </span>
                     </div>
-                    <div className="col-span-2 hidden md:block text-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
-                    <div className="col-span-2 hidden md:block text-center">
-                        <div className="flex items-center justify-center">
-                            <div className="w-16 bg-slate-200 rounded-full h-1.5 mr-2">
-                                <div className={`h-1.5 rounded-full ${worker.compliancePercentage && worker.compliancePercentage >= 90 ? 'bg-green-500' : 'bg-yellow-500'}`} style={{ width: `${worker.compliancePercentage}%` }}></div>
+                    <div className="col-span-2 hidden md:flex flex-col items-center justify-center text-xs text-slate-500">
+                       {worker.startDate && (
+                         <div className="whitespace-nowrap">Inicio: {new Date(worker.startDate).toLocaleDateString('es-ES')}</div>
+                       )}
+                       {worker.endDate && (
+                         <div className="text-red-600 whitespace-nowrap">Fin: {new Date(worker.endDate).toLocaleDateString('es-ES')}</div>
+                       )}
+                       {!worker.startDate && !worker.endDate && <span className="text-slate-300 italic">-</span>}
+                    </div>
+                    <div className="col-span-1 hidden md:flex items-center justify-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
+                    <div className="col-span-1 hidden md:flex items-center justify-center">
+                        <div className="flex items-center">
+                            <div className="w-12 bg-slate-200 rounded-full h-1.5 mr-1">
+                                <div className={`h-1.5 rounded-full ${worker.compliancePercentage && worker.compliancePercentage >= 90 ? 'bg-green-500' : 'bg-yellow-500'}`} style={{ width: `${worker.compliancePercentage || 0}%` }}></div>
                             </div>
-                            <span className="text-xs font-medium">{worker.compliancePercentage}%</span>
+                            <span className="text-xs font-medium">{worker.compliancePercentage || 0}%</span>
                         </div>
                     </div>
-                    <div className="col-span-4 md:col-span-2 flex justify-end items-center gap-2">
-                        <button onClick={() => togglePersonnelExpand(worker.id)} className="text-slate-400 hover:text-blue-600 p-1">
+                    <div className="col-span-3 md:col-span-2 flex justify-end items-center gap-2">
+                        <button onClick={() => togglePersonnelExpand(worker.id)} className="text-slate-400 hover:text-blue-600 p-1" disabled={isArchivingPersonnel === worker.id}>
                             {expandedPersonnel === worker.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                         </button>
                         {canEditPersonnel && (
-                            <button onClick={() => { setEditingResource(worker); /* logic to open modal */ }} className="text-slate-400 hover:text-blue-600 p-1">
-                                <Edit2 size={16} />
-                            </button>
+                            <>
+                                <button onClick={() => { setEditingResource(worker); }} className="text-blue-600 hover:text-blue-900 p-1" title="Editar" disabled={isArchivingPersonnel === worker.id || isUpdatingResource}>
+                                    {isUpdatingResource && editingResource?.id === worker.id ? (
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                    ) : (
+                                      <Edit2 size={16} />
+                                    )}
+                                </button>
+                                {worker.personnelStatus === 'cesado' && (
+                                    <button 
+                                        onClick={async () => {
+                                            if (confirm('¿Archivar este trabajador? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
+                                                setIsArchivingPersonnel(worker.id);
+                                                try {
+                                                    const { resourcesService } = await import('../services/resourcesService');
+                                                    await resourcesService.archivePersonnel(worker.id);
+                                                    // Actualizar solo los recursos localmente para mantener el tab activo
+                                                    if (onUpdate) {
+                                                        const currentTab = activeTabRef.current; // Guardar el tab actual
+                                                        const updatedUnit = { ...unit };
+                                                        updatedUnit.resources = updatedUnit.resources.filter(r => r.id !== worker.id);
+                                                        onUpdate(updatedUnit);
+                                                        // Asegurar que el tab se mantenga
+                                                        setTimeout(() => {
+                                                            if (activeTab !== currentTab) {
+                                                                setActiveTab(currentTab);
+                                                            }
+                                                        }, 100);
+                                                    }
+                                                    setNotification({ type: 'success', message: 'Trabajador archivado correctamente' });
+                                                    setTimeout(() => setNotification(null), 3000);
+                                                } catch (error) {
+                                                    console.error('Error al archivar trabajador:', error);
+                                                    setNotification({ type: 'error', message: 'Error al archivar el trabajador. Por favor, intente nuevamente.' });
+                                                    setTimeout(() => setNotification(null), 5000);
+                                                } finally {
+                                                    setIsArchivingPersonnel(null);
+                                                }
+                                            }
+                                        }}
+                                        className="text-amber-600 hover:text-amber-900 p-1 disabled:opacity-50" 
+                                        title="Archivar trabajador"
+                                        disabled={isArchivingPersonnel === worker.id}
+                                    >
+                                        {isArchivingPersonnel === worker.id ? (
+                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-amber-600"></div>
+                                        ) : (
+                                          <Archive size={16} />
+                                        )}
+                                    </button>
+                                )}
+                            </>
                         )}
                     </div>
                  </div>
@@ -2627,8 +2839,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <h3 className="font-bold text-lg flex items-center"><UserPlus className="mr-2" size={20}/> Nuevo Colaborador</h3>
                 <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} /></div>
+             <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo *</label>
+                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} required />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
+                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.dni || ''} onChange={e => setNewWorkerForm({...newWorkerForm, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
+                </div>
                 
                 <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Zona(s) Asignada(s)</label>
@@ -2647,7 +2867,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         <option value="Mixto">Mixto</option>
                     </select>
                 </div>
-                <button onClick={handleAddWorker} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Registrar Colaborador</button>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
+                    <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.startDate || ''} onChange={e => setNewWorkerForm({...newWorkerForm, startDate: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
+                    <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.endDate || ''} onChange={e => {
+                      const endDate = e.target.value;
+                      setNewWorkerForm({...newWorkerForm, endDate});
+                    }} />
+                    {newWorkerForm.endDate && (
+                      <p className="text-xs text-amber-600 mt-1">El trabajador pasará a estado "Cesado"</p>
+                    )}
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleAddWorker} 
+                  disabled={isSavingWorker}
+                  className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isSavingWorker ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    'Registrar Colaborador'
+                  )}
+                </button>
              </div>
           </div>
         </div>
@@ -2720,24 +2971,51 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.name} onChange={e => setEditingResource({...editingResource, name: e.target.value})} /></div>
                       
                       {editingResource.type === ResourceType.PERSONNEL && (
-                          <div className="grid grid-cols-2 gap-4">
+                          <>
                               <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
-                                  <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}>
-                                      <option value="Diurno">Diurno</option>
-                                      <option value="Nocturno">Nocturno</option>
-                                      <option value="Mixto">Mixto</option>
-                                  </select>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
+                                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.dni || ''} onChange={e => setEditingResource({...editingResource, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
                               </div>
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
-                                  <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}>
-                                      <option value="Activo">Activo</option>
-                                      <option value="De Licencia">De Licencia</option>
-                                      <option value="Reemplazo Temporal">Reemplazo Temporal</option>
-                                  </select>
+                              <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                      <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
+                                      <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}>
+                                          <option value="">Seleccionar...</option>
+                                          <option value="Diurno">Diurno</option>
+                                          <option value="Nocturno">Nocturno</option>
+                                          <option value="Mixto">Mixto</option>
+                                      </select>
+                                  </div>
+                                  <div>
+                                      <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
+                                      <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}>
+                                          <option value="Activo">Activo</option>
+                                          <option value="De Licencia">De Licencia</option>
+                                          <option value="Reemplazo Temporal">Reemplazo Temporal</option>
+                                      </select>
+                                  </div>
                               </div>
-                          </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                      <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
+                                      <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.startDate || ''} onChange={e => setEditingResource({...editingResource, startDate: e.target.value})} />
+                                  </div>
+                                  <div>
+                                      <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
+                                      <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.endDate || ''} onChange={e => {
+                                        const endDate = e.target.value;
+                                        setEditingResource({
+                                          ...editingResource, 
+                                          endDate,
+                                          // El trigger de la BD cambiará automáticamente el personnelStatus a 'cesado'
+                                        });
+                                      }} />
+                                      {editingResource.endDate && (
+                                        <p className="text-xs text-amber-600 mt-1">El trabajador pasará a estado "Cesado"</p>
+                                      )}
+                                  </div>
+                              </div>
+                          </>
                       )}
 
                       {/* Zone Multi-Select for Edit */}
@@ -2758,8 +3036,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       )}
 
                       <div className="flex gap-2 pt-2">
-                          <button onClick={handleDeleteResource} className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-100 transition-colors border border-red-100 flex items-center justify-center"><Trash2 size={16} className="mr-2"/> Eliminar</button>
-                          <button onClick={handleUpdateResource} className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors">Guardar Cambios</button>
+                          <button 
+                            onClick={handleDeleteResource} 
+                            disabled={isUpdatingResource}
+                            className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-100 transition-colors border border-red-100 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 size={16} className="mr-2"/> Eliminar
+                          </button>
+                          <button 
+                            onClick={handleUpdateResource} 
+                            disabled={isUpdatingResource}
+                            className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                          >
+                            {isUpdatingResource ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                Guardando...
+                              </>
+                            ) : (
+                              'Guardar Cambios'
+                            )}
+                          </button>
                       </div>
                   </div>
               </div>
@@ -2942,3 +3239,4 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     </div>
   );
 };
+

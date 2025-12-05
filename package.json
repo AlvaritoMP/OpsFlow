@@ -5,19 +5,24 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:clean": "powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Where-Object {$_.Path -like '*node*'} | Stop-Process -Force; npm run dev\"",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^1.30.0",
+    "@supabase/supabase-js": "^2.86.2",
     "lucide-react": "^0.554.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "@google/genai": "^1.30.0",
     "recharts": "^3.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.22",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.18",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

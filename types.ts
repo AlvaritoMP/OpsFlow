@@ -60,7 +60,10 @@ export interface User {
   role: UserRole;
   avatar?: string;
   linkedClientNames?: string[]; // Changed to array: Links user to specific Client Companies
+  temporaryPassword?: string; // Contraseña temporal (solo para referencia del administrador)
 }
+
+export type StaffStatus = 'activo' | 'cesado';
 
 export interface ManagementStaff {
   id: string;
@@ -69,6 +72,11 @@ export interface ManagementStaff {
   email?: string;
   phone?: string;
   photo?: string;
+  dni?: string; // Documento Nacional de Identidad
+  startDate?: string; // Fecha de inicio de labores (YYYY-MM-DD)
+  endDate?: string; // Fecha de fin de labores (YYYY-MM-DD)
+  status?: StaffStatus; // Estado: activo o cesado
+  archived?: boolean; // Si está archivado (no se muestra en vista normal)
 }
 
 export interface OperationalLog {
@@ -170,6 +178,13 @@ export interface Resource {
   // Integration Fields
   externalId?: string; // SKU or External ID from Inventory App
   lastSync?: string; // Timestamp of last sync
+  
+  // Personnel-specific fields (only for type = PERSONNEL)
+  dni?: string; // Documento Nacional de Identidad
+  startDate?: string; // Fecha de inicio de labores (YYYY-MM-DD)
+  endDate?: string; // Fecha de fin de labores (YYYY-MM-DD)
+  personnelStatus?: 'activo' | 'cesado'; // Estado: activo o cesado (solo para personal)
+  archived?: boolean; // Si está archivado (no se muestra en vista normal)
 }
 
 export interface ZoneLayout {

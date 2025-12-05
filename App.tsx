@@ -1,22 +1,40 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2 } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
+import { ClientControlCenter } from './components/ClientControlCenter';
 import { Reports } from './components/Reports';
-import { MOCK_UNITS, MOCK_USERS, MOCK_MANAGEMENT_STAFF } from './constants';
+import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
 import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission } from './services/permissionService';
+import { useUnits } from './hooks/useUnits';
+import { useUsers } from './hooks/useUsers';
+import { useManagementStaff } from './hooks/useManagementStaff';
+import { unitsService } from './services/unitsService';
+import { usersService } from './services/usersService';
+import { Login } from './components/Login';
+import { authService } from './services/authService';
+import { LogOut, FileText } from 'lucide-react';
+import { AuditLogs } from './components/AuditLogs';
 
 const App: React.FC = () => {
+  // Estado de autenticación
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'reports'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
-  const [units, setUnits] = useState<Unit[]>(MOCK_UNITS);
+  
+  // Usar hooks de Supabase (solo cargar si está autenticado)
+  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits } = useUnits(isAuthenticated);
+  const { users, loading: usersLoading, createUser, updateUser, deleteUser, loadUsers } = useUsers(isAuthenticated);
+  const { staff: managementStaff, loading: staffLoading, createStaff, updateStaff, deleteStaff, archiveStaff, loadStaff } = useManagementStaff(isAuthenticated);
   
   // New Unit State
   const [showAddUnitModal, setShowAddUnitModal] = useState(false);
@@ -31,15 +49,23 @@ const App: React.FC = () => {
   const [newUnitImageUrl, setNewUnitImageUrl] = useState('');
 
   // User Management State
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [userForm, setUserForm] = useState<{name: string, email: string, role: UserRole, linkedClientNames: string[]}>({ name: '', email: '', role: 'OPERATIONS', linkedClientNames: [] });
+  const [userForm, setUserForm] = useState<{name: string, email: string, password: string, role: UserRole, linkedClientNames: string[]}>({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [] });
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [passwordForm, setPasswordForm] = useState<{userId: string, newPassword: string, confirmPassword: string}>({ userId: '', newPassword: '', confirmPassword: '' });
+  const [userOperationLoading, setUserOperationLoading] = useState<{type: 'create' | 'update' | 'delete' | 'password' | null, userId?: string}>({ type: null });
   
   // Management Staff State (Supervisors/Coordinators)
-  const [managementStaff, setManagementStaff] = useState<ManagementStaff[]>(MOCK_MANAGEMENT_STAFF);
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
-  const [newStaffForm, setNewStaffForm] = useState<Partial<ManagementStaff>>({ name: '', role: 'COORDINATOR', email: '' });
+  const [editingStaff, setEditingStaff] = useState<ManagementStaff | null>(null);
+  const [newStaffForm, setNewStaffForm] = useState<Partial<ManagementStaff>>({ 
+    name: '', 
+    role: 'COORDINATOR', 
+    email: '',
+    status: 'activo',
+    archived: false
+  });
   const [newStaffPhotoUrl, setNewStaffPhotoUrl] = useState('');
 
   // API Config State
@@ -51,19 +77,211 @@ const App: React.FC = () => {
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
 
   // Branding State
-  const [companyLogo, setCompanyLogo] = useState<string>(localStorage.getItem('OPSFLOW_LOGO') || 'https://via.placeholder.com/150x50?text=LOGO');
+  const [companyLogo, setCompanyLogo] = useState<string>(localStorage.getItem('OPSFLOW_LOGO') || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=');
   const [isLogoSaved, setIsLogoSaved] = useState(false);
 
   // Permissions State
   const [permissions, setPermissions] = useState<PermissionConfig>(getPermissions());
   const [isPermsSaved, setIsPermsSaved] = useState(false);
 
-  // User / Role Context Simulation
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Default to Admin
+  // User / Role Context
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // Verificar autenticación al cargar
+  useEffect(() => {
+    let mounted = true;
+    
+    const checkAuth = async () => {
+      try {
+        const session = await authService.getSession();
+        if (!mounted) return;
+        
+        if (session?.user) {
+          try {
+            // Obtener el usuario de la BD
+            const dbUser = await usersService.getById(session.user.id);
+            if (!mounted) return;
+            
+            if (dbUser) {
+              // Actualizar el rol en los metadatos de Auth PRIMERO para que las políticas funcionen
+              try {
+                await authService.updateUserRole(session.user.id, dbUser.role);
+              } catch (roleError) {
+                console.error('Error al actualizar rol, continuando de todas formas:', roleError);
+              }
+              if (!mounted) return;
+              setCurrentUser(dbUser);
+              setIsAuthenticated(true);
+            } else {
+              // Si no existe en la BD, verificar si existe por email (puede haber desincronización de IDs)
+              console.log('Usuario no encontrado en BD por ID, buscando por email...');
+              try {
+                const { supabaseAdmin } = await import('./services/supabase');
+                
+                if (supabaseAdmin && session.user.email) {
+                  // Buscar usuario por email
+                  const { data: existingUserByEmail, error: emailError } = await supabaseAdmin
+                    .from('users')
+                    .select('*')
+                    .eq('email', session.user.email)
+                    .maybeSingle();
+                  
+                  if (!emailError && existingUserByEmail && existingUserByEmail !== null) {
+                    // Usuario existe pero con ID diferente, eliminar el duplicado y crear uno nuevo con el ID correcto
+                    console.log('Usuario encontrado por email con ID diferente, eliminando duplicado y creando con ID correcto...');
+                    
+                    const duplicateUser = existingUserByEmail as any;
+                    
+                    // Eliminar el usuario duplicado (primero eliminar vínculos)
+                    await supabaseAdmin
+                      .from('user_client_links')
+                      .delete()
+                      .eq('user_id', duplicateUser.id);
+                    
+                    // Eliminar el usuario duplicado
+                    const { error: deleteError } = await supabaseAdmin
+                      .from('users')
+                      .delete()
+                      .eq('id', duplicateUser.id);
+                    
+                    if (!deleteError) {
+                      // Crear usuario nuevo con el ID correcto
+                      const { data: newUserData, error: createError } = await supabaseAdmin
+                        .from('users')
+                        .insert({
+                          id: session.user.id,
+                          name: duplicateUser.name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuario',
+                          email: session.user.email || '',
+                          role: duplicateUser.role || (session.user.user_metadata?.role as UserRole) || 'OPERATIONS',
+                          avatar: duplicateUser.avatar || (session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'U').substring(0, 2).toUpperCase(),
+                        })
+                        .select()
+                        .single();
+                      
+                      if (!createError && newUserData) {
+                        console.log('Usuario sincronizado correctamente');
+                        const dbUser = await usersService.getById(session.user.id);
+                        if (dbUser) {
+                          await authService.updateUserRole(session.user.id, dbUser.role);
+                          await new Promise(resolve => setTimeout(resolve, 200));
+                          if (!mounted) return;
+                          setCurrentUser(dbUser);
+                          setIsAuthenticated(true);
+                          return;
+                        }
+                      } else {
+                        console.error('Error al crear usuario después de eliminar duplicado:', createError);
+                      }
+                    } else {
+                      console.error('Error al eliminar usuario duplicado:', deleteError);
+                    }
+                  } else {
+                    // No existe por email, crear nuevo usuario
+                    console.log('Usuario no encontrado por email, creando nuevo usuario...');
+                    const { data: newUserData, error: createError } = await supabaseAdmin
+                      .from('users')
+                      .insert({
+                        id: session.user.id,
+                        name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuario',
+                        email: session.user.email || '',
+                        role: (session.user.user_metadata?.role as UserRole) || 'OPERATIONS',
+                        avatar: (session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'U').substring(0, 2).toUpperCase(),
+                      })
+                      .select()
+                      .single();
+                    
+                    if (!createError && newUserData) {
+                      console.log('Usuario creado automáticamente en BD');
+                      const dbUser = await usersService.getById(session.user.id);
+                      if (dbUser) {
+                        await authService.updateUserRole(session.user.id, dbUser.role);
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        if (!mounted) return;
+                        setCurrentUser(dbUser);
+                        setIsAuthenticated(true);
+                        return;
+                      }
+                    } else {
+                      console.error('Error al crear usuario automáticamente:', createError);
+                    }
+                  }
+                }
+              } catch (autoCreateError) {
+                console.error('Error en auto-creación/sincronización de usuario:', autoCreateError);
+              }
+              
+              // Si la auto-creación/sincronización falla, mostrar mensaje de error
+              if (!mounted) return;
+              setAppError('Tu cuenta existe en Supabase Auth pero no está registrada en el sistema. Por favor, contacta a un administrador para que active tu cuenta.');
+              setIsAuthenticated(false);
+            }
+          } catch (userError: any) {
+            console.error('Error al obtener usuario:', userError);
+            if (!mounted) return;
+            // Si es un error 406 o de RLS, mostrar mensaje más claro
+            if (userError.message?.includes('406') || userError.message?.includes('row-level security')) {
+              setAppError('Error de permisos al acceder a tu cuenta. Por favor, contacta a un administrador.');
+            } else {
+              setAppError(userError.message || 'Error al cargar usuario');
+            }
+            setIsAuthenticated(false);
+          }
+        } else {
+          // No hay sesión, usuario no autenticado
+          setIsAuthenticated(false);
+        }
+      } catch (error: any) {
+        console.error('Error verificando autenticación:', error);
+        if (!mounted) return;
+        setAppError(error.message || 'Error al verificar autenticación');
+        setIsAuthenticated(false);
+      } finally {
+        if (mounted) {
+          setAuthLoading(false);
+        }
+      }
+    };
+
+    checkAuth();
+    
+    return () => {
+      mounted = false;
+    };
+
+    // Escuchar cambios en la autenticación
+    const { data: { subscription } } = authService.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        const dbUser = await usersService.getById(session.user.id);
+        if (dbUser) {
+          setCurrentUser(dbUser);
+          setIsAuthenticated(true);
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Actualizar currentUser cuando se carguen los usuarios
+  useEffect(() => {
+    if (isAuthenticated && currentUser && users.length > 0) {
+      const userExists = users.find(u => u.id === currentUser.id);
+      if (userExists) {
+        setCurrentUser(userExists);
+      }
+    }
+  }, [users, isAuthenticated, currentUser?.id]);
 
   // Check screen size for responsive sidebar
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     const handleResize = () => {
       if (window.innerWidth < 768) {
         setSidebarOpen(false);
@@ -74,7 +292,26 @@ const App: React.FC = () => {
     window.addEventListener('resize', handleResize);
     handleResize(); // Initial check
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [isAuthenticated]);
+
+  // Manejar login exitoso
+  const handleLoginSuccess = async (user: User) => {
+    setCurrentUser(user);
+    setIsAuthenticated(true);
+    // Actualizar el rol en el JWT
+    await authService.updateUserRole(user.id, user.role);
+  };
+
+  // Manejar logout
+  const handleLogout = async () => {
+    try {
+      await authService.signOut();
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+    }
+  };
 
   const handleSelectUnit = (id: string) => {
     setSelectedUnitId(id);
@@ -83,8 +320,14 @@ const App: React.FC = () => {
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
-  const handleUpdateUnit = (updatedUnit: Unit) => {
-    setUnits(prevUnits => prevUnits.map(u => u.id === updatedUnit.id ? updatedUnit : u));
+  const handleUpdateUnit = async (updatedUnit: Unit) => {
+    try {
+      await updateUnit(updatedUnit.id, updatedUnit);
+      await loadUnits(); // Recargar para obtener datos actualizados
+    } catch (error) {
+      console.error('Error al actualizar unidad:', error);
+      alert('Error al actualizar la unidad. Por favor, intente nuevamente.');
+    }
   };
 
   const handleAddImageToNewUnit = () => {
@@ -105,35 +348,39 @@ const App: React.FC = () => {
     setNewUnitImages(newUnitImages.filter((_, i) => i !== index));
   };
 
-  const handleAddUnit = () => {
+  const handleAddUnit = async () => {
     if (!newUnitForm.name || !newUnitForm.clientName) return;
 
-    const newUnit: Unit = {
-      id: `u-${Date.now()}`,
-      name: newUnitForm.name!,
-      clientName: newUnitForm.clientName!,
-      address: newUnitForm.address || '',
-      status: newUnitForm.status as UnitStatus || UnitStatus.ACTIVE,
-      description: 'Nueva unidad registrada. Configure zonas y recursos.',
-      images: newUnitImages, 
-      zones: [],
-      resources: [],
-      logs: [],
-      requests: [],
-      complianceHistory: [{ month: 'Actual', score: 100 }] // Default start
-    };
+    try {
+      const newUnitData: Partial<Unit> = {
+        name: newUnitForm.name!,
+        clientName: newUnitForm.clientName!,
+        address: newUnitForm.address || '',
+        status: newUnitForm.status as UnitStatus || UnitStatus.ACTIVE,
+        description: 'Nueva unidad registrada. Configure zonas y recursos.',
+        images: newUnitImages,
+        zones: [],
+        resources: [],
+        logs: [],
+        requests: [],
+        complianceHistory: [{ month: 'Actual', score: 100 }] // Default start
+      };
 
-    setUnits([...units, newUnit]);
-    setShowAddUnitModal(false);
-    setNewUnitForm({ name: '', clientName: '', address: '', status: UnitStatus.ACTIVE });
-    setNewUnitImages([]);
-    setNewUnitImageUrl('');
+      await createUnit(newUnitData);
+      setShowAddUnitModal(false);
+      setNewUnitForm({ name: '', clientName: '', address: '', status: UnitStatus.ACTIVE });
+      setNewUnitImages([]);
+      setNewUnitImageUrl('');
+    } catch (error) {
+      console.error('Error al crear unidad:', error);
+      alert('Error al crear la unidad. Por favor, intente nuevamente.');
+    }
   };
 
   // --- USER MANAGEMENT HANDLERS ---
   const openAddUserModal = () => {
       setEditingUser(null);
-      setUserForm({ name: '', email: '', role: 'OPERATIONS', linkedClientNames: [] });
+      setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [] });
       setShowUserModal(true);
   };
 
@@ -142,10 +389,41 @@ const App: React.FC = () => {
       setUserForm({ 
           name: user.name, 
           email: user.email, 
+          password: '', 
           role: user.role, 
           linkedClientNames: user.linkedClientNames || [] 
       });
       setShowUserModal(true);
+  };
+
+  const openChangePasswordModal = (user: User) => {
+      setPasswordForm({ userId: user.id, newPassword: '', confirmPassword: '' });
+      setShowChangePasswordModal(true);
+  };
+
+  const handleChangePassword = async () => {
+      if (!passwordForm.newPassword || passwordForm.newPassword.length < 6) {
+          alert('La contraseña debe tener al menos 6 caracteres');
+          return;
+      }
+      if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+          alert('Las contraseñas no coinciden');
+          return;
+      }
+      
+      try {
+          setUserOperationLoading({ type: 'password', userId: passwordForm.userId });
+          // Usar updatePassword que maneja tanto el propio usuario como otros usuarios
+          await authService.updatePassword(passwordForm.userId, passwordForm.newPassword);
+          setShowChangePasswordModal(false);
+          setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
+          alert('Contraseña actualizada correctamente');
+      } catch (error: any) {
+          console.error('Error al cambiar contraseña:', error);
+          alert(error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.');
+      } finally {
+          setUserOperationLoading({ type: null });
+      }
   };
 
   const handleToggleLinkedClient = (clientName: string) => {
@@ -156,62 +434,154 @@ const App: React.FC = () => {
       }
   };
 
-  const handleSaveUser = () => {
+  const handleSaveUser = async () => {
     if (!userForm.name || !userForm.email) return;
     
-    const isRestrictedRole = ['CLIENT', 'OPERATIONS', 'OPERATIONS_SUPERVISOR'].includes(userForm.role);
+    // Si es nuevo usuario, requiere contraseña
+    if (!editingUser && !userForm.password) {
+      alert('Debe ingresar una contraseña para el nuevo usuario');
+      return;
+    }
+    
+    try {
+      setUserOperationLoading({ type: editingUser ? 'update' : 'create', userId: editingUser?.id });
+      
+      const isRestrictedRole = ['CLIENT', 'OPERATIONS', 'OPERATIONS_SUPERVISOR'].includes(userForm.role);
 
-    if (editingUser) {
-        // Update existing
-        const updatedUsers = users.map(u => u.id === editingUser.id ? {
-            ...u,
-            name: userForm.name,
-            email: userForm.email,
-            role: userForm.role,
-            linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined
-        } : u);
-        setUsers(updatedUsers);
-    } else {
-        // Create new
-        const newUser: User = {
-          id: `u${Date.now()}`,
+      if (editingUser) {
+        // Update existing user (sin crear cuenta de Auth si ya existe)
+        await updateUser(editingUser.id, {
+          name: userForm.name,
+          email: userForm.email,
+          role: userForm.role,
+          linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined
+        });
+      } else {
+        // Create new user with Auth account
+        const { user, dbUser } = await authService.signUp(userForm.email, userForm.password, {
           name: userForm.name,
           email: userForm.email,
           role: userForm.role,
           avatar: userForm.name.substring(0,2).toUpperCase(),
           linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined
-        };
-        setUsers([...users, newUser]);
+        });
+        
+        if (!dbUser) {
+          throw new Error('Error al crear el usuario en la base de datos');
+        }
+        
+        // Recargar lista de usuarios
+        await loadUsers();
+      }
+      setShowUserModal(false);
+      setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [] });
+    } catch (error: any) {
+      console.error('Error al guardar usuario:', error);
+      alert(error.message || 'Error al guardar el usuario. Por favor, intente nuevamente.');
+    } finally {
+      setUserOperationLoading({ type: null });
     }
-    setShowUserModal(false);
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (confirm('¿Eliminar usuario?')) {
-      setUsers(users.filter(u => u.id !== userId));
+      try {
+        setUserOperationLoading({ type: 'delete', userId });
+        await deleteUser(userId);
+      } catch (error) {
+        console.error('Error al eliminar usuario:', error);
+        alert('Error al eliminar el usuario. Por favor, intente nuevamente.');
+      } finally {
+        setUserOperationLoading({ type: null });
+      }
     }
   };
 
   // Management Staff Handlers
-  const handleAddStaff = () => {
+  const handleAddStaff = async () => {
       if (!newStaffForm.name || !newStaffForm.role) return;
-      const newStaff: ManagementStaff = {
-          id: `ms-${Date.now()}`,
+      
+      try {
+        await createStaff({
           name: newStaffForm.name,
           role: newStaffForm.role,
           email: newStaffForm.email,
-          photo: newStaffPhotoUrl || 'https://via.placeholder.com/150'
-      };
-      setManagementStaff([...managementStaff, newStaff]);
-      setShowAddStaffModal(false);
-      setNewStaffForm({ name: '', role: 'COORDINATOR', email: '' });
-      setNewStaffPhotoUrl('');
+          photo: newStaffPhotoUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2U1ZTdlYiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IiM5Y2EzYjgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj4/PC90ZXh0Pjwvc3ZnPg=='
+        });
+        setShowAddStaffModal(false);
+        setNewStaffForm({ name: '', role: 'COORDINATOR', email: '' });
+        setNewStaffPhotoUrl('');
+      } catch (error) {
+        console.error('Error al agregar personal:', error);
+        alert('Error al agregar el personal. Por favor, intente nuevamente.');
+      }
   };
 
-  const handleDeleteStaff = (staffId: string) => {
-      if (confirm('¿Eliminar este miembro del equipo de gestión?')) {
-          setManagementStaff(managementStaff.filter(s => s.id !== staffId));
+  const handleDeleteStaff = async (staffId: string) => {
+      if (confirm('¿Eliminar este miembro del equipo de gestión? Esta acción no se puede deshacer.')) {
+        try {
+          await deleteStaff(staffId);
+        } catch (error) {
+          console.error('Error al eliminar personal:', error);
+          alert('Error al eliminar el personal. Por favor, intente nuevamente.');
+        }
       }
+  };
+
+  const handleArchiveStaff = async (staffId: string) => {
+      if (confirm('¿Archivar este trabajador? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
+        try {
+          await archiveStaff(staffId);
+        } catch (error) {
+          console.error('Error al archivar personal:', error);
+          alert('Error al archivar el personal. Por favor, intente nuevamente.');
+        }
+      }
+  };
+
+  const openEditStaffModal = (staff: ManagementStaff) => {
+    setEditingStaff(staff);
+    setNewStaffForm({
+      name: staff.name,
+      role: staff.role,
+      email: staff.email || '',
+      phone: staff.phone || '',
+      dni: staff.dni || '',
+      startDate: staff.startDate || '',
+      endDate: staff.endDate || '',
+      status: staff.status || 'activo',
+      archived: staff.archived || false
+    });
+    setNewStaffPhotoUrl(staff.photo || '');
+    setShowAddStaffModal(true);
+  };
+
+  const handleSaveStaff = async () => {
+    if (!newStaffForm.name || !newStaffForm.role) {
+      alert('Por favor, complete todos los campos requeridos.');
+      return;
+    }
+
+    try {
+      if (editingStaff) {
+        await updateStaff(editingStaff.id, {
+          ...newStaffForm,
+          photo: newStaffPhotoUrl || editingStaff.photo
+        });
+      } else {
+        await createStaff({
+          ...newStaffForm,
+          photo: newStaffPhotoUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2U1ZTdlYiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IiM5Y2EzYjgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj4/PC90ZXh0Pjwvc3ZnPg=='
+        });
+      }
+      setShowAddStaffModal(false);
+      setEditingStaff(null);
+      setNewStaffForm({ name: '', role: 'COORDINATOR', email: '', status: 'activo', archived: false });
+      setNewStaffPhotoUrl('');
+    } catch (error) {
+      console.error('Error al guardar personal:', error);
+      alert('Error al guardar el personal. Por favor, intente nuevamente.');
+    }
   };
 
   // API Config Handlers
@@ -256,6 +626,8 @@ const App: React.FC = () => {
   // --- UNIT FILTERING LOGIC ---
   // Now applies to ANY role that has linkedClientNames
   const visibleUnits = React.useMemo(() => {
+      if (!currentUser) return [];
+      
       if (currentUser.role === 'ADMIN') return units;
       
       // If user has linked clients, filter by them
@@ -279,8 +651,81 @@ const App: React.FC = () => {
 
 
   const renderContent = () => {
+    // Mostrar error si hay uno crítico
+    if (appError && !authLoading) {
+      return (
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center text-red-600">
+            <p className="font-bold mb-2">Error en la aplicación</p>
+            <p className="text-sm mb-4">{appError}</p>
+            <button 
+              onClick={() => {
+                setAppError(null);
+                setAuthLoading(true);
+                window.location.reload();
+              }} 
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    
+    // Mostrar loading mientras se verifica la autenticación
+    if (authLoading) {
+      return (
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-slate-600">Verificando autenticación...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Mostrar login si no está autenticado
+    if (!isAuthenticated || !currentUser) {
+      return <Login onLoginSuccess={handleLoginSuccess} />;
+    }
+
+    // Mostrar loading mientras se cargan los datos
+    if (unitsLoading || usersLoading || staffLoading) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-slate-600">Cargando datos...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Mostrar error si hay problemas
+    if (unitsError) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center text-red-600">
+            <p className="font-bold mb-2">Error al cargar datos</p>
+            <p className="text-sm">{unitsError}</p>
+            <button 
+              onClick={() => loadUnits()} 
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (currentView === 'control-center') {
       return <ControlCenter units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
+    }
+
+    if (currentView === 'client-control-center') {
+      return <ClientControlCenter units={visibleUnits} managementStaff={managementStaff} />;
     }
 
     if (currentView === 'reports') {
@@ -289,6 +734,10 @@ const App: React.FC = () => {
 
     if (currentView === 'dashboard') {
       return <Dashboard units={visibleUnits} onSelectUnit={handleSelectUnit} />;
+    }
+
+    if (currentView === 'audit-logs') {
+      return <AuditLogs />;
     }
 
     if (currentView === 'units') {
@@ -633,36 +1082,86 @@ const App: React.FC = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Usuario</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Email</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Rol</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Contraseña</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Empresa(s) Asignada(s)</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
-                   {users.map(u => (
-                     <tr key={u.id} className="hover:bg-slate-50">
-                        <td className="px-6 py-4 whitespace-nowrap flex items-center">
-                          <div className="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-3">{u.avatar}</div>
-                          <span className="text-sm font-medium text-slate-900">{u.name}</span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{u.email}</td>
+                   {usersLoading ? (
+                     <tr>
+                       <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                         <div className="flex items-center justify-center">
+                           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500 mr-3"></div>
+                           Cargando usuarios...
+                         </div>
+                       </td>
+                     </tr>
+                   ) : users.length === 0 ? (
+                     <tr>
+                       <td colSpan={6} className="px-6 py-8 text-center text-slate-400">No hay usuarios registrados</td>
+                     </tr>
+                   ) : (
+                     users.map(u => {
+                       const isProcessing = userOperationLoading.type !== null && 
+                         (userOperationLoading.userId === u.id || 
+                          (userOperationLoading.type === 'create' && !userOperationLoading.userId));
+                       return (
+                         <tr key={u.id} className={`hover:bg-slate-50 ${isProcessing ? 'opacity-50' : ''}`}>
+                            <td className="px-6 py-4 whitespace-nowrap flex items-center">
+                              <div className="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-3">{u.avatar}</div>
+                              <span className="text-sm font-medium text-slate-900">{u.name}</span>
+                              {isProcessing && (
+                                <div className="ml-2 animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{u.email}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="text-xs font-medium bg-slate-100 px-2 py-1 rounded-full text-slate-600">{u.role}</span>
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">
+                          {u.temporaryPassword ? (
+                            <span className="text-green-600" title="Contraseña temporal">{u.temporaryPassword}</span>
+                          ) : (
+                            <span className="text-slate-300 italic">••••••••</span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                            {u.linkedClientNames && u.linkedClientNames.length > 0 ? (
-                                <span className="block truncate max-w-xs" title={u.linkedClientNames.join(', ')}>
-                                    {u.linkedClientNames.join(', ')}
-                                </span>
-                            ) : (
-                                <span className="text-slate-300 italic">Global / Sin asignar</span>
-                            )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                           <button onClick={() => openEditUserModal(u)} className="text-blue-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 mr-2"><Edit2 size={16}/></button>
-                           <button onClick={() => handleDeleteUser(u.id)} className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50"><Trash2 size={16}/></button>
-                        </td>
-                     </tr>
-                   ))}
+                                {u.linkedClientNames && u.linkedClientNames.length > 0 ? (
+                                    <span className="block truncate max-w-xs" title={u.linkedClientNames.join(', ')}>
+                                        {u.linkedClientNames.join(', ')}
+                                    </span>
+                                ) : (
+                                    <span className="text-slate-300 italic">Global / Sin asignar</span>
+                                )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                               <button 
+                                 onClick={() => openEditUserModal(u)} 
+                                 disabled={isProcessing}
+                                 className="text-blue-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                 title="Editar usuario">
+                                 <Edit2 size={16}/>
+                               </button>
+                               <button 
+                                 onClick={() => openChangePasswordModal(u)} 
+                                 disabled={isProcessing}
+                                 className="text-amber-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                 title="Cambiar contraseña">
+                                 <Shield size={16}/>
+                               </button>
+                               <button 
+                                 onClick={() => handleDeleteUser(u.id)} 
+                                 disabled={isProcessing}
+                                 className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                 title="Eliminar usuario">
+                                 <Trash2 size={16}/>
+                               </button>
+                            </td>
+                         </tr>
+                       );
+                     })
+                   )}
                 </tbody>
              </table>
            </div>
@@ -671,26 +1170,113 @@ const App: React.FC = () => {
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                <h3 className="font-bold text-slate-700 flex items-center"><Briefcase className="mr-2" size={18} /> Gestión de Equipo de Supervisión (Global)</h3>
-               <button onClick={() => setShowAddStaffModal(true)} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
+               <button onClick={() => { setEditingStaff(null); setNewStaffForm({ name: '', role: 'COORDINATOR', email: '', status: 'activo', archived: false }); setNewStaffPhotoUrl(''); setShowAddStaffModal(true); }} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
                   <Plus size={14} className="mr-1.5" /> Agregar Personal
                </button>
              </div>
-             <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                 {managementStaff.map(staff => (
-                     <div key={staff.id} className="flex items-center space-x-3 p-3 border border-slate-200 rounded-lg hover:shadow-md transition-shadow relative group">
-                         <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-100 flex-shrink-0">
-                             {staff.photo ? <img src={staff.photo} alt={staff.name} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-400">?</div>}
+             <div className="p-6">
+               <table className="min-w-full divide-y divide-slate-200">
+                 <thead className="bg-slate-50">
+                   <tr>
+                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Personal</th>
+                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">DNI</th>
+                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Rol</th>
+                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estado</th>
+                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Fechas</th>
+                     <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
+                   </tr>
+                 </thead>
+                 <tbody className="bg-white divide-y divide-slate-200">
+                   {staffLoading ? (
+                     <tr>
+                       <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                         <div className="flex items-center justify-center">
+                           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500 mr-3"></div>
+                           Cargando personal...
                          </div>
-                         <div className="flex-1 min-w-0">
-                             <h4 className="font-medium text-slate-900 truncate">{staff.name}</h4>
-                             <p className="text-xs text-slate-500 mb-1">{staff.role.replace('_', ' ')}</p>
-                             <p className="text-xs text-slate-400 truncate">{staff.email}</p>
-                         </div>
-                         <button onClick={() => handleDeleteStaff(staff.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                             <Trash2 size={14} />
-                         </button>
-                     </div>
-                 ))}
+                       </td>
+                     </tr>
+                   ) : managementStaff.length === 0 ? (
+                     <tr>
+                       <td colSpan={6} className="px-6 py-8 text-center text-slate-400">No hay personal registrado</td>
+                     </tr>
+                   ) : (
+                     managementStaff.map(staff => (
+                       <tr key={staff.id} className="hover:bg-slate-50">
+                         <td className="px-4 py-4 whitespace-nowrap">
+                           <div className="flex items-center">
+                             <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex-shrink-0 mr-3">
+                               {staff.photo ? (
+                                 <img src={staff.photo} alt={staff.name} className="w-full h-full object-cover"/>
+                               ) : (
+                                 <div className="w-full h-full flex items-center justify-center font-bold text-slate-400 text-sm">?</div>
+                               )}
+                             </div>
+                             <div>
+                               <div className="text-sm font-medium text-slate-900">{staff.name}</div>
+                               <div className="text-xs text-slate-500">{staff.email || 'Sin email'}</div>
+                               {staff.phone && <div className="text-xs text-slate-400">{staff.phone}</div>}
+                             </div>
+                           </div>
+                         </td>
+                         <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">
+                           {staff.dni || <span className="text-slate-300 italic">-</span>}
+                         </td>
+                         <td className="px-4 py-4 whitespace-nowrap">
+                           <span className="text-xs font-medium bg-blue-100 px-2 py-1 rounded-full text-blue-700">
+                             {staff.role === 'COORDINATOR' ? 'Coordinador' : staff.role === 'RESIDENT_SUPERVISOR' ? 'Sup. Residente' : 'Sup. Ronda'}
+                           </span>
+                         </td>
+                         <td className="px-4 py-4 whitespace-nowrap">
+                           <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                             staff.status === 'cesado' 
+                               ? 'bg-red-100 text-red-700' 
+                               : 'bg-green-100 text-green-700'
+                           }`}>
+                             {staff.status === 'cesado' ? 'Cesado' : 'Activo'}
+                           </span>
+                         </td>
+                         <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500">
+                           {staff.startDate && (
+                             <div>Inicio: {new Date(staff.startDate).toLocaleDateString('es-ES')}</div>
+                           )}
+                           {staff.endDate && (
+                             <div className="text-red-600">Fin: {new Date(staff.endDate).toLocaleDateString('es-ES')}</div>
+                           )}
+                           {!staff.startDate && !staff.endDate && <span className="text-slate-300 italic">-</span>}
+                         </td>
+                         <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                           <div className="flex items-center justify-end space-x-2">
+                             <button
+                               onClick={() => openEditStaffModal(staff)}
+                               className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                               title="Editar"
+                             >
+                               <Edit2 size={16} />
+                             </button>
+                             {staff.status === 'cesado' && (
+                               <button
+                                 onClick={() => handleArchiveStaff(staff.id)}
+                                 className="text-amber-600 hover:text-amber-900 p-1 rounded hover:bg-amber-50"
+                                 title="Archivar trabajador"
+                               >
+                                 <Archive size={16} />
+                               </button>
+                             )}
+                             <button
+                               onClick={() => handleDeleteStaff(staff.id)}
+                               className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                               title="Eliminar"
+                             >
+                               <Trash2 size={16} />
+                             </button>
+                           </div>
+                         </td>
+                       </tr>
+                     ))
+                   )}
+                 </tbody>
+               </table>
              </div>
            </div>
 
@@ -785,7 +1371,20 @@ const App: React.FC = () => {
                   </div>
                   <div className="p-6 space-y-4">
                       <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} /></div>
-                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Email</label><input type="email" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} /></div>
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Email</label><input type="email" className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-50" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} disabled={!!editingUser} /></div>
+                      {!editingUser && (
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
+                          <input 
+                            type="password" 
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                            value={userForm.password} 
+                            onChange={e => setUserForm({...userForm, password: e.target.value})} 
+                            placeholder="Mínimo 6 caracteres"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">La contraseña se usará para iniciar sesión</p>
+                        </div>
+                      )}
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Rol</label>
                         <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value as UserRole})}>
@@ -822,35 +1421,172 @@ const App: React.FC = () => {
                           </div>
                       )}
 
-                      <button onClick={handleSaveUser} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">
-                          {editingUser ? 'Guardar Cambios' : 'Crear Usuario'}
+                      <button 
+                        onClick={handleSaveUser} 
+                        disabled={userOperationLoading.type === 'create' || userOperationLoading.type === 'update'}
+                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                      >
+                        {userOperationLoading.type === 'create' || userOperationLoading.type === 'update' ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            {editingUser ? 'Guardando...' : 'Creando usuario...'}
+                          </>
+                        ) : (
+                          editingUser ? 'Guardar Cambios' : 'Crear Usuario'
+                        )}
                       </button>
                   </div>
                 </div>
              </div>
            )}
 
-           {/* Add Staff Modal */}
-           {showAddStaffModal && (
+           {/* Change Password Modal */}
+           {showChangePasswordModal && (
              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                 <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                  <div className="bg-indigo-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                      <h3 className="font-bold text-lg flex items-center"><Briefcase className="mr-2" size={20}/> Nuevo Supervisor/Coord.</h3>
-                      <button onClick={() => setShowAddStaffModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  <div className="bg-amber-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+                      <h3 className="font-bold text-lg flex items-center">
+                          <Shield className="mr-2" size={20}/> Cambiar Contraseña
+                      </h3>
+                      <button onClick={() => setShowChangePasswordModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
                   </div>
                   <div className="p-6 space-y-4">
-                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newStaffForm.name} onChange={e => setNewStaffForm({...newStaffForm, name: e.target.value})} /></div>
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Nueva Contraseña</label>
+                          <input 
+                            type="password" 
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                            value={passwordForm.newPassword} 
+                            onChange={e => setPasswordForm({...passwordForm, newPassword: e.target.value})} 
+                            placeholder="Mínimo 6 caracteres"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Confirmar Contraseña</label>
+                          <input 
+                            type="password" 
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                            value={passwordForm.confirmPassword} 
+                            onChange={e => setPasswordForm({...passwordForm, confirmPassword: e.target.value})} 
+                            placeholder="Repita la contraseña"
+                          />
+                      </div>
+                      <button 
+                        onClick={handleChangePassword} 
+                        disabled={userOperationLoading.type === 'password'}
+                        className="w-full bg-amber-600 text-white py-2.5 rounded-lg font-medium hover:bg-amber-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                      >
+                        {userOperationLoading.type === 'password' ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Cambiando contraseña...
+                          </>
+                        ) : (
+                          'Cambiar Contraseña'
+                        )}
+                      </button>
+                  </div>
+                </div>
+             </div>
+           )}
+
+           {/* Add/Edit Staff Modal */}
+           {showAddStaffModal && (
+             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+                  <div className="bg-indigo-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center shrink-0">
+                      <h3 className="font-bold text-lg flex items-center">
+                        <Briefcase className="mr-2" size={20}/> 
+                        {editingStaff ? 'Editar Personal' : 'Nuevo Supervisor/Coord.'}
+                      </h3>
+                      <button onClick={() => { setShowAddStaffModal(false); setEditingStaff(null); setNewStaffForm({ name: '', role: 'COORDINATOR', email: '', status: 'activo', archived: false }); setNewStaffPhotoUrl(''); }} className="text-white/80 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo *</label>
+                        <input 
+                          type="text" 
+                          className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                          value={newStaffForm.name || ''} 
+                          onChange={e => setNewStaffForm({...newStaffForm, name: e.target.value})} 
+                          required
+                        />
+                      </div>
                       
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Rol de Gestión</label>
-                        <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newStaffForm.role} onChange={e => setNewStaffForm({...newStaffForm, role: e.target.value as ManagementRole})}>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
+                        <input 
+                          type="text" 
+                          className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                          value={newStaffForm.dni || ''} 
+                          onChange={e => setNewStaffForm({...newStaffForm, dni: e.target.value})} 
+                          placeholder="Documento Nacional de Identidad"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Rol de Gestión *</label>
+                        <select 
+                          className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                          value={newStaffForm.role || 'COORDINATOR'} 
+                          onChange={e => setNewStaffForm({...newStaffForm, role: e.target.value as ManagementRole})}
+                        >
                           <option value="COORDINATOR">Coordinador</option>
                           <option value="RESIDENT_SUPERVISOR">Supervisor Residente</option>
                           <option value="ROVING_SUPERVISOR">Supervisor de Ronda</option>
                         </select>
                       </div>
 
-                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Email / Contacto</label><input type="email" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newStaffForm.email} onChange={e => setNewStaffForm({...newStaffForm, email: e.target.value})} /></div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                        <input 
+                          type="email" 
+                          className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                          value={newStaffForm.email || ''} 
+                          onChange={e => setNewStaffForm({...newStaffForm, email: e.target.value})} 
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
+                        <input 
+                          type="tel" 
+                          className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                          value={newStaffForm.phone || ''} 
+                          onChange={e => setNewStaffForm({...newStaffForm, phone: e.target.value})} 
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
+                          <input 
+                            type="date" 
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                            value={newStaffForm.startDate || ''} 
+                            onChange={e => setNewStaffForm({...newStaffForm, startDate: e.target.value})} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
+                          <input 
+                            type="date" 
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                            value={newStaffForm.endDate || ''} 
+                            onChange={e => {
+                              const endDate = e.target.value;
+                              setNewStaffForm({
+                                ...newStaffForm, 
+                                endDate: endDate,
+                                // El trigger de la BD cambiará automáticamente el status a 'cesado'
+                              });
+                            }} 
+                          />
+                          {newStaffForm.endDate && (
+                            <p className="text-xs text-amber-600 mt-1">El trabajador pasará a estado "Cesado"</p>
+                          )}
+                        </div>
+                      </div>
                       
                       {/* Staff Photo */}
                       <div>
@@ -875,7 +1611,12 @@ const App: React.FC = () => {
                        {newStaffPhotoUrl && <img src={newStaffPhotoUrl} alt="prev" className="w-16 h-16 object-cover rounded mt-2 border border-slate-200" />}
                       </div>
 
-                      <button onClick={handleAddStaff} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors mt-2">Agregar a Registro</button>
+                      <button 
+                        onClick={handleSaveStaff} 
+                        className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors mt-2"
+                      >
+                        {editingStaff ? 'Guardar Cambios' : 'Agregar a Registro'}
+                      </button>
                   </div>
                 </div>
              </div>
@@ -886,6 +1627,11 @@ const App: React.FC = () => {
 
     return null;
   };
+
+  // Si no está autenticado, solo mostrar el login (ya manejado en renderContent)
+  if (!isAuthenticated || !currentUser) {
+    return renderContent();
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -908,7 +1654,9 @@ const App: React.FC = () => {
         </div>
 
         <nav className="flex-1 p-4 space-y-2">
-          {checkPermission(currentUser.role, 'DASHBOARD', 'view') && (
+          {/* Navegación para usuarios CLIENT */}
+          {currentUser.role === 'CLIENT' ? (
+            <>
               <button 
                 onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); }}
                 className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -916,51 +1664,99 @@ const App: React.FC = () => {
                 <LayoutDashboard size={20} />
                 <span>Dashboard</span>
               </button>
-          )}
-          
-          {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
-             <button 
-                onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+              
+              {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
+                <button 
+                  onClick={() => { setCurrentView('units'); setSelectedUnitId(null); }}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                >
+                  <Building size={20} />
+                  <span>Unidades</span>
+                </button>
+              )}
+              
+              <button 
+                onClick={() => { setCurrentView('client-control-center'); setSelectedUnitId(null); }}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'client-control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
               >
                 <LayoutList size={20} />
-                <span>Centro de Control</span>
-             </button>
-          )}
-
-          {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
-              <button 
-                onClick={() => { setCurrentView('units'); setSelectedUnitId(null); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-              >
-                <Building size={20} />
-                <span>Unidades</span>
+                <span>Centro de Control - Consulta</span>
               </button>
-          )}
-
-          {/* New Reports Link */}
-          {checkPermission(currentUser.role, 'REPORTS', 'view') && (
-              <button 
-                onClick={() => { setCurrentView('reports'); setSelectedUnitId(null); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'reports' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-              >
-                <FileBarChart size={20} />
-                <span>Informes y Analítica</span>
-              </button>
-          )}
-          
-          {checkPermission(currentUser.role, 'SETTINGS', 'view') && (
+            </>
+          ) : (
             <>
-              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                Sistema
-              </div>
-              <button 
-                onClick={() => setCurrentView('settings')}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-              >
-                <Settings size={20} />
-                <span>Configuración</span>
-              </button>
+              {/* Navegación para otros roles (ADMIN, OPERATIONS, etc.) */}
+              {checkPermission(currentUser.role, 'DASHBOARD', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); }}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <LayoutDashboard size={20} />
+                    <span>Dashboard</span>
+                  </button>
+              )}
+              
+              {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
+                 <button 
+                    onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); }}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <LayoutList size={20} />
+                    <span>Centro de Control</span>
+                 </button>
+              )}
+
+              {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('units'); setSelectedUnitId(null); }}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Building size={20} />
+                    <span>Unidades</span>
+                  </button>
+              )}
+
+              {/* New Reports Link */}
+              {checkPermission(currentUser.role, 'REPORTS', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('reports'); setSelectedUnitId(null); }}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'reports' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <FileBarChart size={20} />
+                    <span>Informes y Analítica</span>
+                  </button>
+              )}
+              
+              {checkPermission(currentUser.role, 'SETTINGS', 'view') && (
+                <>
+                  <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Sistema
+                  </div>
+                  <button 
+                    onClick={() => setCurrentView('settings')}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Settings size={20} />
+                    <span>Configuración</span>
+                  </button>
+                </>
+              )}
+
+              {/* Auditoría - Solo para administradores */}
+              {currentUser.role === 'ADMIN' && (
+                <>
+                  <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Administración
+                  </div>
+                  <button 
+                    onClick={() => { setCurrentView('audit-logs'); setSelectedUnitId(null); }}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'audit-logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <FileText size={20} />
+                    <span>Logs de Auditoría</span>
+                  </button>
+                </>
+              )}
             </>
           )}
         </nav>
@@ -981,20 +1777,37 @@ const App: React.FC = () => {
             <ChevronDown size={16} className={`text-slate-500 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
           </button>
 
-          {/* User Role Selector (Demo Feature) */}
-          {showUserMenu && (
+          {/* User Menu */}
+          {showUserMenu && currentUser && (
             <div className="absolute bottom-full left-4 right-4 mb-2 bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-               <div className="p-2 text-xs font-semibold text-slate-500 uppercase">Cambiar Vista (Demo)</div>
-               {MOCK_USERS.map(user => (
-                 <button
-                   key={user.id}
-                   onClick={() => { setCurrentUser(user); setShowUserMenu(false); }}
-                   className={`w-full text-left px-4 py-3 text-sm flex items-center hover:bg-slate-700 ${currentUser.id === user.id ? 'text-blue-400 bg-slate-700/50' : 'text-slate-300'}`}
-                 >
-                    <span className="w-2 h-2 rounded-full bg-current mr-2"></span>
-                    {user.name} ({user.role})
-                 </button>
-               ))}
+               <div className="p-2 text-xs font-semibold text-slate-500 uppercase">Usuario</div>
+               <div className="px-4 py-2 text-sm text-slate-300 border-b border-slate-700">
+                 <p className="font-medium">{currentUser.name}</p>
+                 <p className="text-xs text-slate-400">{currentUser.email}</p>
+                 <p className="text-xs text-slate-500 mt-1">Rol: {currentUser.role}</p>
+               </div>
+               {users.length > 0 && users.length > 1 && (
+                 <>
+                   <div className="p-2 text-xs font-semibold text-slate-500 uppercase border-t border-slate-700 mt-2">Cambiar Usuario</div>
+                   {users.map(user => (
+                     <button
+                       key={user.id}
+                       onClick={() => { setCurrentUser(user); setShowUserMenu(false); }}
+                       className={`w-full text-left px-4 py-3 text-sm flex items-center hover:bg-slate-700 ${currentUser.id === user.id ? 'text-blue-400 bg-slate-700/50' : 'text-slate-300'}`}
+                     >
+                        <span className="w-2 h-2 rounded-full bg-current mr-2"></span>
+                        {user.name} ({user.role})
+                     </button>
+                   ))}
+                 </>
+               )}
+               <button
+                 onClick={handleLogout}
+                 className="w-full text-left px-4 py-3 text-sm flex items-center hover:bg-red-900/20 text-red-400 border-t border-slate-700 mt-2"
+               >
+                 <LogOut size={16} className="mr-2" />
+                 Cerrar Sesión
+               </button>
             </div>
           )}
         </div>
@@ -1027,3 +1840,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
