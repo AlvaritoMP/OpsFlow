@@ -3,7 +3,6 @@
 	root * /app/dist
 	
 	# IMPORTANTE: Configurar tipos MIME ANTES de file_server
-	# Para archivos JavaScript (todos los .js y .mjs)
 	header {
 		# Headers de seguridad primero
 		X-Content-Type-Options "nosniff"
@@ -11,16 +10,19 @@
 		X-XSS-Protection "1; mode=block"
 	}
 	
-	# Matcher para archivos JavaScript
+	# Matcher para archivos JavaScript - DEBE incluir /assets/
 	@js {
 		file
 		path *.js
+		path /assets/*.js
+		path /index.tsx
 	}
 	header @js Content-Type "application/javascript; charset=utf-8"
 	
 	@mjs {
 		file
 		path *.mjs
+		path /assets/*.mjs
 	}
 	header @mjs Content-Type "application/javascript; charset=utf-8"
 	
@@ -28,6 +30,7 @@
 	@css {
 		file
 		path *.css
+		path /assets/*.css
 	}
 	header @css Content-Type "text/css; charset=utf-8"
 	
@@ -37,6 +40,14 @@
 		path *.html
 	}
 	header @html Content-Type "text/html; charset=utf-8"
+	
+	# Manejar /index.tsx - redirigir al archivo JS compilado
+	@index_tsx {
+		path /index.tsx
+	}
+	handle @index_tsx {
+		rewrite * /assets/main-y7AYQDTU.js
+	}
 	
 	# Servir archivos estáticos
 	file_server
