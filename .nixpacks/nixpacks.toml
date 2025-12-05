@@ -5,7 +5,10 @@ nixPkgs = ["nodejs_18", "npm-9_x"]
 cmds = ["npm ci"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = [
+  "npm run build",
+  "node scripts/protect-dist.js"
+]
 
 # Asegurar que el index.html compilado no se sobrescriba
 # Copiar solo los archivos necesarios después del build
