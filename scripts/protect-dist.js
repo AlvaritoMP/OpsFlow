@@ -1,5 +1,5 @@
 // Script para proteger el index.html compilado después del build
-import { readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 
 const distDir = join(process.cwd(), 'dist');
@@ -81,18 +81,42 @@ if (!distContent.includes('/assets/main-') || !distContent.includes('.js')) {
 
 console.log('✓ dist/index.html tiene la referencia correcta al JS compilado');
 
-// Eliminar TODOS los archivos .tsx de dist/ (no deberían estar ahí)
-console.log('🔍 Buscando archivos .tsx en dist/...');
-const distFiles = readdirSync(distDir);
-const tsxFiles = distFiles.filter(f => f.endsWith('.tsx'));
+// CRÍTICO: Eliminar TODOS los archivos .tsx de dist/ (incluyendo subdirectorios)
+console.log('🔍 Buscando archivos .tsx en dist/ (recursivo)...');
+function findTsxFiles(dir) {
+  const files = [];
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...findTsxFiles(fullPath));
+      } else if (entry.name.endsWith('.tsx')) {
+        files.push(fullPath);
+      }
+    }
+  } catch (err) {
+    // Ignorar errores de lectura
+  }
+  return files;
+}
+
+const tsxFiles = findTsxFiles(distDir);
 if (tsxFiles.length > 0) {
-  console.log(`⚠ Encontrados ${tsxFiles.length} archivo(s) .tsx en dist/:`, tsxFiles);
+  console.log(`⚠ Encontrados ${tsxFiles.length} archivo(s) .tsx en dist/:`);
   tsxFiles.forEach(file => {
-    const filePath = join(distDir, file);
-    console.log(`  Eliminando ${file}...`);
-    unlinkSync(filePath);
+    const relativePath = file.replace(distDir + '/', '');
+    console.log(`  - ${relativePath}`);
+    try {
+      unlinkSync(file);
+      console.log(`  ✓ Eliminado: ${relativePath}`);
+    } catch (err) {
+      console.error(`  ✗ Error al eliminar ${relativePath}:`, err.message);
+    }
   });
   console.log('✓ Todos los archivos .tsx eliminados de dist/');
+} else {
+  console.log('✓ No se encontraron archivos .tsx en dist/');
 }
 
 // Verificar que el index.html compilado NO tenga la referencia a /index.tsx (después de la corrección)

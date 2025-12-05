@@ -10,17 +10,9 @@
 		X-XSS-Protection "1; mode=block"
 	}
 	
-	# CRÍTICO: Interceptar /index.tsx ANTES de file_server
-	# Usar @matcher con path exacto y handle para interceptar
-	@index_tsx {
-		path /index.tsx
-	}
-	handle @index_tsx {
-		rewrite * /assets/main-y7AYQDTU.js
-		header Content-Type "application/javascript; charset=utf-8"
-		header Cache-Control "public, max-age=31536000, immutable"
-		file_server
-	}
+	# CRÍTICO: Interceptar /index.tsx ANTES de file_server usando rewrite
+	# Rewrite tiene mayor prioridad que file_server
+	rewrite /index.tsx /assets/main-y7AYQDTU.js
 	
 	# Matcher para archivos .tsx - servir como JavaScript (fallback)
 	@tsx {
