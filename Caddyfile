@@ -2,37 +2,41 @@
 	# Servir archivos estáticos desde el directorio dist
 	root * /app/dist
 	
-	# Configurar tipos MIME explícitamente para archivos JavaScript
-	@js {
-		path *.js
-		path *.mjs
-	}
-	header @js {
-		Content-Type "application/javascript; charset=utf-8"
-	}
-	
-	# Configurar tipos MIME para otros archivos
-	@css {
-		path *.css
-	}
-	header @css {
-		Content-Type "text/css; charset=utf-8"
-	}
-	
-	@html {
-		path *.html
-	}
-	header @html {
-		Content-Type "text/html; charset=utf-8"
-	}
-	
-	# Configurar headers de seguridad
+	# IMPORTANTE: Configurar tipos MIME ANTES de file_server
+	# Para archivos JavaScript (todos los .js y .mjs)
 	header {
-		# Headers de seguridad
+		# Headers de seguridad primero
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		X-XSS-Protection "1; mode=block"
 	}
+	
+	# Matcher para archivos JavaScript
+	@js {
+		file
+		path *.js
+	}
+	header @js Content-Type "application/javascript; charset=utf-8"
+	
+	@mjs {
+		file
+		path *.mjs
+	}
+	header @mjs Content-Type "application/javascript; charset=utf-8"
+	
+	# Matcher para archivos CSS
+	@css {
+		file
+		path *.css
+	}
+	header @css Content-Type "text/css; charset=utf-8"
+	
+	# Matcher para archivos HTML
+	@html {
+		file
+		path *.html
+	}
+	header @html Content-Type "text/html; charset=utf-8"
 	
 	# Servir archivos estáticos
 	file_server
@@ -43,4 +47,3 @@
 	# Comprimir respuestas
 	encode gzip zstd
 }
-
