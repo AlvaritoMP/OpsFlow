@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: 'localhost',
-        strictPort: true, // Falla si el puerto está ocupado - así sabes que debes cerrar el proceso anterior
+        strictPort: true,
       },
       plugins: [react()],
       define: {
@@ -23,7 +23,6 @@ export default defineConfig(({ mode }) => {
       },
       build: {
         outDir: 'dist',
-        // Asegurar que el index.html compilado no se sobrescriba
         emptyOutDir: true,
         rollupOptions: {
           input: {
