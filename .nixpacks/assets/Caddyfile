@@ -10,15 +10,25 @@
 		X-XSS-Protection "1; mode=block"
 	}
 	
-	# Interceptar /index.tsx y redirigir al JS compilado ANTES de file_server
-	rewrite /index.tsx /assets/main-y7AYQDTU.js
+	# Interceptar /index.tsx ANTES de file_server usando matcher específico
+	@index_tsx {
+		path /index.tsx
+	}
+	handle @index_tsx {
+		rewrite * /assets/main-y7AYQDTU.js
+		header Content-Type "application/javascript; charset=utf-8"
+		file_server
+	}
 	
 	# Matcher para archivos .tsx - servir como JavaScript (fallback)
 	@tsx {
 		file
 		path *.tsx
 	}
-	header @tsx Content-Type "application/javascript; charset=utf-8"
+	handle @tsx {
+		header Content-Type "application/javascript; charset=utf-8"
+		file_server
+	}
 	
 	# Matcher para archivos JavaScript - DEBE incluir /assets/
 	@js {
