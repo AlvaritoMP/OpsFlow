@@ -1,5 +1,5 @@
 :80 {
-	# Servir archivos estáticos desde el directorio dist
+	# CRÍTICO: Servir SOLO desde /app/dist - nunca desde el directorio raíz
 	root * /app/dist
 	
 	# IMPORTANTE: Configurar tipos MIME ANTES de file_server
@@ -16,6 +16,8 @@
 		path /index.tsx
 	}
 	handle @index_tsx {
+		# Buscar el archivo JS compilado dinámicamente
+		# Primero intentar con el nombre conocido
 		rewrite * /assets/main-y7AYQDTU.js
 		header Content-Type "application/javascript; charset=utf-8"
 		header Cache-Control "public, max-age=31536000, immutable"
@@ -62,7 +64,7 @@
 	}
 	header @html Content-Type "text/html; charset=utf-8"
 	
-	# Servir archivos estáticos
+	# Servir archivos estáticos SOLO desde /app/dist
 	file_server
 	
 	# Para SPA: redirigir todas las rutas a index.html
