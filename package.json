@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:clean": "powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Where-Object {$_.Path -like '*node*'} | Stop-Process -Force; npm run dev\"",
     "build": "vite build",
-    "postbuild": "node -e \"const fs = require('fs'); const distIndex = './dist/index.html'; if (fs.existsSync(distIndex)) { console.log('✓ dist/index.html existe y está protegido'); } else { console.error('✗ dist/index.html NO existe después del build!'); process.exit(1); }\"",
+    "postbuild": "node scripts/protect-dist.js",
     "preview": "vite preview"
   },
   "dependencies": {
