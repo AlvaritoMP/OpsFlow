@@ -1,0 +1,5 @@
+# Configuración de EasyPanel para forzar uso de Dockerfile
+build:
+  type: dockerfile
+  dockerfile: Dockerfile
+
