@@ -22,15 +22,13 @@ RUN node scripts/protect-dist.js
 RUN ls -la dist/ && echo "✅ dist directory exists" || (echo "ERROR: dist directory not found" && exit 1)
 RUN ls -la dist/assets/ && echo "✅ dist/assets directory exists" || echo "⚠️  dist/assets not found"
 
-# Exponer puerto (EasyPanel puede usar cualquier puerto)
+# Exponer puerto 3000
 EXPOSE 3000
 
-# Variable de entorno para el puerto (será sobrescrita por EasyPanel)
+# Variable de entorno para el puerto
+# IMPORTANTE: EasyPanel debe configurar PORT=3000 o el Target Port debe ser 3000
 ENV PORT=3000
 ENV NODE_ENV=production
-
-# Asegurar que el servidor use la variable PORT
-ENV NODE_OPTIONS=""
 
 # Healthcheck para verificar que el servidor está corriendo
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
