@@ -1,0 +1,28 @@
+# Configuración de Nixpacks para forzar Node.js y evitar detección de Caddy
+# Este archivo tiene prioridad sobre la detección automática de Nixpacks
+
+[providers]
+# Forzar el uso del provider de Node.js explícitamente
+# Esto evita que Nixpacks detecte el Caddyfile y use Caddy como servidor
+provider = "node"
+
+[phases.setup]
+# Especificar Node.js 20 explícitamente
+nixPkgs = ["nodejs_20", "npm-10_x"]
+
+[phases.install]
+# Instalar dependencias
+cmds = ["npm ci"]
+
+[phases.build]
+# Construir la aplicación
+cmds = [
+  "npm run build",
+  "node scripts/protect-dist.js"
+]
+
+[phases.start]
+# CRÍTICO: Usar npm start en lugar de Caddy
+# Esto fuerza a Nixpacks a usar Node.js como proceso principal
+cmd = "npm start"
+

@@ -11,6 +11,11 @@ export default defineConfig(({ mode }) => {
         host: 'localhost',
         strictPort: true,
       },
+      preview: {
+        port: process.env.PORT ? parseInt(process.env.PORT) : 80,
+        host: '0.0.0.0',
+        strictPort: false,
+      },
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),

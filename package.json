@@ -8,7 +8,8 @@
     "dev:clean": "powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Where-Object {$_.Path -like '*node*'} | Stop-Process -Force; npm run dev\"",
     "build": "vite build",
     "postbuild": "node scripts/protect-dist.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "vite preview --host 0.0.0.0 --port 80"
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
