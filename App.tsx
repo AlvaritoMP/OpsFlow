@@ -673,19 +673,78 @@ const App: React.FC = () => {
     setTimeout(() => setIsGeminiSaved(false), 3000);
   };
 
-  const handleSaveLogo = () => {
+  // Función para convertir archivo a base64
+  const convertFileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Error al convertir archivo a base64'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Error al leer el archivo'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Handler para subir archivo de logo
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      
+      // Validar que sea una imagen
+      if (!file.type.startsWith('image/')) {
+        alert('Por favor, seleccione un archivo de imagen válido.');
+        return;
+      }
+      
+      // Validar tamaño (máximo 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        alert('El archivo es demasiado grande. Por favor, seleccione una imagen menor a 2MB.');
+        return;
+      }
+      
+      try {
+        // Convertir a base64 para persistencia
+        const base64 = await convertFileToBase64(file);
+        setCompanyLogo(base64);
+      } catch (error) {
+        console.error('Error al procesar imagen:', error);
+        alert('Error al procesar la imagen. Por favor, intente nuevamente.');
+      }
+    }
+  };
+
+  const handleSaveLogo = async () => {
       try {
         if (!companyLogo || companyLogo.trim() === '') {
           alert('Por favor, ingrese una URL de logo válida o seleccione una imagen.');
           return;
         }
         
+        // Validar que sea una URL válida o base64
+        const isUrl = companyLogo.startsWith('http://') || companyLogo.startsWith('https://');
+        const isBase64 = companyLogo.startsWith('data:image/');
+        const isDataSvg = companyLogo.startsWith('data:image/svg+xml');
+        
+        if (!isUrl && !isBase64 && !isDataSvg) {
+          alert('Por favor, ingrese una URL válida o seleccione una imagen para subir.');
+          return;
+        }
+        
+        // Guardar en localStorage
         localStorage.setItem('OPSFLOW_LOGO', companyLogo);
+        
+        // Forzar actualización del estado para que se refleje inmediatamente
+        setCompanyLogo(companyLogo);
+        
+        // Mostrar confirmación
         setIsLogoSaved(true);
         setTimeout(() => setIsLogoSaved(false), 3000);
         
-        // Forzar actualización inmediata del logo
-        setCompanyLogo(companyLogo);
+        console.log('Logo guardado correctamente:', companyLogo.substring(0, 50) + '...');
       } catch (error) {
         console.error('Error al guardar logo:', error);
         alert('Error al guardar el logo. Por favor, intente nuevamente.');
@@ -1231,15 +1290,21 @@ const App: React.FC = () => {
                                     />
                                     <label className="bg-slate-100 px-3 py-2 rounded-lg cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center">
                                         <Camera size={18} className="text-slate-600"/>
-                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                                            if (e.target.files && e.target.files[0]) {
-                                                setCompanyLogo(URL.createObjectURL(e.target.files[0]));
-                                            }
-                                        }} />
+                                        <input 
+                                          type="file" 
+                                          accept="image/*" 
+                                          className="hidden" 
+                                          onChange={handleLogoFileUpload}
+                                        />
                                     </label>
                                 </div>
                             </div>
-                            <button onClick={handleSaveLogo} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center text-sm">
+                            <button 
+                              type="button"
+                              onClick={handleSaveLogo} 
+                              className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                              disabled={!companyLogo || companyLogo.trim() === ''}
+                            >
                                 <Save size={16} className="mr-2"/> Guardar Cambio
                             </button>
                         </div>
@@ -2177,7 +2242,22 @@ const App: React.FC = () => {
         {/* Powered By Logo Section - DYNAMIC */}
         <div className="px-6 pb-6 pt-0 flex flex-col items-center justify-center">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Powered By</span>
-            <img src={companyLogo} alt="Company Logo" className="h-10 w-auto object-contain" />
+            {companyLogo ? (
+              <img 
+                src={companyLogo} 
+                alt="Company Logo" 
+                className="h-10 w-auto object-contain max-w-full"
+                onError={(e) => {
+                  console.error('Error al cargar logo');
+                  // Si falla, usar el logo por defecto
+                  e.currentTarget.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=';
+                }}
+              />
+            ) : (
+              <div className="h-10 w-24 bg-slate-700 rounded flex items-center justify-center text-white text-xs font-bold">
+                LOGO
+              </div>
+            )}
         </div>
       </aside>
 
