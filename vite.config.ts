@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
         strictPort: true,
       },
       preview: {
-        port: process.env.PORT ? parseInt(process.env.PORT) : 80,
+        port: parseInt(process.env.PORT || '80'),
         host: '0.0.0.0',
         strictPort: false,
       },

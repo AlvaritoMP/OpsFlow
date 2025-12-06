@@ -1,3 +1,6 @@
+# NOTA: La configuración principal está en .nixpacks/build.toml
+# Este archivo se mantiene por compatibilidad pero .nixpacks/build.toml tiene prioridad
+
 [phases.setup]
 nixPkgs = ["nodejs_20", "npm-10_x"]
 
@@ -10,8 +13,7 @@ cmds = [
   "node scripts/protect-dist.js"
 ]
 
-# CRÍTICO: Ejecutar el script de protección ANTES de iniciar Caddy
-# Esto garantiza que el index.html compilado esté correcto incluso si se sobrescribió
-# El script restaurará desde backup si existe, o corregirá el index.html si tiene /index.tsx
+# CRÍTICO: Usar npm start en lugar de Caddy
+# Esto fuerza a Nixpacks a usar Node.js como proceso principal
 [phases.start]
-cmd = "bash scripts/start.sh"
+cmd = "npm start"
