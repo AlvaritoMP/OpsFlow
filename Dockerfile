@@ -18,12 +18,20 @@ RUN npm run build
 # Ejecutar script de protección
 RUN node scripts/protect-dist.js
 
+# Verificar que dist existe
+RUN ls -la dist/ || (echo "ERROR: dist directory not found" && exit 1)
+
 # Exponer puerto (EasyPanel puede usar cualquier puerto)
 EXPOSE 3000
 
 # Variable de entorno para el puerto
 ENV PORT=3000
+ENV NODE_ENV=production
 
-# Iniciar vite preview usando la variable PORT
-CMD ["sh", "-c", "vite preview --host 0.0.0.0 --port ${PORT:-3000}"]
+# Healthcheck para verificar que el servidor está corriendo
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:${PORT:-3000}', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+# Iniciar vite preview usando la variable PORT con logging
+CMD ["sh", "-c", "echo 'Starting vite preview on port ${PORT:-3000}' && vite preview --host 0.0.0.0 --port ${PORT:-3000}"]
 
