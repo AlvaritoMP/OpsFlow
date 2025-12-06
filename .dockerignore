@@ -19,14 +19,9 @@ build
 .git
 .gitignore
 
-# Nixpacks (ignorar completamente)
+# Nixpacks (ya no se usa)
 .nixpacks
 nixpacks.toml
-.nixpacks/**
-
-# Caddyfile (no lo necesitamos)
-Caddyfile
-*.backup
 
 # IDE
 .vscode
