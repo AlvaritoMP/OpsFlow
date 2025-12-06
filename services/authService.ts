@@ -141,6 +141,17 @@ export const authService = {
             signUpError.message?.includes('User already registered')) {
           throw new Error('El email ya está registrado. Si necesitas restablecer la contraseña, usa la opción de recuperación de contraseña.');
         }
+        
+        // Si el error es que los signups están deshabilitados
+        if (signUpError.message?.includes('Email signups are disabled') || 
+            signUpError.message?.includes('signups are disabled')) {
+          throw new Error(
+            'El registro de usuarios por email está deshabilitado en Supabase. ' +
+            'Por favor, habilita "Enable email signups" en Authentication > Settings > Email Auth en el dashboard de Supabase. ' +
+            'O implementa una Supabase Edge Function para crear usuarios de forma segura.'
+          );
+        }
+        
         throw signUpError;
       }
 

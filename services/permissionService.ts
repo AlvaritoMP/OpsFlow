@@ -70,7 +70,24 @@ export const getPermissions = (): PermissionConfig => {
 };
 
 export const savePermissions = (config: PermissionConfig) => {
-  localStorage.setItem(PERMISSION_STORAGE_KEY, JSON.stringify(config));
+  try {
+    // Validar que el config sea un objeto válido
+    if (!config || typeof config !== 'object') {
+      throw new Error('Invalid permission config: config must be an object');
+    }
+
+    // Serializar y validar
+    const serialized = JSON.stringify(config);
+    if (!serialized || serialized === '{}') {
+      throw new Error('Failed to serialize permission config');
+    }
+
+    // Guardar en localStorage
+    localStorage.setItem(PERMISSION_STORAGE_KEY, serialized);
+  } catch (error) {
+    console.error('Error saving permissions:', error);
+    throw error; // Re-lanzar para que el componente pueda manejarlo
+  }
 };
 
 export const checkPermission = (role: UserRole, feature: AppFeature, action: 'view' | 'edit'): boolean => {

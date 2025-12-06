@@ -58,14 +58,20 @@ Esta aplicación requiere las siguientes variables de entorno para funcionar cor
 
 Para que los administradores puedan crear nuevos usuarios desde la aplicación, necesitas configurar Supabase:
 
-### 1. Configurar Autenticación sin Confirmación de Email
+### 1. Habilitar Registro de Usuarios por Email
+
+**IMPORTANTE**: Para que los administradores puedan crear usuarios, debes habilitar el registro por email en Supabase.
 
 1. Ve a tu proyecto en Supabase Dashboard
 2. Navega a **Authentication > Settings > Email Auth**
-3. **Desactiva** "Enable email confirmations" O configura "Auto Confirm" para permitir registro sin confirmación
-4. Guarda los cambios
+3. **Habilita** "Enable email signups" (debe estar activado)
+4. **Opcional**: Desactiva "Enable email confirmations" O configura "Auto Confirm" para permitir registro sin confirmación de email
+5. Guarda los cambios
 
-**Nota**: Si prefieres mantener la confirmación de email, los usuarios creados recibirán un email de confirmación antes de poder iniciar sesión.
+**Nota**: 
+- Si "Enable email signups" está deshabilitado, verás el error "Email signups are disabled" al intentar crear usuarios.
+- Si prefieres mantener la confirmación de email, los usuarios creados recibirán un email de confirmación antes de poder iniciar sesión.
+- Si desactivas la confirmación de email, los usuarios podrán iniciar sesión inmediatamente después de ser creados.
 
 ### 2. Configurar Políticas RLS (Row Level Security)
 

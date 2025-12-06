@@ -14,11 +14,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   const activeUnits = units.filter(u => u.status === UnitStatus.ACTIVE).length;
   const issueUnits = units.filter(u => u.status === UnitStatus.ISSUE).length;
   
-  const chartData = units.map(u => ({
-    name: u.name.split(' ').slice(0, 2).join(' '), // Short name
-    score: u.complianceHistory[u.complianceHistory.length - 1].score,
-    id: u.id
-  }));
+  const chartData = units
+    .filter(u => u.complianceHistory && u.complianceHistory.length > 0)
+    .map(u => ({
+      name: u.name.split(' ').slice(0, 2).join(' '), // Short name
+      score: u.complianceHistory[u.complianceHistory.length - 1]?.score || 0,
+      id: u.id
+    }));
 
   return (
     <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500">
@@ -59,28 +61,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       </div>
 
       {/* Charts Area */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Cumplimiento del Servicio (Mes Actual)</h3>
-        <div className="h-64 w-full" style={{ minHeight: '256px', minWidth: '100%' }}>
-          <ResponsiveContainer width="100%" height="100%" minHeight={256}>
-            <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-              <XAxis type="number" domain={[0, 100]} />
-              <YAxis dataKey="name" type="category" width={120} />
-              <Tooltip 
-                cursor={{fill: 'transparent'}}
-                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-              />
-              <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={30} onClick={(data) => onSelectUnit(data.id)} className="cursor-pointer hover:opacity-80 transition-opacity">
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.score >= 95 ? '#22c55e' : entry.score >= 90 ? '#eab308' : '#ef4444'} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+      {chartData.length > 0 ? (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Cumplimiento del Servicio (Mes Actual)</h3>
+          <div className="h-64 w-full" style={{ minHeight: '256px', minWidth: '100%' }}>
+            <ResponsiveContainer width="100%" height="100%" minHeight={256}>
+              <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                <XAxis type="number" domain={[0, 100]} />
+                <YAxis dataKey="name" type="category" width={120} />
+                <Tooltip 
+                  cursor={{fill: 'transparent'}}
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={30} onClick={(data) => onSelectUnit(data.id)} className="cursor-pointer hover:opacity-80 transition-opacity">
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.score >= 95 ? '#22c55e' : entry.score >= 90 ? '#eab308' : '#ef4444'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-xs text-slate-400 mt-2 text-center">* Click en la barra para ver detalle de la unidad</p>
         </div>
-        <p className="text-xs text-slate-400 mt-2 text-center">* Click en la barra para ver detalle de la unidad</p>
-      </div>
+      ) : (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Cumplimiento del Servicio</h3>
+          <p className="text-slate-500 text-center py-8">No hay datos de cumplimiento disponibles para mostrar.</p>
+        </div>
+      )}
 
       {/* Recent Activity Preview */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">

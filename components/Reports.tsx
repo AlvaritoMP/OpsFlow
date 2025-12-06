@@ -23,6 +23,7 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
   const [dataSource, setDataSource] = useState<DataSource>('PERSONNEL');
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [includeArchivedStaff, setIncludeArchivedStaff] = useState(false);
+  const [includeArchivedPersonnel, setIncludeArchivedPersonnel] = useState(false);
   const [managementStaff, setManagementStaff] = useState<ManagementStaff[]>([]);
   const [archivedStaff, setArchivedStaff] = useState<ManagementStaff[]>([]);
   

@@ -92,8 +92,37 @@ const App: React.FC = () => {
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
 
   // Branding State
-  const [companyLogo, setCompanyLogo] = useState<string>(localStorage.getItem('OPSFLOW_LOGO') || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=');
+  const [companyLogo, setCompanyLogo] = useState<string>(() => {
+    const saved = localStorage.getItem('OPSFLOW_LOGO');
+    return saved || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=';
+  });
   const [isLogoSaved, setIsLogoSaved] = useState(false);
+
+  // Recargar logo cuando cambie en localStorage (para persistencia entre navegaciones)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const saved = localStorage.getItem('OPSFLOW_LOGO');
+      if (saved) {
+        setCompanyLogo(saved);
+      }
+    };
+    
+    // Escuchar cambios en localStorage
+    window.addEventListener('storage', handleStorageChange);
+    
+    // También verificar periódicamente (por si el cambio es en la misma ventana)
+    const interval = setInterval(() => {
+      const saved = localStorage.getItem('OPSFLOW_LOGO');
+      if (saved && saved !== companyLogo) {
+        setCompanyLogo(saved);
+      }
+    }, 1000);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [companyLogo]);
 
   // Permissions State
   const [permissions, setPermissions] = useState<PermissionConfig>(getPermissions());
@@ -645,29 +674,105 @@ const App: React.FC = () => {
   };
 
   const handleSaveLogo = () => {
-      localStorage.setItem('OPSFLOW_LOGO', companyLogo);
-      setIsLogoSaved(true);
-      setTimeout(() => setIsLogoSaved(false), 3000);
+      try {
+        if (!companyLogo || companyLogo.trim() === '') {
+          alert('Por favor, ingrese una URL de logo válida o seleccione una imagen.');
+          return;
+        }
+        
+        localStorage.setItem('OPSFLOW_LOGO', companyLogo);
+        setIsLogoSaved(true);
+        setTimeout(() => setIsLogoSaved(false), 3000);
+        
+        // Forzar actualización inmediata del logo
+        setCompanyLogo(companyLogo);
+      } catch (error) {
+        console.error('Error al guardar logo:', error);
+        alert('Error al guardar el logo. Por favor, intente nuevamente.');
+      }
   };
 
   // Permission Handlers
   const handlePermissionChange = (role: UserRole, feature: AppFeature, type: 'view' | 'edit', value: boolean) => {
-    setPermissions(prev => ({
-        ...prev,
-        [role]: {
+    try {
+      setPermissions(prev => {
+        // Crear una copia profunda para evitar mutaciones
+        const newPermissions = {
+          ...prev,
+          [role]: {
             ...prev[role],
             [feature]: {
-                ...prev[role][feature],
-                [type]: value
+              ...prev[role][feature],
+              [type]: value
             }
-        }
-    }));
+          }
+        };
+        return newPermissions;
+      });
+    } catch (error) {
+      console.error('Error updating permission:', error);
+      alert('Error al actualizar el permiso. Por favor, intente nuevamente.');
+    }
   };
 
   const handleSavePermissions = () => {
-      savePermissions(permissions);
-      setIsPermsSaved(true);
-      setTimeout(() => setIsPermsSaved(false), 3000);
+      try {
+        // Validar que permissions sea un objeto válido
+        if (!permissions || typeof permissions !== 'object') {
+          console.error('Invalid permissions object:', permissions);
+          alert('Error: Configuración de permisos inválida. Por favor, recarga la página.');
+          return;
+        }
+
+        // Crear una copia limpia del objeto para evitar referencias circulares
+        const cleanPermissions: PermissionConfig = {
+          ADMIN: { ...permissions.ADMIN },
+          OPERATIONS: { ...permissions.OPERATIONS },
+          OPERATIONS_SUPERVISOR: { ...permissions.OPERATIONS_SUPERVISOR },
+          CLIENT: { ...permissions.CLIENT }
+        };
+
+        // Validar estructura de cada rol
+        const roles: UserRole[] = ['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'];
+        for (const role of roles) {
+          if (!cleanPermissions[role] || typeof cleanPermissions[role] !== 'object') {
+            throw new Error(`Invalid permissions structure for role: ${role}`);
+          }
+          
+          // Validar cada feature
+          const features: AppFeature[] = ['DASHBOARD', 'UNIT_OVERVIEW', 'PERSONNEL', 'LOGISTICS', 'LOGS', 'BLUEPRINT', 'CONTROL_CENTER', 'REPORTS', 'CLIENT_REQUESTS', 'SETTINGS'];
+          for (const feature of features) {
+            if (!cleanPermissions[role][feature] || typeof cleanPermissions[role][feature] !== 'object') {
+              throw new Error(`Invalid permissions structure for role ${role}, feature ${feature}`);
+            }
+            
+            // Asegurar que view y edit sean booleanos
+            if (typeof cleanPermissions[role][feature].view !== 'boolean' || 
+                typeof cleanPermissions[role][feature].edit !== 'boolean') {
+              throw new Error(`Invalid permission values for role ${role}, feature ${feature}`);
+            }
+          }
+        }
+
+        // Intentar serializar para verificar que no hay problemas
+        const serialized = JSON.stringify(cleanPermissions);
+        if (!serialized || serialized === '{}') {
+          throw new Error('Failed to serialize permissions');
+        }
+
+        // Guardar en localStorage
+        savePermissions(cleanPermissions);
+        
+        // Actualizar el estado local con la versión limpia
+        setPermissions(cleanPermissions);
+        
+        // Mostrar confirmación
+        setIsPermsSaved(true);
+        setTimeout(() => setIsPermsSaved(false), 3000);
+      } catch (error: any) {
+        console.error('Error al guardar permisos:', error);
+        alert(`Error al guardar la configuración de permisos: ${error.message || 'Error desconocido'}. Por favor, intente nuevamente.`);
+      }
   };
 
   // --- UNIT FILTERING LOGIC ---
@@ -1093,7 +1198,11 @@ const App: React.FC = () => {
                     </div>
 
                     <div className="mt-6 flex justify-end">
-                        <button onClick={handleSavePermissions} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-900 transition-colors flex items-center">
+                        <button 
+                          type="button"
+                          onClick={handleSavePermissions} 
+                          className="bg-slate-800 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-900 transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                             <Save size={16} className="mr-2"/> Guardar Configuración de Permisos
                         </button>
                     </div>
