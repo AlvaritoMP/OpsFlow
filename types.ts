@@ -59,7 +59,8 @@ export interface User {
   email: string;
   role: UserRole;
   avatar?: string;
-  linkedClientNames?: string[]; // Changed to array: Links user to specific Client Companies
+  linkedClientNames?: string[]; // Changed to array: Links user to specific Client Companies (client names)
+  linkedClientIds?: string[]; // Array of client IDs for more precise linking
   temporaryPassword?: string; // Contraseña temporal (solo para referencia del administrador)
 }
 
@@ -207,6 +208,21 @@ export interface Zone {
 export interface BlueprintLayer {
   id: string;
   name: string; // e.g. "Piso 1", "Sótano", "Exteriores"
+}
+
+export interface ClientRepresentative {
+  name: string;
+  phone: string;
+  email: string;
+}
+
+export interface Client {
+  id: string;
+  name: string; // Nombre del cliente/empresa
+  ruc: string; // RUC del cliente
+  representatives: ClientRepresentative[]; // Array de representantes con teléfono y email
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface UnitContact {

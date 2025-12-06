@@ -102,18 +102,92 @@ export const authService = {
   },
 
   // Registrar nuevo usuario (solo para administradores)
-  // IMPORTANTE: Esta función requiere operaciones administrativas que no pueden hacerse desde el frontend.
-  // Para implementar esta funcionalidad de forma segura, debes crear una Supabase Edge Function
-  // que use la SERVICE_ROLE_KEY en el servidor.
+  // NOTA: Esta función usa supabase.auth.signUp() que es la API pública de Supabase.
+  // Requiere que el usuario actual sea ADMIN y que Supabase esté configurado para permitir
+  // registro sin confirmación de email (o que el email se confirme automáticamente).
   // 
-  // Ejemplo de Edge Function:
-  // https://supabase.com/docs/guides/functions
+  // Configuración requerida en Supabase:
+  // 1. Ve a Authentication > Settings > Email Auth
+  // 2. Desactiva "Enable email confirmations" O configura "Auto Confirm" para permitir registro sin confirmación
   async signUp(email: string, password: string, userData: Partial<User>) {
-    throw new Error(
-      'La creación de usuarios desde el frontend no está permitida por razones de seguridad. ' +
-      'Por favor, implementa una Supabase Edge Function que use la SERVICE_ROLE_KEY en el servidor. ' +
-      'Consulta la documentación: https://supabase.com/docs/guides/functions'
-    );
+    try {
+      // Verificar que el usuario actual es administrador
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) {
+        throw new Error('No hay usuario autenticado');
+      }
+
+      const dbUser = await usersService.getById(currentUser.id);
+      if (!dbUser || dbUser.role !== 'ADMIN') {
+        throw new Error('Solo los administradores pueden crear nuevos usuarios');
+      }
+
+      // Crear nuevo usuario en Supabase Auth usando la API pública
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: userData.name,
+            role: userData.role,
+          },
+        },
+      });
+
+      if (signUpError) {
+        // Si el error es que el usuario ya existe
+        if (signUpError.message?.includes('already registered') || 
+            signUpError.message?.includes('already been registered') ||
+            signUpError.message?.includes('User already registered')) {
+          throw new Error('El email ya está registrado. Si necesitas restablecer la contraseña, usa la opción de recuperación de contraseña.');
+        }
+        throw signUpError;
+      }
+
+      if (!signUpData.user) {
+        throw new Error('No se pudo crear el usuario en Supabase Auth');
+      }
+
+      const authUserId = signUpData.user.id;
+
+      // Esperar un momento para asegurar que el usuario se creó correctamente
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Crear el usuario en la tabla users
+      // NOTA: Esto requiere que las políticas RLS permitan a los admins crear usuarios
+      let createdDbUser;
+      try {
+        createdDbUser = await usersService.create({
+          id: authUserId,
+          name: userData.name || email,
+          email: email,
+          role: userData.role || 'OPERATIONS',
+          avatar: userData.avatar || userData.name?.substring(0, 2).toUpperCase(),
+          linkedClientNames: userData.linkedClientNames,
+        });
+      } catch (createError: any) {
+        // Si falla al crear en la tabla users, el usuario ya existe en Auth
+        // Intentar actualizarlo en su lugar
+        console.warn('Error al crear usuario en tabla, intentando actualizar:', createError);
+        createdDbUser = await usersService.update(authUserId, {
+          name: userData.name || email,
+          email: email,
+          role: userData.role || 'OPERATIONS',
+          avatar: userData.avatar || userData.name?.substring(0, 2).toUpperCase(),
+          linkedClientNames: userData.linkedClientNames,
+        });
+      }
+
+      // Actualizar el rol en los metadatos de Auth
+      if (createdDbUser) {
+        await this.updateUserRole(createdDbUser.id, createdDbUser.role);
+      }
+
+      return { user: signUpData.user, dbUser: createdDbUser };
+    } catch (error: any) {
+      console.error('Error al registrar usuario:', error);
+      throw new Error(error.message || 'Error al registrar usuario');
+    }
   },
 
   // Actualizar el rol del usuario en el JWT (para RLS)

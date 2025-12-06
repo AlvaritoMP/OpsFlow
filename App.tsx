@@ -8,13 +8,14 @@ import { ControlCenter } from './components/ControlCenter';
 import { ClientControlCenter } from './components/ClientControlCenter';
 import { Reports } from './components/Reports';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
-import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature } from './types';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
 import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission } from './services/permissionService';
 import { useUnits } from './hooks/useUnits';
 import { useUsers } from './hooks/useUsers';
 import { useManagementStaff } from './hooks/useManagementStaff';
+import { useClients } from './hooks/useClients';
 import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
 import { Login } from './components/Login';
@@ -35,7 +36,21 @@ const App: React.FC = () => {
   const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits } = useUnits(isAuthenticated);
   const { users, loading: usersLoading, createUser, updateUser, deleteUser, loadUsers } = useUsers(isAuthenticated);
   const { staff: managementStaff, loading: staffLoading, createStaff, updateStaff, deleteStaff, archiveStaff, loadStaff } = useManagementStaff(isAuthenticated);
+  const { clients, loading: clientsLoading, createClient, updateClient, deleteClient, loadClients } = useClients(isAuthenticated);
   
+  // Client Management State (solo para admin)
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [clientForm, setClientForm] = useState<{
+    name: string;
+    ruc: string;
+    representatives: ClientRepresentative[];
+  }>({
+    name: '',
+    ruc: '',
+    representatives: [{ name: '', phone: '', email: '' }]
+  });
+
   // New Unit State
   const [showAddUnitModal, setShowAddUnitModal] = useState(false);
   const [newUnitForm, setNewUnitForm] = useState<Partial<Unit>>({
@@ -279,6 +294,105 @@ const App: React.FC = () => {
 
   const handleRemoveImageFromNewUnit = (index: number) => {
     setNewUnitImages(newUnitImages.filter((_, i) => i !== index));
+  };
+
+  // --- CLIENT MANAGEMENT HANDLERS (solo admin) ---
+  const openAddClientModal = () => {
+    setEditingClient(null);
+    setClientForm({
+      name: '',
+      ruc: '',
+      representatives: [{ name: '', phone: '', email: '' }]
+    });
+    setShowClientModal(true);
+  };
+
+  const openEditClientModal = (client: Client) => {
+    setEditingClient(client);
+    setClientForm({
+      name: client.name,
+      ruc: client.ruc,
+      representatives: client.representatives.length > 0 
+        ? client.representatives 
+        : [{ name: '', phone: '', email: '' }]
+    });
+    setShowClientModal(true);
+  };
+
+  const handleAddRepresentative = () => {
+    setClientForm({
+      ...clientForm,
+      representatives: [...clientForm.representatives, { name: '', phone: '', email: '' }]
+    });
+  };
+
+  const handleRemoveRepresentative = (index: number) => {
+    setClientForm({
+      ...clientForm,
+      representatives: clientForm.representatives.filter((_, i) => i !== index)
+    });
+  };
+
+  const handleUpdateRepresentative = (index: number, field: keyof ClientRepresentative, value: string) => {
+    const updated = [...clientForm.representatives];
+    updated[index] = { ...updated[index], [field]: value };
+    setClientForm({ ...clientForm, representatives: updated });
+  };
+
+  const handleSaveClient = async () => {
+    if (!clientForm.name || !clientForm.ruc) {
+      alert('El nombre y RUC del cliente son requeridos');
+      return;
+    }
+
+    // Validar que al menos un representante tenga nombre
+    const hasValidRepresentative = clientForm.representatives.some(rep => rep.name.trim() !== '');
+    if (!hasValidRepresentative) {
+      alert('Debe agregar al menos un representante con nombre');
+      return;
+    }
+
+    try {
+      // Filtrar representantes vacíos
+      const validRepresentatives = clientForm.representatives.filter(
+        rep => rep.name.trim() !== '' && (rep.phone.trim() !== '' || rep.email.trim() !== '')
+      );
+
+      if (editingClient) {
+        await updateClient(editingClient.id, {
+          name: clientForm.name,
+          ruc: clientForm.ruc,
+          representatives: validRepresentatives
+        });
+      } else {
+        await createClient({
+          name: clientForm.name,
+          ruc: clientForm.ruc,
+          representatives: validRepresentatives
+        });
+      }
+
+      setShowClientModal(false);
+      setClientForm({ name: '', ruc: '', representatives: [{ name: '', phone: '', email: '' }] });
+      await loadClients(); // Recargar lista de clientes
+    } catch (error: any) {
+      console.error('Error al guardar cliente:', error);
+      alert(error.message || 'Error al guardar el cliente. Por favor, intente nuevamente.');
+    }
+  };
+
+  const handleDeleteClient = async (clientId: string) => {
+    if (!confirm('¿Está seguro de eliminar este cliente? Esto no eliminará las unidades asociadas, pero las unidades quedarán sin cliente asignado.')) {
+      return;
+    }
+
+    try {
+      await deleteClient(clientId);
+      await loadClients();
+    } catch (error: any) {
+      console.error('Error al eliminar cliente:', error);
+      alert(error.message || 'Error al eliminar el cliente.');
+    }
   };
 
   const handleAddUnit = async () => {
@@ -809,7 +923,38 @@ const App: React.FC = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Cliente</label>
-                      <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej. Banco Global" value={newUnitForm.clientName} onChange={e => setNewUnitForm({...newUnitForm, clientName: e.target.value})} />
+                      <div className="flex gap-2">
+                        <select 
+                          className="flex-1 border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                          value={newUnitForm.clientName}
+                          onChange={e => setNewUnitForm({...newUnitForm, clientName: e.target.value})}
+                        >
+                          <option value="">Seleccione un cliente</option>
+                          {clients.map(client => (
+                            <option key={client.id} value={client.name}>{client.name}</option>
+                          ))}
+                        </select>
+                        {currentUser.role === 'ADMIN' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAddUnitModal(false);
+                              openAddClientModal();
+                            }}
+                            className="bg-slate-100 text-slate-700 px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors border border-slate-300 flex items-center"
+                            title="Crear nuevo cliente"
+                          >
+                            <Plus size={16} />
+                          </button>
+                        )}
+                      </div>
+                      {clients.length === 0 && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          {currentUser.role === 'ADMIN' 
+                            ? 'No hay clientes. Cree uno primero.' 
+                            : 'No hay clientes disponibles. Contacte al administrador.'}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Dirección</label>
@@ -1213,6 +1358,77 @@ const App: React.FC = () => {
              </div>
            </div>
 
+           {/* --- Clients Management (solo admin) --- */}
+           {currentUser.role === 'ADMIN' && (
+             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+               <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                 <h3 className="font-bold text-slate-700 flex items-center"><Building className="mr-2" size={18} /> Gestión de Clientes</h3>
+                 <button onClick={openAddClientModal} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
+                   <Plus size={14} className="mr-1.5" /> Nuevo Cliente
+                 </button>
+               </div>
+               <div className="p-6">
+                 {clientsLoading ? (
+                   <div className="text-center py-8 text-slate-500">
+                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto mb-3"></div>
+                     Cargando clientes...
+                   </div>
+                 ) : clients.length === 0 ? (
+                   <div className="text-center py-8 text-slate-400">
+                     <Building size={32} className="mx-auto mb-3 opacity-50" />
+                     <p>No hay clientes registrados</p>
+                     <p className="text-xs mt-1">Cree un cliente para poder asignarlo a unidades</p>
+                   </div>
+                 ) : (
+                   <div className="space-y-4">
+                     {clients.map(client => (
+                       <div key={client.id} className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition-colors">
+                         <div className="flex justify-between items-start">
+                           <div className="flex-1">
+                             <div className="flex items-center gap-3 mb-2">
+                               <h4 className="font-bold text-slate-800">{client.name}</h4>
+                               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                                 RUC: {client.ruc}
+                               </span>
+                             </div>
+                             {client.representatives.length > 0 && (
+                               <div className="mt-3 space-y-2">
+                                 <p className="text-xs font-bold text-slate-500 uppercase">Representantes:</p>
+                                 {client.representatives.map((rep, idx) => (
+                                   <div key={idx} className="text-sm text-slate-600 bg-slate-50 p-2 rounded border border-slate-100">
+                                     <div className="font-medium">{rep.name}</div>
+                                     {rep.phone && <div className="text-xs text-slate-500">Tel: {rep.phone}</div>}
+                                     {rep.email && <div className="text-xs text-slate-500">Email: {rep.email}</div>}
+                                   </div>
+                                 ))}
+                               </div>
+                             )}
+                           </div>
+                           <div className="flex gap-2 ml-4">
+                             <button
+                               onClick={() => openEditClientModal(client)}
+                               className="text-blue-600 hover:text-blue-900 p-1.5 rounded hover:bg-blue-50"
+                               title="Editar cliente"
+                             >
+                               <Edit2 size={16} />
+                             </button>
+                             <button
+                               onClick={() => handleDeleteClient(client.id)}
+                               className="text-red-600 hover:text-red-900 p-1.5 rounded hover:bg-red-50"
+                               title="Eliminar cliente"
+                             >
+                               <Trash2 size={16} />
+                             </button>
+                           </div>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+               </div>
+             </div>
+           )}
+
            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {/* --- Google Gemini API Configuration --- */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1554,6 +1770,110 @@ const App: React.FC = () => {
                 </div>
              </div>
            )}
+
+          {/* Client Management Modal (solo admin) */}
+          {showClientModal && currentUser.role === 'ADMIN' && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+                <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center shrink-0">
+                  <div className="flex items-center font-bold text-lg">
+                    <Building className="mr-2" size={20}/>
+                    {editingClient ? 'Editar Cliente' : 'Nuevo Cliente'}
+                  </div>
+                  <button onClick={() => setShowClientModal(false)} className="text-white/80 hover:text-white">
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Cliente *</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Ej. Banco Global S.A."
+                      value={clientForm.name}
+                      onChange={e => setClientForm({...clientForm, name: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">RUC *</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Ej. 20123456789"
+                      value={clientForm.ruc}
+                      onChange={e => setClientForm({...clientForm, ruc: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-medium text-slate-700">Representantes *</label>
+                      <button
+                        type="button"
+                        onClick={handleAddRepresentative}
+                        className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 flex items-center"
+                      >
+                        <Plus size={14} className="mr-1" /> Agregar Representante
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      {clientForm.representatives.map((rep, index) => (
+                        <div key={index} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-bold text-slate-500">Representante {index + 1}</span>
+                            {clientForm.representatives.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveRepresentative(index)}
+                                className="text-red-500 hover:text-red-700"
+                              >
+                                <X size={16} />
+                              </button>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="Nombre completo *"
+                              value={rep.name}
+                              onChange={e => handleUpdateRepresentative(index, 'name', e.target.value)}
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="tel"
+                                className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Teléfono"
+                                value={rep.phone}
+                                onChange={e => handleUpdateRepresentative(index, 'phone', e.target.value)}
+                              />
+                              <input
+                                type="email"
+                                className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Email"
+                                value={rep.email}
+                                onChange={e => handleUpdateRepresentative(index, 'email', e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleSaveClient}
+                    disabled={!clientForm.name || !clientForm.ruc}
+                    className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  >
+                    {editingClient ? 'Guardar Cambios' : 'Crear Cliente'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }

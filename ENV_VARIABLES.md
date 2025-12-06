@@ -54,32 +54,64 @@ Esta aplicación requiere las siguientes variables de entorno para funcionar cor
 - Para operaciones administrativas (crear usuarios, cambiar contraseñas de otros usuarios, etc.), debes implementar Supabase Edge Functions que usen la `SERVICE_ROLE_KEY` en el servidor.
 - Después de agregar o modificar variables de entorno, siempre redespliega la aplicación
 
+## Configuración de Supabase para Crear Usuarios
+
+Para que los administradores puedan crear nuevos usuarios desde la aplicación, necesitas configurar Supabase:
+
+### 1. Configurar Autenticación sin Confirmación de Email
+
+1. Ve a tu proyecto en Supabase Dashboard
+2. Navega a **Authentication > Settings > Email Auth**
+3. **Desactiva** "Enable email confirmations" O configura "Auto Confirm" para permitir registro sin confirmación
+4. Guarda los cambios
+
+**Nota**: Si prefieres mantener la confirmación de email, los usuarios creados recibirán un email de confirmación antes de poder iniciar sesión.
+
+### 2. Configurar Políticas RLS (Row Level Security)
+
+Asegúrate de que las políticas RLS en la tabla `users` permitan a los administradores crear usuarios:
+
+```sql
+-- Política para permitir a administradores crear usuarios
+CREATE POLICY "Admins can create users"
+ON users
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM users
+    WHERE id = auth.uid()
+    AND role = 'ADMIN'
+  )
+);
+
+-- Política para permitir a usuarios crear su propio registro
+CREATE POLICY "Users can create their own record"
+ON users
+FOR INSERT
+TO authenticated
+WITH CHECK (id = auth.uid());
+```
+
+### 3. Verificar Función de Rol
+
+Asegúrate de tener una función en Supabase que devuelva el rol del usuario actual:
+
+```sql
+CREATE OR REPLACE FUNCTION get_current_user_role()
+RETURNS text AS $$
+  SELECT role::text
+  FROM users
+  WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER;
+```
+
 ## Operaciones Administrativas Seguras
 
-Si necesitas realizar operaciones administrativas (como crear usuarios o cambiar contraseñas), debes implementarlas usando Supabase Edge Functions:
+La aplicación permite a los administradores crear usuarios usando la API pública de Supabase (`supabase.auth.signUp()`). Para operaciones más avanzadas (como cambiar contraseñas de otros usuarios), puedes implementar Supabase Edge Functions:
 
 1. **Crear una Edge Function** en Supabase que use la `SERVICE_ROLE_KEY` en el servidor
 2. **Llamar a la Edge Function** desde tu frontend usando la clave anónima
 3. **Validar permisos** en la Edge Function antes de realizar operaciones administrativas
 
 Documentación: https://supabase.com/docs/guides/functions
-
-Ejemplo de Edge Function:
-```typescript
-// supabase/functions/create-user/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
-serve(async (req) => {
-  const supabaseAdmin = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  )
-  
-  // Validar que el usuario que hace la petición es admin
-  // ... validación ...
-  
-  // Realizar operación administrativa
-  // ... crear usuario ...
-})
-```
