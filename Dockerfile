@@ -32,6 +32,6 @@ ENV NODE_ENV=production
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:${PORT:-3000}', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Iniciar vite preview usando la variable PORT con logging
-CMD ["sh", "-c", "echo 'Starting vite preview on port ${PORT:-3000}' && vite preview --host 0.0.0.0 --port ${PORT:-3000}"]
+# Iniciar servidor Node.js simple
+CMD ["node", "server.js"]
 
