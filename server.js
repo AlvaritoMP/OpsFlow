@@ -6,8 +6,11 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const distPath = path.join(__dirname, 'dist');
+
+console.log(`🔧 PORT from environment: ${process.env.PORT}`);
+console.log(`🔧 Using PORT: ${PORT}`);
 
 // Función para obtener el tipo MIME
 function getMimeType(filePath) {
@@ -64,6 +67,18 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://0.0.0.0:${PORT}`);
   console.log(`📁 Sirviendo archivos desde: ${distPath}`);
+  console.log(`✅ Servidor listo para recibir peticiones`);
+});
+
+// Manejar errores no capturados
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('❌ Unhandled Rejection:', err);
+  process.exit(1);
 });
 
 server.on('error', (err) => {
