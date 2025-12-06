@@ -18,9 +18,12 @@ RUN npm run build
 # Ejecutar script de protección
 RUN node scripts/protect-dist.js
 
-# Exponer puerto 3000
+# Exponer puerto (EasyPanel puede usar cualquier puerto)
 EXPOSE 3000
 
-# Iniciar vite preview
-CMD ["npm", "start"]
+# Variable de entorno para el puerto
+ENV PORT=3000
+
+# Iniciar vite preview usando la variable PORT
+CMD ["sh", "-c", "vite preview --host 0.0.0.0 --port ${PORT:-3000}"]
 
