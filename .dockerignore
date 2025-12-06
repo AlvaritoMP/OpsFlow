@@ -1,0 +1,52 @@
+# Archivos y directorios a ignorar en el build de Docker
+# Esto evita que Nixpacks interfiera
+
+# Dependencias (se instalarán en el contenedor)
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build output (se generará en el contenedor)
+dist
+build
+
+# Archivos de desarrollo
+.env.local
+.env.development
+.env.test
+
+# Git
+.git
+.gitignore
+
+# Nixpacks (ignorar completamente)
+.nixpacks
+nixpacks.toml
+
+# Caddyfile (no lo necesitamos)
+Caddyfile
+*.backup
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Testing
+coverage
+.nyc_output
+
+# Temporal
+tmp
+temp
+
