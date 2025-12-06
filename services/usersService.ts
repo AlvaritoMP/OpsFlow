@@ -1,9 +1,4 @@
-import { supabase, supabaseAdmin, handleSupabaseError } from './supabase';
-
-// Verificar que supabaseAdmin esté disponible al importar
-if (!supabaseAdmin) {
-  console.warn('usersService: supabaseAdmin no está disponible. Algunas operaciones pueden fallar.');
-}
+import { supabase, handleSupabaseError } from './supabase';
 import { User, UserRole } from '../types';
 
 // ============================================
@@ -53,17 +48,11 @@ export const usersService = {
   },
 
   // Obtener un usuario por ID
+  // NOTA: Esta operación respeta las políticas RLS de Supabase.
+  // Asegúrate de que las políticas RLS permitan a los usuarios leer su propia información.
   async getById(id: string): Promise<User | null> {
     try {
-      // SIEMPRE usar supabaseAdmin si está disponible para evitar problemas de RLS
-      // Esto es especialmente útil durante el login cuando las políticas RLS pueden estar bloqueando
-      const clientToUse = supabaseAdmin || supabase;
-      
-      if (supabaseAdmin) {
-        console.log('getById: Usando supabaseAdmin para obtener usuario:', id);
-      }
-      
-      const { data: userData, error: userError } = await clientToUse
+      const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('id', id)
@@ -86,8 +75,8 @@ export const usersService = {
 
       if (!userData) return null;
 
-      // Obtener los clientes vinculados por separado usando el mismo cliente
-      const { data: linksData } = await clientToUse
+      // Obtener los clientes vinculados por separado
+      const { data: linksData } = await supabase
         .from('user_client_links')
         .select('client_name')
         .eq('user_id', id);
@@ -143,11 +132,9 @@ export const usersService = {
 
       console.log('Creando usuario con ID:', userData.id, 'auth.uid():', authUser.id, 'isAdmin:', isAdmin, 'isCreatingSelf:', isCreatingSelf);
 
-      // Si es admin o se está creando a sí mismo, usar supabaseAdmin para evitar problemas de RLS
-      // Nota: Cuando un usuario se crea a sí mismo, las políticas RLS pueden bloquearlo
-      const clientToUse = (isAdmin || isCreatingSelf) && supabaseAdmin ? supabaseAdmin : supabase;
-      
-      const { data, error } = await clientToUse
+      // NOTA: Esta operación respeta las políticas RLS de Supabase.
+      // Asegúrate de que las políticas RLS permitan a los usuarios crear su propio registro.
+      const { data, error } = await supabase
         .from('users')
         .insert(userData)
         .select()

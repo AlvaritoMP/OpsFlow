@@ -114,101 +114,34 @@ const App: React.FC = () => {
               setCurrentUser(dbUser);
               setIsAuthenticated(true);
             } else {
-              // Si no existe en la BD, verificar si existe por email (puede haber desincronización de IDs)
-              console.log('Usuario no encontrado en BD por ID, buscando por email...');
+              // Si no existe en la BD, intentar crear el usuario automáticamente
+              // NOTA: Esto requiere que las políticas RLS permitan a los usuarios crear su propio registro
+              console.log('Usuario no encontrado en BD, intentando crear automáticamente...');
               try {
-                const { supabaseAdmin } = await import('./services/supabase');
+                // Intentar crear el usuario usando el servicio (respeta RLS)
+                const newDbUser = await usersService.create({
+                  id: session.user.id,
+                  name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuario',
+                  email: session.user.email || '',
+                  role: (session.user.user_metadata?.role as UserRole) || 'OPERATIONS',
+                  avatar: (session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'U').substring(0, 2).toUpperCase(),
+                });
                 
-                if (supabaseAdmin && session.user.email) {
-                  // Buscar usuario por email
-                  const { data: existingUserByEmail, error: emailError } = await supabaseAdmin
-                    .from('users')
-                    .select('*')
-                    .eq('email', session.user.email)
-                    .maybeSingle();
-                  
-                  if (!emailError && existingUserByEmail && existingUserByEmail !== null) {
-                    // Usuario existe pero con ID diferente, eliminar el duplicado y crear uno nuevo con el ID correcto
-                    console.log('Usuario encontrado por email con ID diferente, eliminando duplicado y creando con ID correcto...');
-                    
-                    const duplicateUser = existingUserByEmail as any;
-                    
-                    // Eliminar el usuario duplicado (primero eliminar vínculos)
-                    await supabaseAdmin
-                      .from('user_client_links')
-                      .delete()
-                      .eq('user_id', duplicateUser.id);
-                    
-                    // Eliminar el usuario duplicado
-                    const { error: deleteError } = await supabaseAdmin
-                      .from('users')
-                      .delete()
-                      .eq('id', duplicateUser.id);
-                    
-                    if (!deleteError) {
-                      // Crear usuario nuevo con el ID correcto
-                      const { data: newUserData, error: createError } = await supabaseAdmin
-                        .from('users')
-                        .insert({
-                          id: session.user.id,
-                          name: duplicateUser.name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuario',
-                          email: session.user.email || '',
-                          role: duplicateUser.role || (session.user.user_metadata?.role as UserRole) || 'OPERATIONS',
-                          avatar: duplicateUser.avatar || (session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'U').substring(0, 2).toUpperCase(),
-                        })
-                        .select()
-                        .single();
-                      
-                      if (!createError && newUserData) {
-                        console.log('Usuario sincronizado correctamente');
-                        const dbUser = await usersService.getById(session.user.id);
-                        if (dbUser) {
-                          await authService.updateUserRole(session.user.id, dbUser.role);
-                          await new Promise(resolve => setTimeout(resolve, 200));
-                          if (!mounted) return;
-                          setCurrentUser(dbUser);
-                          setIsAuthenticated(true);
-                          return;
-                        }
-                      } else {
-                        console.error('Error al crear usuario después de eliminar duplicado:', createError);
-                      }
-                    } else {
-                      console.error('Error al eliminar usuario duplicado:', deleteError);
-                    }
-                  } else {
-                    // No existe por email, crear nuevo usuario
-                    console.log('Usuario no encontrado por email, creando nuevo usuario...');
-                    const { data: newUserData, error: createError } = await supabaseAdmin
-                      .from('users')
-                      .insert({
-                        id: session.user.id,
-                        name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuario',
-                        email: session.user.email || '',
-                        role: (session.user.user_metadata?.role as UserRole) || 'OPERATIONS',
-                        avatar: (session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'U').substring(0, 2).toUpperCase(),
-                      })
-                      .select()
-                      .single();
-                    
-                    if (!createError && newUserData) {
-                      console.log('Usuario creado automáticamente en BD');
-                      const dbUser = await usersService.getById(session.user.id);
-                      if (dbUser) {
-                        await authService.updateUserRole(session.user.id, dbUser.role);
-                        await new Promise(resolve => setTimeout(resolve, 200));
-                        if (!mounted) return;
-                        setCurrentUser(dbUser);
-                        setIsAuthenticated(true);
-                        return;
-                      }
-                    } else {
-                      console.error('Error al crear usuario automáticamente:', createError);
-                    }
-                  }
+                if (newDbUser) {
+                  console.log('Usuario creado automáticamente en BD');
+                  await authService.updateUserRole(newDbUser.id, newDbUser.role);
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                  if (!mounted) return;
+                  setCurrentUser(newDbUser);
+                  setIsAuthenticated(true);
+                  return;
                 }
-              } catch (autoCreateError) {
-                console.error('Error en auto-creación/sincronización de usuario:', autoCreateError);
+              } catch (autoCreateError: any) {
+                console.error('Error en auto-creación de usuario:', autoCreateError);
+                // Si falla por RLS, mostrar mensaje más claro
+                if (autoCreateError.message?.includes('permission') || autoCreateError.message?.includes('policy')) {
+                  console.warn('No se pudo crear usuario automáticamente. Verifica las políticas RLS en Supabase.');
+                }
               }
               
               // Si la auto-creación/sincronización falla, mostrar mensaje de error

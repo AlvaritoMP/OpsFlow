@@ -14,11 +14,6 @@ Esta aplicación requiere las siguientes variables de entorno para funcionar cor
 - **Ejemplo**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
 - **Dónde obtenerla**: En el dashboard de Supabase, ve a Settings > API > Project API keys > anon public
 
-### `VITE_SUPABASE_SERVICE_ROLE_KEY`
-- **Descripción**: La clave de servicio (privada) de tu proyecto de Supabase. **IMPORTANTE**: Esta clave debe mantenerse segura y nunca exponerse en el frontend. Solo se usa para operaciones administrativas.
-- **Ejemplo**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
-- **Dónde obtenerla**: En el dashboard de Supabase, ve a Settings > API > Project API keys > service_role secret
-- **Advertencia**: Esta clave tiene acceso completo a tu base de datos. No la compartas públicamente.
 
 ## Variables Opcionales
 
@@ -42,9 +37,6 @@ Esta aplicación requiere las siguientes variables de entorno para funcionar cor
    - **Key**: `VITE_SUPABASE_ANON_KEY`
    - **Value**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` (tu clave anónima)
    
-   - **Key**: `VITE_SUPABASE_SERVICE_ROLE_KEY`
-   - **Value**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` (tu clave de servicio)
-   
    - **Key**: `GEMINI_API_KEY` (opcional)
    - **Value**: `AIzaSy...` (si usas funcionalidades de IA)
    
@@ -57,6 +49,37 @@ Esta aplicación requiere las siguientes variables de entorno para funcionar cor
 ## Notas Importantes
 
 - Las variables que comienzan con `VITE_` son expuestas al frontend durante el build
-- `VITE_SUPABASE_SERVICE_ROLE_KEY` se usa solo en el servidor para operaciones administrativas
-- Asegúrate de no exponer `VITE_SUPABASE_SERVICE_ROLE_KEY` en el código del frontend
+- **NUNCA** expongas la `SERVICE_ROLE_KEY` en el frontend. Esta clave tiene acceso completo a tu base de datos.
+- La aplicación solo usa la clave anónima (`VITE_SUPABASE_ANON_KEY`), que respeta las políticas Row Level Security (RLS) de Supabase.
+- Para operaciones administrativas (crear usuarios, cambiar contraseñas de otros usuarios, etc.), debes implementar Supabase Edge Functions que usen la `SERVICE_ROLE_KEY` en el servidor.
 - Después de agregar o modificar variables de entorno, siempre redespliega la aplicación
+
+## Operaciones Administrativas Seguras
+
+Si necesitas realizar operaciones administrativas (como crear usuarios o cambiar contraseñas), debes implementarlas usando Supabase Edge Functions:
+
+1. **Crear una Edge Function** en Supabase que use la `SERVICE_ROLE_KEY` en el servidor
+2. **Llamar a la Edge Function** desde tu frontend usando la clave anónima
+3. **Validar permisos** en la Edge Function antes de realizar operaciones administrativas
+
+Documentación: https://supabase.com/docs/guides/functions
+
+Ejemplo de Edge Function:
+```typescript
+// supabase/functions/create-user/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+serve(async (req) => {
+  const supabaseAdmin = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  )
+  
+  // Validar que el usuario que hace la petición es admin
+  // ... validación ...
+  
+  // Realizar operación administrativa
+  // ... crear usuario ...
+})
+```

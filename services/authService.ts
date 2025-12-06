@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from './supabase';
+import { supabase } from './supabase';
 import { User, UserRole } from '../types';
 import { usersService } from './usersService';
 import { auditService } from './auditService';
@@ -102,101 +102,18 @@ export const authService = {
   },
 
   // Registrar nuevo usuario (solo para administradores)
+  // IMPORTANTE: Esta función requiere operaciones administrativas que no pueden hacerse desde el frontend.
+  // Para implementar esta funcionalidad de forma segura, debes crear una Supabase Edge Function
+  // que use la SERVICE_ROLE_KEY en el servidor.
+  // 
+  // Ejemplo de Edge Function:
+  // https://supabase.com/docs/guides/functions
   async signUp(email: string, password: string, userData: Partial<User>) {
-    try {
-      // Verificar que tenemos acceso a supabaseAdmin
-      if (!supabaseAdmin) {
-        throw new Error('No se puede crear usuario. Service role key no disponible.');
-      }
-
-      let createdOrUpdatedUser;
-
-      // Intentar crear el usuario primero (más rápido que listar todos)
-      const { data: createData, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true, // Confirmar email automáticamente
-        user_metadata: {
-          name: userData.name,
-          role: userData.role,
-        },
-      });
-
-      if (createErr) {
-        // Si el error es que el usuario ya existe, actualizarlo
-        if (createErr.message?.includes('already been registered') || createErr.message?.includes('already registered')) {
-          // Buscar el usuario existente por email (necesitamos listUsers para esto)
-          const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
-          const existingUser = usersData?.users?.find(u => u.email === email);
-          
-          if (existingUser) {
-            // Actualizar usuario existente
-            const { data: updateData, error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
-              existingUser.id,
-              {
-                password: password, // Actualizar contraseña
-                email_confirm: true, // Confirmar email
-                user_metadata: {
-                  name: userData.name,
-                  role: userData.role,
-                },
-              }
-            );
-
-            if (updateErr) throw updateErr;
-            createdOrUpdatedUser = updateData.user;
-          } else {
-            throw new Error('El usuario existe pero no se pudo encontrar para actualizar.');
-          }
-        } else {
-          throw createErr;
-        }
-      } else {
-        // Usuario creado exitosamente
-        createdOrUpdatedUser = createData.user;
-      }
-
-      // Crear o actualizar el usuario en la tabla users
-      if (createdOrUpdatedUser) {
-        // Verificar si ya existe en la tabla users
-        const existingDbUser = await usersService.getById(createdOrUpdatedUser.id);
-        
-        let dbUser;
-        if (existingDbUser) {
-          // Actualizar usuario existente
-          dbUser = await usersService.update(createdOrUpdatedUser.id, {
-            name: userData.name || email,
-            email: email,
-            role: userData.role || 'OPERATIONS',
-            avatar: userData.avatar || userData.name?.substring(0, 2).toUpperCase(),
-            linkedClientNames: userData.linkedClientNames,
-          });
-        } else {
-          // Crear nuevo usuario en la tabla con contraseña temporal
-          dbUser = await usersService.create({
-            id: createdOrUpdatedUser.id,
-            name: userData.name || email,
-            email: email,
-            role: userData.role || 'OPERATIONS',
-            avatar: userData.avatar || userData.name?.substring(0, 2).toUpperCase(),
-            linkedClientNames: userData.linkedClientNames,
-            temporaryPassword: password, // Guardar contraseña temporalmente
-          });
-        }
-
-        // Actualizar el rol en Auth después de crear/actualizar el usuario
-        if (dbUser) {
-          await this.updateUserRole(dbUser.id, dbUser.role);
-        }
-
-        return { user: createdOrUpdatedUser, dbUser };
-      }
-
-      return { user: createdOrUpdatedUser, dbUser: null };
-    } catch (error: any) {
-      console.error('Error al registrar usuario:', error);
-      throw new Error(error.message || 'Error al registrar usuario');
-    }
+    throw new Error(
+      'La creación de usuarios desde el frontend no está permitida por razones de seguridad. ' +
+      'Por favor, implementa una Supabase Edge Function que use la SERVICE_ROLE_KEY en el servidor. ' +
+      'Consulta la documentación: https://supabase.com/docs/guides/functions'
+    );
   },
 
   // Actualizar el rol del usuario en el JWT (para RLS)
@@ -261,33 +178,18 @@ export const authService = {
         return;
       }
 
-      // Para otros usuarios, usar directamente supabaseAdmin (service_role)
-      // NOTA: La Edge Function está dando 404, así que usamos esta solución temporal
-      // En producción, deberías usar una Edge Function que funcione correctamente
-      
-      if (!supabaseAdmin) {
-        throw new Error('No se puede cambiar la contraseña. Service role key no disponible.');
-      }
-
-      // Verificar que el usuario existe en Supabase Auth antes de cambiar la contraseña
-      const { data: authUser, error: getUserError } = await supabaseAdmin.auth.admin.getUserById(userId);
-      
-      if (getUserError || !authUser) {
-        throw new Error(`El usuario no existe en Supabase Auth. Este usuario probablemente fue creado directamente en la base de datos sin una cuenta de autenticación. Para cambiar la contraseña, el usuario debe tener una cuenta creada a través del sistema de registro.`);
-      }
-
-      // Cambiar la contraseña usando el cliente admin (sin enviar email)
-      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-        userId,
-        { 
-          password: newPassword,
-          email_confirm: true // Evita enviar email de confirmación
-        }
+      // IMPORTANTE: Cambiar la contraseña de otros usuarios requiere operaciones administrativas
+      // que no pueden hacerse desde el frontend por razones de seguridad.
+      // Para implementar esta funcionalidad de forma segura, debes crear una Supabase Edge Function
+      // que use la SERVICE_ROLE_KEY en el servidor.
+      // 
+      // Ejemplo de Edge Function:
+      // https://supabase.com/docs/guides/functions
+      throw new Error(
+        'Cambiar la contraseña de otros usuarios desde el frontend no está permitido por razones de seguridad. ' +
+        'Por favor, implementa una Supabase Edge Function que use la SERVICE_ROLE_KEY en el servidor. ' +
+        'Consulta la documentación: https://supabase.com/docs/guides/functions'
       );
-
-      if (updateError) {
-        throw new Error(updateError.message || 'Error al cambiar la contraseña');
-      }
 
       // Registrar en auditoría
       const targetUser = await usersService.getById(userId);
