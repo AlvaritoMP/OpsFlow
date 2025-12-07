@@ -46,6 +46,25 @@ const getMonday = (d: Date) => {
 }
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, onBack, onUpdate }) => {
+  // Cargar activos estándar al montar el componente
+  React.useEffect(() => {
+    const loadStandardAssets = async () => {
+      try {
+        const { standardAssetsService } = await import('../services/standardAssetsService');
+        const assets = await standardAssetsService.getAll();
+        setStandardAssets(assets.map(a => ({ 
+          id: a.id, 
+          name: a.name, 
+          type: a.type,
+          defaultSerialNumberPrefix: a.defaultSerialNumberPrefix 
+        })));
+      } catch (error) {
+        console.error('Error al cargar activos estándar:', error);
+      }
+    };
+    loadStandardAssets();
+  }, []);
+
   // Mantener el tab activo incluso cuando la unidad se actualiza
   const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
   const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
@@ -99,7 +118,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   
   // Mass Asset Assignment State
   const [showAssetAssignmentModal, setShowAssetAssignmentModal] = useState(false);
-  const [assetAssignmentForm, setAssetAssignmentForm] = useState({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+  const [assetAssignmentForm, setAssetAssignmentForm] = useState({ 
+    name: '', 
+    type: 'EPP' as 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro', 
+    dateAssigned: '', 
+    serialNumber: '',
+    standardAssetId: '' as string | undefined
+  });
+  const [generateConstancy, setGenerateConstancy] = useState(true); // Por defecto generar constancia
+  const [standardAssets, setStandardAssets] = useState<Array<{ id: string; name: string; type: string; defaultSerialNumberPrefix?: string }>>([]);
+  const [useStandardAsset, setUseStandardAsset] = useState(true); // Por defecto usar catálogo
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
   const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; startDate?: string; endDate?: string }>({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
@@ -120,6 +148,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [showAddResourceModal, setShowAddResourceModal] = useState(false);
   const [newResourceType, setNewResourceType] = useState<ResourceType>(ResourceType.EQUIPMENT);
   const [newResourceForm, setNewResourceForm] = useState<Partial<Resource>>({ name: '', quantity: 1, status: 'Operativo', assignedZones: [] });
+  const [equipmentResponsibleWorkerId, setEquipmentResponsibleWorkerId] = useState<string>('');
+  const [generateEquipmentConstancy, setGenerateEquipmentConstancy] = useState(false);
 
   // Log/Event State
   const [showEventModal, setShowEventModal] = useState(false);
@@ -560,30 +590,175 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setMassTrainingForm({ topic: '', date: '', status: 'Programado' });
   };
 
-  const handleMassAssignAsset = () => {
+  const handleMassAssignAsset = async () => {
     if (!onUpdate) return;
-    const newAsset: AssignedAsset = {
-        id: `a-${Date.now()}`,
-        name: assetAssignmentForm.name,
-        type: assetAssignmentForm.type as any,
-        dateAssigned: assetAssignmentForm.dateAssigned,
-        serialNumber: assetAssignmentForm.serialNumber
-    };
     
-    const updatedResources = unit.resources.map(res => {
-        if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
-            return {
-                ...res,
-                assignedAssets: [...(res.assignedAssets || []), { ...newAsset, id: `a-${Date.now()}-${res.id}` }]
+    // Obtener trabajadores seleccionados
+    const selectedWorkers = unit.resources.filter(
+      r => r.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(r.id)
+    );
+
+    if (selectedWorkers.length === 0) {
+      setNotification({ type: 'error', message: 'No hay trabajadores seleccionados' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    // Si se solicita generar constancia, generarla para cada trabajador ANTES de asignar
+    if (generateConstancy) {
+      try {
+        console.log(`🔄 Iniciando generación de constancias para ${selectedWorkers.length} trabajador(es)`);
+        const { constancyService } = await import('../services/constancyService');
+        const { authService } = await import('../services/authService');
+        
+        const currentUser = await authService.getCurrentUser();
+        console.log(`👤 Usuario actual:`, currentUser?.name || currentUser?.email || 'Sistema');
+        
+        // Generar constancias para cada trabajador y guardar códigos
+        const constancyCodes: Record<string, string> = {};
+        
+        for (const worker of selectedWorkers) {
+          console.log(`🔍 Procesando trabajador: ${worker.name} (ID: ${worker.id}, DNI: ${worker.dni || 'NO TIENE'})`);
+          
+          if (!worker.dni) {
+            console.warn(`⚠️ Trabajador ${worker.name} no tiene DNI, saltando generación de constancia`);
+            setNotification({ 
+              type: 'error', 
+              message: `El trabajador ${worker.name} no tiene DNI registrado. Se requiere DNI para generar constancia.` 
+            });
+            setTimeout(() => setNotification(null), 5000);
+            continue;
+          }
+
+          try {
+            const assetForConstancy: AssignedAsset = {
+              id: `a-${Date.now()}-${worker.id}`,
+              name: assetAssignmentForm.name,
+              type: assetAssignmentForm.type as any,
+              dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
+              serialNumber: assetAssignmentForm.serialNumber
             };
+
+            // Generar constancia (solo guardar en BD, no descargar PDF)
+            console.log(`🔄 Generando constancia para trabajador ${worker.name} (DNI: ${worker.dni})`);
+            const constancy = await constancyService.generateAssetConstancy(
+              worker.id,
+              worker.name,
+              worker.dni,
+              unit.id,
+              unit.name,
+              [assetForConstancy],
+              currentUser?.name || currentUser?.email || 'Sistema'
+            );
+
+            console.log(`✅ Constancia generada: ${constancy.code} para trabajador ${worker.name}`);
+            constancyCodes[worker.id] = constancy.code;
+          } catch (error) {
+            console.error(`❌ Error al generar constancia para ${worker.name}:`, error);
+            setNotification({ 
+              type: 'error', 
+              message: `Error al generar constancia para ${worker.name}: ${error instanceof Error ? error.message : 'Error desconocido'}` 
+            });
+            setTimeout(() => setNotification(null), 5000);
+            // Continuar con el siguiente trabajador
+            continue;
+          }
+        }
+        
+        console.log(`📋 Códigos de constancia generados:`, constancyCodes);
+        console.log(`📊 Total de códigos generados: ${Object.keys(constancyCodes).length} de ${selectedWorkers.length} trabajadores`);
+
+        // Asignar activos con códigos de constancia
+        const updatedResources = unit.resources.map(res => {
+          if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
+            const constancyCode = constancyCodes[res.id];
+            if (!constancyCode) {
+              console.warn(`⚠️ No se generó código de constancia para trabajador ${res.id}`);
+            }
+            
+            const assetWithConstancy: AssignedAsset = {
+              id: `a-${Date.now()}-${res.id}`,
+              name: assetAssignmentForm.name,
+              type: assetAssignmentForm.type as any,
+              dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
+              serialNumber: assetAssignmentForm.serialNumber,
+              constancyCode: constancyCode || undefined,
+              constancyGeneratedAt: constancyCode ? new Date().toISOString() : undefined,
+              standardAssetId: assetAssignmentForm.standardAssetId || undefined
+            };
+            
+            console.log(`💾 Guardando activo con constancia:`, {
+              name: assetWithConstancy.name,
+              worker: res.name,
+              constancyCode: assetWithConstancy.constancyCode
+            });
+            
+            return {
+              ...res,
+              assignedAssets: [...(res.assignedAssets || []), assetWithConstancy]
+            };
+          }
+          return res;
+        });
+
+        // Cerrar modal ANTES de actualizar para evitar que se recargue y cierre
+        setShowAssetAssignmentModal(false);
+        setSelectedPersonnelIds([]);
+        setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+        setGenerateConstancy(true);
+        
+        // Actualizar unidad (esto guardará los activos con códigos de constancia)
+        onUpdate({ ...unit, resources: updatedResources });
+        
+        setNotification({ 
+          type: 'success', 
+          message: `Activos asignados y constancias registradas para ${selectedWorkers.length} trabajador(es). Puedes descargar los PDFs desde cada registro.` 
+        });
+        setTimeout(() => setNotification(null), 5000);
+      } catch (error) {
+        console.error('Error al generar constancias:', error);
+        setNotification({ 
+          type: 'error', 
+          message: 'Error al generar constancias. Los activos se asignaron pero las constancias no se generaron.' 
+        });
+        setTimeout(() => setNotification(null), 5000);
+      }
+    } else {
+      // Si no se genera constancia, solo asignar activos
+      const updatedResources = unit.resources.map(res => {
+        if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
+            const newAsset: AssignedAsset = {
+              id: `a-${Date.now()}-${res.id}`,
+              name: assetAssignmentForm.name,
+              type: assetAssignmentForm.type as any,
+              dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
+              serialNumber: assetAssignmentForm.serialNumber,
+              standardAssetId: assetAssignmentForm.standardAssetId || undefined
+            };
+          
+          return {
+            ...res,
+            assignedAssets: [...(res.assignedAssets || []), newAsset]
+          };
         }
         return res;
-    });
+      });
 
-    onUpdate({ ...unit, resources: updatedResources });
-    setShowAssetAssignmentModal(false);
-    setSelectedPersonnelIds([]);
-    setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+      // Cerrar modal ANTES de actualizar
+      setShowAssetAssignmentModal(false);
+      setSelectedPersonnelIds([]);
+      setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '', standardAssetId: undefined });
+      setGenerateConstancy(true);
+      setUseStandardAsset(true);
+      
+      onUpdate({ ...unit, resources: updatedResources });
+      
+      setNotification({ 
+        type: 'success', 
+        message: `Activos asignados a ${selectedWorkers.length} trabajador(es)` 
+      });
+      setTimeout(() => setNotification(null), 3000);
+    }
   };
 
   const handleAddWorker = async () => {
@@ -689,6 +864,68 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           return r;
       });
       onUpdate({ ...unit, resources: updatedResources });
+  };
+
+  // Función para generar y descargar PDF de constancia a demanda
+  const handleDownloadConstancyPDF = async (worker: Resource, asset: AssignedAsset) => {
+    if (!asset.constancyCode) {
+      setNotification({ 
+        type: 'error', 
+        message: 'Este activo no tiene constancia registrada. Asigna el activo nuevamente con la opción de generar constancia.' 
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return;
+    }
+
+    if (!worker.dni) {
+      setNotification({ 
+        type: 'error', 
+        message: 'El trabajador no tiene DNI registrado. No se puede generar la constancia.' 
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return;
+    }
+
+    try {
+      const { constancyService } = await import('../services/constancyService');
+      const { pdfConstancyService } = await import('../services/pdfConstancyService');
+
+      // Obtener la constancia desde la BD
+      const constancy = await constancyService.getByCode(asset.constancyCode);
+      
+      if (!constancy) {
+        setNotification({ 
+          type: 'error', 
+          message: 'No se encontró la constancia en la base de datos.' 
+        });
+        setTimeout(() => setNotification(null), 5000);
+        return;
+      }
+
+      // Generar y descargar PDF
+      pdfConstancyService.downloadPDF({
+        code: constancy.code,
+        workerName: worker.name,
+        workerDni: worker.dni,
+        unitName: unit.name,
+        date: constancy.date,
+        items: constancy.items,
+        constancyType: 'ASSET',
+      }, `constancia-${constancy.code}-${worker.name.replace(/\s+/g, '-')}.pdf`);
+
+      setNotification({ 
+        type: 'success', 
+        message: 'PDF de constancia descargado correctamente' 
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al generar PDF de constancia:', error);
+      setNotification({ 
+        type: 'error', 
+        message: 'Error al generar el PDF. Por favor, intente nuevamente.' 
+      });
+      setTimeout(() => setNotification(null), 5000);
+    }
   };
 
 
@@ -891,7 +1128,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleAddResource = () => {
+  const handleAddResource = async () => {
     if (!onUpdate) return;
     const newResource: Resource = {
       id: `r-${Date.now()}`,
@@ -906,14 +1143,82 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       image: newResourceForm.image,
       externalId: newResourceForm.externalId // SKU
     };
+
+    // Si es equipo y se solicita generar constancia
+    if (newResourceType === ResourceType.EQUIPMENT && generateEquipmentConstancy && equipmentResponsibleWorkerId) {
+      try {
+        const responsibleWorker = unit.resources.find(r => r.id === equipmentResponsibleWorkerId && r.type === ResourceType.PERSONNEL);
+        
+        if (!responsibleWorker) {
+          setNotification({ type: 'error', message: 'Trabajador responsable no encontrado' });
+          setTimeout(() => setNotification(null), 3000);
+          return;
+        }
+
+        if (!responsibleWorker.dni) {
+          setNotification({ 
+            type: 'error', 
+            message: `El trabajador ${responsibleWorker.name} no tiene DNI registrado. Se requiere DNI para generar constancia.` 
+          });
+          setTimeout(() => setNotification(null), 5000);
+          return;
+        }
+
+        const { constancyService } = await import('../services/constancyService');
+        const { pdfConstancyService } = await import('../services/pdfConstancyService');
+        const { authService } = await import('../services/authService');
+        
+        const currentUser = await authService.getCurrentUser();
+
+        // Generar constancia de maquinaria
+        const constancy = await constancyService.generateEquipmentConstancy(
+          responsibleWorker.id,
+          responsibleWorker.name,
+          responsibleWorker.dni,
+          unit.id,
+          unit.name,
+          newResource,
+          currentUser?.name || currentUser?.email || 'Sistema'
+        );
+
+        // Generar y descargar PDF
+        pdfConstancyService.downloadPDF({
+          code: constancy.code,
+          workerName: responsibleWorker.name,
+          workerDni: responsibleWorker.dni,
+          unitName: unit.name,
+          date: constancy.date,
+          items: constancy.items,
+          constancyType: 'EQUIPMENT',
+        }, `constancia-maquinaria-${constancy.code}-${responsibleWorker.name.replace(/\s+/g, '-')}.pdf`);
+
+        setNotification({ 
+          type: 'success', 
+          message: `Constancia de maquinaria generada y descargada` 
+        });
+        setTimeout(() => setNotification(null), 5000);
+      } catch (error) {
+        console.error('Error al generar constancia de maquinaria:', error);
+        setNotification({ 
+          type: 'error', 
+          message: 'Error al generar constancia. El equipo se registró pero la constancia no se generó.' 
+        });
+        setTimeout(() => setNotification(null), 5000);
+      }
+    }
+
     onUpdate({ ...unit, resources: [...unit.resources, newResource] });
     setShowAddResourceModal(false);
     setNewResourceForm({ name: '', quantity: 1, status: 'Operativo', externalId: '', assignedZones: [] });
+    setEquipmentResponsibleWorkerId('');
+    setGenerateEquipmentConstancy(false);
   };
 
   const openAddResourceModal = (type: ResourceType) => {
     setNewResourceType(type);
     setNewResourceForm({ name: '', quantity: 1, status: type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo', externalId: '', assignedZones: [] });
+    setEquipmentResponsibleWorkerId('');
+    setGenerateEquipmentConstancy(false);
     setShowAddResourceModal(true);
   }
 
@@ -2103,18 +2408,54 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 {canEditPersonnel && <button onClick={() => handleAddSingleAsset(worker.id)} className="text-xs text-orange-600 hover:underline flex items-center"><Plus size={12} className="mr-1"/> Asignar</button>}
                             </div>
                             <div className="space-y-2">
-                                {(worker.assignedAssets || []).length > 0 ? worker.assignedAssets?.map(a => (
+                                {(worker.assignedAssets || []).length > 0 ? worker.assignedAssets?.map(a => {
+                                    // Debug: verificar si tiene código de constancia
+                                    const hasConstancy = !!a.constancyCode;
+                                    if (hasConstancy) {
+                                      console.log(`✅ Activo con constancia encontrado:`, { 
+                                        name: a.name, 
+                                        code: a.constancyCode,
+                                        worker: worker.name 
+                                      });
+                                    }
+                                    return (
                                     <div key={a.id} className="flex justify-between items-center text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0">
-                                        <div className="flex items-center">
-                                            <div className="mr-2">{getAssetIcon(a.type)}</div>
-                                            <div>
-                                                <p className="font-medium text-slate-700">{a.name}</p>
-                                                <p className="text-xs text-slate-500">{a.dateAssigned} {a.serialNumber && `• SN: ${a.serialNumber}`}</p>
+                                        <div className="flex items-center flex-1 min-w-0">
+                                            <div className="mr-2 shrink-0">{getAssetIcon(a.type)}</div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-medium text-slate-700 truncate">{a.name}</p>
+                                                <p className="text-xs text-slate-500 truncate">
+                                                    {a.dateAssigned} 
+                                                    {a.serialNumber && ` • SN: ${a.serialNumber}`}
+                                                    {a.constancyCode && ` • Const: ${a.constancyCode}`}
+                                                </p>
                                             </div>
                                         </div>
-                                        {canEditPersonnel && <button onClick={() => handleDeleteAsset(worker.id, a.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={12}/></button>}
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            {hasConstancy ? (
+                                                <button 
+                                                    onClick={() => handleDownloadConstancyPDF(worker, a)} 
+                                                    className="text-blue-600 hover:text-blue-700 p-1 hover:bg-blue-50 rounded transition-colors flex items-center justify-center" 
+                                                    title={`Descargar constancia PDF (${a.constancyCode})`}
+                                                >
+                                                    <FileText size={16} className="text-blue-600"/>
+                                                </button>
+                                            ) : (
+                                                <span className="text-xs text-slate-400 italic">Sin constancia</span>
+                                            )}
+                                            {canEditPersonnel && (
+                                                <button 
+                                                    onClick={() => handleDeleteAsset(worker.id, a.id)} 
+                                                    className="text-slate-300 hover:text-red-500 p-1 hover:bg-red-50 rounded transition-colors"
+                                                    title="Eliminar activo"
+                                                >
+                                                    <Trash2 size={12}/>
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
-                                )) : <p className="text-xs text-slate-400 italic">Sin activos asignados.</p>}
+                                    );
+                                }) : <p className="text-xs text-slate-400 italic">Sin activos asignados.</p>}
                             </div>
                         </div>
                     </div>
@@ -2939,19 +3280,147 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              </div>
              <div className="p-6 space-y-4">
                 <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Activo</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" placeholder="Ej. Botas de Seguridad" value={assetAssignmentForm.name} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, name: e.target.value})} /></div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
-                    <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={assetAssignmentForm.type} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, type: e.target.value})}>
+                
+                {/* Opción: Usar catálogo o texto libre */}
+                <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="useStandardAsset"
+                    checked={useStandardAsset}
+                    onChange={(e) => {
+                      setUseStandardAsset(e.target.checked);
+                      if (!e.target.checked) {
+                        setAssetAssignmentForm({ ...assetAssignmentForm, standardAssetId: undefined, name: '', serialNumber: '' });
+                      }
+                    }}
+                    className="rounded"
+                  />
+                  <label htmlFor="useStandardAsset" className="text-sm text-slate-700 cursor-pointer">
+                    Usar activo del catálogo estándar
+                  </label>
+                </div>
+
+                {useStandardAsset ? (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Activo Estándar <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                        value={assetAssignmentForm.standardAssetId || ''}
+                        onChange={(e) => {
+                          const selectedAsset = standardAssets.find(a => a.id === e.target.value);
+                          if (selectedAsset) {
+                            setAssetAssignmentForm({
+                              ...assetAssignmentForm,
+                              standardAssetId: selectedAsset.id,
+                              name: selectedAsset.name,
+                              type: selectedAsset.type as any,
+                              serialNumber: selectedAsset.defaultSerialNumberPrefix || ''
+                            });
+                          }
+                        }}
+                      >
+                        <option value="">Seleccionar activo del catálogo...</option>
+                        {['EPP', 'Uniforme', 'Tecnologia', 'Herramienta', 'Otro'].map(type => {
+                          const assetsOfType = standardAssets.filter(a => a.type === type);
+                          if (assetsOfType.length === 0) return null;
+                          return (
+                            <optgroup key={type} label={type === 'Tecnologia' ? 'Tecnología' : type}>
+                              {assetsOfType.map(asset => (
+                                <option key={asset.id} value={asset.id}>
+                                  {asset.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          );
+                        })}
+                      </select>
+                      {assetAssignmentForm.standardAssetId && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          Activo seleccionado: <span className="font-medium">{assetAssignmentForm.name}</span>
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                      <select 
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-100" 
+                        value={assetAssignmentForm.type} 
+                        disabled
+                      >
+                        <option value={assetAssignmentForm.type}>
+                          {assetAssignmentForm.type === 'Tecnologia' ? 'Tecnología' : assetAssignmentForm.type}
+                        </option>
+                      </select>
+                      <p className="text-xs text-slate-500 mt-1">Tipo definido por el activo estándar</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Activo</label>
+                      <input 
+                        type="text" 
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                        placeholder="Ej. Botas de Seguridad" 
+                        value={assetAssignmentForm.name} 
+                        onChange={e => setAssetAssignmentForm({...assetAssignmentForm, name: e.target.value})} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                      <select 
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                        value={assetAssignmentForm.type} 
+                        onChange={e => setAssetAssignmentForm({...assetAssignmentForm, type: e.target.value as any})}
+                      >
                         <option value="EPP">EPP</option>
                         <option value="Uniforme">Uniforme</option>
                         <option value="Tecnologia">Tecnología (Celular/Laptop)</option>
                         <option value="Herramienta">Herramienta</option>
                         <option value="Otro">Otro</option>
-                    </select>
+                      </select>
+                    </div>
+                  </>
+                )}
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label>
+                  <input 
+                    type="date" 
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                    value={assetAssignmentForm.dateAssigned} 
+                    onChange={e => setAssetAssignmentForm({...assetAssignmentForm, dateAssigned: e.target.value})} 
+                  />
                 </div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={assetAssignmentForm.dateAssigned} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, dateAssigned: e.target.value})} /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">N° Serie (Opcional)</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={assetAssignmentForm.serialNumber} onChange={e => setAssetAssignmentForm({...assetAssignmentForm, serialNumber: e.target.value})} /></div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">N° Serie (Opcional)</label>
+                  <input 
+                    type="text" 
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                    value={assetAssignmentForm.serialNumber} 
+                    onChange={e => setAssetAssignmentForm({...assetAssignmentForm, serialNumber: e.target.value})} 
+                    placeholder={useStandardAsset && assetAssignmentForm.standardAssetId ? "Prefijo aplicado automáticamente" : ""}
+                  />
+                </div>
+                
+                <div className="flex items-center space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <input 
+                    type="checkbox" 
+                    id="generateConstancy" 
+                    checked={generateConstancy} 
+                    onChange={(e) => setGenerateConstancy(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="generateConstancy" className="text-sm text-slate-700 cursor-pointer">
+                    <span className="font-medium">Generar constancia de entrega en PDF</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      Se generará una constancia con declaración jurada para cada trabajador (requiere DNI)
+                    </span>
+                  </label>
+                </div>
                 
                 <button onClick={handleMassAssignAsset} className="w-full bg-orange-600 text-white py-2.5 rounded-lg font-medium hover:bg-orange-700 transition-colors mt-2">Registrar Entrega</button>
              </div>
@@ -3102,6 +3571,46 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><LinkIcon size={12} className="mr-1"/> SKU (Opcional)</label>
                     <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none font-mono text-sm" value={newResourceForm.externalId || ''} onChange={e => setNewResourceForm({...newResourceForm, externalId: e.target.value})} />
                 </div>
+
+                {newResourceType === ResourceType.EQUIPMENT && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Trabajador Responsable (para constancia)</label>
+                      <select 
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                        value={equipmentResponsibleWorkerId} 
+                        onChange={e => setEquipmentResponsibleWorkerId(e.target.value)}
+                      >
+                        <option value="">Seleccionar trabajador...</option>
+                        {unit.resources
+                          .filter(r => r.type === ResourceType.PERSONNEL)
+                          .map(worker => (
+                            <option key={worker.id} value={worker.id}>
+                              {worker.name} {worker.dni ? `(DNI: ${worker.dni})` : '(Sin DNI)'}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    {equipmentResponsibleWorkerId && (
+                      <div className="flex items-center space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <input 
+                          type="checkbox" 
+                          id="generateEquipmentConstancy" 
+                          checked={generateEquipmentConstancy} 
+                          onChange={(e) => setGenerateEquipmentConstancy(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <label htmlFor="generateEquipmentConstancy" className="text-sm text-slate-700 cursor-pointer">
+                          <span className="font-medium">Generar constancia de entrega de maquinaria en PDF</span>
+                          <span className="block text-xs text-slate-500 mt-0.5">
+                            Se generará una constancia con compromiso de uso adecuado y cuidado
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                  </>
+                )}
 
                 <button onClick={handleAddResource} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Registrar</button>
              </div>

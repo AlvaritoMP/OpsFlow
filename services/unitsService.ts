@@ -225,6 +225,18 @@ export const unitsService = {
         }
       }
 
+      // Actualizar recursos si se proporcionan
+      if (unit.resources !== undefined) {
+        const { resourcesService } = await import('./resourcesService');
+        
+        // Actualizar cada recurso
+        for (const resource of unit.resources) {
+          if (resource.id) {
+            await resourcesService.update(resource.id, resource);
+          }
+        }
+      }
+
       const updatedUnit = await this.getById(id);
       if (!updatedUnit) throw new Error('Unidad no encontrada');
 

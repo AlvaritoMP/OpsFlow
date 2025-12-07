@@ -12,4 +12,6 @@ export * from './geminiService';
 export * from './permissionService';
 export * from './clientsService';
 export * from './operationsMetricsService';
+export * from './constancyService';
+export * from './standardAssetsService';
 

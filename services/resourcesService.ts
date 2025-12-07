@@ -155,6 +155,27 @@ export const resourcesService = {
 
       if (error) throw error;
 
+      // Actualizar assignedAssets si se proporcionan
+      if (resource.assignedAssets !== undefined) {
+        console.log(`🔄 Actualizando ${resource.assignedAssets.length} activos para recurso ${id}`);
+        
+        // Eliminar activos existentes
+        const { error: deleteError } = await supabase.from('assigned_assets').delete().eq('resource_id', id);
+        if (deleteError) {
+          console.error('Error al eliminar activos existentes:', deleteError);
+          throw deleteError;
+        }
+        
+        // Insertar nuevos activos
+        if (resource.assignedAssets.length > 0) {
+          console.log('📦 Insertando activos:', resource.assignedAssets.map(a => ({ 
+            name: a.name, 
+            constancyCode: a.constancyCode 
+          })));
+          await this.createAssignedAssets(id, resource.assignedAssets);
+        }
+      }
+
       return await this.getById(id) || resource as Resource;
     } catch (error) {
       handleSupabaseError(error);
@@ -244,33 +265,80 @@ export const resourcesService = {
   },
 
   async getAssignedAssets(resourceId: string): Promise<AssignedAsset[]> {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('assigned_assets')
       .select('*')
       .eq('resource_id', resourceId)
       .order('date_assigned', { ascending: false });
 
-    return data?.map(a => ({
+    if (error) {
+      console.error('Error al obtener assigned assets:', error);
+      return [];
+    }
+
+    const assets = data?.map(a => ({
       id: a.id,
       name: a.name,
       type: a.type as any,
       dateAssigned: a.date_assigned,
       serialNumber: a.serial_number,
       notes: a.notes,
+      constancyCode: a.constancy_code || undefined,
+      constancyGeneratedAt: a.constancy_generated_at || undefined,
     })) || [];
+    
+    // Debug: verificar códigos de constancia
+    const withConstancy = assets.filter(a => a.constancyCode);
+    if (withConstancy.length > 0) {
+      console.log(`📄 Activos con constancia para recurso ${resourceId}:`, 
+        withConstancy.map(a => ({ name: a.name, code: a.constancyCode })));
+    }
+    
+    return assets;
   },
 
   async createAssignedAssets(resourceId: string, assets: AssignedAsset[]): Promise<void> {
-    await supabase.from('assigned_assets').insert(
-      assets.map(a => ({
+    const assetsToInsert = assets.map(a => {
+      const assetData = {
         resource_id: resourceId,
         name: a.name,
         type: a.type,
         date_assigned: a.dateAssigned,
         serial_number: a.serialNumber,
         notes: a.notes,
-      }))
-    );
+        constancy_code: a.constancyCode || null,
+        constancy_generated_at: a.constancyGeneratedAt || null,
+      };
+      
+      if (a.constancyCode) {
+        console.log(`📄 Activo con constancia: ${a.name} -> Código: ${a.constancyCode}`);
+      }
+      
+      return assetData;
+    });
+    
+    console.log(`💾 Insertando ${assetsToInsert.length} activos para recurso ${resourceId}`);
+    const withConstancy = assetsToInsert.filter(a => a.constancy_code);
+    if (withConstancy.length > 0) {
+      console.log(`📋 ${withConstancy.length} activos con código de constancia:`, 
+        withConstancy.map(a => ({ name: a.name, code: a.constancy_code })));
+    }
+    
+    const { data, error } = await supabase.from('assigned_assets').insert(assetsToInsert).select();
+    
+    if (error) {
+      console.error('❌ Error al crear assigned assets:', error);
+      throw error;
+    }
+    
+    console.log(`✅ Activos insertados correctamente:`, data?.length || 0);
+    if (data) {
+      const insertedWithConstancy = data.filter((d: any) => d.constancy_code);
+      if (insertedWithConstancy.length > 0) {
+        console.log(`✅ Activos con constancia guardados:`, 
+          insertedWithConstancy.map((d: any) => ({ name: d.name, code: d.constancy_code })));
+      }
+    }
   },
 
   async getDailyShifts(resourceId: string): Promise<DailyShift[]> {

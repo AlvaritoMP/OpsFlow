@@ -134,6 +134,45 @@ export interface AssignedAsset {
   dateAssigned: string;
   serialNumber?: string;
   notes?: string;
+  constancyCode?: string; // Código correlativo de constancia
+  constancyGeneratedAt?: string; // Fecha de generación de constancia
+  standardAssetId?: string; // ID del activo estándar del catálogo (opcional)
+}
+
+export interface StandardAsset {
+  id: string;
+  name: string; // Nombre estándar del activo
+  type: 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro';
+  description?: string;
+  defaultSerialNumberPrefix?: string; // Prefijo para números de serie
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  updatedBy?: string;
+}
+
+export interface DeliveryConstancy {
+  id: string;
+  code: string; // Código correlativo único
+  type: 'ASSET' | 'EQUIPMENT'; // Tipo de constancia: activo asignado o maquinaria
+  workerId?: string; // ID del trabajador (para activos)
+  workerName: string;
+  workerDni: string;
+  unitId: string;
+  unitName: string;
+  items: ConstancyItem[]; // Items entregados
+  date: string; // Fecha de entrega
+  generatedAt: string; // Fecha de generación de la constancia
+  generatedBy?: string; // Usuario que generó la constancia
+}
+
+export interface ConstancyItem {
+  name: string;
+  type: string; // Tipo de item (EPP, Uniforme, Tecnologia, Herramienta, Equipo, Maquinaria, etc.)
+  serialNumber?: string;
+  quantity?: number;
+  condition?: string; // Estado del item al momento de entrega
 }
 
 export interface MaintenanceRecord {

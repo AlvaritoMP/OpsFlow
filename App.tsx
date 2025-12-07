@@ -8,6 +8,7 @@ import { ControlCenter } from './components/ControlCenter';
 import { ClientControlCenter } from './components/ClientControlCenter';
 import { Reports } from './components/Reports';
 import { OperationsDashboard } from './components/OperationsDashboard';
+import { StandardAssetsCatalog } from './components/StandardAssetsCatalog';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
@@ -30,7 +31,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
@@ -240,7 +241,9 @@ const App: React.FC = () => {
   const handleUpdateUnit = async (updatedUnit: Unit) => {
     try {
       await updateUnit(updatedUnit.id, updatedUnit);
-      await loadUnits(); // Recargar para obtener datos actualizados
+      // No recargar inmediatamente para evitar cerrar modales
+      // Los datos se actualizarán cuando el usuario navegue o recargue manualmente
+      // await loadUnits(); // Comentado para evitar que se cierren modales
     } catch (error) {
       console.error('Error al actualizar unidad:', error);
       alert('Error al actualizar la unidad. Por favor, intente nuevamente.');
@@ -974,6 +977,10 @@ const App: React.FC = () => {
 
     if (currentView === 'audit-logs') {
       return <AuditLogs />;
+    }
+
+    if (currentView === 'assets-catalog') {
+      return <StandardAssetsCatalog currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'units') {
@@ -2230,6 +2237,13 @@ const App: React.FC = () => {
                   >
                     <Settings size={20} />
                     <span>Configuración</span>
+                  </button>
+                  <button 
+                    onClick={() => setCurrentView('assets-catalog')}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'assets-catalog' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Package size={20} />
+                    <span>Catálogo de Activos</span>
                   </button>
                 </>
               )}
