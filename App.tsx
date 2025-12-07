@@ -1743,18 +1743,30 @@ const App: React.FC = () => {
                           <div>
                               <label className="block text-sm font-medium text-slate-700 mb-2">Empresas / Clientes Asignados</label>
                               <div className="border border-slate-300 rounded-lg p-2 bg-slate-50 max-h-40 overflow-y-auto">
-                                  {availableClients.length === 0 && <p className="text-xs text-slate-400 italic p-1">No hay clientes (unidades) disponibles.</p>}
-                                  {availableClients.map(clientName => (
-                                      <label key={clientName} className="flex items-center p-1.5 hover:bg-slate-100 rounded cursor-pointer">
+                                  {clientsLoading ? (
+                                    <p className="text-xs text-slate-400 italic p-1">Cargando clientes...</p>
+                                  ) : clients.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic p-1">
+                                      {currentUser.role === 'ADMIN' 
+                                        ? 'No hay clientes creados. Cree clientes primero en la sección "Gestión de Clientes".' 
+                                        : 'No hay clientes disponibles.'}
+                                    </p>
+                                  ) : (
+                                    clients.map(client => (
+                                      <label key={client.id} className="flex items-center p-1.5 hover:bg-slate-100 rounded cursor-pointer">
                                           <input 
                                             type="checkbox" 
                                             className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 mr-2"
-                                            checked={userForm.linkedClientNames.includes(clientName)}
-                                            onChange={() => handleToggleLinkedClient(clientName)}
+                                            checked={userForm.linkedClientNames.includes(client.name)}
+                                            onChange={() => handleToggleLinkedClient(client.name)}
                                           />
-                                          <span className="text-sm text-slate-700">{clientName}</span>
+                                          <span className="text-sm text-slate-700">{client.name}</span>
+                                          {client.ruc && (
+                                            <span className="text-xs text-slate-500 ml-2">({client.ruc})</span>
+                                          )}
                                       </label>
-                                  ))}
+                                    ))
+                                  )}
                               </div>
                               <p className="text-xs text-slate-500 mt-1">
                                   {userForm.linkedClientNames.length > 0 
