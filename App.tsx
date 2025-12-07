@@ -184,17 +184,6 @@ const App: React.FC = () => {
     return () => {
       mounted = false;
     };
-        const dbUser = await usersService.getById(session.user.id);
-        if (dbUser) {
-          setCurrentUser(dbUser);
-          setIsAuthenticated(true);
-        }
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
   }, []);
 
   // Actualizar currentUser cuando se carguen los usuarios
