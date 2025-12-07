@@ -74,78 +74,77 @@ export const authService = {
       // Si Supabase Auth funciona, usar ese usuario
       if (!authError && authData?.user) {
         const authUserId = authData.user.id;
+        const hashedPassword = await hashPassword(password);
         
-        // Buscar o crear usuario en la tabla users
-        let usersData: any = null;
-        const { data: existingUser } = await supabase
+        // Actualizar o crear usuario en la tabla users
+        // Con RLS deshabilitado, esto debería funcionar sin problemas
+        const userData = {
+          id: authUserId,
+          email: email.toLowerCase(),
+          name: authData.user.user_metadata?.name || email.split('@')[0],
+          role: authData.user.user_metadata?.role || 'OPERATIONS',
+          password_hash: hashedPassword,
+        };
+
+        // Intentar upsert (insert o update)
+        const { error: upsertError } = await supabase
           .from('users')
-          .select('*')
-          .eq('id', authUserId)
-          .single();
+          .upsert(userData, { onConflict: 'id' });
 
-        if (existingUser) {
-          usersData = existingUser;
-        } else {
-          // Si no existe en users, crearlo
-          const { data: newUser, error: createError } = await supabase
-            .from('users')
-            .insert({
-              id: authUserId,
-              email: email.toLowerCase(),
-              name: authData.user.user_metadata?.name || email.split('@')[0],
-              role: authData.user.user_metadata?.role || 'OPERATIONS',
-            })
-            .select()
-            .single();
-          
-          if (createError) {
-            console.error('Error al crear usuario en tabla:', createError);
-            // Continuar de todas formas con el usuario de Auth
-            usersData = {
-              id: authUserId,
-              email: email.toLowerCase(),
-              name: authData.user.user_metadata?.name || email.split('@')[0],
-              role: authData.user.user_metadata?.role || 'OPERATIONS',
-            };
-          } else {
-            usersData = newUser;
-          }
-        }
-
-        // Migrar contraseña a password_hash si no existe
-        if (!usersData.password_hash) {
-          const hashedPassword = await hashPassword(password);
-          await supabase
+        if (upsertError) {
+          console.error('Error al hacer upsert de usuario:', upsertError);
+          // Si upsert falla, intentar solo update (el usuario ya existe)
+          const { error: updateError } = await supabase
             .from('users')
             .update({ password_hash: hashedPassword })
             .eq('id', authUserId);
+          
+          if (updateError) {
+            console.error('Error al actualizar password_hash:', updateError);
+          }
         }
 
         // Cerrar sesión de Supabase Auth
         await supabase.auth.signOut();
 
-        // Crear sesión local
+        // Crear sesión local usando datos de Auth
         const session: Session = {
-          userId: usersData.id,
-          email: usersData.email,
+          userId: authUserId,
+          email: email.toLowerCase(),
           timestamp: Date.now(),
         };
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 
-        // Obtener usuario completo
-        const dbUser = await usersService.getById(usersData.id);
-        if (!dbUser) {
-          throw new Error('Error al obtener datos del usuario');
+        // Intentar obtener usuario completo, pero si falla por RLS, usar datos de Auth
+        let dbUser: User | null = null;
+        try {
+          dbUser = await usersService.getById(authUserId);
+        } catch (err) {
+          console.warn('No se pudo obtener usuario de BD (RLS), usando datos de Auth:', err);
         }
 
-        // Registrar login en auditoría
-        await auditService.log({
-          actionType: 'LOGIN',
-          entityType: 'USER',
-          entityId: dbUser.id,
-          entityName: dbUser.name,
-          description: `Usuario "${dbUser.name}" inició sesión`,
-        });
+        // Si no se pudo obtener de BD, crear objeto User desde Auth
+        if (!dbUser) {
+          dbUser = {
+            id: authUserId,
+            email: email.toLowerCase(),
+            name: authData.user.user_metadata?.name || email.split('@')[0],
+            role: (authData.user.user_metadata?.role as UserRole) || 'OPERATIONS',
+          };
+        }
+
+        // Registrar login en auditoría (solo si podemos)
+        try {
+          await auditService.log({
+            actionType: 'LOGIN',
+            entityType: 'USER',
+            entityId: dbUser.id,
+            entityName: dbUser.name,
+            description: `Usuario "${dbUser.name}" inició sesión`,
+          });
+        } catch (auditErr) {
+          console.warn('No se pudo registrar en auditoría:', auditErr);
+        }
 
         return { user: dbUser, dbUser };
       }
