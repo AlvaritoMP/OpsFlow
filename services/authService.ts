@@ -55,7 +55,7 @@ export const authService = {
   // Iniciar sesión con email y contraseña
   async signIn(email: string, password: string) {
     try {
-      // Buscar usuario por email
+      // Buscar usuario por email en la tabla users
       const { data: usersData, error: usersError } = await supabase
         .from('users')
         .select('*')
@@ -66,12 +66,71 @@ export const authService = {
         throw new Error('Credenciales inválidas');
       }
 
-      // Verificar contraseña
-      if (!usersData.password_hash) {
+      // Si el usuario es ADMIN y no tiene password_hash, intentar migrar desde Supabase Auth
+      if (!usersData.password_hash && usersData.role === 'ADMIN') {
+        try {
+          // Intentar autenticarse con Supabase Auth
+          const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            email: email.toLowerCase(),
+            password: password,
+          });
+
+          if (!authError && authData.user) {
+            // Si Supabase Auth funciona, migrar la contraseña automáticamente
+            const hashedPassword = await hashPassword(password);
+            await supabase
+              .from('users')
+              .update({ password_hash: hashedPassword })
+              .eq('id', usersData.id);
+            
+            // Cerrar sesión de Supabase Auth
+            await supabase.auth.signOut();
+            
+            // Continuar con el flujo normal (crear sesión, etc.)
+          } else {
+            throw new Error('Credenciales inválidas');
+          }
+        } catch (authErr) {
+          // Si falla Supabase Auth, lanzar error
+          throw new Error('Credenciales inválidas');
+        }
+      } else if (!usersData.password_hash) {
+        // Si no es ADMIN y no tiene password_hash, error
         throw new Error('Usuario no tiene contraseña configurada. Contacta a un administrador.');
       }
 
-      const isValid = await verifyPassword(password, usersData.password_hash);
+      // Verificar contraseña (ya sea hash nuevo o texto plano)
+      let isValid: boolean = false;
+      
+      // Obtener password_hash actualizado (por si se migró)
+      const { data: updatedUserData } = await supabase
+        .from('users')
+        .select('password_hash')
+        .eq('id', usersData.id)
+        .single();
+
+      const currentPasswordHash = updatedUserData?.password_hash || usersData.password_hash;
+
+      // Verificar si password_hash es texto plano o hash
+      const isPlainText = currentPasswordHash.length < 64 || currentPasswordHash.includes(' ');
+      
+      if (isPlainText) {
+        // Comparación directa (texto plano)
+        isValid = password === currentPasswordHash;
+        
+        // Si coincide, hashear automáticamente y guardar el hash
+        if (isValid) {
+          const hashedPassword = await hashPassword(password);
+          await supabase
+            .from('users')
+            .update({ password_hash: hashedPassword })
+            .eq('id', usersData.id);
+        }
+      } else {
+        // Comparación con hash
+        isValid = await verifyPassword(password, currentPasswordHash);
+      }
+      
       if (!isValid) {
         throw new Error('Credenciales inválidas');
       }
