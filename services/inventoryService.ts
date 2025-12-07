@@ -15,14 +15,54 @@ const DEFAULT_CONFIG: InventoryApiConfig = {
 export const getApiConfig = (): InventoryApiConfig => {
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
-        return stored ? JSON.parse(stored) : DEFAULT_CONFIG;
+        if (!stored) {
+            console.log('📦 No hay configuración de inventario guardada, usando valores por defecto');
+            return DEFAULT_CONFIG;
+        }
+        
+        const parsed = JSON.parse(stored);
+        
+        // Validar estructura
+        if (!parsed || typeof parsed !== 'object') {
+            console.warn('⚠️ Configuración de inventario inválida, usando valores por defecto');
+            return DEFAULT_CONFIG;
+        }
+        
+        // Asegurar que tenga todos los campos requeridos
+        const config: InventoryApiConfig = {
+            baseUrl: parsed.baseUrl || DEFAULT_CONFIG.baseUrl,
+            apiKey: parsed.apiKey || DEFAULT_CONFIG.apiKey,
+            useMock: typeof parsed.useMock === 'boolean' ? parsed.useMock : DEFAULT_CONFIG.useMock
+        };
+        
+        console.log('✅ Configuración de inventario cargada correctamente');
+        return config;
     } catch (e) {
+        console.error('❌ Error al cargar configuración de inventario:', e);
         return DEFAULT_CONFIG;
     }
 };
 
 export const saveApiConfig = (config: InventoryApiConfig) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    try {
+        // Validar estructura antes de guardar
+        if (!config || typeof config !== 'object') {
+            throw new Error('Invalid API config: config must be an object');
+        }
+        
+        if (typeof config.useMock !== 'boolean') {
+            throw new Error('Invalid API config: useMock must be a boolean');
+        }
+        
+        // Serializar y guardar
+        const serialized = JSON.stringify(config);
+        localStorage.setItem(STORAGE_KEY, serialized);
+        
+        console.log('✅ Configuración de inventario guardada correctamente');
+    } catch (error) {
+        console.error('❌ Error al guardar configuración de inventario:', error);
+        throw error;
+    }
 };
 
 export interface ExternalInventoryItem {

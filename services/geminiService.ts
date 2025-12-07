@@ -4,11 +4,43 @@ import { Unit } from "../types";
 const GEMINI_STORAGE_KEY = 'OPSFLOW_GEMINI_KEY';
 
 export const getGeminiApiKey = (): string | null => {
-  return localStorage.getItem(GEMINI_STORAGE_KEY) || process.env.API_KEY || null;
+  try {
+    const stored = localStorage.getItem(GEMINI_STORAGE_KEY);
+    if (stored) {
+      console.log('✅ API Key de Gemini cargada correctamente');
+      return stored;
+    }
+    
+    // Intentar usar la variable de entorno como fallback
+    const envKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+    if (envKey) {
+      console.log('📦 Usando API Key de Gemini desde variable de entorno');
+      return envKey;
+    }
+    
+    return null;
+  } catch (e) {
+    console.error('❌ Error al cargar API Key de Gemini:', e);
+    return null;
+  }
 };
 
 export const saveGeminiApiKey = (key: string) => {
-  localStorage.setItem(GEMINI_STORAGE_KEY, key);
+  try {
+    // Validar que la key no esté vacía (aunque puede ser válida si el usuario quiere limpiarla)
+    if (key && key.trim().length === 0) {
+      console.warn('⚠️ Intento de guardar API Key vacía, limpiando...');
+      localStorage.removeItem(GEMINI_STORAGE_KEY);
+      return;
+    }
+    
+    // Guardar la key
+    localStorage.setItem(GEMINI_STORAGE_KEY, key.trim());
+    console.log('✅ API Key de Gemini guardada correctamente');
+  } catch (error) {
+    console.error('❌ Error al guardar API Key de Gemini:', error);
+    throw error;
+  }
 };
 
 const getAiClient = () => {

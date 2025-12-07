@@ -9,6 +9,8 @@ export const usersService = {
   // Obtener todos los usuarios
   async getAll(): Promise<User[]> {
     try {
+      console.log('🔍 Obteniendo usuarios de la base de datos...');
+      
       // Obtener usuarios primero
       const { data: usersData, error: usersError } = await supabase
         .from('users')
@@ -16,18 +18,29 @@ export const usersService = {
         .order('created_at', { ascending: false });
 
       if (usersError) {
-        console.error('Error al obtener usuarios:', usersError);
+        console.error('❌ Error al obtener usuarios:', usersError);
+        console.error('Código de error:', usersError.code);
+        console.error('Mensaje:', usersError.message);
         throw usersError;
       }
 
-      if (!usersData || usersData.length === 0) return [];
+      console.log(`📊 Usuarios encontrados en BD: ${usersData?.length || 0}`);
+
+      if (!usersData || usersData.length === 0) {
+        console.warn('⚠️ No se encontraron usuarios en la base de datos');
+        return [];
+      }
 
       // Obtener todos los vínculos de clientes en una sola consulta
       const userIds = usersData.map(u => u.id);
-      const { data: linksData } = await supabase
+      const { data: linksData, error: linksError } = await supabase
         .from('user_client_links')
         .select('user_id, client_name')
         .in('user_id', userIds);
+
+      if (linksError) {
+        console.warn('⚠️ Error al obtener vínculos de clientes:', linksError);
+      }
 
       // Agrupar links por user_id
       const linksByUserId = (linksData || []).reduce((acc: any, link: any) => {
@@ -37,13 +50,22 @@ export const usersService = {
       }, {});
 
       // Combinar datos
-      return usersData.map(user => transformUserFromDB({
+      const transformedUsers = usersData.map(user => transformUserFromDB({
         ...user,
         user_client_links: linksByUserId[user.id] || []
       }));
-    } catch (error) {
-      console.error('Error en getAll:', error);
-      return [];
+
+      console.log(`✅ Usuarios transformados: ${transformedUsers.length}`);
+      return transformedUsers;
+    } catch (error: any) {
+      console.error('❌ Error en getAll:', error);
+      console.error('Tipo de error:', error?.constructor?.name);
+      console.error('Stack:', error?.stack);
+      // No retornar array vacío si hay un error crítico, lanzar el error
+      if (error?.code === 'PGRST301' || error?.message?.includes('permission') || error?.message?.includes('policy')) {
+        console.error('⚠️ Error de permisos RLS. Verifica las políticas de seguridad en Supabase.');
+      }
+      throw error; // Lanzar el error para que el hook pueda manejarlo
     }
   },
 

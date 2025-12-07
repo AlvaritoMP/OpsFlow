@@ -84,43 +84,112 @@ const App: React.FC = () => {
   const [newStaffPhotoUrl, setNewStaffPhotoUrl] = useState('');
 
   // API Config State
-  const [apiConfig, setApiConfig] = useState<InventoryApiConfig>(getApiConfig());
+  const [apiConfig, setApiConfig] = useState<InventoryApiConfig>(() => {
+    const config = getApiConfig();
+    console.log('📦 Cargando configuración de inventario al iniciar:', config);
+    return config;
+  });
   const [isInventoryConfigSaved, setIsInventoryConfigSaved] = useState(false);
 
   // Gemini API Config State
-  const [geminiKey, setGeminiKey] = useState<string>(getGeminiApiKey() || '');
+  const [geminiKey, setGeminiKey] = useState<string>(() => {
+    const key = getGeminiApiKey() || '';
+    console.log('📦 Cargando API Key de Gemini al iniciar:', key ? '***' + key.slice(-4) : 'no configurada');
+    return key;
+  });
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
+
+  // Cargar configuraciones al iniciar y recargar periódicamente
+  useEffect(() => {
+    // Recargar configuraciones desde localStorage
+    const reloadConfigs = () => {
+      try {
+        const loadedApiConfig = getApiConfig();
+        const currentApiConfigStr = JSON.stringify(apiConfig);
+        const loadedApiConfigStr = JSON.stringify(loadedApiConfig);
+        if (loadedApiConfigStr !== currentApiConfigStr) {
+          console.log('🔄 Recargando configuración de inventario desde localStorage');
+          setApiConfig(loadedApiConfig);
+        }
+        
+        const loadedGeminiKey = getGeminiApiKey() || '';
+        if (loadedGeminiKey !== geminiKey) {
+          console.log('🔄 Recargando API Key de Gemini desde localStorage');
+          setGeminiKey(loadedGeminiKey);
+        }
+        
+        // Recargar permisos
+        const loadedPermissions = getPermissions();
+        const currentPermissionsStr = JSON.stringify(permissions);
+        const loadedPermissionsStr = JSON.stringify(loadedPermissions);
+        if (loadedPermissionsStr !== currentPermissionsStr) {
+          console.log('🔄 Recargando permisos desde localStorage');
+          setPermissions(loadedPermissions);
+        }
+        
+        // Recargar logo
+        const loadedLogo = localStorage.getItem('OPSFLOW_LOGO');
+        if (loadedLogo && loadedLogo !== companyLogo && !loadedLogo.startsWith('blob:')) {
+          console.log('🔄 Recargando logo desde localStorage');
+          setCompanyLogo(loadedLogo);
+        }
+      } catch (error) {
+        console.error('Error al recargar configuraciones:', error);
+      }
+    };
+    
+    // Recargar inmediatamente
+    reloadConfigs();
+    
+    // Recargar cada 2 segundos para detectar cambios en localStorage (de otras pestañas o procesos)
+    const interval = setInterval(reloadConfigs, 2000);
+    
+    return () => clearInterval(interval);
+  }, [apiConfig, geminiKey, permissions, companyLogo]);
 
   // Branding State
   const [companyLogo, setCompanyLogo] = useState<string>(() => {
     const saved = localStorage.getItem('OPSFLOW_LOGO');
-    return saved || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=';
+    // Validar que no sea un blob URL (no persisten)
+    if (saved && !saved.startsWith('blob:')) {
+      return saved;
+    }
+    return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=';
   });
   const [isLogoSaved, setIsLogoSaved] = useState(false);
 
   // Recargar logo cuando cambie en localStorage (para persistencia entre navegaciones)
   useEffect(() => {
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem('OPSFLOW_LOGO');
-      if (saved) {
-        setCompanyLogo(saved);
+    // Limpiar blob URLs guardados (no persisten)
+    const saved = localStorage.getItem('OPSFLOW_LOGO');
+    if (saved && saved.startsWith('blob:')) {
+      console.warn('⚠️ Se encontró un blob URL guardado, limpiando...');
+      localStorage.removeItem('OPSFLOW_LOGO');
+      setCompanyLogo('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=');
+      return;
+    }
+    
+    // Cargar logo al iniciar
+    if (saved && saved !== companyLogo && !saved.startsWith('blob:')) {
+      setCompanyLogo(saved);
+    }
+    
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'OPSFLOW_LOGO' && e.newValue) {
+        // Validar que no sea un blob URL
+        if (!e.newValue.startsWith('blob:')) {
+          setCompanyLogo(e.newValue);
+        } else {
+          console.warn('⚠️ Intento de guardar blob URL, ignorando...');
+        }
       }
     };
     
-    // Escuchar cambios en localStorage
+    // Escuchar cambios en localStorage (de otras pestañas)
     window.addEventListener('storage', handleStorageChange);
-    
-    // También verificar periódicamente (por si el cambio es en la misma ventana)
-    const interval = setInterval(() => {
-      const saved = localStorage.getItem('OPSFLOW_LOGO');
-      if (saved && saved !== companyLogo) {
-        setCompanyLogo(saved);
-      }
-    }, 1000);
     
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
     };
   }, [companyLogo]);
 
@@ -401,9 +470,14 @@ const App: React.FC = () => {
         });
       }
 
+      // Recargar lista de clientes después de guardar
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await loadClients();
+      
       setShowClientModal(false);
       setClientForm({ name: '', ruc: '', representatives: [{ name: '', phone: '', email: '' }] });
-      await loadClients(); // Recargar lista de clientes
+      
+      console.log('✅ Cliente guardado y recargado correctamente');
     } catch (error: any) {
       console.error('Error al guardar cliente:', error);
       alert(error.message || 'Error al guardar el cliente. Por favor, intente nuevamente.');
@@ -417,7 +491,10 @@ const App: React.FC = () => {
 
     try {
       await deleteClient(clientId);
+      // Recargar después de eliminar
+      await new Promise(resolve => setTimeout(resolve, 300));
       await loadClients();
+      console.log('✅ Cliente eliminado y lista recargada');
     } catch (error: any) {
       console.error('Error al eliminar cliente:', error);
       alert(error.message || 'Error al eliminar el cliente.');
@@ -545,10 +622,13 @@ const App: React.FC = () => {
         if (!dbUser) {
           throw new Error('Error al crear el usuario en la base de datos');
         }
-        
-        // Recargar lista de usuarios
-        await loadUsers();
       }
+      
+      // Recargar lista de usuarios después de crear o actualizar
+      // Esperar un momento para que la base de datos se actualice
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await loadUsers();
+      
       setShowUserModal(false);
       setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [] });
     } catch (error: any) {
@@ -650,27 +730,67 @@ const App: React.FC = () => {
           photo: newStaffPhotoUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2U1ZTdlYiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IiM5Y2EzYjgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj4/PC90ZXh0Pjwvc3ZnPg=='
         });
       }
+      
+      // Recargar lista de staff después de guardar
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await loadStaff();
+      
       setShowAddStaffModal(false);
       setEditingStaff(null);
       setNewStaffForm({ name: '', role: 'COORDINATOR', email: '', status: 'activo', archived: false });
       setNewStaffPhotoUrl('');
-    } catch (error) {
+      
+      console.log('✅ Personal guardado y recargado correctamente');
+    } catch (error: any) {
       console.error('Error al guardar personal:', error);
-      alert('Error al guardar el personal. Por favor, intente nuevamente.');
+      alert(error.message || 'Error al guardar el personal. Por favor, intente nuevamente.');
     }
   };
 
   // API Config Handlers
   const handleSaveApiConfig = () => {
-    saveApiConfig(apiConfig);
-    setIsInventoryConfigSaved(true);
-    setTimeout(() => setIsInventoryConfigSaved(false), 3000);
+    try {
+      // Validar antes de guardar
+      if (!apiConfig || typeof apiConfig !== 'object') {
+        throw new Error('Configuración de inventario inválida');
+      }
+      
+      // Guardar
+      saveApiConfig(apiConfig);
+      
+      // Recargar para asegurar persistencia
+      const reloaded = getApiConfig();
+      setApiConfig(reloaded);
+      
+      // Mostrar confirmación
+      setIsInventoryConfigSaved(true);
+      setTimeout(() => setIsInventoryConfigSaved(false), 3000);
+      
+      console.log('✅ Configuración de inventario guardada y recargada');
+    } catch (error: any) {
+      console.error('Error al guardar configuración de inventario:', error);
+      alert(`Error al guardar la configuración: ${error.message || 'Error desconocido'}`);
+    }
   };
 
   const handleSaveGeminiKey = () => {
-    saveGeminiApiKey(geminiKey);
-    setIsGeminiSaved(true);
-    setTimeout(() => setIsGeminiSaved(false), 3000);
+    try {
+      // Guardar
+      saveGeminiApiKey(geminiKey);
+      
+      // Recargar para asegurar persistencia
+      const reloaded = getGeminiApiKey() || '';
+      setGeminiKey(reloaded);
+      
+      // Mostrar confirmación
+      setIsGeminiSaved(true);
+      setTimeout(() => setIsGeminiSaved(false), 3000);
+      
+      console.log('✅ API Key de Gemini guardada y recargada');
+    } catch (error: any) {
+      console.error('Error al guardar API Key de Gemini:', error);
+      alert(`Error al guardar la API Key: ${error.message || 'Error desconocido'}`);
+    }
   };
 
   // Función para convertir archivo a base64
@@ -697,22 +817,37 @@ const App: React.FC = () => {
       // Validar que sea una imagen
       if (!file.type.startsWith('image/')) {
         alert('Por favor, seleccione un archivo de imagen válido.');
+        e.target.value = ''; // Limpiar el input
         return;
       }
       
       // Validar tamaño (máximo 2MB)
       if (file.size > 2 * 1024 * 1024) {
         alert('El archivo es demasiado grande. Por favor, seleccione una imagen menor a 2MB.');
+        e.target.value = ''; // Limpiar el input
         return;
       }
       
       try {
         // Convertir a base64 para persistencia
         const base64 = await convertFileToBase64(file);
+        
+        // Validar que el base64 sea válido
+        if (!base64 || !base64.startsWith('data:image/')) {
+          throw new Error('Error al convertir imagen a base64');
+        }
+        
+        // Actualizar el estado con el base64
         setCompanyLogo(base64);
+        
+        // Guardar automáticamente en localStorage
+        localStorage.setItem('OPSFLOW_LOGO', base64);
+        
+        console.log('✅ Logo convertido a base64 y guardado');
       } catch (error) {
         console.error('Error al procesar imagen:', error);
         alert('Error al procesar la imagen. Por favor, intente nuevamente.');
+        e.target.value = ''; // Limpiar el input
       }
     }
   };
@@ -729,6 +864,12 @@ const App: React.FC = () => {
         const isBase64 = companyLogo.startsWith('data:image/');
         const isDataSvg = companyLogo.startsWith('data:image/svg+xml');
         
+        // Rechazar blob URLs (no persisten)
+        if (companyLogo.startsWith('blob:')) {
+          alert('Por favor, use una URL o suba una imagen. Los archivos temporales no se pueden guardar.');
+          return;
+        }
+        
         if (!isUrl && !isBase64 && !isDataSvg) {
           alert('Por favor, ingrese una URL válida o seleccione una imagen para subir.');
           return;
@@ -744,7 +885,7 @@ const App: React.FC = () => {
         setIsLogoSaved(true);
         setTimeout(() => setIsLogoSaved(false), 3000);
         
-        console.log('Logo guardado correctamente:', companyLogo.substring(0, 50) + '...');
+        console.log('✅ Logo guardado correctamente:', isBase64 ? 'base64' : isUrl ? 'URL' : 'SVG');
       } catch (error) {
         console.error('Error al guardar logo:', error);
         alert('Error al guardar el logo. Por favor, intente nuevamente.');

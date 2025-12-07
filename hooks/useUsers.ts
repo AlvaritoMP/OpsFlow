@@ -11,16 +11,42 @@ export const useUsers = (isAuthenticated: boolean) => {
     try {
       setLoading(true);
       setError(null);
+      console.log('🔄 Cargando usuarios...');
+      
       const data = await usersService.getAll();
-      setUsers(data);
+      
+      // Validar que los datos sean válidos
+      if (Array.isArray(data)) {
+        setUsers(data);
+        console.log(`✅ Usuarios cargados exitosamente: ${data.length} usuarios`);
+        
+        // Log de usuarios para debugging
+        if (data.length > 0) {
+          console.log('Usuarios encontrados:', data.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role })));
+        }
+      } else {
+        console.warn('⚠️ usersService.getAll() no retornó un array:', data);
+        setUsers([]);
+      }
     } catch (err: any) {
+      console.error('❌ Error al cargar usuarios:', err);
+      console.error('Detalles del error:', {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+        hint: err.hint
+      });
+      
       // No mostrar error si es por falta de autenticación
       if (err.message?.includes('JWT') || err.message?.includes('auth') || err.message?.includes('session')) {
+        console.warn('⚠️ Error de autenticación, limpiando usuarios');
         setUsers([]);
         setError(null);
       } else {
-        setError(err.message || 'Error al cargar usuarios');
-        console.error('Error loading users:', err);
+        const errorMessage = err.message || 'Error al cargar usuarios';
+        setError(errorMessage);
+        // No limpiar usuarios si hay un error, mantener los que ya están cargados
+        console.error('Error loading users - manteniendo usuarios existentes:', err);
       }
     } finally {
       setLoading(false);
