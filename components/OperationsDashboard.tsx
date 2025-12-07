@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { operationsMetricsService, UserMetrics, OperationsMetrics } from '../services/operationsMetricsService';
+import { excelService } from '../services/excelService';
 
 interface OperationsDashboardProps {
   currentUser: User;
@@ -80,30 +81,40 @@ export const OperationsDashboard: React.FC<OperationsDashboardProps> = ({ curren
     return `${days}d ${remainingHours}h`;
   };
 
-  const exportMetrics = () => {
+  const exportMetrics = async () => {
     if (!metrics) return;
     
-    const csv = [
-      ['Usuario', 'Email', 'Rol', 'Logs Totales', 'Visitas', 'Solicitudes Resueltas', 'Solicitudes Pendientes', 'Tiempo Promedio Respuesta (h)'],
-      ...metrics.userMetrics.map(m => [
-        m.userName,
-        m.userEmail,
-        m.role,
-        m.totalLogs.toString(),
-        m.visitsCount.toString(),
-        m.requestsResolved.toString(),
-        m.requestsPending.toString(),
-        m.averageResponseTime.toFixed(2),
-      ]),
-    ].map(row => row.join(',')).join('\n');
+    try {
+      const headers = [
+        'Usuario',
+        'Email',
+        'Rol',
+        'Logs Totales',
+        'Visitas',
+        'Solicitudes Resueltas',
+        'Solicitudes Pendientes',
+        'Tiempo Promedio Respuesta (h)'
+      ];
 
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `metricas-operaciones-${startDate}-${endDate}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+      const data = metrics.userMetrics.map(m => ({
+        'Usuario': m.userName,
+        'Email': m.userEmail,
+        'Rol': m.role,
+        'Logs Totales': m.totalLogs,
+        'Visitas': m.visitsCount,
+        'Solicitudes Resueltas': m.requestsResolved,
+        'Solicitudes Pendientes': m.requestsPending,
+        'Tiempo Promedio Respuesta (h)': m.averageResponseTime.toFixed(2)
+      }));
+
+      await excelService.exportToExcel(data, headers, {
+        filename: `metricas-operaciones-${startDate}-${endDate}.xlsx`,
+        sheetName: 'Métricas Operaciones'
+      });
+    } catch (error) {
+      console.error('Error exportando métricas:', error);
+      alert('Error al exportar. Asegúrate de que xlsx está instalado: npm install xlsx');
+    }
   };
 
   if (loading) {
@@ -168,7 +179,7 @@ export const OperationsDashboard: React.FC<OperationsDashboardProps> = ({ curren
             className="px-3 md:px-4 py-1.5 md:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors text-sm md:text-base"
           >
             <Download size={14} className="md:w-4 md:h-4" />
-            <span className="hidden sm:inline">Exportar CSV</span>
+            <span className="hidden sm:inline">Exportar a Excel</span>
             <span className="sm:hidden">Exportar</span>
           </button>
         </div>

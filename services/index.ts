@@ -14,4 +14,6 @@ export * from './clientsService';
 export * from './operationsMetricsService';
 export * from './constancyService';
 export * from './standardAssetsService';
+export * from './retenesService';
+export * from './excelService';
 

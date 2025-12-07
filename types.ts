@@ -293,3 +293,45 @@ export interface Unit {
   rovingSupervisor?: UnitContact; // Supervisor de Ronda
   residentSupervisor?: UnitContact; // Supervisor Residente
 }
+
+// ============================================
+// RETENES (Trabajadores de cobertura)
+// ============================================
+
+export interface Reten {
+  id: string;
+  name: string;
+  dni: string;
+  phone: string;
+  email?: string;
+  status: 'disponible' | 'asignado' | 'no_disponible';
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface RetenAssignment {
+  id: string;
+  reten_id: string;
+  reten_name?: string;
+  reten_phone?: string;
+  unit_id: string;
+  unit_name: string;
+  assignment_date: string; // YYYY-MM-DD
+  start_time: string; // HH:mm
+  end_time: string; // HH:mm
+  assignment_type: 'planificada' | 'inmediata';
+  reason?: string;
+  status: 'programada' | 'en_curso' | 'completada' | 'cancelada';
+  constancy_code?: string;
+  constancy_generated_at?: string;
+  whatsapp_sent: boolean;
+  whatsapp_sent_at?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}

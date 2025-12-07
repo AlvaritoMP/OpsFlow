@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -9,6 +9,7 @@ import { ClientControlCenter } from './components/ClientControlCenter';
 import { Reports } from './components/Reports';
 import { OperationsDashboard } from './components/OperationsDashboard';
 import { StandardAssetsCatalog } from './components/StandardAssetsCatalog';
+import { Retenes } from './components/Retenes';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
@@ -31,7 +32,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
@@ -981,6 +982,10 @@ const App: React.FC = () => {
 
     if (currentView === 'assets-catalog') {
       return <StandardAssetsCatalog currentUserRole={currentUser.role} />;
+    }
+
+    if (currentView === 'retenes') {
+      return <Retenes units={visibleUnits} currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'units') {
@@ -2133,50 +2138,50 @@ const App: React.FC = () => {
       
       {/* Sidebar */}
       <aside 
-        className={`${sidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full'} fixed inset-y-0 left-0 z-50 bg-slate-900 text-white transition-all duration-300 ease-in-out md:relative md:translate-x-0 md:w-64 flex flex-col shadow-xl`}
+        className={`${sidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full'} fixed inset-y-0 left-0 z-50 bg-slate-900 text-white transition-all duration-300 ease-in-out md:relative md:translate-x-0 md:w-64 flex flex-col shadow-xl overflow-hidden`}
       >
-        <div className="p-4 md:p-6 flex items-center justify-between border-b border-slate-800 shrink-0">
-          <div className="flex items-center space-x-2 font-bold text-lg md:text-xl tracking-tight">
+        <div className="p-4 md:p-6 flex items-center justify-between border-b border-slate-800 shrink-0 min-w-0">
+          <div className="flex items-center space-x-2 font-bold text-lg md:text-xl tracking-tight min-w-0 flex-1">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
               <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="3">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
             </div>
-            <span className="truncate">OpsFlow</span>
+            <span className="truncate min-w-0">OpsFlow</span>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white shrink-0">
-            <X size={24} />
+          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white shrink-0 ml-2">
+            <X size={20} />
           </button>
         </div>
 
-        <nav className="flex-1 p-2 md:p-4 space-y-1 md:space-y-2 overflow-y-auto">
+        <nav className="flex-1 p-2 md:p-4 space-y-1 md:space-y-2 overflow-y-auto overflow-x-hidden min-h-0">
           {/* Navegación para usuarios CLIENT */}
           {currentUser.role === 'CLIENT' ? (
             <>
               <button 
                 onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
               >
-                <LayoutDashboard size={18} className="md:w-5 md:h-5 shrink-0" />
-                <span className="truncate">Dashboard</span>
+                <LayoutDashboard size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                <span className="truncate min-w-0">Dashboard</span>
               </button>
               
               {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
                 <button 
                   onClick={() => { setCurrentView('units'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                  className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                 >
-                  <Building size={18} className="md:w-5 md:h-5 shrink-0" />
-                  <span className="truncate">Unidades</span>
+                  <Building size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                  <span className="truncate min-w-0">Unidades</span>
                 </button>
               )}
               
               <button 
                 onClick={() => { setCurrentView('client-control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'client-control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'client-control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
               >
-                <LayoutList size={18} className="md:w-5 md:h-5 shrink-0" />
-                <span className="truncate">Centro de Control</span>
+                <LayoutList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                <span className="truncate min-w-0">Centro de Control</span>
               </button>
             </>
           ) : (
@@ -2185,30 +2190,30 @@ const App: React.FC = () => {
               {checkPermission(currentUser.role, 'DASHBOARD', 'view') && (
                   <button 
                     onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <LayoutDashboard size={18} className="md:w-5 md:h-5 shrink-0" />
-                    <span className="truncate">Dashboard</span>
+                    <LayoutDashboard size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Dashboard</span>
                   </button>
               )}
               
               {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
                  <button 
                     onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <LayoutList size={18} className="md:w-5 md:h-5 shrink-0" />
-                    <span className="truncate">Centro de Control</span>
+                    <LayoutList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Centro de Control</span>
                  </button>
               )}
 
               {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
                   <button 
                     onClick={() => { setCurrentView('units'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Building size={18} className="md:w-5 md:h-5 shrink-0" />
-                    <span className="truncate">Unidades</span>
+                    <Building size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Unidades</span>
                   </button>
               )}
 
@@ -2216,10 +2221,10 @@ const App: React.FC = () => {
               {checkPermission(currentUser.role, 'REPORTS', 'view') && (
                   <button 
                     onClick={() => { setCurrentView('reports'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'reports' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'reports' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <FileBarChart size={18} className="md:w-5 md:h-5 shrink-0" />
-                    <span className="truncate">Informes</span>
+                    <FileBarChart size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Informes</span>
                   </button>
               )}
 
@@ -2227,10 +2232,21 @@ const App: React.FC = () => {
               {(currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
                     onClick={() => { setCurrentView('operations-dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'operations-dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'operations-dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Activity size={18} className="md:w-5 md:h-5 shrink-0" />
-                    <span className="truncate">Dashboard Operaciones</span>
+                    <Activity size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Dashboard Operaciones</span>
+                  </button>
+              )}
+
+              {/* Retenes - Visible for ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+                  <button 
+                    onClick={() => { setCurrentView('retenes'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'retenes' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Retenes</span>
                   </button>
               )}
               
@@ -2241,17 +2257,17 @@ const App: React.FC = () => {
                   </div>
                   <button 
                     onClick={() => { setCurrentView('settings'); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Settings size={18} className="md:w-5 md:h-5 shrink-0" />
-                    <span className="truncate">Configuración</span>
+                    <Settings size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Configuración</span>
                   </button>
                   <button 
                     onClick={() => { setCurrentView('assets-catalog'); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'assets-catalog' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'assets-catalog' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Package size={18} className="md:w-5 md:h-5 shrink-0" />
-                    <span className="truncate">Catálogo</span>
+                    <Package size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Catálogo</span>
                   </button>
                 </>
               )}
@@ -2264,10 +2280,10 @@ const App: React.FC = () => {
                   </div>
                   <button 
                     onClick={() => { setCurrentView('audit-logs'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'audit-logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'audit-logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <FileText size={18} className="md:w-5 md:h-5 shrink-0" />
-                    <span className="truncate">Auditoría</span>
+                    <FileText size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Auditoría</span>
                   </button>
                 </>
               )}
@@ -2276,19 +2292,19 @@ const App: React.FC = () => {
         </nav>
 
         {/* User Switcher for Demo */}
-        <div className="p-3 md:p-4 border-t border-slate-800 relative shrink-0">
+        <div className="p-3 md:p-4 border-t border-slate-800 relative shrink-0 min-w-0">
           <button 
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="w-full flex items-center space-x-2 md:space-x-3 hover:bg-slate-800 p-2 rounded-lg transition-colors"
+            className="w-full flex items-center space-x-2 md:space-x-3 hover:bg-slate-800 p-2 rounded-lg transition-colors min-w-0"
           >
-            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-xs md:text-sm font-bold shrink-0">
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-xs md:text-sm font-bold shrink-0 flex-shrink-0">
               {currentUser.avatar}
             </div>
-            <div className="flex-1 text-left min-w-0">
+            <div className="flex-1 text-left min-w-0 overflow-hidden">
               <p className="text-xs md:text-sm font-medium truncate">{currentUser.name}</p>
               <p className="text-[10px] md:text-xs text-slate-400 truncate">{currentUser.role}</p>
             </div>
-            <ChevronDown size={14} className={`text-slate-500 transition-transform shrink-0 md:w-4 md:h-4 ${showUserMenu ? 'rotate-180' : ''}`} />
+            <ChevronDown size={14} className={`text-slate-500 transition-transform shrink-0 flex-shrink-0 md:w-4 md:h-4 ${showUserMenu ? 'rotate-180' : ''}`} />
           </button>
 
           {/* User Menu */}
@@ -2327,13 +2343,13 @@ const App: React.FC = () => {
         </div>
 
         {/* Powered By Logo Section - DYNAMIC */}
-        <div className="px-4 md:px-6 pb-4 md:pb-6 pt-0 flex flex-col items-center justify-center shrink-0">
+        <div className="px-4 md:px-6 pb-4 md:pb-6 pt-2 flex flex-col items-center justify-center shrink-0 min-w-0">
             <span className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 md:mb-2">Powered By</span>
             {companyLogo ? (
               <img 
                 src={companyLogo} 
                 alt="Company Logo" 
-                className="h-8 md:h-10 w-auto object-contain max-w-[80%] md:max-w-full"
+                className="h-8 md:h-10 w-auto object-contain max-w-[calc(100%-2rem)] md:max-w-full"
                 onError={(e) => {
                   console.error('Error al cargar logo');
                   // Si falla, usar el logo por defecto

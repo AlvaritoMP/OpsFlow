@@ -4,6 +4,7 @@ import { Unit, ResourceType, ManagementStaff } from '../types';
 import { Sparkles, BrainCircuit, FileText, Download, Filter, Table2, CheckSquare, Square, Archive, Users } from 'lucide-react';
 import { generateExecutiveReport } from '../services/geminiService';
 import { managementStaffService } from '../services/managementStaffService';
+import { excelService } from '../services/excelService';
 
 interface ReportsProps {
   units: Unit[];
@@ -153,31 +154,30 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
     return data;
   };
 
-  const handleExportCsv = () => {
+  const handleExportCsv = async () => {
     if (selectedColumns.length === 0) {
       alert('Seleccione al menos una columna para exportar.');
       return;
     }
     
-    const data = getFlattenedData();
-    const headers = selectedColumns.join(',');
-    const rows = data.map(row => {
-      return selectedColumns.map(col => {
-        let val = row[col] || '';
-        // Escape commas for CSV
-        if (typeof val === 'string' && val.includes(',')) val = `"${val}"`;
-        return val;
-      }).join(',');
-    });
+    try {
+      const data = getFlattenedData();
+      const exportData = data.map(row => {
+        const exportRow: any = {};
+        selectedColumns.forEach(col => {
+          exportRow[col] = row[col] || '';
+        });
+        return exportRow;
+      });
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `reporte_${dataSource.toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      await excelService.exportToExcel(exportData, selectedColumns, {
+        filename: `reporte_${dataSource.toLowerCase()}_${new Date().toISOString().split('T')[0]}.xlsx`,
+        sheetName: dataSource
+      });
+    } catch (error) {
+      console.error('Error exportando a Excel:', error);
+      alert('Error al exportar. Asegúrate de que xlsx está instalado: npm install xlsx');
+    }
   };
 
   const previewData = getFlattenedData().slice(0, 5); // Show first 5 rows
@@ -334,7 +334,7 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
                          onClick={handleExportCsv}
                          className="bg-green-600 text-white px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm w-full sm:w-auto justify-center"
                        >
-                         <FileText size={14} className="mr-1 md:mr-2 md:w-4 md:h-4"/> <span className="hidden sm:inline">Exportar Excel / CSV</span><span className="sm:hidden">Exportar</span>
+                         <FileText size={14} className="mr-1 md:mr-2 md:w-4 md:h-4"/> <span className="hidden sm:inline">Exportar a Excel</span><span className="sm:hidden">Exportar</span>
                        </button>
                     </div>
                     

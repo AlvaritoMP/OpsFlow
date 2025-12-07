@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Search, Filter, Download, Calendar, User, Activity, RefreshCw, Loader2 } from 'lucide-react';
 import { auditService, AuditLog, AuditActionType, AuditEntityType } from '../services/auditService';
+import { excelService } from '../services/excelService';
 
 export const AuditLogs: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -125,29 +126,41 @@ export const AuditLogs: React.FC = () => {
     );
   });
 
-  const exportLogs = () => {
-    const csv = [
-      ['Fecha', 'Hora', 'Usuario', 'Email', 'Acción', 'Tipo de Entidad', 'Entidad', 'Descripción'].join(','),
-      ...filteredLogs.map(log => {
-        const { date, time } = formatDateTime(log.createdAt);
-        return [
-          date,
-          time,
-          `"${log.userName}"`,
-          `"${log.userEmail}"`,
-          getActionLabel(log.actionType),
-          getEntityLabel(log.entityType),
-          `"${log.entityName || ''}"`,
-          `"${log.description || ''}"`,
-        ].join(',');
-      }),
-    ].join('\n');
+  const exportLogs = async () => {
+    try {
+      const headers = [
+        'Fecha',
+        'Hora',
+        'Usuario',
+        'Email',
+        'Acción',
+        'Tipo de Entidad',
+        'Entidad',
+        'Descripción'
+      ];
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `audit_logs_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
+      const data = filteredLogs.map(log => {
+        const { date, time } = formatDateTime(log.createdAt);
+        return {
+          'Fecha': date,
+          'Hora': time,
+          'Usuario': log.userName,
+          'Email': log.userEmail,
+          'Acción': getActionLabel(log.actionType),
+          'Tipo de Entidad': getEntityLabel(log.entityType),
+          'Entidad': log.entityName || '',
+          'Descripción': log.description || ''
+        };
+      });
+
+      await excelService.exportToExcel(data, headers, {
+        filename: `audit_logs_${new Date().toISOString().split('T')[0]}.xlsx`,
+        sheetName: 'Logs de Auditoría'
+      });
+    } catch (error) {
+      console.error('Error exportando logs:', error);
+      alert('Error al exportar. Asegúrate de que xlsx está instalado: npm install xlsx');
+    }
   };
 
   return (
@@ -178,7 +191,7 @@ export const AuditLogs: React.FC = () => {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
               >
                 <Download size={16} />
-                <span>Exportar CSV</span>
+                <span>Exportar a Excel</span>
               </button>
             </div>
           </div>
