@@ -53,17 +53,43 @@ export const unitsService = {
 
       console.log(`📊 Unidades encontradas en BD: ${data?.length || 0}`);
 
+      if (!data || data.length === 0) {
+        console.warn('⚠️ No se encontraron unidades en la base de datos');
+        return [];
+      }
+
       // Cargar datos relacionados para cada unidad
+      console.log('🔄 Cargando datos relacionados (recursos, logs, requests, zones, imágenes)...');
       const units = await Promise.all(
         data.map(async (unitData) => {
-          const [resources, logs, requests, zones] = await Promise.all([
-            resourcesService.getByUnitId(unitData.id),
-            logsService.getByUnitId(unitData.id),
-            requestsService.getByUnitId(unitData.id),
-            zonesService.getByUnitId(unitData.id),
-          ]);
+          try {
+            const [resources, logs, requests, zones] = await Promise.all([
+              resourcesService.getByUnitId(unitData.id).catch(err => {
+                console.warn(`⚠️ Error al cargar recursos para unidad ${unitData.id}:`, err);
+                return [];
+              }),
+              logsService.getByUnitId(unitData.id).catch(err => {
+                console.warn(`⚠️ Error al cargar logs para unidad ${unitData.id}:`, err);
+                return [];
+              }),
+              requestsService.getByUnitId(unitData.id).catch(err => {
+                console.warn(`⚠️ Error al cargar requests para unidad ${unitData.id}:`, err);
+                return [];
+              }),
+              zonesService.getByUnitId(unitData.id).catch(err => {
+                console.warn(`⚠️ Error al cargar zones para unidad ${unitData.id}:`, err);
+                return [];
+              }),
+            ]);
 
-          return transformUnitFromDB(unitData, resources, logs, requests, zones);
+            const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones);
+            console.log(`✅ Unidad ${unitData.name}: ${transformed.images.length} imágenes, ${transformed.logs.length} logs, ${transformed.resources.length} recursos`);
+            return transformed;
+          } catch (err) {
+            console.error(`❌ Error al transformar unidad ${unitData.id}:`, err);
+            // Retornar unidad básica sin datos relacionados
+            return transformUnitFromDB(unitData, [], [], [], []);
+          }
         })
       );
 

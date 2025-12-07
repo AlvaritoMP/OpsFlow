@@ -216,8 +216,6 @@ const App: React.FC = () => {
   const handleLoginSuccess = async (user: User) => {
     setCurrentUser(user);
     setIsAuthenticated(true);
-    // Actualizar el rol en el JWT
-    await authService.updateUserRole(user.id, user.role);
   };
 
   // Manejar logout
