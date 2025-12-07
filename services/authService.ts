@@ -150,82 +150,10 @@ export const authService = {
         return { user: dbUser, dbUser };
       }
 
-      // Si Supabase Auth no funciona, intentar con el sistema nuevo
-      // Buscar usuario por email en la tabla users
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', email.toLowerCase())
-        .single();
-
-      if (usersError || !usersData) {
-        throw new Error('Credenciales inválidas');
-      }
-
-      if (!usersData.password_hash) {
-        throw new Error('Usuario no tiene contraseña configurada. Contacta a un administrador.');
-      }
-
-      // Verificar contraseña (ya sea hash nuevo o texto plano)
-      let isValid: boolean = false;
-      
-      // Obtener password_hash actualizado (por si se migró)
-      const { data: updatedUserData } = await supabase
-        .from('users')
-        .select('password_hash')
-        .eq('id', usersData.id)
-        .single();
-
-      const currentPasswordHash = updatedUserData?.password_hash || usersData.password_hash;
-
-      // Verificar si password_hash es texto plano o hash
-      const isPlainText = currentPasswordHash.length < 64 || currentPasswordHash.includes(' ');
-      
-      if (isPlainText) {
-        // Comparación directa (texto plano)
-        isValid = password === currentPasswordHash;
-        
-        // Si coincide, hashear automáticamente y guardar el hash
-        if (isValid) {
-          const hashedPassword = await hashPassword(password);
-          await supabase
-            .from('users')
-            .update({ password_hash: hashedPassword })
-            .eq('id', usersData.id);
-        }
-      } else {
-        // Comparación con hash
-        isValid = await verifyPassword(password, currentPasswordHash);
-      }
-      
-      if (!isValid) {
-        throw new Error('Credenciales inválidas');
-      }
-
-      // Crear sesión
-      const session: Session = {
-        userId: usersData.id,
-        email: usersData.email,
-        timestamp: Date.now(),
-      };
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-
-      // Obtener usuario completo
-      const dbUser = await usersService.getById(usersData.id);
-      if (!dbUser) {
-        throw new Error('Error al obtener datos del usuario');
-      }
-
-      // Registrar login en auditoría
-      await auditService.log({
-        actionType: 'LOGIN',
-        entityType: 'USER',
-        entityId: dbUser.id,
-        entityName: dbUser.name,
-        description: `Usuario "${dbUser.name}" inició sesión`,
-      });
-
-      return { user: dbUser, dbUser };
+      // Si Supabase Auth no funciona, lanzar error
+      // No intentar buscar en users sin autenticación (RLS bloqueará con 406)
+      console.error('Supabase Auth falló:', authError);
+      throw new Error('Credenciales inválidas');
     } catch (error: any) {
       console.error('Error al iniciar sesión:', error);
       throw new Error(error.message || 'Error al iniciar sesión');
