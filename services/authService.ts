@@ -55,6 +55,102 @@ export const authService = {
   // Iniciar sesión con email y contraseña
   async signIn(email: string, password: string) {
     try {
+      // Primero intentar Supabase Auth (para usuarios existentes, especialmente ADMIN)
+      // Esto evita problemas con RLS cuando el usuario aún no está autenticado
+      let authData: any = null;
+      let authError: any = null;
+      
+      try {
+        const authResult = await supabase.auth.signInWithPassword({
+          email: email.toLowerCase(),
+          password: password,
+        });
+        authData = authResult.data;
+        authError = authResult.error;
+      } catch (err) {
+        authError = err;
+      }
+
+      // Si Supabase Auth funciona, usar ese usuario
+      if (!authError && authData?.user) {
+        const authUserId = authData.user.id;
+        
+        // Buscar o crear usuario en la tabla users
+        let usersData: any = null;
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', authUserId)
+          .single();
+
+        if (existingUser) {
+          usersData = existingUser;
+        } else {
+          // Si no existe en users, crearlo
+          const { data: newUser, error: createError } = await supabase
+            .from('users')
+            .insert({
+              id: authUserId,
+              email: email.toLowerCase(),
+              name: authData.user.user_metadata?.name || email.split('@')[0],
+              role: authData.user.user_metadata?.role || 'OPERATIONS',
+            })
+            .select()
+            .single();
+          
+          if (createError) {
+            console.error('Error al crear usuario en tabla:', createError);
+            // Continuar de todas formas con el usuario de Auth
+            usersData = {
+              id: authUserId,
+              email: email.toLowerCase(),
+              name: authData.user.user_metadata?.name || email.split('@')[0],
+              role: authData.user.user_metadata?.role || 'OPERATIONS',
+            };
+          } else {
+            usersData = newUser;
+          }
+        }
+
+        // Migrar contraseña a password_hash si no existe
+        if (!usersData.password_hash) {
+          const hashedPassword = await hashPassword(password);
+          await supabase
+            .from('users')
+            .update({ password_hash: hashedPassword })
+            .eq('id', authUserId);
+        }
+
+        // Cerrar sesión de Supabase Auth
+        await supabase.auth.signOut();
+
+        // Crear sesión local
+        const session: Session = {
+          userId: usersData.id,
+          email: usersData.email,
+          timestamp: Date.now(),
+        };
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+        // Obtener usuario completo
+        const dbUser = await usersService.getById(usersData.id);
+        if (!dbUser) {
+          throw new Error('Error al obtener datos del usuario');
+        }
+
+        // Registrar login en auditoría
+        await auditService.log({
+          actionType: 'LOGIN',
+          entityType: 'USER',
+          entityId: dbUser.id,
+          entityName: dbUser.name,
+          description: `Usuario "${dbUser.name}" inició sesión`,
+        });
+
+        return { user: dbUser, dbUser };
+      }
+
+      // Si Supabase Auth no funciona, intentar con el sistema nuevo
       // Buscar usuario por email en la tabla users
       const { data: usersData, error: usersError } = await supabase
         .from('users')
@@ -66,36 +162,7 @@ export const authService = {
         throw new Error('Credenciales inválidas');
       }
 
-      // Si el usuario es ADMIN y no tiene password_hash, intentar migrar desde Supabase Auth
-      if (!usersData.password_hash && usersData.role === 'ADMIN') {
-        try {
-          // Intentar autenticarse con Supabase Auth
-          const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-            email: email.toLowerCase(),
-            password: password,
-          });
-
-          if (!authError && authData.user) {
-            // Si Supabase Auth funciona, migrar la contraseña automáticamente
-            const hashedPassword = await hashPassword(password);
-            await supabase
-              .from('users')
-              .update({ password_hash: hashedPassword })
-              .eq('id', usersData.id);
-            
-            // Cerrar sesión de Supabase Auth
-            await supabase.auth.signOut();
-            
-            // Continuar con el flujo normal (crear sesión, etc.)
-          } else {
-            throw new Error('Credenciales inválidas');
-          }
-        } catch (authErr) {
-          // Si falla Supabase Auth, lanzar error
-          throw new Error('Credenciales inválidas');
-        }
-      } else if (!usersData.password_hash) {
-        // Si no es ADMIN y no tiene password_hash, error
+      if (!usersData.password_hash) {
         throw new Error('Usuario no tiene contraseña configurada. Contacta a un administrador.');
       }
 
