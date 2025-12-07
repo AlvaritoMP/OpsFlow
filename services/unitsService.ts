@@ -29,6 +29,7 @@ export const unitsService = {
   // Obtener todas las unidades
   async getAll(): Promise<Unit[]> {
     try {
+      console.log('🔍 Obteniendo unidades de la base de datos...');
       const { data, error } = await supabase
         .from('units')
         .select(`
@@ -43,7 +44,14 @@ export const unitsService = {
         `)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error al obtener unidades:', error);
+        console.error('Código de error:', error.code);
+        console.error('Mensaje:', error.message);
+        throw error;
+      }
+
+      console.log(`📊 Unidades encontradas en BD: ${data?.length || 0}`);
 
       // Cargar datos relacionados para cada unidad
       const units = await Promise.all(

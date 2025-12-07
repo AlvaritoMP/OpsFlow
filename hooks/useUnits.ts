@@ -11,11 +11,20 @@ export const useUnits = (isAuthenticated: boolean) => {
     try {
       setLoading(true);
       setError(null);
+      console.log('🔄 useUnits: Iniciando carga de unidades...');
       const data = await unitsService.getAll();
+      console.log(`✅ useUnits: ${data.length} unidades cargadas`);
       setUnits(data);
     } catch (err: any) {
+      console.error('❌ useUnits: Error al cargar unidades:', err);
+      console.error('Detalles:', {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+        hint: err.hint
+      });
       // No mostrar error si es por falta de autenticación
-      if (err.message?.includes('JWT') || err.message?.includes('auth') || err.message?.includes('session')) {
+      if (err.message?.includes('JWT') || err.message?.includes('auth') || err.message?.includes('session') || err.code === 'PGRST301') {
         setUnits([]);
         setError(null);
       } else {

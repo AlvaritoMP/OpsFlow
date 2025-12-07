@@ -12,6 +12,7 @@ export const usersService = {
       console.log('🔍 Obteniendo usuarios de la base de datos...');
       
       // Obtener usuarios primero
+      console.log('🔍 Consultando tabla users...');
       const { data: usersData, error: usersError } = await supabase
         .from('users')
         .select('*')
@@ -21,6 +22,8 @@ export const usersService = {
         console.error('❌ Error al obtener usuarios:', usersError);
         console.error('Código de error:', usersError.code);
         console.error('Mensaje:', usersError.message);
+        console.error('Detalles:', usersError.details);
+        console.error('Hint:', usersError.hint);
         throw usersError;
       }
 
