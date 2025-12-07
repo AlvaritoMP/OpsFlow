@@ -117,45 +117,19 @@ export const usersService = {
   // Crear un usuario
   async create(user: Partial<User>): Promise<User> {
     try {
-      // Verificar que el usuario esté autenticado
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) {
-        throw new Error('Usuario no autenticado. Debe iniciar sesión primero.');
-      }
-      
-      // Verificar si el usuario autenticado es administrador
-      const currentDbUser = await this.getById(authUser.id);
-      const isAdmin = currentDbUser?.role === 'ADMIN';
-      
-      // Determinar el ID a usar
-      let userIdToUse: string;
-      let isCreatingSelf = false;
-      
-      if (isAdmin) {
-        // Si es admin, puede crear usuarios con cualquier ID (nuevo usuario de Auth)
-        if (!user.id) {
-          throw new Error('El ID del usuario es requerido al crear un nuevo usuario.');
-        }
-        userIdToUse = user.id;
-      } else {
-        // Si no es admin, el ID debe coincidir con el usuario autenticado
-        if (user.id && user.id !== authUser.id) {
-          throw new Error('El ID del usuario no coincide con el usuario autenticado.');
-        }
-        userIdToUse = authUser.id;
-        isCreatingSelf = true; // El usuario se está creando a sí mismo
+      if (!user.id) {
+        throw new Error('El ID del usuario es requerido');
       }
       
       // Preparar datos del usuario
       const userData = transformUserToDB({
         ...user,
-        id: userIdToUse,
+        id: user.id,
       });
 
-      console.log('Creando usuario con ID:', userData.id, 'auth.uid():', authUser.id, 'isAdmin:', isAdmin, 'isCreatingSelf:', isCreatingSelf);
+      console.log('Creando usuario con ID:', userData.id);
 
-      // NOTA: Esta operación respeta las políticas RLS de Supabase.
-      // Asegúrate de que las políticas RLS permitan a los usuarios crear su propio registro.
+      // Insertar usuario en la tabla
       const { data, error } = await supabase
         .from('users')
         .insert(userData)
@@ -247,7 +221,7 @@ function transformUserFromDB(data: any): User {
     role: data.role as UserRole,
     avatar: data.avatar,
     linkedClientNames: data.user_client_links?.map((link: any) => link.client_name) || [],
-    temporaryPassword: data.temporary_password || undefined, // Incluir contraseña temporal si existe
+    // NO incluir password_hash en el objeto User retornado por seguridad
   };
 }
 
@@ -264,10 +238,12 @@ function transformUserToDB(user: Partial<User>): any {
     result.id = user.id;
   }
   
-  // Incluir temporary_password solo si se proporciona
-  if (user.temporaryPassword !== undefined) {
-    result.temporary_password = user.temporaryPassword;
+  // Incluir password_hash si se proporciona password (se hasheará antes de guardar)
+  // O incluir password_hash directamente si se proporciona
+  if (user.password_hash !== undefined) {
+    result.password_hash = user.password_hash;
   }
+  // Si se proporciona password pero no password_hash, se debe hashear antes de llamar a esta función
   
   return result;
 }

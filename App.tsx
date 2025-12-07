@@ -158,74 +158,13 @@ const App: React.FC = () => {
     
     const checkAuth = async () => {
       try {
-        const session = await authService.getSession();
+        const dbUser = await authService.getCurrentUser();
         if (!mounted) return;
         
-        if (session?.user) {
-          try {
-            // Obtener el usuario de la BD
-            const dbUser = await usersService.getById(session.user.id);
-            if (!mounted) return;
-            
-            if (dbUser) {
-              // Actualizar el rol en los metadatos de Auth PRIMERO para que las políticas funcionen
-              try {
-                await authService.updateUserRole(session.user.id, dbUser.role);
-              } catch (roleError) {
-                console.error('Error al actualizar rol, continuando de todas formas:', roleError);
-              }
-              if (!mounted) return;
-              setCurrentUser(dbUser);
-              setIsAuthenticated(true);
-            } else {
-              // Si no existe en la BD, intentar crear el usuario automáticamente
-              // NOTA: Esto requiere que las políticas RLS permitan a los usuarios crear su propio registro
-              console.log('Usuario no encontrado en BD, intentando crear automáticamente...');
-              try {
-                // Intentar crear el usuario usando el servicio (respeta RLS)
-                const newDbUser = await usersService.create({
-                  id: session.user.id,
-                  name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuario',
-                  email: session.user.email || '',
-                  role: (session.user.user_metadata?.role as UserRole) || 'OPERATIONS',
-                  avatar: (session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'U').substring(0, 2).toUpperCase(),
-                });
-                
-                if (newDbUser) {
-                  console.log('Usuario creado automáticamente en BD');
-                  await authService.updateUserRole(newDbUser.id, newDbUser.role);
-                  await new Promise(resolve => setTimeout(resolve, 200));
-                  if (!mounted) return;
-                  setCurrentUser(newDbUser);
-                  setIsAuthenticated(true);
-                  return;
-                }
-              } catch (autoCreateError: any) {
-                console.error('Error en auto-creación de usuario:', autoCreateError);
-                // Si falla por RLS, mostrar mensaje más claro
-                if (autoCreateError.message?.includes('permission') || autoCreateError.message?.includes('policy')) {
-                  console.warn('No se pudo crear usuario automáticamente. Verifica las políticas RLS en Supabase.');
-                }
-              }
-              
-              // Si la auto-creación/sincronización falla, mostrar mensaje de error
-              if (!mounted) return;
-              setAppError('Tu cuenta existe en Supabase Auth pero no está registrada en el sistema. Por favor, contacta a un administrador para que active tu cuenta.');
-              setIsAuthenticated(false);
-            }
-          } catch (userError: any) {
-            console.error('Error al obtener usuario:', userError);
-            if (!mounted) return;
-            // Si es un error 406 o de RLS, mostrar mensaje más claro
-            if (userError.message?.includes('406') || userError.message?.includes('row-level security')) {
-              setAppError('Error de permisos al acceder a tu cuenta. Por favor, contacta a un administrador.');
-            } else {
-              setAppError(userError.message || 'Error al cargar usuario');
-            }
-            setIsAuthenticated(false);
-          }
+        if (dbUser) {
+          setCurrentUser(dbUser);
+          setIsAuthenticated(true);
         } else {
-          // No hay sesión, usuario no autenticado
           setIsAuthenticated(false);
         }
       } catch (error: any) {
@@ -245,13 +184,6 @@ const App: React.FC = () => {
     return () => {
       mounted = false;
     };
-
-    // Escuchar cambios en la autenticación
-    const { data: { subscription } } = authService.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT') {
-        setIsAuthenticated(false);
-        setCurrentUser(null);
-      } else if (event === 'SIGNED_IN' && session?.user) {
         const dbUser = await usersService.getById(session.user.id);
         if (dbUser) {
           setCurrentUser(dbUser);
@@ -518,35 +450,12 @@ const App: React.FC = () => {
       try {
           setUserOperationLoading({ type: 'password', userId: passwordForm.userId });
           
-          // Verificar si es el propio usuario o otro usuario
-          const { data: { user: currentUser } } = await authService.getCurrentUser();
-          const isOwnPassword = currentUser?.id === passwordForm.userId;
+          // Cambiar contraseña (el servicio verifica permisos internamente)
+          await authService.updatePassword(passwordForm.userId, passwordForm.newPassword);
           
-          if (isOwnPassword) {
-              // Cambiar propia contraseña directamente
-              await authService.updatePassword(passwordForm.userId, passwordForm.newPassword);
-              setShowChangePasswordModal(false);
-              setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
-              alert('✅ Contraseña actualizada correctamente');
-          } else {
-              // Para otros usuarios, se enviará un email de reset
-              // El mensaje de error contiene información útil
-              try {
-                  await authService.updatePassword(passwordForm.userId, passwordForm.newPassword);
-              } catch (error: any) {
-                  // El error contiene información sobre el email enviado
-                  const message = error.message || 'Error desconocido';
-                  
-                  // Si el mensaje indica que se envió un email, mostrar confirmación
-                  if (message.includes('email de reset') || message.includes('enviado')) {
-                      setShowChangePasswordModal(false);
-                      setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
-                      alert(`✅ ${message}`);
-                  } else {
-                      throw error; // Re-lanzar si es otro tipo de error
-                  }
-              }
-          }
+          setShowChangePasswordModal(false);
+          setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
+          alert('✅ Contraseña actualizada correctamente');
       } catch (error: any) {
           console.error('Error al cambiar contraseña:', error);
           const errorMessage = error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.';
@@ -593,8 +502,8 @@ const App: React.FC = () => {
           linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined
         });
       } else {
-        // Create new user with Auth account
-        const { user, dbUser } = await authService.signUp(userForm.email, userForm.password, {
+        // Create new user (sin Supabase Auth)
+        const { dbUser } = await authService.signUp(userForm.email, userForm.password, {
           name: userForm.name,
           email: userForm.email,
           role: userForm.role,

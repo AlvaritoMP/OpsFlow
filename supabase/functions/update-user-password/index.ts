@@ -36,15 +36,17 @@ serve(async (req) => {
 
     // Verificar que el usuario esté autenticado
     const { data: userData, error: userError } = await supabase.auth.getUser()
+    
     if (userError) {
       console.error('Error getting user:', userError)
       throw new Error('Unauthorized: User not authenticated')
     }
     
-    const user = userData?.user
-    if (!user) {
+    if (!userData || !userData.user || !userData.user.id) {
       throw new Error('Unauthorized: User not authenticated')
     }
+    
+    const user = userData.user
 
     // Verificar que el usuario sea administrador
     const { data: dbUser, error: dbError } = await supabase
@@ -77,26 +79,23 @@ serve(async (req) => {
     })
 
     // Actualizar la contraseña del usuario usando la API Admin
-    const { data: updatedUserData, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+    const updateResult = await supabaseAdmin.auth.admin.updateUserById(
       userId,
       { password: newPassword }
     )
 
-    if (updateError) {
-      console.error('Error updating password:', updateError)
-      throw new Error(`Failed to update password: ${updateError.message}`)
+    if (updateResult.error) {
+      console.error('Error updating password:', updateResult.error)
+      throw new Error(`Failed to update password: ${updateResult.error.message}`)
     }
 
-    const updatedUser = updatedUserData?.user
-    if (!updatedUser) {
-      throw new Error('Failed to update password: No user returned')
-    }
-
+    // La API de Supabase puede retornar null en data cuando es exitoso
+    // Si no hay error, la operación fue exitosa
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Password updated successfully',
-        userId: updatedUser.id 
+        userId: userId 
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

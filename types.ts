@@ -61,7 +61,8 @@ export interface User {
   avatar?: string;
   linkedClientNames?: string[]; // Changed to array: Links user to specific Client Companies (client names)
   linkedClientIds?: string[]; // Array of client IDs for more precise linking
-  temporaryPassword?: string; // Contraseña temporal (solo para referencia del administrador)
+  password?: string; // Contraseña (solo para crear/actualizar, nunca se retorna)
+  password_hash?: string; // Hash de la contraseña (solo para comparación interna)
 }
 
 export type StaffStatus = 'activo' | 'cesado';

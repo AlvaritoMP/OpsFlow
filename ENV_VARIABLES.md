@@ -112,12 +112,17 @@ RETURNS text AS $$
 $$ LANGUAGE sql SECURITY DEFINER;
 ```
 
-## Operaciones Administrativas Seguras
+## Sistema de Autenticación
 
-La aplicación permite a los administradores crear usuarios usando la API pública de Supabase (`supabase.auth.signUp()`). Para operaciones más avanzadas (como cambiar contraseñas de otros usuarios), puedes implementar Supabase Edge Functions:
+La aplicación usa un sistema de autenticación simple basado en la tabla `users` con passwords hasheados (SHA-256). 
 
-1. **Crear una Edge Function** en Supabase que use la `SERVICE_ROLE_KEY` en el servidor
-2. **Llamar a la Edge Function** desde tu frontend usando la clave anónima
-3. **Validar permisos** en la Edge Function antes de realizar operaciones administrativas
+**IMPORTANTE**: Este sistema es adecuado para apps internas con pocos usuarios. No usa Supabase Auth.
 
-Documentación: https://supabase.com/docs/guides/functions
+### Características:
+- Passwords almacenados como hash SHA-256 en la columna `password_hash`
+- Sesiones almacenadas en `localStorage` (expiran después de 30 días)
+- Solo administradores pueden crear usuarios y cambiar contraseñas de otros
+- Los usuarios pueden cambiar su propia contraseña
+
+### Migración:
+Si migras desde Supabase Auth, ejecuta el script `database/add_password_hash.sql` en Supabase para agregar la columna `password_hash` a la tabla `users`.

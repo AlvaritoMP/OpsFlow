@@ -19,17 +19,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const { user, dbUser } = await authService.signIn(email, password);
+      const { dbUser } = await authService.signIn(email, password);
       
       if (dbUser) {
-        // Asegurar que el rol esté actualizado en Auth antes de continuar
-        await authService.updateUserRole(dbUser.id, dbUser.role);
-        await new Promise(resolve => setTimeout(resolve, 100));
         onLoginSuccess(dbUser);
-      } else if (user) {
-        // Si el usuario existe en Auth pero no en la tabla users, mostrar error
-        // El usuario debe ser creado por un administrador desde la sección de configuración
-        throw new Error('Tu cuenta existe en el sistema pero no está configurada. Por favor, contacta a un administrador para que active tu cuenta.');
+      } else {
+        throw new Error('Error al obtener datos del usuario después del login');
       }
     } catch (err: any) {
       setError(err.message || 'Error al iniciar sesión. Verifica tus credenciales.');

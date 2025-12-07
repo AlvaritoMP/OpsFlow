@@ -1,4 +1,5 @@
 import { supabase, handleSupabaseError } from './supabase';
+import { authService } from './authService';
 
 // ============================================
 // SERVICIO DE AUDITORÍA
@@ -63,21 +64,9 @@ export const auditService = {
   async log(params: CreateAuditLogParams): Promise<void> {
     try {
       // Obtener información del usuario actual
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await authService.getCurrentUser();
       if (!user) {
         console.warn('No hay usuario autenticado para registrar log de auditoría');
-        return;
-      }
-
-      // Obtener información del usuario de la tabla users
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('name, email')
-        .eq('id', user.id)
-        .single();
-
-      if (userError && userError.code !== 'PGRST116') {
-        console.error('Error al obtener información del usuario:', userError);
         return;
       }
 
@@ -90,8 +79,8 @@ export const auditService = {
         .from('audit_logs')
         .insert({
           user_id: user.id,
-          user_name: userData?.name || user.email?.split('@')[0] || 'Usuario',
-          user_email: userData?.email || user.email || '',
+          user_name: user.name || user.email?.split('@')[0] || 'Usuario',
+          user_email: user.email || '',
           action_type: params.actionType,
           entity_type: params.entityType,
           entity_id: params.entityId || null,
