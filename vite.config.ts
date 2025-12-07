@@ -8,8 +8,8 @@ export default defineConfig(({ mode }) => {
       root: '.',
       server: {
         port: 3000,
-        host: 'localhost',
-        strictPort: true,
+        host: true, // Permite acceso desde cualquier IP (incluye localhost)
+        strictPort: false, // Si el puerto está ocupado, usa el siguiente disponible
       },
       preview: {
         port: parseInt(process.env.PORT || '3000'),

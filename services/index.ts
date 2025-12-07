@@ -11,4 +11,5 @@ export * from './inventoryService';
 export * from './geminiService';
 export * from './permissionService';
 export * from './clientsService';
+export * from './operationsMetricsService';
 

@@ -1,12 +1,13 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
 import { ClientControlCenter } from './components/ClientControlCenter';
 import { Reports } from './components/Reports';
+import { OperationsDashboard } from './components/OperationsDashboard';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
@@ -29,7 +30,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
@@ -965,6 +966,10 @@ const App: React.FC = () => {
 
     if (currentView === 'dashboard') {
       return <Dashboard units={visibleUnits} onSelectUnit={handleSelectUnit} />;
+    }
+
+    if (currentView === 'operations-dashboard') {
+      return <OperationsDashboard currentUser={currentUser} users={users} />;
     }
 
     if (currentView === 'audit-logs') {
@@ -2200,6 +2205,17 @@ const App: React.FC = () => {
                   >
                     <FileBarChart size={20} />
                     <span>Informes y Analítica</span>
+                  </button>
+              )}
+
+              {/* Operations Dashboard - Visible for ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+                  <button 
+                    onClick={() => { setCurrentView('operations-dashboard'); setSelectedUnitId(null); }}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'operations-dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Activity size={20} />
+                    <span>Dashboard Operaciones</span>
                   </button>
               )}
               
