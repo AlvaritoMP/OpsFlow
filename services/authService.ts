@@ -45,7 +45,55 @@ export const authService = {
     if (!session) return null;
     
     try {
-      return await usersService.getById(session.userId);
+      // Intentar obtener de la BD
+      const dbUser = await usersService.getById(session.userId);
+      if (dbUser) {
+        return dbUser;
+      }
+      
+      // Si no existe en BD, intentar obtener de Supabase Auth como fallback
+      // Esto puede pasar si el usuario se autenticó pero no se creó en BD
+      try {
+        const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+        if (!authError && authUser && authUser.id === session.userId) {
+          // Crear usuario desde Auth
+          const fallbackUser: User = {
+            id: authUser.id,
+            email: authUser.email || session.email,
+            name: authUser.user_metadata?.name || session.email.split('@')[0],
+            role: (authUser.user_metadata?.role as UserRole) || 'OPERATIONS',
+          };
+          
+          // Intentar crear/actualizar en BD (sin password_hash por ahora)
+          try {
+            await supabase
+              .from('users')
+              .upsert({
+                id: fallbackUser.id,
+                email: fallbackUser.email,
+                name: fallbackUser.name,
+                role: fallbackUser.role,
+              }, { onConflict: 'id' });
+            
+            // Intentar obtener de nuevo después del upsert
+            await new Promise(resolve => setTimeout(resolve, 300));
+            const updatedUser = await usersService.getById(session.userId);
+            if (updatedUser) {
+              return updatedUser;
+            }
+          } catch (upsertErr) {
+            console.warn('No se pudo crear/actualizar usuario en BD:', upsertErr);
+          }
+          
+          return fallbackUser;
+        }
+      } catch (authErr) {
+        console.warn('No se pudo obtener usuario de Auth:', authErr);
+      }
+      
+      // Si todo falla, retornar null (se desautenticará)
+      console.warn('No se pudo obtener usuario de BD ni de Auth');
+      return null;
     } catch (error) {
       console.error('Error al obtener usuario actual:', error);
       return null;
@@ -104,26 +152,45 @@ export const authService = {
           }
         }
 
-        // Cerrar sesión de Supabase Auth
-        await supabase.auth.signOut();
+        // Esperar un momento para asegurar que el upsert se completó
+        await new Promise(resolve => setTimeout(resolve, 500));
 
-        // Crear sesión local usando datos de Auth
-        const session: Session = {
-          userId: authUserId,
-          email: email.toLowerCase(),
-          timestamp: Date.now(),
-        };
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-
-        // Intentar obtener usuario completo, pero si falla por RLS, usar datos de Auth
+        // Obtener usuario completo de la BD
         let dbUser: User | null = null;
         try {
           dbUser = await usersService.getById(authUserId);
         } catch (err) {
-          console.warn('No se pudo obtener usuario de BD (RLS), usando datos de Auth:', err);
+          console.warn('No se pudo obtener usuario de BD, intentando crear:', err);
         }
 
-        // Si no se pudo obtener de BD, crear objeto User desde Auth
+        // Si no existe en BD, crearlo explícitamente
+        if (!dbUser) {
+          const newUserData = {
+            id: authUserId,
+            email: email.toLowerCase(),
+            name: authData.user.user_metadata?.name || email.split('@')[0],
+            role: authData.user.user_metadata?.role || 'OPERATIONS',
+            password_hash: hashedPassword,
+          };
+          
+          try {
+            const { data: createdUser, error: createError } = await supabase
+              .from('users')
+              .insert(newUserData)
+              .select()
+              .single();
+            
+            if (!createError && createdUser) {
+              // Esperar un momento y obtener el usuario creado
+              await new Promise(resolve => setTimeout(resolve, 300));
+              dbUser = await usersService.getById(authUserId);
+            }
+          } catch (createErr) {
+            console.error('Error al crear usuario en BD:', createErr);
+          }
+        }
+
+        // Si aún no existe, crear objeto User desde Auth (fallback)
         if (!dbUser) {
           dbUser = {
             id: authUserId,
@@ -132,6 +199,17 @@ export const authService = {
             role: (authData.user.user_metadata?.role as UserRole) || 'OPERATIONS',
           };
         }
+
+        // Crear sesión local usando datos del usuario
+        const session: Session = {
+          userId: dbUser.id,
+          email: dbUser.email,
+          timestamp: Date.now(),
+        };
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+        // Cerrar sesión de Supabase Auth (ya no la necesitamos)
+        await supabase.auth.signOut();
 
         // Registrar login en auditoría (solo si podemos)
         try {
