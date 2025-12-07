@@ -2123,52 +2123,60 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
+      {/* Mobile Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      
       {/* Sidebar */}
       <aside 
-        className={`${sidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full'} fixed inset-y-0 left-0 z-50 bg-slate-900 text-white transition-all duration-300 ease-in-out md:relative md:translate-x-0 flex flex-col shadow-xl`}
+        className={`${sidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full'} fixed inset-y-0 left-0 z-50 bg-slate-900 text-white transition-all duration-300 ease-in-out md:relative md:translate-x-0 md:w-64 flex flex-col shadow-xl`}
       >
-        <div className="p-6 flex items-center justify-between border-b border-slate-800">
-          <div className="flex items-center space-x-2 font-bold text-xl tracking-tight">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+        <div className="p-4 md:p-6 flex items-center justify-between border-b border-slate-800 shrink-0">
+          <div className="flex items-center space-x-2 font-bold text-lg md:text-xl tracking-tight">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
               <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="3">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
             </div>
-            <span>OpsFlow</span>
+            <span className="truncate">OpsFlow</span>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">
+          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white shrink-0">
             <X size={24} />
           </button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2">
+        <nav className="flex-1 p-2 md:p-4 space-y-1 md:space-y-2 overflow-y-auto">
           {/* Navegación para usuarios CLIENT */}
           {currentUser.role === 'CLIENT' ? (
             <>
               <button 
-                onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
               >
-                <LayoutDashboard size={20} />
-                <span>Dashboard</span>
+                <LayoutDashboard size={18} className="md:w-5 md:h-5 shrink-0" />
+                <span className="truncate">Dashboard</span>
               </button>
               
               {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
                 <button 
-                  onClick={() => { setCurrentView('units'); setSelectedUnitId(null); }}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  onClick={() => { setCurrentView('units'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                  className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                 >
-                  <Building size={20} />
-                  <span>Unidades</span>
+                  <Building size={18} className="md:w-5 md:h-5 shrink-0" />
+                  <span className="truncate">Unidades</span>
                 </button>
               )}
               
               <button 
-                onClick={() => { setCurrentView('client-control-center'); setSelectedUnitId(null); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'client-control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                onClick={() => { setCurrentView('client-control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'client-control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
               >
-                <LayoutList size={20} />
-                <span>Centro de Control - Consulta</span>
+                <LayoutList size={18} className="md:w-5 md:h-5 shrink-0" />
+                <span className="truncate">Centro de Control</span>
               </button>
             </>
           ) : (
@@ -2176,74 +2184,74 @@ const App: React.FC = () => {
               {/* Navegación para otros roles (ADMIN, OPERATIONS, etc.) */}
               {checkPermission(currentUser.role, 'DASHBOARD', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <LayoutDashboard size={20} />
-                    <span>Dashboard</span>
+                    <LayoutDashboard size={18} className="md:w-5 md:h-5 shrink-0" />
+                    <span className="truncate">Dashboard</span>
                   </button>
               )}
               
               {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
                  <button 
-                    onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <LayoutList size={20} />
-                    <span>Centro de Control</span>
+                    <LayoutList size={18} className="md:w-5 md:h-5 shrink-0" />
+                    <span className="truncate">Centro de Control</span>
                  </button>
               )}
 
               {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('units'); setSelectedUnitId(null); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => { setCurrentView('units'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Building size={20} />
-                    <span>Unidades</span>
+                    <Building size={18} className="md:w-5 md:h-5 shrink-0" />
+                    <span className="truncate">Unidades</span>
                   </button>
               )}
 
               {/* New Reports Link */}
               {checkPermission(currentUser.role, 'REPORTS', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('reports'); setSelectedUnitId(null); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'reports' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => { setCurrentView('reports'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'reports' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <FileBarChart size={20} />
-                    <span>Informes y Analítica</span>
+                    <FileBarChart size={18} className="md:w-5 md:h-5 shrink-0" />
+                    <span className="truncate">Informes</span>
                   </button>
               )}
 
               {/* Operations Dashboard - Visible for ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
               {(currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
-                    onClick={() => { setCurrentView('operations-dashboard'); setSelectedUnitId(null); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'operations-dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => { setCurrentView('operations-dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'operations-dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Activity size={20} />
-                    <span>Dashboard Operaciones</span>
+                    <Activity size={18} className="md:w-5 md:h-5 shrink-0" />
+                    <span className="truncate">Dashboard Operaciones</span>
                   </button>
               )}
               
               {checkPermission(currentUser.role, 'SETTINGS', 'view') && (
                 <>
-                  <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <div className="pt-3 md:pt-4 pb-1 md:pb-2 px-3 md:px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Sistema
                   </div>
                   <button 
-                    onClick={() => setCurrentView('settings')}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => { setCurrentView('settings'); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Settings size={20} />
-                    <span>Configuración</span>
+                    <Settings size={18} className="md:w-5 md:h-5 shrink-0" />
+                    <span className="truncate">Configuración</span>
                   </button>
                   <button 
-                    onClick={() => setCurrentView('assets-catalog')}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'assets-catalog' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => { setCurrentView('assets-catalog'); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'assets-catalog' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Package size={20} />
-                    <span>Catálogo de Activos</span>
+                    <Package size={18} className="md:w-5 md:h-5 shrink-0" />
+                    <span className="truncate">Catálogo</span>
                   </button>
                 </>
               )}
@@ -2251,15 +2259,15 @@ const App: React.FC = () => {
               {/* Auditoría - Solo para administradores */}
               {currentUser.role === 'ADMIN' && (
                 <>
-                  <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <div className="pt-3 md:pt-4 pb-1 md:pb-2 px-3 md:px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Administración
                   </div>
                   <button 
-                    onClick={() => { setCurrentView('audit-logs'); setSelectedUnitId(null); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'audit-logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => { setCurrentView('audit-logs'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base ${currentView === 'audit-logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <FileText size={20} />
-                    <span>Logs de Auditoría</span>
+                    <FileText size={18} className="md:w-5 md:h-5 shrink-0" />
+                    <span className="truncate">Auditoría</span>
                   </button>
                 </>
               )}
@@ -2268,50 +2276,50 @@ const App: React.FC = () => {
         </nav>
 
         {/* User Switcher for Demo */}
-        <div className="p-4 border-t border-slate-800 relative">
+        <div className="p-3 md:p-4 border-t border-slate-800 relative shrink-0">
           <button 
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="w-full flex items-center space-x-3 hover:bg-slate-800 p-2 rounded-lg transition-colors"
+            className="w-full flex items-center space-x-2 md:space-x-3 hover:bg-slate-800 p-2 rounded-lg transition-colors"
           >
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-sm font-bold">
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-xs md:text-sm font-bold shrink-0">
               {currentUser.avatar}
             </div>
-            <div className="flex-1 text-left">
-              <p className="text-sm font-medium">{currentUser.name}</p>
-              <p className="text-xs text-slate-400 truncate w-32">{currentUser.role}</p>
+            <div className="flex-1 text-left min-w-0">
+              <p className="text-xs md:text-sm font-medium truncate">{currentUser.name}</p>
+              <p className="text-[10px] md:text-xs text-slate-400 truncate">{currentUser.role}</p>
             </div>
-            <ChevronDown size={16} className={`text-slate-500 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
+            <ChevronDown size={14} className={`text-slate-500 transition-transform shrink-0 md:w-4 md:h-4 ${showUserMenu ? 'rotate-180' : ''}`} />
           </button>
 
           {/* User Menu */}
           {showUserMenu && currentUser && (
-            <div className="absolute bottom-full left-4 right-4 mb-2 bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-               <div className="p-2 text-xs font-semibold text-slate-500 uppercase">Usuario</div>
-               <div className="px-4 py-2 text-sm text-slate-300 border-b border-slate-700">
-                 <p className="font-medium">{currentUser.name}</p>
-                 <p className="text-xs text-slate-400">{currentUser.email}</p>
-                 <p className="text-xs text-slate-500 mt-1">Rol: {currentUser.role}</p>
+            <div className="absolute bottom-full left-2 right-2 md:left-4 md:right-4 mb-2 bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 max-h-[60vh] overflow-y-auto">
+               <div className="p-2 text-[10px] md:text-xs font-semibold text-slate-500 uppercase">Usuario</div>
+               <div className="px-3 md:px-4 py-2 text-xs md:text-sm text-slate-300 border-b border-slate-700">
+                 <p className="font-medium truncate">{currentUser.name}</p>
+                 <p className="text-[10px] md:text-xs text-slate-400 truncate">{currentUser.email}</p>
+                 <p className="text-[10px] md:text-xs text-slate-500 mt-1">Rol: {currentUser.role}</p>
                </div>
                {users.length > 0 && users.length > 1 && (
                  <>
-                   <div className="p-2 text-xs font-semibold text-slate-500 uppercase border-t border-slate-700 mt-2">Cambiar Usuario</div>
+                   <div className="p-2 text-[10px] md:text-xs font-semibold text-slate-500 uppercase border-t border-slate-700 mt-2">Cambiar Usuario</div>
                    {users.map(user => (
                      <button
                        key={user.id}
                        onClick={() => { setCurrentUser(user); setShowUserMenu(false); }}
-                       className={`w-full text-left px-4 py-3 text-sm flex items-center hover:bg-slate-700 ${currentUser.id === user.id ? 'text-blue-400 bg-slate-700/50' : 'text-slate-300'}`}
+                       className={`w-full text-left px-3 md:px-4 py-2 md:py-3 text-xs md:text-sm flex items-center hover:bg-slate-700 ${currentUser.id === user.id ? 'text-blue-400 bg-slate-700/50' : 'text-slate-300'}`}
                      >
-                        <span className="w-2 h-2 rounded-full bg-current mr-2"></span>
-                        {user.name} ({user.role})
+                        <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-current mr-2 shrink-0"></span>
+                        <span className="truncate">{user.name} ({user.role})</span>
                      </button>
                    ))}
                  </>
                )}
                <button
                  onClick={handleLogout}
-                 className="w-full text-left px-4 py-3 text-sm flex items-center hover:bg-red-900/20 text-red-400 border-t border-slate-700 mt-2"
+                 className="w-full text-left px-3 md:px-4 py-2 md:py-3 text-xs md:text-sm flex items-center hover:bg-red-900/20 text-red-400 border-t border-slate-700 mt-2"
                >
-                 <LogOut size={16} className="mr-2" />
+                 <LogOut size={14} className="mr-2 shrink-0 md:w-4 md:h-4" />
                  Cerrar Sesión
                </button>
             </div>
@@ -2319,13 +2327,13 @@ const App: React.FC = () => {
         </div>
 
         {/* Powered By Logo Section - DYNAMIC */}
-        <div className="px-6 pb-6 pt-0 flex flex-col items-center justify-center">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Powered By</span>
+        <div className="px-4 md:px-6 pb-4 md:pb-6 pt-0 flex flex-col items-center justify-center shrink-0">
+            <span className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 md:mb-2">Powered By</span>
             {companyLogo ? (
               <img 
                 src={companyLogo} 
                 alt="Company Logo" 
-                className="h-10 w-auto object-contain max-w-full"
+                className="h-8 md:h-10 w-auto object-contain max-w-[80%] md:max-w-full"
                 onError={(e) => {
                   console.error('Error al cargar logo');
                   // Si falla, usar el logo por defecto
@@ -2333,7 +2341,7 @@ const App: React.FC = () => {
                 }}
               />
             ) : (
-              <div className="h-10 w-24 bg-slate-700 rounded flex items-center justify-center text-white text-xs font-bold">
+              <div className="h-8 md:h-10 w-20 md:w-24 bg-slate-700 rounded flex items-center justify-center text-white text-[10px] md:text-xs font-bold">
                 LOGO
               </div>
             )}
@@ -2341,13 +2349,13 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 md:ml-0">
         {/* Top Bar (Mobile only mostly) */}
-        <header className="bg-white h-16 border-b border-slate-200 flex items-center justify-between px-6 md:hidden shrink-0 z-30 relative">
-          <button onClick={() => setSidebarOpen(true)} className="text-slate-600">
-            <Menu size={24} />
+        <header className="bg-white h-14 md:h-16 border-b border-slate-200 flex items-center justify-between px-4 md:px-6 md:hidden shrink-0 z-30 relative">
+          <button onClick={() => setSidebarOpen(true)} className="text-slate-600 p-1">
+            <Menu size={22} />
           </button>
-          <span className="font-bold text-slate-800">OpsFlow</span>
+          <span className="font-bold text-slate-800 text-base">OpsFlow</span>
           <div className="w-6"></div> {/* Spacer */}
         </header>
 

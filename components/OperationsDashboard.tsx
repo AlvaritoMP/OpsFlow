@@ -156,32 +156,33 @@ export const OperationsDashboard: React.FC<OperationsDashboardProps> = ({ curren
   ].filter(item => item.value > 0);
 
   return (
-    <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500">
-      <header className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 animate-in fade-in duration-500">
+      <header className="mb-4 md:mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Dashboard de Operaciones</h1>
-          <p className="text-slate-500">Métricas de gestión y rendimiento de usuarios</p>
+          <h1 className="text-xl md:text-2xl font-bold text-slate-800">Dashboard de Operaciones</h1>
+          <p className="text-xs md:text-sm text-slate-500">Métricas de gestión y rendimiento de usuarios</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={exportMetrics}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors"
+            className="px-3 md:px-4 py-1.5 md:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors text-sm md:text-base"
           >
-            <Download size={16} />
-            Exportar CSV
+            <Download size={14} className="md:w-4 md:h-4" />
+            <span className="hidden sm:inline">Exportar CSV</span>
+            <span className="sm:hidden">Exportar</span>
           </button>
         </div>
       </header>
 
       {/* Filtros */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-        <div className="flex flex-col md:flex-row gap-4 items-end">
+      <div className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex flex-col md:flex-row gap-3 md:gap-4 items-stretch md:items-end">
           <div className="flex-1">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Usuario</label>
+            <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Usuario</label>
             <select
               value={selectedUserId || ''}
               onChange={(e) => setSelectedUserId(e.target.value || null)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               disabled={currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR'}
             >
               <option value="">Todos los usuarios</option>
@@ -195,36 +196,36 @@ export const OperationsDashboard: React.FC<OperationsDashboardProps> = ({ curren
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Desde</label>
+            <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Desde</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full md:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Hasta</label>
+            <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Hasta</label>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full md:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">Total de Logs</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">{metrics.totalLogs}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs md:text-sm font-medium text-slate-500">Total de Logs</p>
+              <p className="text-xl md:text-2xl font-bold text-slate-800 mt-1">{metrics.totalLogs}</p>
             </div>
-            <div className="p-3 bg-blue-100 text-blue-600 rounded-lg">
-              <FileText size={24} />
+            <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
+              <FileText size={20} className="md:w-6 md:h-6" />
             </div>
           </div>
         </div>
@@ -271,73 +272,75 @@ export const OperationsDashboard: React.FC<OperationsDashboardProps> = ({ curren
       </div>
 
       {/* Tabla de métricas por usuario */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Métricas por Usuario</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-200">
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Usuario</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Rol</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Logs</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Visitas</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Solicitudes Resueltas</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Pendientes</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Tiempo Promedio</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.userMetrics.map((userMetric) => (
-                <tr key={userMetric.userId} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="py-3 px-4">
-                    <div>
-                      <p className="font-medium text-slate-800">{userMetric.userName}</p>
-                      <p className="text-xs text-slate-500">{userMetric.userEmail}</p>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700">
-                      {userMetric.role === 'OPERATIONS' ? 'Operaciones' : 'Supervisor'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="font-semibold text-slate-800">{userMetric.totalLogs}</span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="font-semibold text-slate-800">{userMetric.visitsCount}</span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="font-semibold text-green-600">{userMetric.requestsResolved}</span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="font-semibold text-red-600">{userMetric.requestsPending}</span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="font-semibold text-slate-800">
-                      {formatHours(userMetric.averageResponseTime)}
-                    </span>
-                  </td>
+      <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
+        <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Métricas por Usuario</h3>
+        <div className="overflow-x-auto -mx-4 md:mx-0">
+          <div className="inline-block min-w-full align-middle px-4 md:px-0">
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="text-left py-2 md:py-3 px-2 md:px-4 text-[10px] md:text-xs lg:text-sm font-semibold text-slate-700">Usuario</th>
+                  <th className="text-left py-2 md:py-3 px-2 md:px-4 text-[10px] md:text-xs lg:text-sm font-semibold text-slate-700">Rol</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-4 text-[10px] md:text-xs lg:text-sm font-semibold text-slate-700">Logs</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-4 text-[10px] md:text-xs lg:text-sm font-semibold text-slate-700">Visitas</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-4 text-[10px] md:text-xs lg:text-sm font-semibold text-slate-700">Resueltas</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-4 text-[10px] md:text-xs lg:text-sm font-semibold text-slate-700">Pendientes</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-4 text-[10px] md:text-xs lg:text-sm font-semibold text-slate-700">Tiempo</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {metrics.userMetrics.map((userMetric) => (
+                  <tr key={userMetric.userId} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="py-2 md:py-3 px-2 md:px-4">
+                      <div className="min-w-0">
+                        <p className="font-medium text-xs md:text-sm text-slate-800 truncate">{userMetric.userName}</p>
+                        <p className="text-[10px] md:text-xs text-slate-500 truncate">{userMetric.userEmail}</p>
+                      </div>
+                    </td>
+                    <td className="py-2 md:py-3 px-2 md:px-4">
+                      <span className="px-1.5 md:px-2 py-0.5 md:py-1 text-[9px] md:text-xs rounded-full bg-blue-100 text-blue-700 whitespace-nowrap">
+                        {userMetric.role === 'OPERATIONS' ? 'Operaciones' : 'Supervisor'}
+                      </span>
+                    </td>
+                    <td className="py-2 md:py-3 px-2 md:px-4 text-center">
+                      <span className="font-semibold text-xs md:text-sm text-slate-800">{userMetric.totalLogs}</span>
+                    </td>
+                    <td className="py-2 md:py-3 px-2 md:px-4 text-center">
+                      <span className="font-semibold text-xs md:text-sm text-slate-800">{userMetric.visitsCount}</span>
+                    </td>
+                    <td className="py-2 md:py-3 px-2 md:px-4 text-center">
+                      <span className="font-semibold text-xs md:text-sm text-green-600">{userMetric.requestsResolved}</span>
+                    </td>
+                    <td className="py-2 md:py-3 px-2 md:px-4 text-center">
+                      <span className="font-semibold text-xs md:text-sm text-red-600">{userMetric.requestsPending}</span>
+                    </td>
+                    <td className="py-2 md:py-3 px-2 md:px-4 text-center">
+                      <span className="font-semibold text-xs md:text-sm text-slate-800">
+                        {formatHours(userMetric.averageResponseTime)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         {/* Gráfico de rendimiento por usuario */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Rendimiento por Usuario</h3>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Rendimiento por Usuario</h3>
           {userPerformanceData.length > 0 ? (
-            <div className="h-64" style={{ minHeight: '256px' }}>
+            <div className="h-64 md:h-80 overflow-x-auto" style={{ minHeight: '256px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={userPerformanceData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <Tooltip contentStyle={{ fontSize: '12px' }} />
+                  <Legend wrapperStyle={{ fontSize: '12px' }} />
                   <Bar dataKey="logs" fill="#3b82f6" name="Logs" />
                   <Bar dataKey="requests" fill="#10b981" name="Solicitudes Resueltas" />
                   <Bar dataKey="visits" fill="#8b5cf6" name="Visitas" />
@@ -345,7 +348,7 @@ export const OperationsDashboard: React.FC<OperationsDashboardProps> = ({ curren
               </ResponsiveContainer>
             </div>
           ) : (
-            <p className="text-slate-500 text-center py-8">No hay datos para mostrar</p>
+            <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos para mostrar</p>
           )}
         </div>
 

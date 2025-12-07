@@ -160,22 +160,23 @@ export const StandardAssetsCatalog: React.FC<StandardAssetsCatalogProps> = ({ cu
   }
 
   return (
-    <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500 pb-10">
+    <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 animate-in fade-in duration-500 pb-10">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">Catálogo de Activos Estándar</h2>
-          <p className="text-sm text-slate-600 mt-1">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 md:gap-4">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">Catálogo de Activos Estándar</h2>
+          <p className="text-xs md:text-sm text-slate-600 mt-1">
             Gestiona el catálogo de EPPs y activos para estandarizar la nomenclatura al asignar
           </p>
         </div>
         {isAdmin && (
           <button
             onClick={() => handleOpenModal()}
-            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-2"
+            className="px-3 md:px-4 py-1.5 md:py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-2 text-sm md:text-base shrink-0"
           >
-            <Plus size={20} />
-            Agregar Activo
+            <Plus size={16} className="md:w-5 md:h-5" />
+            <span className="hidden sm:inline">Agregar Activo</span>
+            <span className="sm:hidden">Agregar</span>
           </button>
         )}
       </div>
@@ -226,119 +227,125 @@ export const StandardAssetsCatalog: React.FC<StandardAssetsCatalogProps> = ({ cu
 
       {/* Tabla de activos */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-full">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Nombre
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Tipo
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Descripción
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Prefijo Serie
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Estado
-                </th>
-                {isAdmin && (
-                  <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    Acciones
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredAssets.length === 0 ? (
+        <div className="overflow-x-auto -mx-4 md:mx-0">
+          <div className="inline-block min-w-full align-middle px-4 md:px-0">
+            <table className="w-full min-w-full">
+              <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <td colSpan={isAdmin ? 6 : 5} className="px-4 py-8 text-center text-slate-500">
-                    No hay activos estándar registrados
-                  </td>
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Nombre
+                  </th>
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Tipo
+                  </th>
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">
+                    Descripción
+                  </th>
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-wider hidden lg:table-cell">
+                    Prefijo Serie
+                  </th>
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-center text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Estado
+                  </th>
+                  {isAdmin && (
+                    <th className="px-2 md:px-4 py-2 md:py-3 text-center text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      Acciones
+                    </th>
+                  )}
                 </tr>
-              ) : (
-                filteredAssets.map((asset) => (
-                  <tr key={asset.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 text-sm font-medium text-slate-900">{asset.name}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${typeColors[asset.type]}`}>
-                        {typeLabels[asset.type]}
-                      </span>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredAssets.length === 0 ? (
+                  <tr>
+                    <td colSpan={isAdmin ? 6 : 5} className="px-4 py-6 md:py-8 text-center text-xs md:text-sm text-slate-500">
+                      No hay activos estándar registrados
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                      {asset.description || '-'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 font-mono">
-                      {asset.defaultSerialNumberPrefix || '-'}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {asset.isActive ? (
-                        <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                          Activo
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
-                          Inactivo
-                        </span>
-                      )}
-                    </td>
-                    {isAdmin && (
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => handleOpenModal(asset)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                            title="Editar"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                          {asset.isActive ? (
-                            <button
-                              onClick={() => handleDelete(asset.id)}
-                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                              title="Desactivar"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleReactivate(asset.id)}
-                              className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
-                              title="Reactivar"
-                            >
-                              <Check size={16} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  filteredAssets.map((asset) => (
+                    <tr key={asset.id} className="hover:bg-slate-50">
+                      <td className="px-2 md:px-4 py-2 md:py-3 text-xs md:text-sm font-medium text-slate-900">
+                        <div className="truncate max-w-[120px] md:max-w-none" title={asset.name}>{asset.name}</div>
+                        <div className="md:hidden text-[10px] text-slate-500 mt-1">{asset.description || '-'}</div>
+                        <div className="lg:hidden md:block text-[10px] text-slate-500 mt-1 font-mono">{asset.defaultSerialNumberPrefix || '-'}</div>
+                      </td>
+                      <td className="px-2 md:px-4 py-2 md:py-3">
+                        <span className={`px-1.5 md:px-2 py-0.5 md:py-1 text-[9px] md:text-xs font-medium rounded-full ${typeColors[asset.type]}`}>
+                          {typeLabels[asset.type]}
+                        </span>
+                      </td>
+                      <td className="px-2 md:px-4 py-2 md:py-3 text-xs md:text-sm text-slate-600 hidden md:table-cell">
+                        <div className="max-w-[200px] truncate" title={asset.description || '-'}>{asset.description || '-'}</div>
+                      </td>
+                      <td className="px-2 md:px-4 py-2 md:py-3 text-xs md:text-sm text-slate-600 font-mono hidden lg:table-cell">
+                        {asset.defaultSerialNumberPrefix || '-'}
+                      </td>
+                      <td className="px-2 md:px-4 py-2 md:py-3 text-center">
+                        {asset.isActive ? (
+                          <span className="px-1.5 md:px-2 py-0.5 md:py-1 text-[9px] md:text-xs font-medium rounded-full bg-green-100 text-green-800">
+                            Activo
+                          </span>
+                        ) : (
+                          <span className="px-1.5 md:px-2 py-0.5 md:py-1 text-[9px] md:text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+                            Inactivo
+                          </span>
+                        )}
+                      </td>
+                      {isAdmin && (
+                        <td className="px-2 md:px-4 py-2 md:py-3">
+                          <div className="flex items-center justify-center gap-1 md:gap-2">
+                            <button
+                              onClick={() => handleOpenModal(asset)}
+                              className="p-1 md:p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              title="Editar"
+                            >
+                              <Edit2 size={14} className="md:w-4 md:h-4" />
+                            </button>
+                            {asset.isActive ? (
+                              <button
+                                onClick={() => handleDelete(asset.id)}
+                                className="p-1 md:p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Desactivar"
+                              >
+                                <Trash2 size={14} className="md:w-4 md:h-4" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleReactivate(asset.id)}
+                                className="p-1 md:p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                title="Reactivar"
+                              >
+                                <Check size={14} className="md:w-4 md:h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       {/* Modal de edición/creación */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-orange-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-              <h3 className="text-lg font-bold">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 md:p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[95vh] md:max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-orange-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center shrink-0">
+              <h3 className="text-base md:text-lg font-bold truncate pr-2">
                 {editingAsset ? 'Editar Activo Estándar' : 'Nuevo Activo Estándar'}
               </h3>
               <button
                 onClick={handleCloseModal}
-                className="p-1 hover:bg-orange-700 rounded transition-colors"
+                className="p-1 hover:bg-orange-700 rounded transition-colors shrink-0"
               >
-                <X size={20} />
+                <X size={18} className="md:w-5 md:h-5" />
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-4 md:p-6 space-y-3 md:space-y-4 overflow-y-auto">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Nombre <span className="text-red-500">*</span>

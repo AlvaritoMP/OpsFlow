@@ -183,26 +183,26 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
   const previewData = getFlattenedData().slice(0, 5); // Show first 5 rows
 
   return (
-    <div className="p-6 md:p-8 space-y-6 h-full flex flex-col">
+    <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 h-full flex flex-col">
        <div>
-         <h1 className="text-2xl font-bold text-slate-800">Informes y Analítica</h1>
-         <p className="text-slate-500">Generación de reportes inteligentes y exportación de datos.</p>
+         <h1 className="text-xl md:text-2xl font-bold text-slate-800">Informes y Analítica</h1>
+         <p className="text-xs md:text-sm text-slate-500">Generación de reportes inteligentes y exportación de datos.</p>
        </div>
 
        <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
          {/* Tabs */}
-         <div className="flex border-b border-slate-200 bg-slate-50">
+         <div className="flex border-b border-slate-200 bg-slate-50 overflow-x-auto">
             <button 
               onClick={() => setActiveTab('ai')}
-              className={`px-6 py-4 text-sm font-medium flex items-center transition-colors ${activeTab === 'ai' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-4 md:px-6 py-3 md:py-4 text-xs md:text-sm font-medium flex items-center transition-colors whitespace-nowrap shrink-0 ${activeTab === 'ai' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
             >
-              <Sparkles className="mr-2" size={18}/> Reportes Ejecutivos (IA)
+              <Sparkles className="mr-1 md:mr-2" size={14} /> <span className="hidden sm:inline">Reportes Ejecutivos (IA)</span><span className="sm:hidden">IA</span>
             </button>
             <button 
               onClick={() => setActiveTab('export')}
-              className={`px-6 py-4 text-sm font-medium flex items-center transition-colors ${activeTab === 'export' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-4 md:px-6 py-3 md:py-4 text-xs md:text-sm font-medium flex items-center transition-colors whitespace-nowrap shrink-0 ${activeTab === 'export' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
             >
-              <Table2 className="mr-2" size={18}/> Exportación de Datos
+              <Table2 className="mr-1 md:mr-2" size={14} /> <span className="hidden sm:inline">Exportación de Datos</span><span className="sm:hidden">Exportar</span>
             </button>
          </div>
 
@@ -328,37 +328,39 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
 
                  {/* Preview Table */}
                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                       <h3 className="font-bold text-slate-700 text-sm">Vista Previa (Primeros 5 registros)</h3>
+                    <div className="px-4 md:px-6 py-3 md:py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50">
+                       <h3 className="font-bold text-slate-700 text-xs md:text-sm">Vista Previa (Primeros 5 registros)</h3>
                        <button 
                          onClick={handleExportCsv}
-                         className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm"
+                         className="bg-green-600 text-white px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm w-full sm:w-auto justify-center"
                        >
-                         <FileText size={16} className="mr-2"/> Exportar Excel / CSV
+                         <FileText size={14} className="mr-1 md:mr-2 md:w-4 md:h-4"/> <span className="hidden sm:inline">Exportar Excel / CSV</span><span className="sm:hidden">Exportar</span>
                        </button>
                     </div>
                     
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-slate-200">
-                         <thead className="bg-slate-50">
-                            <tr>
-                               {selectedColumns.length > 0 ? selectedColumns.map(col => (
-                                  <th key={col} className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">{col}</th>
-                               )) : <th className="px-6 py-3 text-left text-xs text-slate-400">Seleccione columnas...</th>}
-                            </tr>
-                         </thead>
-                         <tbody className="bg-white divide-y divide-slate-200">
-                            {previewData.map((row, idx) => (
-                               <tr key={idx}>
-                                  {selectedColumns.map(col => (
-                                     <td key={col} className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
-                                        {row[col]}
-                                     </td>
-                                  ))}
-                               </tr>
-                            ))}
-                         </tbody>
-                      </table>
+                    <div className="overflow-x-auto -mx-4 md:mx-0">
+                      <div className="inline-block min-w-full align-middle px-4 md:px-0">
+                        <table className="min-w-full divide-y divide-slate-200">
+                           <thead className="bg-slate-50">
+                              <tr>
+                                 {selectedColumns.length > 0 ? selectedColumns.map(col => (
+                                    <th key={col} className="px-3 md:px-6 py-2 md:py-3 text-left text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-wider">{col}</th>
+                                 )) : <th className="px-3 md:px-6 py-2 md:py-3 text-left text-[10px] md:text-xs text-slate-400">Seleccione columnas...</th>}
+                              </tr>
+                           </thead>
+                           <tbody className="bg-white divide-y divide-slate-200">
+                              {previewData.map((row, idx) => (
+                                 <tr key={idx}>
+                                    {selectedColumns.map(col => (
+                                       <td key={col} className="px-3 md:px-6 py-2 md:py-4 text-xs md:text-sm text-slate-700">
+                                          <div className="max-w-[150px] md:max-w-none truncate" title={String(row[col])}>{row[col]}</div>
+                                       </td>
+                                    ))}
+                                 </tr>
+                              ))}
+                           </tbody>
+                        </table>
+                      </div>
                     </div>
                  </div>
               </div>
