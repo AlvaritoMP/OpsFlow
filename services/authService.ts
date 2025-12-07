@@ -265,23 +265,39 @@ export const authService = {
 
       // Para otros usuarios, usar la Edge Function que usa SERVICE_ROLE_KEY
       // Esto permite cambiar la contraseña directamente sin enviar emails
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://rlnfehtgspnkyeevduli.supabase.co';
-      
-      const { data, error: functionError } = await supabase.functions.invoke('update-user-password', {
-        body: { userId, newPassword },
-      });
+      try {
+        const { data, error: functionError } = await supabase.functions.invoke('update-user-password', {
+          body: { userId, newPassword },
+        });
 
-      if (functionError) {
-        console.error('Error al invocar Edge Function:', functionError);
-        throw new Error(
-          `Error al cambiar la contraseña: ${functionError.message || 'Error desconocido'}. ` +
-          `Asegúrate de que la Edge Function 'update-user-password' esté desplegada y configurada correctamente.`
-        );
-      }
+        if (functionError) {
+          console.error('Error al invocar Edge Function:', functionError);
+          throw new Error(
+            `Error al cambiar la contraseña: ${functionError.message || 'Error desconocido'}. ` +
+            `Asegúrate de que la Edge Function 'update-user-password' esté desplegada y configurada correctamente.`
+          );
+        }
 
-      if (!data || !data.success) {
-        const errorMessage = data?.error || 'Error desconocido al cambiar la contraseña';
-        throw new Error(errorMessage);
+        // Verificar que data existe y tiene la estructura esperada
+        if (!data) {
+          throw new Error('La Edge Function no retornó datos. Verifica que esté desplegada correctamente.');
+        }
+
+        if (!data.success) {
+          const errorMessage = data.error || 'Error desconocido al cambiar la contraseña';
+          throw new Error(errorMessage);
+        }
+      } catch (invokeError: any) {
+        // Si el error es que la función no existe, dar un mensaje más claro
+        if (invokeError.message?.includes('Function not found') || 
+            invokeError.message?.includes('404') ||
+            invokeError.code === 'FUNCTION_NOT_FOUND') {
+          throw new Error(
+            'La Edge Function "update-user-password" no está desplegada. ' +
+            'Por favor, despliégala desde el dashboard de Supabase siguiendo las instrucciones en DEPLOY_EDGE_FUNCTION.md'
+          );
+        }
+        throw invokeError;
       }
 
       // Registrar en auditoría

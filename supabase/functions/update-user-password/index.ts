@@ -35,8 +35,14 @@ serve(async (req) => {
     })
 
     // Verificar que el usuario esté autenticado
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError || !user) {
+    const { data: userData, error: userError } = await supabase.auth.getUser()
+    if (userError) {
+      console.error('Error getting user:', userError)
+      throw new Error('Unauthorized: User not authenticated')
+    }
+    
+    const user = userData?.user
+    if (!user) {
       throw new Error('Unauthorized: User not authenticated')
     }
 
@@ -71,7 +77,7 @@ serve(async (req) => {
     })
 
     // Actualizar la contraseña del usuario usando la API Admin
-    const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+    const { data: updatedUserData, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
       userId,
       { password: newPassword }
     )
@@ -81,7 +87,8 @@ serve(async (req) => {
       throw new Error(`Failed to update password: ${updateError.message}`)
     }
 
-    if (!updatedUser || !updatedUser.user) {
+    const updatedUser = updatedUserData?.user
+    if (!updatedUser) {
       throw new Error('Failed to update password: No user returned')
     }
 
@@ -89,25 +96,28 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         message: 'Password updated successfully',
-        userId: updatedUser.user.id 
+        userId: updatedUser.id 
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
       },
     )
-  } catch (error) {
+  } catch (error: any) {
     console.error('Edge Function Error:', error)
+    const errorMessage = error?.message || 'Internal server error'
+    const statusCode = errorMessage?.includes('Unauthorized') ? 401 : 
+                      errorMessage?.includes('Forbidden') ? 403 :
+                      errorMessage?.includes('Bad Request') ? 400 : 500
+    
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: error.message || 'Internal server error'
+        error: errorMessage
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: error.message?.includes('Unauthorized') ? 401 : 
-                error.message?.includes('Forbidden') ? 403 :
-                error.message?.includes('Bad Request') ? 400 : 500,
+        status: statusCode,
       },
     )
   }
