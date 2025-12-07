@@ -263,18 +263,26 @@ export const authService = {
         return;
       }
 
-      // IMPORTANTE: Cambiar la contraseña de otros usuarios requiere operaciones administrativas
-      // que no pueden hacerse desde el frontend por razones de seguridad.
-      // Para implementar esta funcionalidad de forma segura, debes crear una Supabase Edge Function
-      // que use la SERVICE_ROLE_KEY en el servidor.
-      // 
-      // Ejemplo de Edge Function:
-      // https://supabase.com/docs/guides/functions
-      throw new Error(
-        'Cambiar la contraseña de otros usuarios desde el frontend no está permitido por razones de seguridad. ' +
-        'Por favor, implementa una Supabase Edge Function que use la SERVICE_ROLE_KEY en el servidor. ' +
-        'Consulta la documentación: https://supabase.com/docs/guides/functions'
-      );
+      // Para otros usuarios, usar la Edge Function que usa SERVICE_ROLE_KEY
+      // Esto permite cambiar la contraseña directamente sin enviar emails
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://rlnfehtgspnkyeevduli.supabase.co';
+      
+      const { data, error: functionError } = await supabase.functions.invoke('update-user-password', {
+        body: { userId, newPassword },
+      });
+
+      if (functionError) {
+        console.error('Error al invocar Edge Function:', functionError);
+        throw new Error(
+          `Error al cambiar la contraseña: ${functionError.message || 'Error desconocido'}. ` +
+          `Asegúrate de que la Edge Function 'update-user-password' esté desplegada y configurada correctamente.`
+        );
+      }
+
+      if (!data || !data.success) {
+        const errorMessage = data?.error || 'Error desconocido al cambiar la contraseña';
+        throw new Error(errorMessage);
+      }
 
       // Registrar en auditoría
       const targetUser = await usersService.getById(userId);

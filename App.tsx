@@ -517,14 +517,46 @@ const App: React.FC = () => {
       
       try {
           setUserOperationLoading({ type: 'password', userId: passwordForm.userId });
-          // Usar updatePassword que maneja tanto el propio usuario como otros usuarios
-          await authService.updatePassword(passwordForm.userId, passwordForm.newPassword);
-          setShowChangePasswordModal(false);
-          setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
-          alert('Contraseña actualizada correctamente');
+          
+          // Verificar si es el propio usuario o otro usuario
+          const { data: { user: currentUser } } = await authService.getCurrentUser();
+          const isOwnPassword = currentUser?.id === passwordForm.userId;
+          
+          if (isOwnPassword) {
+              // Cambiar propia contraseña directamente
+              await authService.updatePassword(passwordForm.userId, passwordForm.newPassword);
+              setShowChangePasswordModal(false);
+              setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
+              alert('✅ Contraseña actualizada correctamente');
+          } else {
+              // Para otros usuarios, se enviará un email de reset
+              // El mensaje de error contiene información útil
+              try {
+                  await authService.updatePassword(passwordForm.userId, passwordForm.newPassword);
+              } catch (error: any) {
+                  // El error contiene información sobre el email enviado
+                  const message = error.message || 'Error desconocido';
+                  
+                  // Si el mensaje indica que se envió un email, mostrar confirmación
+                  if (message.includes('email de reset') || message.includes('enviado')) {
+                      setShowChangePasswordModal(false);
+                      setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
+                      alert(`✅ ${message}`);
+                  } else {
+                      throw error; // Re-lanzar si es otro tipo de error
+                  }
+              }
+          }
       } catch (error: any) {
           console.error('Error al cambiar contraseña:', error);
-          alert(error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.');
+          const errorMessage = error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.';
+          
+          // Si el mensaje contiene información útil, mostrarlo
+          if (errorMessage.includes('email de reset') || errorMessage.includes('enviado')) {
+              alert(`ℹ️ ${errorMessage}`);
+          } else {
+              alert(`❌ ${errorMessage}`);
+          }
       } finally {
           setUserOperationLoading({ type: null });
       }
