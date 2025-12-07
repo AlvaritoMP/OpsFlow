@@ -41,9 +41,11 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
     dni: '',
     phone: '',
     email: '',
+    photo: '',
     status: 'disponible' as Reten['status'],
     notes: ''
   });
+  const [retenPhotoUrl, setRetenPhotoUrl] = useState('');
 
   // Estados para asignaciones
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
@@ -141,14 +143,20 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
     }
 
     try {
+      const retenData = {
+        ...retenForm,
+        photo: retenForm.photo || null // Guardar null si está vacío
+      };
+      
       if (editingReten) {
-        await retenesService.update(editingReten.id, retenForm);
+        await retenesService.update(editingReten.id, retenData);
       } else {
-        await retenesService.create(retenForm);
+        await retenesService.create(retenData);
       }
       setShowRetenModal(false);
       setEditingReten(null);
-      setRetenForm({ name: '', dni: '', phone: '', email: '', status: 'disponible', notes: '' });
+      setRetenForm({ name: '', dni: '', phone: '', email: '', photo: '', status: 'disponible', notes: '' });
+      setRetenPhotoUrl('');
       loadRetenes();
     } catch (error) {
       console.error('Error guardando retén:', error);
@@ -227,51 +235,45 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
         return;
       }
 
-      // Generar PDF de constancia
-      const constancyData = {
-        code: assignment.constancy_code || 'PENDIENTE',
-        type: 'ASSET' as const,
-        workerName: reten.name,
-        workerDni: reten.dni,
-        unitName: assignment.unit_name,
-        unitId: assignment.unit_id,
-        date: assignment.assignment_date,
-        items: [
-          {
-            name: `Cobertura en ${assignment.unit_name}`,
-            quantity: 1,
-            description: `Asignación de ${assignment.start_time} a ${assignment.end_time} - ${assignment.reason || 'Cobertura de falta de personal'}`
-          }
-        ]
-      };
+      if (!reten.phone) {
+        alert('El retén no tiene un número de teléfono registrado');
+        return;
+      }
 
-      pdfConstancyService.generatePDF(constancyData).then(blob => {
-        // Crear URL del PDF
-        const pdfUrl = URL.createObjectURL(blob);
-        
-        // Mensaje para WhatsApp
-        const message = `*CONSTANCIA DE ASIGNACIÓN*\n\n` +
-          `Código: ${constancyData.code}\n` +
-          `Retén: ${reten.name}\n` +
-          `DNI: ${reten.dni}\n` +
-          `Unidad: ${assignment.unit_name}\n` +
-          `Fecha: ${new Date(assignment.assignment_date).toLocaleDateString('es-ES')}\n` +
-          `Horario: ${assignment.start_time} - ${assignment.end_time}\n` +
-          `Tipo: ${assignment.assignment_type === 'planificada' ? 'Planificada' : 'Inmediata'}\n` +
-          (assignment.reason ? `Razón: ${assignment.reason}\n` : '') +
-          `\nPor favor presente esta constancia en la unidad asignada.`;
+      // Limpiar número de teléfono (solo números)
+      const cleanPhone = reten.phone.replace(/[^0-9]/g, '');
+      if (!cleanPhone || cleanPhone.length < 9) {
+        alert('El número de teléfono no es válido');
+        return;
+      }
 
-        // Abrir WhatsApp con el mensaje
-        const whatsappUrl = `https://wa.me/${reten.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
-        window.open(whatsappUrl, '_blank');
+      // Mensaje para WhatsApp (más corto y directo)
+      const message = `*CONSTANCIA DE ASIGNACIÓN*\n\n` +
+        `Código: ${assignment.constancy_code || 'PENDIENTE'}\n` +
+        `Retén: ${reten.name}\n` +
+        `DNI: ${reten.dni}\n` +
+        `Unidad: ${assignment.unit_name}\n` +
+        `Fecha: ${new Date(assignment.assignment_date).toLocaleDateString('es-ES')}\n` +
+        `Horario: ${assignment.start_time} - ${assignment.end_time}\n` +
+        `Tipo: ${assignment.assignment_type === 'planificada' ? 'Planificada' : 'Inmediata'}\n` +
+        (assignment.reason ? `Razón: ${assignment.reason}\n` : '') +
+        `\nPor favor presente esta constancia en la unidad asignada.`;
 
-        // Marcar como enviado
-        retenesService.updateAssignment(assignment.id, { whatsapp_sent: true });
+      // Abrir WhatsApp con el mensaje
+      const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank');
+
+      // Marcar como enviado (sin esperar)
+      try {
+        await retenesService.updateAssignment(assignment.id, { whatsapp_sent: true });
         loadAssignments();
-      });
+      } catch (updateError) {
+        console.error('Error actualizando estado de WhatsApp:', updateError);
+        // No mostrar error al usuario, el WhatsApp ya se abrió
+      }
     } catch (error) {
       console.error('Error generando constancia:', error);
-      alert('Error al generar la constancia');
+      alert('Error al abrir WhatsApp. Verifica que el número de teléfono sea correcto.');
     }
   };
 
@@ -480,45 +482,73 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
 
           {/* Calendario semanal */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="grid grid-cols-7 gap-px bg-slate-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-px bg-slate-200">
               {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((day, idx) => {
                 const date = getWeekDays()[idx];
                 const dayAssignments = getAssignmentsForDay(date);
                 const isToday = date.toDateString() === new Date().toDateString();
 
                 return (
-                  <div key={idx} className="bg-white min-h-[200px] p-2">
-                    <div className={`text-center mb-2 ${isToday ? 'bg-blue-600 text-white rounded px-2 py-1' : ''}`}>
-                      <div className="text-xs font-semibold text-slate-500">{day}</div>
-                      <div className="text-sm font-bold">{date.getDate()}</div>
+                  <div key={idx} className="bg-white min-h-[250px] md:min-h-[300px] p-2 md:p-3">
+                    <div className={`text-center mb-2 md:mb-3 ${isToday ? 'bg-blue-600 text-white rounded px-2 py-1' : ''}`}>
+                      <div className="text-[10px] md:text-xs font-semibold text-slate-500">{day}</div>
+                      <div className="text-sm md:text-base font-bold">{date.getDate()}</div>
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1.5 md:space-y-2">
                       {dayAssignments.map(assignment => {
                         const reten = retenes.find(r => r.id === assignment.reten_id);
                         return (
                           <div
                             key={assignment.id}
-                            className={`p-1.5 rounded text-xs border-l-2 ${
+                            className={`p-2 md:p-2.5 rounded-lg text-[10px] md:text-xs border-l-3 shadow-sm ${
                               assignment.assignment_type === 'inmediata' 
                                 ? 'bg-red-50 border-red-400' 
                                 : 'bg-blue-50 border-blue-400'
                             }`}
                           >
-                            <div className="font-semibold truncate">{reten?.name || 'N/A'}</div>
-                            <div className="text-slate-600 truncate">{assignment.unit_name}</div>
-                            <div className="text-slate-500">
+                            <div className="flex items-start gap-2 mb-1.5">
+                              {reten?.photo ? (
+                                <img 
+                                  src={reten.photo} 
+                                  alt={reten.name}
+                                  className="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover border-2 border-white shadow-sm shrink-0"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs md:text-sm font-bold shrink-0">
+                                  {reten?.name?.charAt(0)?.toUpperCase() || '?'}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-slate-800 truncate">{reten?.name || 'N/A'}</div>
+                                <div className="text-slate-600 truncate text-[9px] md:text-[10px]">{assignment.unit_name}</div>
+                              </div>
+                            </div>
+                            <div className="text-slate-500 text-[9px] md:text-[10px] mb-1.5">
+                              <Clock size={10} className="inline mr-1" />
                               {assignment.start_time} - {assignment.end_time}
                             </div>
-                            <div className="flex gap-1 mt-1">
+                            {assignment.reason && (
+                              <div className="text-slate-600 text-[9px] md:text-[10px] mb-1.5 line-clamp-2">
+                                {assignment.reason}
+                              </div>
+                            )}
+                            <div className="flex gap-1 mt-2 flex-wrap">
                               <button
-                                onClick={() => handleGenerateConstancy(assignment)}
-                                className="p-0.5 bg-green-100 text-green-700 rounded hover:bg-green-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleGenerateConstancy(assignment);
+                                }}
+                                className="p-1 md:p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors shrink-0"
                                 title="Enviar por WhatsApp"
                               >
-                                <MessageCircle size={12} />
+                                <MessageCircle size={12} className="md:w-3.5 md:h-3.5" />
                               </button>
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setEditingAssignment(assignment);
                                   setAssignmentForm({
                                     reten_id: assignment.reten_id,
@@ -532,22 +562,30 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
                                   });
                                   setShowAssignmentModal(true);
                                 }}
-                                className="p-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                                className="p-1 md:p-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors shrink-0"
                                 title="Editar"
                               >
-                                <Edit2 size={12} />
+                                <Edit2 size={12} className="md:w-3.5 md:h-3.5" />
                               </button>
                               <button
-                                onClick={() => handleDeleteAssignment(assignment.id)}
-                                className="p-0.5 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteAssignment(assignment.id);
+                                }}
+                                className="p-1 md:p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors shrink-0"
                                 title="Eliminar"
                               >
-                                <Trash2 size={12} />
+                                <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
                               </button>
                             </div>
                           </div>
                         );
                       })}
+                      {dayAssignments.length === 0 && (
+                        <div className="text-[9px] md:text-xs text-slate-400 text-center py-2">
+                          Sin asignaciones
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -583,11 +621,12 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
               <option value="no_disponible">No Disponible</option>
             </select>
             <button
-              onClick={() => {
-                setEditingReten(null);
-                setRetenForm({ name: '', dni: '', phone: '', email: '', status: 'disponible', notes: '' });
-                setShowRetenModal(true);
-              }}
+                    onClick={() => {
+                      setEditingReten(null);
+                      setRetenForm({ name: '', dni: '', phone: '', email: '', photo: '', status: 'disponible', notes: '' });
+                      setRetenPhotoUrl('');
+                      setShowRetenModal(true);
+                    }}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"
             >
               <Plus size={16} />
@@ -596,26 +635,43 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
           </div>
 
           {/* Lista de retenes */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             {filteredRetenes.map(reten => (
-              <div key={reten.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <h3 className="font-bold text-slate-800">{reten.name}</h3>
-                    <p className="text-xs text-slate-500">DNI: {reten.dni}</p>
+              <div key={reten.id} className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-slate-200">
+                <div className="flex items-start gap-3 mb-3">
+                  {reten.photo ? (
+                    <img 
+                      src={reten.photo} 
+                      alt={reten.name}
+                      className="w-12 h-12 md:w-16 md:h-16 rounded-full object-cover border-2 border-slate-200 shadow-sm shrink-0"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (fallback) fallback.style.display = 'flex';
+                      }}
+                    />
+                  ) : null}
+                  <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-base md:text-lg font-bold shrink-0 ${reten.photo ? 'hidden' : ''}`}>
+                    {reten.name?.charAt(0)?.toUpperCase() || '?'}
                   </div>
-                  <span className={`px-2 py-1 text-xs rounded-full ${
-                    reten.status === 'disponible' ? 'bg-green-100 text-green-700' :
-                    reten.status === 'asignado' ? 'bg-blue-100 text-blue-700' :
-                    'bg-red-100 text-red-700'
-                  }`}>
-                    {reten.status}
-                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-start mb-1">
+                      <h3 className="font-bold text-sm md:text-base text-slate-800 truncate">{reten.name}</h3>
+                      <span className={`px-2 py-0.5 md:py-1 text-[9px] md:text-xs rounded-full shrink-0 ml-2 ${
+                        reten.status === 'disponible' ? 'bg-green-100 text-green-700' :
+                        reten.status === 'asignado' ? 'bg-blue-100 text-blue-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {reten.status}
+                      </span>
+                    </div>
+                    <p className="text-[10px] md:text-xs text-slate-500">DNI: {reten.dni}</p>
+                  </div>
                 </div>
-                <div className="space-y-1 text-sm text-slate-600 mb-3">
-                  <p><strong>Teléfono:</strong> {reten.phone}</p>
-                  {reten.email && <p><strong>Email:</strong> {reten.email}</p>}
-                  {reten.notes && <p className="text-xs text-slate-500">{reten.notes}</p>}
+                <div className="space-y-1 text-xs md:text-sm text-slate-600 mb-3">
+                  <p className="truncate"><strong>Teléfono:</strong> {reten.phone}</p>
+                  {reten.email && <p className="truncate"><strong>Email:</strong> {reten.email}</p>}
+                  {reten.notes && <p className="text-[10px] md:text-xs text-slate-500 line-clamp-2">{reten.notes}</p>}
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -626,21 +682,23 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
                         dni: reten.dni,
                         phone: reten.phone,
                         email: reten.email || '',
+                        photo: reten.photo || '',
                         status: reten.status,
                         notes: reten.notes || ''
                       });
+                      setRetenPhotoUrl(reten.photo || '');
                       setShowRetenModal(true);
                     }}
-                    className="flex-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 text-sm flex items-center justify-center gap-1"
+                    className="flex-1 px-2 md:px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 text-xs md:text-sm flex items-center justify-center gap-1"
                   >
-                    <Edit2 size={14} />
+                    <Edit2 size={12} className="md:w-3.5 md:h-3.5" />
                     Editar
                   </button>
                   <button
                     onClick={() => handleDeleteReten(reten.id)}
-                    className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm"
+                    className="px-2 md:px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-xs md:text-sm"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
                   </button>
                 </div>
               </div>
@@ -768,6 +826,32 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
                   value={retenForm.email}
                   onChange={e => setRetenForm({ ...retenForm, email: e.target.value })}
                 />
+              </div>
+              <div>
+                <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Foto (URL)</label>
+                <input
+                  type="url"
+                  className="w-full border border-slate-300 rounded-lg p-2 text-sm"
+                  placeholder="https://ejemplo.com/foto.jpg"
+                  value={retenForm.photo}
+                  onChange={e => {
+                    setRetenForm({ ...retenForm, photo: e.target.value });
+                    setRetenPhotoUrl(e.target.value);
+                  }}
+                />
+                {retenPhotoUrl && (
+                  <div className="mt-2 flex items-center gap-3">
+                    <img 
+                      src={retenPhotoUrl} 
+                      alt="Vista previa" 
+                      className="w-16 h-16 rounded-full object-cover border-2 border-slate-200"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                    <span className="text-xs text-slate-500">Vista previa</span>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Estado</label>

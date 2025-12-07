@@ -304,6 +304,7 @@ export interface Reten {
   dni: string;
   phone: string;
   email?: string;
+  photo?: string; // URL de la foto del retén
   status: 'disponible' | 'asignado' | 'no_disponible';
   notes?: string;
   created_at: string;

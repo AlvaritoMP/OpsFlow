@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS retenes (
   dni TEXT NOT NULL UNIQUE,
   phone TEXT NOT NULL, -- Teléfono para WhatsApp
   email TEXT,
+  photo TEXT, -- URL de la foto del retén
   status TEXT NOT NULL DEFAULT 'disponible' CHECK (status IN ('disponible', 'asignado', 'no_disponible')),
   notes TEXT, -- Notas adicionales sobre el retén
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -100,6 +101,7 @@ COMMENT ON TABLE retenes IS 'Trabajadores disponibles para cubrir faltas de pers
 COMMENT ON COLUMN retenes.name IS 'Nombre completo del retén';
 COMMENT ON COLUMN retenes.dni IS 'DNI único del retén';
 COMMENT ON COLUMN retenes.phone IS 'Teléfono para contacto y envío de constancias por WhatsApp';
+COMMENT ON COLUMN retenes.photo IS 'URL de la foto del retén para visualización en asignaciones';
 COMMENT ON COLUMN retenes.status IS 'Estado del retén: disponible, asignado, no_disponible';
 COMMENT ON TABLE reten_assignments IS 'Asignaciones diarias de retenes para cubrir faltas en unidades';
 COMMENT ON COLUMN reten_assignments.assignment_date IS 'Fecha de la asignación';

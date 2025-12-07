@@ -10,6 +10,7 @@ export interface Reten {
   dni: string;
   phone: string;
   email?: string;
+  photo?: string; // URL de la foto del retén
   status: 'disponible' | 'asignado' | 'no_disponible';
   notes?: string;
   created_at: string;
@@ -90,6 +91,7 @@ export const retenesService = {
         dni: reten.dni!,
         phone: reten.phone!,
         email: reten.email || null,
+        photo: reten.photo || null,
         status: reten.status || 'disponible',
         notes: reten.notes || null,
         created_by: reten.created_by || null,
@@ -117,6 +119,7 @@ export const retenesService = {
       if (reten.dni) retenData.dni = reten.dni;
       if (reten.phone) retenData.phone = reten.phone;
       if (reten.email !== undefined) retenData.email = reten.email || null;
+      if (reten.photo !== undefined) retenData.photo = reten.photo || null;
       if (reten.status) retenData.status = reten.status;
       if (reten.notes !== undefined) retenData.notes = reten.notes || null;
       if (reten.updated_by) retenData.updated_by = reten.updated_by;
@@ -438,6 +441,7 @@ function transformRetenFromDB(data: any): Reten {
     dni: data.dni,
     phone: data.phone,
     email: data.email,
+    photo: data.photo,
     status: data.status,
     notes: data.notes,
     created_at: data.created_at,
