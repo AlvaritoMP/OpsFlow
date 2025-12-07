@@ -99,53 +99,6 @@ const App: React.FC = () => {
   });
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
 
-  // Cargar configuraciones al iniciar y recargar periódicamente
-  useEffect(() => {
-    // Recargar configuraciones desde localStorage
-    const reloadConfigs = () => {
-      try {
-        const loadedApiConfig = getApiConfig();
-        const currentApiConfigStr = JSON.stringify(apiConfig);
-        const loadedApiConfigStr = JSON.stringify(loadedApiConfig);
-        if (loadedApiConfigStr !== currentApiConfigStr) {
-          console.log('🔄 Recargando configuración de inventario desde localStorage');
-          setApiConfig(loadedApiConfig);
-        }
-        
-        const loadedGeminiKey = getGeminiApiKey() || '';
-        if (loadedGeminiKey !== geminiKey) {
-          console.log('🔄 Recargando API Key de Gemini desde localStorage');
-          setGeminiKey(loadedGeminiKey);
-        }
-        
-        // Recargar permisos
-        const loadedPermissions = getPermissions();
-        const currentPermissionsStr = JSON.stringify(permissions);
-        const loadedPermissionsStr = JSON.stringify(loadedPermissions);
-        if (loadedPermissionsStr !== currentPermissionsStr) {
-          console.log('🔄 Recargando permisos desde localStorage');
-          setPermissions(loadedPermissions);
-        }
-        
-        // Recargar logo
-        const loadedLogo = localStorage.getItem('OPSFLOW_LOGO');
-        if (loadedLogo && loadedLogo !== companyLogo && !loadedLogo.startsWith('blob:')) {
-          console.log('🔄 Recargando logo desde localStorage');
-          setCompanyLogo(loadedLogo);
-        }
-      } catch (error) {
-        console.error('Error al recargar configuraciones:', error);
-      }
-    };
-    
-    // Recargar inmediatamente
-    reloadConfigs();
-    
-    // Recargar cada 2 segundos para detectar cambios en localStorage (de otras pestañas o procesos)
-    const interval = setInterval(reloadConfigs, 2000);
-    
-    return () => clearInterval(interval);
-  }, [apiConfig, geminiKey, permissions, companyLogo]);
 
   // Branding State
   const [companyLogo, setCompanyLogo] = useState<string>(() => {
@@ -160,18 +113,12 @@ const App: React.FC = () => {
 
   // Recargar logo cuando cambie en localStorage (para persistencia entre navegaciones)
   useEffect(() => {
-    // Limpiar blob URLs guardados (no persisten)
+    // Limpiar blob URLs guardados (no persisten) - solo al iniciar
     const saved = localStorage.getItem('OPSFLOW_LOGO');
     if (saved && saved.startsWith('blob:')) {
       console.warn('⚠️ Se encontró un blob URL guardado, limpiando...');
       localStorage.removeItem('OPSFLOW_LOGO');
       setCompanyLogo('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=');
-      return;
-    }
-    
-    // Cargar logo al iniciar
-    if (saved && saved !== companyLogo && !saved.startsWith('blob:')) {
-      setCompanyLogo(saved);
     }
     
     const handleStorageChange = (e: StorageEvent) => {
@@ -191,10 +138,14 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [companyLogo]);
+  }, []); // Sin dependencias para evitar loops
 
   // Permissions State
-  const [permissions, setPermissions] = useState<PermissionConfig>(getPermissions());
+  const [permissions, setPermissions] = useState<PermissionConfig>(() => {
+    const perms = getPermissions();
+    console.log('📦 Cargando permisos al iniciar');
+    return perms;
+  });
   const [isPermsSaved, setIsPermsSaved] = useState(false);
 
   // User / Role Context
