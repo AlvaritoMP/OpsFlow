@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck, Moon } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -10,6 +10,7 @@ import { Reports } from './components/Reports';
 import { OperationsDashboard } from './components/OperationsDashboard';
 import { StandardAssetsCatalog } from './components/StandardAssetsCatalog';
 import { Retenes } from './components/Retenes';
+import { NightSupervision } from './components/NightSupervision';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
@@ -32,7 +33,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
@@ -982,6 +983,10 @@ const App: React.FC = () => {
 
     if (currentView === 'assets-catalog') {
       return <StandardAssetsCatalog currentUserRole={currentUser.role} />;
+    }
+
+    if (currentView === 'night-supervision') {
+      return <NightSupervision units={visibleUnits} currentUser={currentUser} managementStaff={managementStaff} />;
     }
 
     if (currentView === 'retenes') {
@@ -2247,6 +2252,17 @@ const App: React.FC = () => {
                   >
                     <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Retenes</span>
+                  </button>
+              )}
+
+              {/* Supervisión Nocturna - Visible for ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+                  <button 
+                    onClick={() => { setCurrentView('night-supervision'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'night-supervision' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Moon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Supervisión Nocturna</span>
                   </button>
               )}
               

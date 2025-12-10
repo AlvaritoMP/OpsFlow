@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive } from 'lucide-react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
+import { nightSupervisionService } from '../services/nightSupervisionService';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -69,6 +70,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
   const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
   const previousUnitIdRef = useRef<string>(unit.id);
+
+  // Estados para modal de supervisión nocturna
+  const [showNightSupervisionModal, setShowNightSupervisionModal] = useState(false);
+  const [nightSupervisionShifts, setNightSupervisionShifts] = useState<NightSupervisionShift[]>([]);
+  const [selectedShift, setSelectedShift] = useState<NightSupervisionShift | null>(null);
+  const [shiftCalls, setShiftCalls] = useState<NightSupervisionCall[]>([]);
+  const [shiftCameraReviews, setShiftCameraReviews] = useState<NightSupervisionCameraReview[]>([]);
+  const [loadingNightSupervision, setLoadingNightSupervision] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [imageModalUrl, setImageModalUrl] = useState<string | null>(null);
   
   // Sincronizar el ref con el estado
   useEffect(() => {
@@ -206,6 +217,59 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit');
   const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
+
+  // Función para formatear fecha desde string YYYY-MM-DD
+  const formatDateFromString = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('es-PE', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+  };
+
+  // Cargar turnos de supervisión nocturna para esta unidad
+  const loadNightSupervisionShifts = async () => {
+    setLoadingNightSupervision(true);
+    try {
+      const shifts = await nightSupervisionService.getAllShifts({
+        unitId: unit.id
+      });
+      setNightSupervisionShifts(shifts.sort((a, b) => {
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
+        return dateB.getTime() - dateA.getTime();
+      }));
+    } catch (error) {
+      console.error('Error cargando turnos de supervisión nocturna:', error);
+    } finally {
+      setLoadingNightSupervision(false);
+    }
+  };
+
+  // Cargar detalles de un turno específico
+  const loadShiftDetails = async (shift: NightSupervisionShift) => {
+    setLoadingNightSupervision(true);
+    try {
+      const calls = await nightSupervisionService.getCallsByShiftId(shift.id);
+      const reviews = await nightSupervisionService.getCameraReviewsByShiftId(shift.id);
+      setShiftCalls(calls);
+      setShiftCameraReviews(reviews);
+      setSelectedShift(shift);
+    } catch (error) {
+      console.error('Error cargando detalles del turno:', error);
+    } finally {
+      setLoadingNightSupervision(false);
+    }
+  };
+
+  // Abrir modal de supervisión nocturna
+  const openNightSupervisionModal = async () => {
+    setShowNightSupervisionModal(true);
+    await loadNightSupervisionShifts();
+  };
 
   // CRITICAL FIX: Sync local edit state when parent unit prop changes
   useEffect(() => {
@@ -2328,6 +2392,50 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       <Edit2 size={16} />
                                     )}
                                 </button>
+                                <button 
+                                    onClick={async () => {
+                                        if (confirm(`¿Está seguro de eliminar a ${worker.name}? Esta acción no se puede deshacer.`)) {
+                                            if (!onUpdate) return;
+                                            try {
+                                                const { resourcesService } = await import('../services/resourcesService');
+                                                // Intentar eliminar desde el servicio
+                                                await resourcesService.delete(worker.id);
+                                                // Actualizar localmente
+                                                const currentTab = activeTabRef.current;
+                                                const updatedUnit = { ...unit };
+                                                updatedUnit.resources = updatedUnit.resources.filter(r => r.id !== worker.id);
+                                                onUpdate(updatedUnit);
+                                                // Asegurar que el tab se mantenga
+                                                setTimeout(() => {
+                                                    if (activeTab !== currentTab) {
+                                                        setActiveTab(currentTab);
+                                                    }
+                                                }, 100);
+                                                setNotification({ type: 'success', message: 'Trabajador eliminado correctamente' });
+                                                setTimeout(() => setNotification(null), 3000);
+                                            } catch (error) {
+                                                console.error('Error al eliminar trabajador:', error);
+                                                // Si falla el servicio, eliminar localmente de todas formas
+                                                const currentTab = activeTabRef.current;
+                                                const updatedUnit = { ...unit };
+                                                updatedUnit.resources = updatedUnit.resources.filter(r => r.id !== worker.id);
+                                                onUpdate(updatedUnit);
+                                                setTimeout(() => {
+                                                    if (activeTab !== currentTab) {
+                                                        setActiveTab(currentTab);
+                                                    }
+                                                }, 100);
+                                                setNotification({ type: 'success', message: 'Trabajador eliminado de la unidad' });
+                                                setTimeout(() => setNotification(null), 3000);
+                                            }
+                                        }
+                                    }}
+                                    className="text-red-600 hover:text-red-900 p-1" 
+                                    title="Eliminar trabajador"
+                                    disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
+                                >
+                                    <Trash2 size={16} />
+                                </button>
                                 {worker.personnelStatus === 'cesado' && (
                                     <button 
                                         onClick={async () => {
@@ -2835,6 +2943,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {checkPermission(userRole, 'CLIENT_REQUESTS', 'view') && (
               <button onClick={() => setActiveTab('requests')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'requests' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Requerimientos</button>
           )}
+          <button 
+            onClick={openNightSupervisionModal}
+            className="px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap text-blue-600 hover:text-blue-800 hover:bg-blue-50 flex items-center gap-2"
+            title="Ver reportes de supervisión nocturna"
+          >
+            <Moon className="w-4 h-4" />
+            Supervisión Nocturna
+          </button>
         </div>
       </div>
 
@@ -3741,6 +3857,262 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
                 <button onClick={handleUpdateLog} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Guardar Cambios</button>
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Supervisión Nocturna */}
+      {showNightSupervisionModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                  <Moon className="w-6 h-6" />
+                  Supervisión Nocturna - {unit.name}
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">Reportes de supervisión nocturna para esta unidad</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowNightSupervisionModal(false);
+                  setSelectedShift(null);
+                  setShiftCalls([]);
+                  setShiftCameraReviews([]);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {loadingNightSupervision ? (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="mt-2 text-gray-600">Cargando...</p>
+              </div>
+            ) : selectedShift ? (
+              <div className="space-y-6">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => {
+                      setSelectedShift(null);
+                      setShiftCalls([]);
+                      setShiftCameraReviews([]);
+                    }}
+                    className="text-blue-600 hover:text-blue-800 flex items-center gap-2"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Volver a lista
+                  </button>
+                </div>
+
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Turno del {formatDateFromString(selectedShift.date)}
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Supervisor:</span>
+                      <p className="font-medium">{selectedShift.supervisor_name}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Horario:</span>
+                      <p className="font-medium">{selectedShift.shift_start} - {selectedShift.shift_end}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Completitud:</span>
+                      <p className="font-medium">{selectedShift.completion_percentage}%</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Estado:</span>
+                      <p className="font-medium">{selectedShift.status}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Llamadas a Trabajadores */}
+                <div className="bg-white border rounded-lg p-4">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Phone className="w-5 h-5" />
+                    Llamadas a Trabajadores ({shiftCalls.length})
+                  </h4>
+                  {shiftCalls.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4">No hay llamadas registradas</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Trabajador</th>
+                            <th className="px-3 py-2 text-left">Llamada #</th>
+                            <th className="px-3 py-2 text-left">Hora Programada</th>
+                            <th className="px-3 py-2 text-left">Hora Real</th>
+                            <th className="px-3 py-2 text-center">Contestó</th>
+                            <th className="px-3 py-2 text-center">Foto Recibida</th>
+                            <th className="px-3 py-2 text-left">Observaciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shiftCalls.map((call) => (
+                            <tr key={call.id} className="border-b">
+                              <td className="px-3 py-2">{call.worker_name}</td>
+                              <td className="px-3 py-2">{call.call_number}</td>
+                              <td className="px-3 py-2">{call.scheduled_time}</td>
+                              <td className="px-3 py-2">{call.actual_time || '-'}</td>
+                              <td className="px-3 py-2 text-center">
+                                {call.answered ? (
+                                  <CheckCircle className="w-5 h-5 text-green-600 mx-auto" />
+                                ) : (
+                                  <XCircle className="w-5 h-5 text-red-600 mx-auto" />
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                {call.photo_received ? (
+                                  <CheckCircle className="w-5 h-5 text-green-600 mx-auto" />
+                                ) : (
+                                  <XCircle className="w-5 h-5 text-red-600 mx-auto" />
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-600">{call.notes || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Revisiones de Cámaras */}
+                <div className="bg-white border rounded-lg p-4">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Camera className="w-5 h-5" />
+                    Revisiones de Cámaras ({shiftCameraReviews.length}/3)
+                  </h4>
+                  {shiftCameraReviews.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4">No hay revisiones registradas</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {shiftCameraReviews.map((review) => (
+                        <div key={review.id} className="border rounded-lg p-4">
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <h5 className="font-semibold text-gray-900">Revisión #{review.review_number}</h5>
+                              <p className="text-sm text-gray-600">
+                                Programada: {review.scheduled_time} | 
+                                Real: {review.actual_time || 'No registrada'}
+                              </p>
+                            </div>
+                          </div>
+                          {review.screenshot_url && (
+                            <div className="mt-3">
+                              <img
+                                src={review.screenshot_url}
+                                alt={`Revisión ${review.review_number}`}
+                                className="w-full max-w-md h-auto rounded cursor-pointer hover:opacity-90 transition-opacity"
+                                onClick={() => {
+                                  setImageModalUrl(review.screenshot_url || null);
+                                  setShowImageModal(true);
+                                }}
+                                title="Click para ver en tamaño completo"
+                              />
+                              <button
+                                onClick={() => {
+                                  setImageModalUrl(review.screenshot_url || null);
+                                  setShowImageModal(true);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800 mt-1 flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                Ver foto completa
+                              </button>
+                            </div>
+                          )}
+                          {review.notes && (
+                            <div className="mt-3">
+                              <p className="text-sm font-medium text-gray-700">Observaciones:</p>
+                              <p className="text-sm text-gray-600 mt-1">{review.notes}</p>
+                            </div>
+                          )}
+                          {review.non_conformity && (
+                            <div className="mt-3 bg-red-50 border border-red-200 rounded p-2">
+                              <p className="text-sm font-medium text-red-800">No Conformidad</p>
+                              {review.non_conformity_description && (
+                                <p className="text-sm text-red-700 mt-1">{review.non_conformity_description}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div>
+                {nightSupervisionShifts.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Moon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No hay turnos de supervisión nocturna registrados para esta unidad</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Turnos Registrados</h3>
+                    {nightSupervisionShifts.map((shift) => (
+                      <div
+                        key={shift.id}
+                        className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                        onClick={() => loadShiftDetails(shift)}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h4 className="font-semibold text-gray-900">
+                              Turno del {formatDateFromString(shift.date)}
+                            </h4>
+                            <p className="text-sm text-gray-600">
+                              Supervisor: {shift.supervisor_name} | 
+                              Completitud: {shift.completion_percentage}% | 
+                              Estado: {shift.status}
+                            </p>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-gray-400" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Ver Imagen Completa */}
+      {showImageModal && imageModalUrl && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setShowImageModal(false)}>
+          <div className="bg-white rounded-lg p-4 max-w-5xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Foto de Revisión de Cámaras</h3>
+              <button
+                onClick={() => setShowImageModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <img
+              src={imageModalUrl}
+              alt="Screenshot completo"
+              className="w-full h-auto rounded-lg"
+            />
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setShowImageModal(false)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

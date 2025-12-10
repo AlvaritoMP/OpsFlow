@@ -336,3 +336,104 @@ export interface RetenAssignment {
   created_by?: string;
   updated_by?: string;
 }
+
+// ============================================
+// SUPERVISIÓN NOCTURNA
+// ============================================
+
+export interface NightSupervisionShift {
+  id: string;
+  date: string; // YYYY-MM-DD
+  unit_id: string;
+  unit_name: string;
+  supervisor_id: string; // ID del supervisor que realiza la supervisión
+  supervisor_name: string;
+  shift_start: string; // HH:mm
+  shift_end: string; // HH:mm
+  status: 'en_curso' | 'completada' | 'incompleta' | 'cancelada';
+  completion_percentage: number; // 0-100
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface NightSupervisionCall {
+  id: string;
+  shift_id: string;
+  worker_id: string; // ID del trabajador (resource de tipo PERSONNEL)
+  worker_name: string;
+  worker_phone: string;
+  call_number: 1 | 2 | 3; // Primera, segunda o tercera llamada
+  scheduled_time: string; // HH:mm - hora programada de la llamada
+  actual_time?: string; // HH:mm - hora real en que se hizo la llamada
+  answered: boolean; // Si el trabajador contestó
+  photo_received: boolean; // Si se recibió la foto del trabajador
+  photo_url?: string; // URL de la foto recibida
+  photo_timestamp?: string; // Fecha y hora de la foto (extraída de la foto)
+  on_rest?: boolean; // Si el trabajador está en descanso ese día
+  notes?: string; // Novedades o observaciones del supervisor
+  non_conformity?: boolean; // Si hay alguna no conformidad
+  non_conformity_description?: string; // Descripción de la no conformidad
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface NightSupervisionCameraReview {
+  id: string;
+  shift_id: string;
+  unit_id: string;
+  unit_name: string;
+  review_number: 1 | 2 | 3; // Primera, segunda o tercera revisión
+  scheduled_time: string; // HH:mm - hora programada de la revisión
+  actual_time?: string; // HH:mm - hora real en que se hizo la revisión
+  screenshot_url: string; // URL del screenshot de las cámaras
+  screenshot_timestamp?: string; // Fecha y hora que muestra el screenshot
+  cameras_reviewed: string[]; // IDs o nombres de las cámaras revisadas
+  notes?: string; // Observaciones del supervisor
+  non_conformity?: boolean; // Si hay alguna no conformidad
+  non_conformity_description?: string; // Descripción de la no conformidad
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface NightSupervisionAlert {
+  id: string;
+  shift_id: string;
+  type: 'missing_call' | 'missing_photo' | 'missing_camera_review' | 'non_conformity' | 'critical_event';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  description: string;
+  related_entity_type: 'call' | 'camera_review' | 'shift';
+  related_entity_id?: string;
+  resolved: boolean;
+  resolved_at?: string;
+  resolved_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NightSupervisionReport {
+  shift_id: string;
+  date: string;
+  unit_name: string;
+  supervisor_name: string;
+  total_workers: number;
+  total_calls_required: number;
+  total_calls_completed: number;
+  total_calls_answered: number;
+  total_photos_received: number;
+  total_camera_reviews_required: number;
+  total_camera_reviews_completed: number;
+  non_conformities_count: number;
+  critical_events_count: number;
+  completion_percentage: number;
+  calls: NightSupervisionCall[];
+  camera_reviews: NightSupervisionCameraReview[];
+  alerts: NightSupervisionAlert[];
+}

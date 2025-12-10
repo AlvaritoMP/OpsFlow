@@ -208,8 +208,8 @@ export const authService = {
         };
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 
-        // Cerrar sesión de Supabase Auth (ya no la necesitamos)
-        await supabase.auth.signOut();
+        // NO cerrar sesión de Supabase Auth - la necesitamos para Storage
+        // await supabase.auth.signOut(); // COMENTADO: Storage necesita la sesión activa
 
         // Registrar login en auditoría (solo si podemos)
         try {
@@ -240,6 +240,9 @@ export const authService = {
   // Cerrar sesión
   async signOut() {
     try {
+      // Cerrar sesión de Supabase Auth primero (para Storage)
+      await supabase.auth.signOut();
+      
       const session = this.getSession();
       let dbUser = null;
       

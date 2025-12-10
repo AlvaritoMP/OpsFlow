@@ -16,4 +16,7 @@ export * from './constancyService';
 export * from './standardAssetsService';
 export * from './retenesService';
 export * from './excelService';
+export * from './nightSupervisionService';
+export * from './nightSupervisionPdfService';
+export * from './nightSupervisionHistoricalService';
 
