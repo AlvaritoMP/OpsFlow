@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle } from 'lucide-react';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
@@ -142,6 +142,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
   const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '' });
+  
+  // Bulk Import State
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ totalRows: number; successful: number; failed: number; errors: Array<{ row: number; error: string; data: any }>; warnings: Array<{ row: number; warning: string; data: any }> } | null>(null);
 
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -895,6 +900,110 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsSavingWorker(false);
+    }
+  };
+
+  const handleBulkImport = async (file: File) => {
+    if (!onUpdate) return;
+    
+    setIsImporting(true);
+    setImportResult(null);
+    
+    try {
+      const { excelService } = await import('../services/excelService');
+      const { resourcesService } = await import('../services/resourcesService');
+      
+      // Importar datos del Excel
+      const { data: personnelData, result } = await excelService.importPersonnelFromExcel(file);
+      
+      setImportResult(result);
+      
+      if (personnelData.length === 0) {
+        setNotification({ 
+          type: 'error', 
+          message: 'No se encontraron datos válidos en el archivo Excel' 
+        });
+        setTimeout(() => setNotification(null), 5000);
+        return;
+      }
+      
+      // Crear trabajadores
+      const createdWorkers: Resource[] = [];
+      const errors: Array<{ row: number; error: string }> = [];
+      
+      for (let i = 0; i < personnelData.length; i++) {
+        const row = personnelData[i];
+        try {
+          // Parsear zonas (separadas por coma o punto y coma)
+          const zones = row.zonas 
+            ? row.zonas.split(/[,;]/).map(z => z.trim()).filter(z => z !== '')
+            : [];
+          
+          // Normalizar turno
+          let shift = row.turno?.trim() || '';
+          if (shift) {
+            const shiftLower = shift.toLowerCase();
+            if (shiftLower.includes('diurno')) shift = 'Diurno';
+            else if (shiftLower.includes('nocturno')) shift = 'Nocturno';
+            else if (shiftLower.includes('mixto')) shift = 'Mixto';
+          }
+          
+          const newWorker = await resourcesService.create({
+            name: row.nombre.trim(),
+            type: ResourceType.PERSONNEL,
+            quantity: 1,
+            status: StaffStatus.ACTIVE,
+            assignedZones: zones,
+            assignedShift: shift || undefined,
+            compliancePercentage: 100,
+            dni: row.dni?.trim() || undefined,
+            puesto: row.puesto?.trim() || undefined,
+            startDate: row.fechaInicio || undefined,
+            endDate: row.fechaFin || undefined,
+            personnelStatus: row.fechaFin ? 'cesado' : 'activo',
+            archived: false,
+            trainings: [],
+            assignedAssets: []
+          }, unit.id);
+          
+          createdWorkers.push(newWorker);
+        } catch (error: any) {
+          errors.push({
+            row: i + 2, // +2 porque la primera fila es encabezados y empezamos desde 0
+            error: error.message || 'Error al crear trabajador'
+          });
+        }
+      }
+      
+      // Actualizar unidad con los nuevos trabajadores
+      const updatedResources = [...unit.resources, ...createdWorkers];
+      onUpdate({ ...unit, resources: updatedResources });
+      
+      // Mostrar resultado
+      if (createdWorkers.length > 0) {
+        setNotification({ 
+          type: 'success', 
+          message: `Se importaron ${createdWorkers.length} trabajador(es) correctamente${errors.length > 0 ? `. ${errors.length} error(es).` : '.'}` 
+        });
+        setTimeout(() => setNotification(null), 5000);
+      }
+      
+      if (errors.length > 0) {
+        setImportResult({
+          ...result,
+          failed: errors.length,
+          errors: [...result.errors, ...errors]
+        });
+      }
+    } catch (error: any) {
+      console.error('Error al importar trabajadores:', error);
+      setNotification({ 
+        type: 'error', 
+        message: `Error al importar: ${error.message || 'Error desconocido'}` 
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -2293,9 +2402,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </button>
               </>
             )}
-            <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
-              <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => setShowBulkImportModal(true)} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm">
+                <Upload size={18} className="mr-2" /> Carga Masiva
+              </button>
+              <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+                <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -3291,7 +3405,164 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
       
-      {/* 4. Add Worker Modal */}
+      {/* 4. Bulk Import Modal */}
+      {showBulkImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-green-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center">
+                <FileSpreadsheet className="mr-2" size={20}/> Carga Masiva de Trabajadores
+              </h3>
+              <button onClick={() => { setShowBulkImportModal(false); setImportResult(null); }} className="text-white/80 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 mb-2">Formato del archivo Excel</h4>
+                <p className="text-sm text-blue-800 mb-3">
+                  El archivo debe tener las siguientes columnas (la primera fila debe ser encabezados):
+                </p>
+                <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
+                  <li><strong>Nombre</strong> (requerido) - Nombre completo del trabajador</li>
+                  <li><strong>DNI</strong> (opcional) - Documento Nacional de Identidad</li>
+                  <li><strong>Puesto</strong> (opcional) - Cargo o puesto del trabajador</li>
+                  <li><strong>Zonas</strong> (opcional) - Zonas asignadas, separadas por coma o punto y coma</li>
+                  <li><strong>Turno</strong> (opcional) - Diurno, Nocturno o Mixto</li>
+                  <li><strong>Fecha Inicio</strong> (opcional) - Formato: YYYY-MM-DD o DD/MM/YYYY</li>
+                  <li><strong>Fecha Fin</strong> (opcional) - Formato: YYYY-MM-DD o DD/MM/YYYY</li>
+                </ul>
+                <p className="text-xs text-blue-600 mt-3">
+                  <strong>Nota:</strong> Los encabezados pueden estar en español o inglés y no son case-sensitive.
+                </p>
+              </div>
+
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={async () => {
+                    try {
+                      const { excelService } = await import('../services/excelService');
+                      await excelService.generatePersonnelTemplate();
+                      setNotification({ 
+                        type: 'success', 
+                        message: 'Plantilla descargada correctamente' 
+                      });
+                      setTimeout(() => setNotification(null), 3000);
+                    } catch (error: any) {
+                      setNotification({ 
+                        type: 'error', 
+                        message: `Error al generar plantilla: ${error.message}` 
+                      });
+                      setTimeout(() => setNotification(null), 5000);
+                    }
+                  }}
+                  className="flex-1 bg-slate-100 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors flex items-center justify-center"
+                >
+                  <FileSpreadsheet size={18} className="mr-2" /> Descargar Plantilla
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Seleccionar archivo Excel (.xlsx, .xls)
+                </label>
+                <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-green-500 transition-colors">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        handleBulkImport(file);
+                      }
+                    }}
+                    className="hidden"
+                    id="bulk-import-file"
+                    disabled={isImporting}
+                  />
+                  <label
+                    htmlFor="bulk-import-file"
+                    className={`cursor-pointer flex flex-col items-center ${isImporting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <Upload size={48} className="text-slate-400 mb-2" />
+                    <span className="text-sm font-medium text-slate-700">
+                      {isImporting ? 'Procesando...' : 'Haz clic para seleccionar archivo'}
+                    </span>
+                    <span className="text-xs text-slate-500 mt-1">
+                      Solo archivos Excel (.xlsx, .xls)
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {isImporting && (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                  <span className="ml-3 text-slate-600">Procesando archivo...</span>
+                </div>
+              )}
+
+              {importResult && (
+                <div className="border border-slate-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-slate-800 mb-3">Resultado de la importación</h4>
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-slate-600">{importResult.totalRows}</div>
+                      <div className="text-xs text-slate-500">Total</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-green-600">{importResult.successful}</div>
+                      <div className="text-xs text-slate-500">Exitosos</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-red-600">{importResult.failed}</div>
+                      <div className="text-xs text-slate-500">Errores</div>
+                    </div>
+                  </div>
+
+                  {importResult.errors.length > 0 && (
+                    <div className="mt-4">
+                      <h5 className="font-medium text-red-700 mb-2">Errores:</h5>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {importResult.errors.map((error, idx) => (
+                          <div key={idx} className="text-xs bg-red-50 border border-red-200 rounded p-2">
+                            <span className="font-medium">Fila {error.row}:</span> {error.error}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {importResult.warnings.length > 0 && (
+                    <div className="mt-4">
+                      <h5 className="font-medium text-yellow-700 mb-2">Advertencias:</h5>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {importResult.warnings.map((warning, idx) => (
+                          <div key={idx} className="text-xs bg-yellow-50 border border-yellow-200 rounded p-2">
+                            <span className="font-medium">Fila {warning.row}:</span> {warning.warning}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-4">
+                <button
+                  onClick={() => { setShowBulkImportModal(false); setImportResult(null); }}
+                  className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
+                  disabled={isImporting}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Add Worker Modal */}
       {showAddWorkerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
@@ -3369,7 +3640,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 5. Mass Training Modal */}
+      {/* 6. Mass Training Modal */}
       {showMassTrainingModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
@@ -3394,7 +3665,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 6. Mass Asset Assignment Modal (Was missing in previous provided text) */}
+      {/* 7. Mass Asset Assignment Modal (Was missing in previous provided text) */}
       {showAssetAssignmentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
@@ -3552,7 +3823,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 7. Edit Resource Modal */}
+      {/* 8. Edit Resource Modal */}
       {editingResource && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
               <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
@@ -3660,7 +3931,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           </div>
       )}
       
-      {/* 8. Add Resource Modal (Logistics) */}
+      {/* 9. Add Resource Modal (Logistics) */}
       {showAddResourceModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
@@ -3746,7 +4017,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
       
-      {/* 9. Maintenance Modal (Triggered by maintenanceResource state) */}
+      {/* 10. Maintenance Modal (Triggered by maintenanceResource state) */}
       {maintenanceResource && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
@@ -3813,7 +4084,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 10. Edit Log Modal */}
+      {/* 11. Edit Log Modal */}
       {editingLog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">

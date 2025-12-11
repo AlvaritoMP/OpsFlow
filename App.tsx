@@ -2329,8 +2329,8 @@ const App: React.FC = () => {
                 </>
               )}
 
-              {/* Auditoría - Solo para administradores */}
-              {currentUser.role === 'ADMIN' && (
+              {/* Auditoría - Solo para administradores y super administradores */}
+              {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
                 <>
                   <div className="pt-3 md:pt-4 pb-1 md:pb-2 px-3 md:px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Administración
