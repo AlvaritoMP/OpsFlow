@@ -107,7 +107,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [editForm, setEditForm] = useState(unit);
   const [newZoneName, setNewZoneName] = useState('');
   const [newZoneShifts, setNewZoneShifts] = useState('');
-  const [editImageUrl, setEditImageUrl] = useState('');
 
   // Personnel State
   const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>('list'); // New View Mode
@@ -472,11 +471,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
 
   // --- Edit Unit Images ---
-  const handleAddImageToEdit = () => {
-    if (!editImageUrl) return;
-    setEditForm({ ...editForm, images: [...editForm.images, editImageUrl] });
-    setEditImageUrl('');
-  };
 
   const handleRemoveImageFromEdit = (index: number) => {
     setEditForm({ ...editForm, images: editForm.images.filter((_, i) => i !== index) });
@@ -490,27 +484,43 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       console.log('📤 Iniciando subida de imagen:', file.name, file.size, 'bytes');
       
       // Verificar sesión de Supabase Auth ANTES de crear el blob URL
+      // Si no hay sesión, intentar crearla desde la sesión local
       try {
         const { supabase } = await import('../services/supabase');
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError || !session) {
-          console.error('❌ No hay sesión de Supabase Auth:', sessionError);
+          console.log('⚠️ No hay sesión de Supabase Auth, intentando crear desde sesión local...');
           const { authService } = await import('../services/authService');
           const localSession = authService.getSession();
           
           if (localSession) {
-            setNotification({ 
-              type: 'error', 
-              message: 'No hay sesión de Supabase Auth activa.\n\nPara subir imágenes, necesitas cerrar sesión y volver a iniciar sesión.\n\nEsto activará la sesión de Supabase Auth necesaria para Storage.' 
-            });
-            setTimeout(() => setNotification(null), 10000);
+            // El usuario tiene sesión local pero no de Supabase Auth
+            // Esto significa que el usuario inició sesión con password_hash pero no se creó la sesión de Auth
+            // La mejor solución es que el usuario cierre sesión y vuelva a iniciar sesión
+            // El código de signIn ya intenta crear la sesión de Auth, así que si el usuario
+            // cierra sesión y vuelve a iniciar, debería funcionar
             
-            // Limpiar el input
-            if (fileInput) {
-              fileInput.value = '';
+            // Verificar de nuevo si ahora hay sesión
+            if (!session) {
+              const { data: { session: newSession } } = await supabase.auth.getSession();
+              session = newSession || undefined;
             }
-            return; // No continuar si no hay sesión de Auth
+            
+            if (!session) {
+              console.error('❌ No se pudo crear sesión de Supabase Auth');
+              setNotification({ 
+                type: 'error', 
+                message: 'No se pudo activar la sesión de Supabase Auth.\n\nPor favor, cierra sesión y vuelve a iniciar sesión.\n\nEsto activará la sesión necesaria para subir imágenes.' 
+              });
+              setTimeout(() => setNotification(null), 10000);
+              
+              // Limpiar el input
+              if (fileInput) {
+                fileInput.value = '';
+              }
+              return; // No continuar si no hay sesión de Auth
+            }
           } else {
             setNotification({ 
               type: 'error', 
@@ -526,7 +536,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           }
         }
         
-        console.log('✅ Sesión de Supabase Auth verificada:', session.user.id);
+        console.log('✅ Sesión de Supabase Auth verificada:', session?.user?.id);
       } catch (authCheckError) {
         console.error('❌ Error al verificar sesión de Auth:', authCheckError);
         setNotification({ 
@@ -2544,9 +2554,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <div className="pt-4 border-t border-slate-100">
                      <label className="block text-sm font-medium text-slate-700 mb-2">Galería de Fotos</label>
                      <div className="flex gap-2 mb-2">
-                        <input type="text" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" placeholder="URL Imagen" value={editImageUrl} onChange={e => setEditImageUrl(e.target.value)} />
-                        <label className="bg-slate-100 px-3 py-1.5 rounded cursor-pointer hover:bg-slate-200 border border-slate-200"><Camera size={18} className="text-slate-600"/><input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForEdit} /></label>
-                        <button onClick={handleAddImageToEdit} className="bg-slate-200 px-3 py-1.5 rounded text-sm hover:bg-slate-300">Añadir</button>
+                        <label className="flex-1 bg-slate-100 px-3 py-1.5 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center gap-2">
+                          <Camera size={18} className="text-slate-600"/>
+                          <span className="text-sm text-slate-700">Seleccionar imagen</span>
+                          <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForEdit} />
+                        </label>
                      </div>
                      <div className="flex gap-2 overflow-x-auto pb-2">
                         {editForm.images.map((img, idx) => (
