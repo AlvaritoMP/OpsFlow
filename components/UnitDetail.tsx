@@ -323,10 +323,35 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // --- General Unit Update ---
-  const handleSaveUnit = () => {
-    if (onUpdate) {
-      onUpdate(editForm);
+  const handleSaveUnit = async () => {
+    if (!onUpdate) return;
+    
+    // Filtrar y limpiar cualquier blob URL que pueda quedar (por si acaso)
+    const cleanedImages = editForm.images.map(img => {
+      // Si es un blob URL, intentar mantenerlo temporalmente pero advertir
+      if (img.startsWith('blob:')) {
+        console.warn('⚠️ Se encontró un blob URL en las imágenes. Debería haberse subido a Storage.');
+        return img; // Mantenerlo por ahora, pero debería haberse subido
+      }
+      return img;
+    });
+    
+    const cleanedForm = { ...editForm, images: cleanedImages };
+    
+    try {
+      // Actualizar la unidad
+      onUpdate(cleanedForm);
       setIsEditing(false);
+      
+      setNotification({ type: 'success', message: 'Unidad actualizada correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: any) {
+      console.error('Error al guardar unidad:', error);
+      setNotification({ 
+        type: 'error', 
+        message: `Error al guardar: ${error.message || 'Error desconocido'}` 
+      });
+      setTimeout(() => setNotification(null), 5000);
     }
   };
 
@@ -398,11 +423,56 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setEditForm({ ...editForm, images: editForm.images.filter((_, i) => i !== index) });
   };
 
-  const handleFileUploadForEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUploadForEdit = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const imageUrl = URL.createObjectURL(file);
-      setEditForm({ ...editForm, images: [...editForm.images, imageUrl] });
+      const fileInput = e.target;
+      
+      // Mostrar preview temporal mientras se sube
+      const tempUrl = URL.createObjectURL(file);
+      setEditForm({ ...editForm, images: [...editForm.images, tempUrl] });
+      
+      try {
+        // Subir a Supabase Storage
+        const { storageService } = await import('../services/storageService');
+        const timestamp = Date.now();
+        const fileName = `unit-${unit.id}-${timestamp}-${file.name}`;
+        const path = `units/${unit.id}/${fileName}`;
+        
+        const permanentUrl = await storageService.uploadFile('unit-images', file, path);
+        
+        // Reemplazar el blob URL temporal con la URL permanente
+        setEditForm(prev => ({
+          ...prev,
+          images: prev.images.map(img => img === tempUrl ? permanentUrl : img)
+        }));
+        
+        // Limpiar el blob URL temporal
+        URL.revokeObjectURL(tempUrl);
+        
+        setNotification({ type: 'success', message: 'Imagen subida correctamente' });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (error: any) {
+        console.error('Error al subir imagen:', error);
+        
+        // Remover la imagen temporal si falló la subida
+        setEditForm(prev => ({
+          ...prev,
+          images: prev.images.filter(img => img !== tempUrl)
+        }));
+        URL.revokeObjectURL(tempUrl);
+        
+        setNotification({ 
+          type: 'error', 
+          message: `Error al subir imagen: ${error.message || 'Error desconocido'}` 
+        });
+        setTimeout(() => setNotification(null), 5000);
+      } finally {
+        // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
+        if (fileInput) {
+          fileInput.value = '';
+        }
+      }
     }
   };
 
