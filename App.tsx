@@ -1811,11 +1811,12 @@ const App: React.FC = () => {
                                   {clientsLoading ? (
                                     <p className="text-xs text-slate-400 italic p-1">Cargando clientes...</p>
                                   ) : (() => {
-                                    // SOLO mostrar clientes de la tabla clients (clientes válidos creados correctamente)
-                                    // NO mostrar clientes "fantasma" de unidades existentes
-                                    const validClientNames = clients.map(c => c.name);
+                                    // Combinar clientes de la tabla clients con clientNames de unidades existentes
+                                    const clientNamesFromTable = clients.map(c => c.name);
+                                    const clientNamesFromUnits = Array.from(new Set(units.map(u => u.clientName).filter(Boolean)));
+                                    const allClientNames = Array.from(new Set([...clientNamesFromTable, ...clientNamesFromUnits]));
                                     
-                                    if (validClientNames.length === 0) {
+                                    if (allClientNames.length === 0) {
                                       return (
                                         <p className="text-xs text-slate-400 italic p-1">
                                           {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')
@@ -1825,8 +1826,9 @@ const App: React.FC = () => {
                                       );
                                     }
                                     
-                                    return validClientNames.map(clientName => {
+                                    return allClientNames.map(clientName => {
                                       const clientFromTable = clients.find(c => c.name === clientName);
+                                      const isFromTable = !!clientFromTable;
                                       
                                       return (
                                         <label key={clientName} className="flex items-center p-1.5 hover:bg-slate-100 rounded cursor-pointer">
@@ -1839,6 +1841,9 @@ const App: React.FC = () => {
                                             <span className="text-sm text-slate-700">{clientName}</span>
                                             {clientFromTable?.ruc && (
                                               <span className="text-xs text-slate-500 ml-2">({clientFromTable.ruc})</span>
+                                            )}
+                                            {!isFromTable && (
+                                              <span className="text-xs text-amber-600 ml-2 italic">(de unidades existentes)</span>
                                             )}
                                         </label>
                                       );

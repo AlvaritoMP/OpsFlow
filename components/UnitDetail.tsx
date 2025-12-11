@@ -3436,16 +3436,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* 1. Client Request Modal (Updated with Photos) */}
       {showRequestModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                      <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                        <MessageSquarePlus className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                        <span className="truncate">Nuevo Requerimiento</span>
-                      </h3>
-                      <button onClick={() => setShowRequestModal(false)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                  {/* Header fijo para móvil */}
+                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                      <h3 className="font-bold text-base md:text-lg flex items-center"><MessageSquarePlus className="mr-2" size={18} /><span className="hidden sm:inline">Nuevo Requerimiento</span><span className="sm:hidden">Nuevo</span></h3>
+                      <button onClick={() => setShowRequestModal(false)} className="text-white/80 hover:text-white shrink-0"><X size={20} /></button>
                   </div>
-                  <div className="p-4 md:p-6 space-y-4 overflow-y-auto">
+                  <div className="p-6 space-y-4">
                       <p className="text-sm text-slate-600">Por favor, detalle su observación o solicitud para que nuestro equipo pueda atenderla.</p>
                       <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Categoría</label>
@@ -3552,14 +3550,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 2. Tracking / Resolution / Comment Modal (Replaces old Admin Resolve Modal) */}
       {editingRequest && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-lg flex flex-col animate-in fade-in zoom-in-95 duration-200 max-h-[90vh]">
-                  <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                      <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                        <Edit2 className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                        <span className="truncate">Seguimiento de Solicitud</span>
-                      </h3>
-                      <button onClick={() => setEditingRequest(null)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-lg flex flex-col animate-in fade-in zoom-in-95 duration-200 md:max-h-[90vh]">
+                  {/* Header fijo para móvil */}
+                  <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                      <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18} /><span className="truncate">Seguimiento de Solicitud</span></h3>
+                      <button onClick={() => setEditingRequest(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
                   </div>
                   
                   <div className="p-4 md:p-6 overflow-y-auto flex-1 custom-scrollbar">
@@ -3695,16 +3691,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 3. New Event Modal */}
       {showEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                  <Plus className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                  <span className="truncate">Nuevo Evento</span>
-                </h3>
-                <button onClick={() => setShowEventModal(false)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                <h3 className="font-bold text-base md:text-lg flex items-center"><Plus className="mr-2 shrink-0" size={18} /><span className="truncate">Nuevo Evento</span></h3>
+                <button onClick={() => setShowEventModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-4 md:p-6 space-y-4 overflow-y-auto">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Evento</label>
                     <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newEventForm.type} onChange={e => setNewEventForm({...newEventForm,type: e.target.value})}>
@@ -3768,18 +3762,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* 4. Bulk Import Modal */}
       {showBulkImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-              <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                <FileSpreadsheet className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                <span className="truncate">Carga Masiva de Trabajadores</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-2xl md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            {/* Header fijo para móvil */}
+            <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+              <h3 className="font-bold text-base md:text-lg flex items-center min-w-0">
+                <FileSpreadsheet className="mr-2 shrink-0" size={18}/> <span className="truncate">Carga Masiva</span>
               </h3>
-              <button onClick={() => { setShowBulkImportModal(false); setImportResult(null); }} className="text-white/80 hover:text-white shrink-0">
-                <X className="w-4 h-4 md:w-5 md:h-5" />
+              <button onClick={() => { setShowBulkImportModal(false); setImportResult(null); }} className="text-white/80 hover:text-white shrink-0 ml-2">
+                <X size={20} />
               </button>
             </div>
-            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+            <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h4 className="font-semibold text-blue-900 mb-2">Formato del archivo Excel</h4>
                 <p className="text-sm text-blue-800 mb-3">
@@ -3926,16 +3920,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 5. Add Worker Modal */}
       {showAddWorkerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                  <UserPlus className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                  <span className="truncate">Nuevo Colaborador</span>
-                </h3>
-                <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><UserPlus className="mr-2 shrink-0" size={18}/> <span className="truncate">Nuevo Colaborador</span></h3>
+                <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-4 md:p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo *</label>
                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} required />
@@ -4007,16 +3999,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 6. Mass Training Modal */}
       {showMassTrainingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                  <Award className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                  <span className="truncate">Registrar Capacitación</span>
-                </h3>
-                <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Award className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Capacitación</span></h3>
+                <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Tema / Curso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.topic} onChange={e => setMassTrainingForm({...massTrainingForm, topic: e.target.value})} /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.date} onChange={e => setMassTrainingForm({...massTrainingForm, date: e.target.value})} /></div>
@@ -4035,16 +4025,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 7. Mass Asset Assignment Modal (Was missing in previous provided text) */}
       {showAssetAssignmentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-orange-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                  <Briefcase className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                  <span className="truncate">Asignar EPP / Activo</span>
-                </h3>
-                <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             {/* Header fijo para móvil */}
+             <div className="bg-orange-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Briefcase className="mr-2 shrink-0" size={18}/> <span className="truncate">Asignar EPP / Activo</span></h3>
+                <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-4 md:p-6 space-y-4 overflow-y-auto">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
                 
                 {/* Opción: Usar catálogo o texto libre */}
@@ -4196,16 +4184,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 8. Edit Resource Modal */}
       {editingResource && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                      <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                        <Edit2 className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                        <span className="truncate">Editar Recurso</span>
-                      </h3>
-                      <button onClick={() => setEditingResource(null)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                  {/* Header fijo para móvil */}
+                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                      <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18}/> <span className="truncate">Editar Recurso</span></h3>
+                      <button onClick={() => setEditingResource(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
                   </div>
-                  <div className="p-4 md:p-6 space-y-4 overflow-y-auto">
+                  <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                       <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.name} onChange={e => setEditingResource({...editingResource, name: e.target.value})} /></div>
                       
                       {editingResource.type === ResourceType.PERSONNEL && (
@@ -4307,16 +4293,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* 9. Add Resource Modal (Logistics) */}
       {showAddResourceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                    {newResourceType === ResourceType.EQUIPMENT ? <Truck className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/> : <Package className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>} 
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0">
+                    {newResourceType === ResourceType.EQUIPMENT ? <Truck className="mr-2 shrink-0" size={18}/> : <Package className="mr-2 shrink-0" size={18}/>} 
                     <span className="truncate">Nuevo {newResourceType === ResourceType.EQUIPMENT ? 'Equipo' : 'Material'}</span>
                 </h3>
-                <button onClick={() => setShowAddResourceModal(false)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+                <button onClick={() => setShowAddResourceModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-4 md:p-6 space-y-4 overflow-y-auto">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.name} onChange={e => setNewResourceForm({...newResourceForm, name: e.target.value})} /></div>
                 
                 <div className="grid grid-cols-2 gap-4">
@@ -4393,16 +4380,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* 10. Maintenance Modal (Triggered by maintenanceResource state) */}
       {maintenanceResource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-orange-500 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-xl flex justify-between items-center gap-2 shrink-0">
-                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0 flex-1">
-                  <Wrench className="mr-2 shrink-0 w-4 h-4 md:w-5 md:h-5"/>
-                  <span className="truncate">Registrar Mantenimiento</span>
-                </h3>
-                <button onClick={() => setMaintenanceResource(null)} className="text-white/80 hover:text-white shrink-0"><X className="w-4 h-4 md:w-5 md:h-5" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             {/* Header fijo para móvil */}
+             <div className="bg-orange-500 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Wrench className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Mantenimiento</span></h3>
+                <button onClick={() => setMaintenanceResource(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-4 md:p-6 space-y-4 overflow-y-auto">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Equipo: <span className="font-bold">{maintenanceResource.name}</span></p>
                 <div className="grid grid-cols-2 gap-4">
                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.date} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, date: e.target.value})} /></div>
@@ -4463,13 +4448,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 11. Edit Log Modal */}
       {editingLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center"><Edit2 className="mr-2" size={20}/> Editar Registro</h3>
-                <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18}/> <span className="truncate">Editar Registro</span></h3>
+                <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingLog.date} onChange={e => setEditingLog({...editingLog, date: e.target.value})} /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={editingLog.description} onChange={e => setEditingLog({...editingLog, description: e.target.value})} /></div>
                 
@@ -4523,15 +4509,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Modal: Supervisión Nocturna */}
       {showNightSupervisionModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                  <Moon className="w-6 h-6" />
-                  Supervisión Nocturna - {unit.name}
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-lg p-0 md:p-6 max-w-6xl w-full h-full md:h-auto md:max-h-[90vh] flex flex-col">
+            {/* Header fijo para móvil */}
+            <div className="flex justify-between items-center p-4 md:p-0 mb-4 md:mb-6 shrink-0 sticky top-0 bg-white z-10 border-b md:border-b-0 pb-4 md:pb-0">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg md:text-2xl font-bold text-gray-900 flex items-center gap-2">
+                  <Moon className="w-5 h-5 md:w-6 md:h-6 shrink-0" />
+                  <span className="truncate">Supervisión Nocturna{window.innerWidth >= 768 ? ` - ${unit.name}` : ''}</span>
                 </h2>
-                <p className="text-sm text-gray-600 mt-1">Reportes de supervisión nocturna para esta unidad</p>
+                <p className="text-xs md:text-sm text-gray-600 mt-1 hidden md:block">Reportes de supervisión nocturna para esta unidad</p>
+                <p className="text-xs text-gray-600 mt-1 md:hidden truncate">{unit.name}</p>
               </div>
               <button
                 onClick={() => {
@@ -4540,11 +4528,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   setShiftCalls([]);
                   setShiftCameraReviews([]);
                 }}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 shrink-0 ml-2"
               >
-                <X className="w-6 h-6" />
+                <X className="w-5 h-5 md:w-6 md:h-6" />
               </button>
             </div>
+            
+            <div className="flex-1 overflow-y-auto px-4 md:px-0">
 
             {loadingNightSupervision ? (
               <div className="text-center py-8">
@@ -4743,6 +4733,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 )}
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
