@@ -2360,7 +2360,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 aspect-video md:aspect-auto md:h-80 rounded-xl overflow-hidden shadow-sm relative group bg-slate-200">
           {unit.images && unit.images.length > 0 ? (
-            <img src={unit.images[0]} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Main" />
+            <img 
+              src={unit.images[0]} 
+              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 cursor-pointer" 
+              alt="Main" 
+              onClick={() => {
+                setImageModalUrl(unit.images[0]);
+                setShowImageModal(true);
+              }}
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-slate-400"><Camera size={48} /></div>
           )}
@@ -2368,11 +2376,46 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
         <div className="hidden md:flex flex-col gap-4 h-80">
            <div className="flex-1 rounded-xl overflow-hidden shadow-sm relative bg-slate-100">
-             {unit.images && unit.images[1] ? <img src={unit.images[1]} className="w-full h-full object-cover" alt="Sec" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>}
+             {unit.images && unit.images[1] ? (
+               <img 
+                 src={unit.images[1]} 
+                 className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                 alt="Sec" 
+                 onClick={() => {
+                   setImageModalUrl(unit.images[1]);
+                   setShowImageModal(true);
+                 }}
+               />
+             ) : (
+               <div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>
+             )}
            </div>
            <div className="flex-1 rounded-xl overflow-hidden shadow-sm relative bg-slate-100">
-             {unit.images && unit.images[2] ? <img src={unit.images[2]} className="w-full h-full object-cover" alt="Ter" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>}
-             {unit.images && unit.images.length > 3 && <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold cursor-pointer hover:bg-black/70 transition-colors">+{unit.images.length - 3}</div>}
+             {unit.images && unit.images[2] ? (
+               <img 
+                 src={unit.images[2]} 
+                 className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                 alt="Ter" 
+                 onClick={() => {
+                   setImageModalUrl(unit.images[2]);
+                   setShowImageModal(true);
+                 }}
+               />
+             ) : (
+               <div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>
+             )}
+             {unit.images && unit.images.length > 3 && (
+               <div 
+                 className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold cursor-pointer hover:bg-black/70 transition-colors"
+                 onClick={() => {
+                   // Mostrar galería completa o la primera imagen adicional
+                   setImageModalUrl(unit.images[3]);
+                   setShowImageModal(true);
+                 }}
+               >
+                 +{unit.images.length - 3}
+               </div>
+             )}
            </div>
         </div>
       </div>
@@ -2508,8 +2551,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div className="flex gap-2 overflow-x-auto pb-2">
                         {editForm.images.map((img, idx) => (
                             <div key={idx} className="relative shrink-0 w-20 h-20 group">
-                                <img src={img} alt="thumb" className="w-full h-full object-cover rounded border border-slate-200" />
-                                <button onClick={() => handleRemoveImageFromEdit(idx)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12}/></button>
+                                <img 
+                                  src={img} 
+                                  alt="thumb" 
+                                  className="w-full h-full object-cover rounded border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity" 
+                                  onClick={() => {
+                                    setImageModalUrl(img);
+                                    setShowImageModal(true);
+                                  }}
+                                  title="Click para ver en tamaño completo"
+                                />
+                                {isEditing && (
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveImageFromEdit(idx);
+                                    }} 
+                                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                                    title="Eliminar imagen"
+                                  >
+                                    <X size={12}/>
+                                  </button>
+                                )}
                             </div>
                         ))}
                      </div>
@@ -4608,32 +4671,70 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* Modal: Ver Imagen Completa */}
+      {/* Modal: Ver Imagen Completa - Funciona para imágenes de unidad y fotos de supervisión */}
       {showImageModal && imageModalUrl && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setShowImageModal(false)}>
-          <div className="bg-white rounded-lg p-4 max-w-5xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Foto de Revisión de Cámaras</h3>
-              <button
-                onClick={() => setShowImageModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50" 
+          onClick={() => setShowImageModal(false)}
+        >
+          <div className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center p-4">
+            {/* Botón cerrar */}
+            <button
+              className="absolute top-4 right-4 bg-white/90 text-black rounded-full p-2 hover:bg-white z-10 shadow-lg transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowImageModal(false);
+              }}
+            >
+              <X size={24} />
+            </button>
+            
+            {/* Navegación entre imágenes (solo si hay múltiples imágenes de la unidad) */}
+            {unit.images && unit.images.length > 1 && unit.images.includes(imageModalUrl) && (
+              <>
+                <button
+                  className="absolute left-4 bg-white/90 text-black rounded-full p-3 hover:bg-white z-10 shadow-lg transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const currentIndex = unit.images.findIndex(img => img === imageModalUrl);
+                    const prevIndex = currentIndex > 0 ? currentIndex - 1 : unit.images.length - 1;
+                    setImageModalUrl(unit.images[prevIndex]);
+                  }}
+                  title="Imagen anterior"
+                >
+                  <ChevronLeft size={24} />
+                </button>
+                <button
+                  className="absolute right-4 bg-white/90 text-black rounded-full p-3 hover:bg-white z-10 shadow-lg transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const currentIndex = unit.images.findIndex(img => img === imageModalUrl);
+                    const nextIndex = currentIndex < unit.images.length - 1 ? currentIndex + 1 : 0;
+                    setImageModalUrl(unit.images[nextIndex]);
+                  }}
+                  title="Imagen siguiente"
+                >
+                  <ChevronRight size={24} />
+                </button>
+                
+                {/* Indicador de imagen actual */}
+                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/70 text-white px-4 py-2 rounded-full text-sm z-10 backdrop-blur-sm">
+                  {unit.images.findIndex(img => img === imageModalUrl) + 1} / {unit.images.length}
+                </div>
+              </>
+            )}
+            
+            {/* Imagen */}
             <img
               src={imageModalUrl}
-              alt="Screenshot completo"
-              className="w-full h-auto rounded-lg"
+              alt="Imagen completa"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              onError={(e) => {
+                console.error('Error al cargar imagen:', imageModalUrl);
+                (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2YzZjRmNiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiM5Y2EzYWYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZW4gbm8gZGlzcG9uaWJsZTwvdGV4dD48L3N2Zz4=';
+              }}
             />
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => setShowImageModal(false)}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-              >
-                Cerrar
-              </button>
-            </div>
           </div>
         </div>
       )}
