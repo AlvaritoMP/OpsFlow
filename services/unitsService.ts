@@ -360,7 +360,18 @@ function transformUnitFromDB(
     address: data.address,
     status: data.status as UnitStatus,
     description: data.description,
-    images: data.unit_images?.map((img: any) => img.image_url).sort((a: any, b: any) => a.display_order - b.display_order) || [],
+    // Filtrar blob URLs (no deberían estar en la BD, pero por si acaso) y ordenar por display_order
+    images: (data.unit_images
+      ?.filter((img: any) => {
+        // Filtrar blob URLs
+        if (img.image_url && img.image_url.startsWith('blob:')) {
+          console.warn('⚠️ Se encontró un blob URL en la BD, omitiendo:', img.image_url);
+          return false;
+        }
+        return true;
+      })
+      .sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0))
+      .map((img: any) => img.image_url) || []),
     blueprintLayers: data.blueprint_layers?.map((layer: any) => ({
       id: layer.id,
       name: layer.name,

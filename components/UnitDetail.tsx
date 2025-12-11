@@ -489,6 +489,59 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       console.log('📤 Iniciando subida de imagen:', file.name, file.size, 'bytes');
       
+      // Verificar sesión de Supabase Auth ANTES de crear el blob URL
+      try {
+        const { supabase } = await import('../services/supabase');
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session) {
+          console.error('❌ No hay sesión de Supabase Auth:', sessionError);
+          const { authService } = await import('../services/authService');
+          const localSession = authService.getSession();
+          
+          if (localSession) {
+            setNotification({ 
+              type: 'error', 
+              message: 'No hay sesión de Supabase Auth activa.\n\nPara subir imágenes, necesitas cerrar sesión y volver a iniciar sesión.\n\nEsto activará la sesión de Supabase Auth necesaria para Storage.' 
+            });
+            setTimeout(() => setNotification(null), 10000);
+            
+            // Limpiar el input
+            if (fileInput) {
+              fileInput.value = '';
+            }
+            return; // No continuar si no hay sesión de Auth
+          } else {
+            setNotification({ 
+              type: 'error', 
+              message: 'Debes estar autenticado para subir imágenes. Por favor, inicia sesión.' 
+            });
+            setTimeout(() => setNotification(null), 5000);
+            
+            // Limpiar el input
+            if (fileInput) {
+              fileInput.value = '';
+            }
+            return;
+          }
+        }
+        
+        console.log('✅ Sesión de Supabase Auth verificada:', session.user.id);
+      } catch (authCheckError) {
+        console.error('❌ Error al verificar sesión de Auth:', authCheckError);
+        setNotification({ 
+          type: 'error', 
+          message: 'Error al verificar autenticación. Por favor, intenta de nuevo.' 
+        });
+        setTimeout(() => setNotification(null), 5000);
+        
+        // Limpiar el input
+        if (fileInput) {
+          fileInput.value = '';
+        }
+        return;
+      }
+      
       // Mostrar preview temporal mientras se sube
       const tempUrl = URL.createObjectURL(file);
       
@@ -568,7 +621,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           type: 'error', 
           message: errorMessage
         });
-        setTimeout(() => setNotification(null), 8000); // Más tiempo para leer el mensaje
+        setTimeout(() => setNotification(null), 10000); // Más tiempo para leer el mensaje
       } finally {
         // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
         if (fileInput) {
