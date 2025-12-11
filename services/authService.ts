@@ -128,17 +128,56 @@ export const authService = {
               };
               localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 
-              // Intentar crear/actualizar en Supabase Auth para compatibilidad con Storage
-              // Si falla, no es crítico, la sesión local ya está creada
+              // Intentar crear sesión de Supabase Auth para compatibilidad con Storage
+              // Esto es necesario para que Storage funcione
               try {
-                await supabase.auth.signInWithPassword({
+                const authResult = await supabase.auth.signInWithPassword({
                   email: email.toLowerCase(),
                   password: password,
                 });
-              } catch (authErr) {
-                // Si no existe en Auth, intentar crear sesión temporal
-                // Esto puede fallar, pero la sesión local ya está activa
-                console.warn('Usuario no existe en Supabase Auth, usando sesión local:', authErr);
+                
+                if (authResult.error) {
+                  // Si el usuario no existe en Auth, intentar crearlo
+                  if (authResult.error.message?.includes('Invalid login credentials') || 
+                      authResult.error.message?.includes('Email not confirmed')) {
+                    console.log('ℹ️ Usuario existe en Auth pero credenciales no coinciden o email no confirmado');
+                    // Intentar sign up (puede fallar si ya existe, pero lo intentamos)
+                    try {
+                      const signUpResult = await supabase.auth.signUp({
+                        email: email.toLowerCase(),
+                        password: password,
+                        options: {
+                          data: {
+                            name: dbUser.name,
+                            role: dbUser.role,
+                          }
+                        }
+                      });
+                      
+                      if (signUpResult.error && !signUpResult.error.message?.includes('already registered')) {
+                        console.warn('⚠️ No se pudo crear cuenta en Supabase Auth:', signUpResult.error.message);
+                      } else if (signUpResult.data?.user) {
+                        console.log('✅ Cuenta creada en Supabase Auth, intentando sign in...');
+                        // Esperar un momento y luego intentar sign in
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await supabase.auth.signInWithPassword({
+                          email: email.toLowerCase(),
+                          password: password,
+                        });
+                      }
+                    } catch (signUpErr) {
+                      console.warn('⚠️ Error al crear cuenta en Supabase Auth:', signUpErr);
+                    }
+                  } else {
+                    console.warn('⚠️ Error al autenticar con Supabase Auth:', authResult.error.message);
+                  }
+                } else {
+                  console.log('✅ Sesión de Supabase Auth creada correctamente');
+                }
+              } catch (authErr: any) {
+                // Si falla, la sesión local ya está activa, pero Storage no funcionará
+                console.warn('⚠️ No se pudo crear sesión de Supabase Auth:', authErr?.message || authErr);
+                console.warn('⚠️ La sesión local está activa, pero Storage requerirá re-autenticación');
               }
 
               // Registrar login en auditoría

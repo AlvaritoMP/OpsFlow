@@ -27,16 +27,37 @@ export const storageService = {
         const currentUser = await authService.getCurrentUser();
         
         if (localSession && currentUser) {
-          console.log('🔍 Usuario tiene sesión local pero no Supabase Auth. Intentando re-autenticar...');
+          console.log('🔍 Usuario tiene sesión local pero no Supabase Auth.');
+          console.log('💡 Intentando crear cuenta en Supabase Auth para habilitar Storage...');
           
-          // Intentar re-autenticar con Supabase Auth
-          // Nota: Esto requiere la contraseña, que no tenemos guardada
-          // Por ahora, mostramos un mensaje claro
+          // Intentar crear la cuenta en Supabase Auth si no existe
+          // Esto permitirá que Storage funcione
+          try {
+            // Primero intentar sign in (por si ya existe)
+            const signInResult = await supabase.auth.signInWithPassword({
+              email: currentUser.email,
+              password: 'temp_password_placeholder', // Esto fallará, pero nos dirá si existe
+            });
+            
+            // Si llegamos aquí, el usuario existe pero la contraseña es incorrecta
+            // O el usuario no existe
+            console.warn('⚠️ No se pudo autenticar con Supabase Auth automáticamente');
+          } catch (signInErr: any) {
+            // Si el error es "Invalid login credentials", el usuario existe pero necesitamos la contraseña correcta
+            // Si el error es "User not found", el usuario no existe en Auth
+            console.log('ℹ️ Estado de Supabase Auth:', signInErr.message);
+          }
+          
+          // No podemos crear la sesión de Auth sin la contraseña
+          // Mostrar mensaje claro al usuario
           throw new Error(
-            'La sesión de Supabase Auth no está activa.\n\n' +
-            'Para subir archivos, necesitas estar autenticado con Supabase Auth.\n\n' +
-            'Solución: Cierra sesión y vuelve a iniciar sesión.\n' +
-            'Esto activará la sesión de Supabase Auth necesaria para Storage.'
+            'Para subir archivos, necesitas una sesión de Supabase Auth activa.\n\n' +
+            'Tu cuenta fue creada directamente en la base de datos y no tiene sesión de Supabase Auth.\n\n' +
+            'SOLUCIÓN:\n' +
+            '1. Cierra sesión (botón en la esquina superior derecha)\n' +
+            '2. Vuelve a iniciar sesión con tu email y contraseña\n' +
+            '3. Esto creará la sesión de Supabase Auth necesaria para Storage\n\n' +
+            'Después de esto, podrás subir imágenes sin problemas.'
           );
         }
         
