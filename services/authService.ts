@@ -103,8 +103,66 @@ export const authService = {
   // Iniciar sesión con email y contraseña
   async signIn(email: string, password: string) {
     try {
-      // Primero intentar Supabase Auth (para usuarios existentes, especialmente ADMIN)
-      // Esto evita problemas con RLS cuando el usuario aún no está autenticado
+      // PRIMERO: Intentar buscar usuario en la tabla users y verificar password_hash
+      // Esto es para usuarios creados directamente en la BD sin Supabase Auth
+      try {
+        const { data: dbUsers, error: dbError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', email.toLowerCase())
+          .limit(1);
+
+        if (!dbError && dbUsers && dbUsers.length > 0) {
+          const dbUser = dbUsers[0];
+          
+          // Verificar contraseña si existe password_hash
+          if (dbUser.password_hash) {
+            const isValidPassword = await verifyPassword(password, dbUser.password_hash);
+            
+            if (isValidPassword) {
+              // Contraseña válida, crear sesión
+              const session: Session = {
+                userId: dbUser.id,
+                email: dbUser.email,
+                timestamp: Date.now(),
+              };
+              localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+              // Intentar crear/actualizar en Supabase Auth para compatibilidad con Storage
+              // Si falla, no es crítico, la sesión local ya está creada
+              try {
+                await supabase.auth.signInWithPassword({
+                  email: email.toLowerCase(),
+                  password: password,
+                });
+              } catch (authErr) {
+                // Si no existe en Auth, intentar crear sesión temporal
+                // Esto puede fallar, pero la sesión local ya está activa
+                console.warn('Usuario no existe en Supabase Auth, usando sesión local:', authErr);
+              }
+
+              // Registrar login en auditoría
+              try {
+                await auditService.log({
+                  actionType: 'LOGIN',
+                  entityType: 'USER',
+                  entityId: dbUser.id,
+                  entityName: dbUser.name,
+                  description: `Usuario "${dbUser.name}" inició sesión`,
+                });
+              } catch (auditErr) {
+                console.warn('No se pudo registrar en auditoría:', auditErr);
+              }
+
+              return { user: dbUser, dbUser };
+            }
+          }
+        }
+      } catch (dbErr) {
+        console.warn('Error al buscar usuario en BD:', dbErr);
+      }
+
+      // SEGUNDO: Intentar Supabase Auth (para usuarios existentes en Auth)
       let authData: any = null;
       let authError: any = null;
       
@@ -309,9 +367,15 @@ export const authService = {
       // Generar ID único
       const userId = crypto.randomUUID();
 
+      // NOTA: No podemos crear usuarios en Supabase Auth desde el cliente
+      // porque requiere service_role key. El usuario se creará solo en la tabla users.
+      // Cuando el usuario intente hacer login, se verificará el password_hash.
+      // Si en el futuro se necesita Supabase Auth, se debe crear una Edge Function.
+      const finalUserId = userId;
+
       // Crear el usuario en la tabla users
       const createdDbUser = await usersService.create({
-        id: userId,
+        id: finalUserId,
         name: userData.name || email,
         email: email.toLowerCase(),
         role: userData.role || 'OPERATIONS',
@@ -379,6 +443,10 @@ export const authService = {
       if (updateError) {
         throw new Error(`Error al actualizar contraseña: ${updateError.message}`);
       }
+
+      // NOTA: No podemos actualizar la contraseña en Supabase Auth desde el cliente
+      // porque requiere service_role key. Si el usuario existe en Auth, necesitará
+      // usar "Olvidé mi contraseña" o se debe crear una Edge Function para sincronizar.
 
       // Registrar en auditoría
       if (targetUser) {
