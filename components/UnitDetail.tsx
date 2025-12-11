@@ -10,6 +10,8 @@ interface UnitDetailProps {
   unit: Unit;
   userRole: UserRole;
   availableStaff: ManagementStaff[]; // GLOBAL REGISTRY PASSED DOWN
+  currentUser?: { role: UserRole; linkedClientNames?: string[] }; // Usuario actual para restricciones
+  availableClients?: { id: string; name: string }[]; // Lista de clientes disponibles
   onBack: () => void;
   onUpdate?: (updatedUnit: Unit) => void;
 }
@@ -46,7 +48,7 @@ const getMonday = (d: Date) => {
   return new Date(date.setDate(diff));
 }
 
-export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, onBack, onUpdate }) => {
+export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate }) => {
   // Cargar activos estándar al montar el componente
   React.useEffect(() => {
     const loadStandardAssets = async () => {
@@ -2511,7 +2513,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              {isEditing ? (
                <div className="space-y-4">
                   <div><label className="block text-sm font-medium text-slate-700">Nombre Unidad</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} /></div>
-                  <div><label className="block text-sm font-medium text-slate-700">Cliente</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.clientName} onChange={e => setEditForm({...editForm, clientName: e.target.value})} /></div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Cliente</label>
+                    {userRole === 'OPERATIONS' && currentUser?.linkedClientNames && currentUser.linkedClientNames.length > 0 ? (
+                      // Para OPERATIONS: solo puede seleccionar entre clientes asignados
+                      <select 
+                        className="w-full border border-slate-300 rounded p-2" 
+                        value={editForm.clientName} 
+                        onChange={e => setEditForm({...editForm, clientName: e.target.value})}
+                      >
+                        <option value="">Seleccionar cliente...</option>
+                        {currentUser.linkedClientNames.map(clientName => (
+                          <option key={clientName} value={clientName}>{clientName}</option>
+                        ))}
+                      </select>
+                    ) : (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') && availableClients.length > 0 ? (
+                      // Para ADMIN y SUPER_ADMIN: puede seleccionar entre todos los clientes
+                      <select 
+                        className="w-full border border-slate-300 rounded p-2" 
+                        value={editForm.clientName} 
+                        onChange={e => setEditForm({...editForm, clientName: e.target.value})}
+                      >
+                        <option value="">Seleccionar cliente...</option>
+                        {availableClients.map(client => (
+                          <option key={client.id} value={client.name}>{client.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      // Para otros roles o si no hay clientes: input deshabilitado o de solo lectura
+                      <input 
+                        type="text" 
+                        className="w-full border border-slate-300 rounded p-2 bg-slate-50" 
+                        value={editForm.clientName} 
+                        readOnly
+                        disabled
+                        title={userRole === 'OPERATIONS' ? 'No tienes clientes asignados. Contacta al administrador.' : 'No puedes modificar el cliente.'}
+                      />
+                    )}
+                  </div>
                   <div><label className="block text-sm font-medium text-slate-700">Dirección</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} /></div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Estado</label>

@@ -878,7 +878,7 @@ const App: React.FC = () => {
   const visibleUnits = React.useMemo(() => {
       if (!currentUser) return [];
       
-      if (currentUser.role === 'ADMIN') return units;
+      if (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') return units;
       
       // If user has linked clients, filter by them
       if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
@@ -1013,7 +1013,7 @@ const App: React.FC = () => {
         
         // Security check: Ensure user can see this unit
         const isLinked = currentUser.linkedClientNames?.includes(unit.clientName);
-        if (currentUser.role !== 'ADMIN' && currentUser.linkedClientNames?.length && !isLinked) {
+        if (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN' && currentUser.linkedClientNames?.length && !isLinked) {
              return <div className="p-8 text-red-600 font-bold">Acceso Denegado a esta Unidad.</div>;
         }
 
@@ -1022,6 +1022,8 @@ const App: React.FC = () => {
             unit={unit} 
             userRole={currentUser.role}
             availableStaff={managementStaff} // Pass global staff registry
+            currentUser={currentUser} // Pass current user for restrictions
+            availableClients={clients.map(c => ({ id: c.id, name: c.name }))} // Pass available clients
             onBack={() => setSelectedUnitId(null)} 
             onUpdate={handleUpdateUnit} 
           />
@@ -1153,7 +1155,7 @@ const App: React.FC = () => {
                             <option key={client.id} value={client.name}>{client.name}</option>
                           ))}
                         </select>
-                        {currentUser.role === 'ADMIN' && (
+                        {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1609,8 +1611,8 @@ const App: React.FC = () => {
              </div>
            </div>
 
-           {/* --- Clients Management (solo admin) --- */}
-           {currentUser.role === 'ADMIN' && (
+           {/* --- Clients Management (admin y superadmin) --- */}
+           {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                  <h3 className="font-bold text-slate-700 flex items-center"><Building className="mr-2" size={18} /> Gestión de Clientes</h3>
