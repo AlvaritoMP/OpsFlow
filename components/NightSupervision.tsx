@@ -325,10 +325,6 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
         const unitMatches = s.unit_id === shiftForm.unit_id;
         const supervisorMatches = s.supervisor_id === supervisorInfo.id;
         
-        console.log('🔎 Comparando turno:', {
-          turnoFecha: shiftDateNormalized,
-          fechaBuscada: normalizedDate,
-          fechasCoinciden: datesMatch,
           unidadCoincide: unitMatches,
           supervisorCoincide: supervisorMatches,
           resultado: datesMatch && unitMatches && supervisorMatches
@@ -384,12 +380,6 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
           // Verificar si las fechas realmente coinciden (comparación estricta)
           const datesActuallyMatch = actualExistingDate === normalizedDate;
           
-          console.log('🔍 Comparación final de fechas:', {
-            fechaExistenteEnBD: actualExistingDate,
-            fechaNueva: normalizedDate,
-            coinciden: datesActuallyMatch,
-            fechaExistenteFormateada: existingDateFormatted,
-            fechaNuevaFormateada: newDateFormatted
           });
           
           if (!datesActuallyMatch) {
@@ -2315,10 +2305,6 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
                           r => r.review_number === cameraReviewForm.review_number
                         );
 
-                        console.log('🔍 Verificando revisión existente:', {
-                          reviewNumber: cameraReviewForm.review_number,
-                          existingReview: existingReview ? { id: existingReview.id, review_number: existingReview.review_number } : null,
-                          totalReviews: allReviews.length
                         });
 
                         if (existingReview) {

@@ -277,10 +277,19 @@ export const authService = {
   // Registrar nuevo usuario (solo para administradores)
   async signUp(email: string, password: string, userData: Partial<User>) {
     try {
-      // Verificar que el usuario actual es administrador
+      // Verificar que el usuario actual es administrador o super administrador
       const currentUser = await this.getCurrentUser();
-      if (!currentUser || currentUser.role !== 'ADMIN') {
+      if (!currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) {
         throw new Error('Solo los administradores pueden crear nuevos usuarios');
+      }
+      
+      // Verificar permisos para crear usuarios con roles específicos
+      if (userData.role === 'SUPER_ADMIN' && currentUser.role !== 'SUPER_ADMIN') {
+        throw new Error('Solo los superadministradores pueden crear usuarios con rol SUPER_ADMIN');
+      }
+      
+      if (userData.role === 'ADMIN' && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'ADMIN') {
+        throw new Error('Solo los administradores pueden crear usuarios con rol ADMIN');
       }
 
       // Verificar que el email no esté en uso
@@ -327,11 +336,34 @@ export const authService = {
         throw new Error('No hay usuario autenticado');
       }
 
-      // Verificar permisos: admin puede cambiar cualquier contraseña, usuario solo la suya
+      // Verificar permisos: super_admin puede cambiar cualquier contraseña (incluyendo admin)
+      // admin puede cambiar contraseñas excepto de otros admins y super_admins
+      // usuario solo puede cambiar su propia contraseña
+      const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
       const isAdmin = currentUser.role === 'ADMIN';
       const isOwnPassword = currentUser.id === userId;
 
-      if (!isAdmin && !isOwnPassword) {
+      // Obtener el usuario objetivo para verificar su rol
+      const targetUser = await usersService.getById(userId);
+      if (!targetUser) {
+        throw new Error('Usuario no encontrado');
+      }
+
+      const targetIsAdmin = targetUser.role === 'ADMIN';
+      const targetIsSuperAdmin = targetUser.role === 'SUPER_ADMIN';
+
+      // Super admin puede cambiar cualquier contraseña
+      if (isSuperAdmin) {
+        // Permitir
+      }
+      // Admin puede cambiar contraseñas excepto de otros admins y super_admins
+      else if (isAdmin) {
+        if (targetIsAdmin || targetIsSuperAdmin) {
+          throw new Error('Los administradores no pueden cambiar contraseñas de otros administradores o superadministradores');
+        }
+      }
+      // Usuario normal solo puede cambiar su propia contraseña
+      else if (!isOwnPassword) {
         throw new Error('Solo puedes cambiar tu propia contraseña');
       }
 

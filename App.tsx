@@ -485,6 +485,19 @@ const App: React.FC = () => {
       setUserOperationLoading({ type: editingUser ? 'update' : 'create', userId: editingUser?.id });
       
       const isRestrictedRole = ['CLIENT', 'OPERATIONS', 'OPERATIONS_SUPERVISOR'].includes(userForm.role);
+      
+      // Verificar permisos para crear/editar usuarios con roles específicos
+      if (userForm.role === 'SUPER_ADMIN' && currentUser?.role !== 'SUPER_ADMIN') {
+        alert('Solo los superadministradores pueden crear o editar usuarios con rol SUPER_ADMIN');
+        setUserOperationLoading({ type: null });
+        return;
+      }
+      
+      if (userForm.role === 'ADMIN' && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.role !== 'ADMIN') {
+        alert('Solo los administradores pueden crear o editar usuarios con rol ADMIN');
+        setUserOperationLoading({ type: null });
+        return;
+      }
 
       if (editingUser) {
         // Update existing user (sin crear cuenta de Auth si ya existe)
@@ -1156,7 +1169,7 @@ const App: React.FC = () => {
                       </div>
                       {clients.length === 0 && (
                         <p className="text-xs text-slate-500 mt-1">
-                          {currentUser.role === 'ADMIN' 
+                          {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')
                             ? 'No hay clientes. Cree uno primero.' 
                             : 'No hay clientes disponibles. Contacte al administrador.'}
                         </p>
@@ -1366,9 +1379,11 @@ const App: React.FC = () => {
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                <h3 className="font-bold text-slate-700 flex items-center"><Users className="mr-2" size={18} /> Usuarios Registrados</h3>
-               <button onClick={openAddUserModal} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
-                  <UserPlus size={14} className="mr-1.5" /> Nuevo Usuario
-               </button>
+               {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+                 <button onClick={openAddUserModal} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
+                    <UserPlus size={14} className="mr-1.5" /> Nuevo Usuario
+                 </button>
+               )}
              </div>
              <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-white">
@@ -1393,7 +1408,7 @@ const App: React.FC = () => {
                      </tr>
                    ) : users.length === 0 ? (
                      <tr>
-                       <td colSpan={6} className="px-6 py-8 text-center text-slate-400">No hay usuarios registrados</td>
+                       <td colSpan={(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') ? 6 : 5} className="px-6 py-8 text-center text-slate-400">No hay usuarios registrados</td>
                      </tr>
                    ) : (
                      users.map(u => {
@@ -1429,29 +1444,49 @@ const App: React.FC = () => {
                                     <span className="text-slate-300 italic">Global / Sin asignar</span>
                                 )}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right">
-                               <button 
-                                 onClick={() => openEditUserModal(u)} 
-                                 disabled={isProcessing}
-                                 className="text-blue-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
-                                 title="Editar usuario">
-                                 <Edit2 size={16}/>
-                               </button>
-                               <button 
-                                 onClick={() => openChangePasswordModal(u)} 
-                                 disabled={isProcessing}
-                                 className="text-amber-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
-                                 title="Cambiar contraseña">
-                                 <Shield size={16}/>
-                               </button>
-                               <button 
-                                 onClick={() => handleDeleteUser(u.id)} 
-                                 disabled={isProcessing}
-                                 className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" 
-                                 title="Eliminar usuario">
-                                 <Trash2 size={16}/>
-                               </button>
-                            </td>
+                            {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+                              <td className="px-6 py-4 whitespace-nowrap text-right">
+                                 <button 
+                                   onClick={() => openEditUserModal(u)} 
+                                   disabled={isProcessing}
+                                   className="text-blue-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                   title="Editar usuario">
+                                   <Edit2 size={16}/>
+                                 </button>
+                                 {/* Botón de cambio de password: solo visible si el usuario actual puede cambiar passwords de este usuario */}
+                                 {(() => {
+                                   const canChangePassword = 
+                                     currentUser?.role === 'SUPER_ADMIN' || // Super admin puede cambiar cualquier password
+                                     (currentUser?.role === 'ADMIN' && u.role !== 'ADMIN' && u.role !== 'SUPER_ADMIN') || // Admin puede cambiar passwords excepto de otros admins/super_admins
+                                     (currentUser?.id === u.id); // Cualquier usuario puede cambiar su propia password
+                                   
+                                   if (!canChangePassword) return null;
+                                   
+                                   return (
+                                     <button 
+                                       onClick={() => openChangePasswordModal(u)} 
+                                       disabled={isProcessing}
+                                       className="text-amber-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                       title={
+                                         currentUser?.role === 'SUPER_ADMIN' 
+                                           ? 'Cambiar contraseña (Super Administrador)' 
+                                           : currentUser?.role === 'ADMIN'
+                                           ? 'Cambiar contraseña (Administrador)'
+                                           : 'Cambiar mi contraseña'
+                                       }>
+                                       <Shield size={16}/>
+                                     </button>
+                                   );
+                                 })()}
+                                 <button 
+                                   onClick={() => handleDeleteUser(u.id)} 
+                                   disabled={isProcessing}
+                                   className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                   title="Eliminar usuario">
+                                   <Trash2 size={16}/>
+                                 </button>
+                              </td>
+                            )}
                          </tr>
                        );
                      })
@@ -1757,7 +1792,13 @@ const App: React.FC = () => {
                           <option value="OPERATIONS_SUPERVISOR">Supervisor Operaciones</option>
                           <option value="CLIENT">Cliente</option>
                           <option value="ADMIN">Administrador</option>
+                          {currentUser?.role === 'SUPER_ADMIN' && (
+                            <option value="SUPER_ADMIN">Super Administrador</option>
+                          )}
                         </select>
+                        {userForm.role === 'SUPER_ADMIN' && currentUser?.role !== 'SUPER_ADMIN' && (
+                          <p className="text-xs text-red-600 mt-1">Solo los superadministradores pueden crear usuarios con este rol</p>
+                        )}
                       </div>
                       
                       {/* Linked Client Selection for ALL relevant roles */}
@@ -1776,7 +1817,7 @@ const App: React.FC = () => {
                                     if (allClientNames.length === 0) {
                                       return (
                                         <p className="text-xs text-slate-400 italic p-1">
-                                          {currentUser.role === 'ADMIN' 
+                                          {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')
                                             ? 'No hay clientes creados. Cree clientes primero en la sección "Gestión de Clientes".' 
                                             : 'No hay clientes disponibles.'}
                                         </p>
@@ -2017,7 +2058,7 @@ const App: React.FC = () => {
            )}
 
           {/* Client Management Modal (solo admin) */}
-          {showClientModal && currentUser.role === 'ADMIN' && (
+          {showClientModal && (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
               <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
                 <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center shrink-0">

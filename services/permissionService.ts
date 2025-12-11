@@ -4,6 +4,18 @@ import { AppFeature, PermissionConfig, UserRole } from "../types";
 const PERMISSION_STORAGE_KEY = 'OPSFLOW_PERMISSIONS';
 
 const DEFAULT_PERMISSIONS: PermissionConfig = {
+  SUPER_ADMIN: {
+    DASHBOARD: { view: true, edit: true },
+    UNIT_OVERVIEW: { view: true, edit: true },
+    PERSONNEL: { view: true, edit: true },
+    LOGISTICS: { view: true, edit: true },
+    LOGS: { view: true, edit: true },
+    BLUEPRINT: { view: true, edit: true },
+    CONTROL_CENTER: { view: true, edit: true },
+    REPORTS: { view: true, edit: true },
+    CLIENT_REQUESTS: { view: true, edit: true },
+    SETTINGS: { view: true, edit: true },
+  },
   ADMIN: {
     DASHBOARD: { view: true, edit: true },
     UNIT_OVERVIEW: { view: true, edit: true },

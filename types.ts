@@ -17,7 +17,7 @@ export enum StaffStatus {
   REPLACED = 'Reemplazo Temporal',
 }
 
-export type UserRole = 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'CLIENT';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'CLIENT';
 export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 
 // --- PERMISSIONS SYSTEM ---
