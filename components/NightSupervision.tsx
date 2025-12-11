@@ -325,11 +325,6 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
         const unitMatches = s.unit_id === shiftForm.unit_id;
         const supervisorMatches = s.supervisor_id === supervisorInfo.id;
         
-          unidadCoincide: unitMatches,
-          supervisorCoincide: supervisorMatches,
-          resultado: datesMatch && unitMatches && supervisorMatches
-        });
-        
         return datesMatch && unitMatches && supervisorMatches;
       });
 
@@ -379,8 +374,6 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
           
           // Verificar si las fechas realmente coinciden (comparación estricta)
           const datesActuallyMatch = actualExistingDate === normalizedDate;
-          
-          });
           
           if (!datesActuallyMatch) {
             // Las fechas NO coinciden realmente, continuar con la creación sin mostrar mensaje
@@ -2304,8 +2297,6 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
                         const existingReview = allReviews.find(
                           r => r.review_number === cameraReviewForm.review_number
                         );
-
-                        });
 
                         if (existingReview) {
                           // Actualizar la revisión existente

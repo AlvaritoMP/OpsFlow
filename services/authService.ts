@@ -381,7 +381,6 @@ export const authService = {
       }
 
       // Registrar en auditoría
-      const targetUser = await usersService.getById(userId);
       if (targetUser) {
         await auditService.log({
           actionType: 'UPDATE',
