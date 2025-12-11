@@ -147,6 +147,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ totalRows: number; successful: number; failed: number; errors: Array<{ row: number; error: string; data: any }>; warnings: Array<{ row: number; warning: string; data: any }> } | null>(null);
+  
+  // Image Upload State - Rastrea imágenes que se están subiendo
+  const [uploadingImages, setUploadingImages] = useState<Set<string>>(new Set()); // Set de blob URLs que se están subiendo
 
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -326,8 +329,42 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const handleSaveUnit = async () => {
     if (!onUpdate) return;
     
+    // Verificar si hay imágenes subiéndose
+    if (uploadingImages.size > 0) {
+      setNotification({ 
+        type: 'error', 
+        message: `Espera a que terminen de subirse ${uploadingImages.size} imagen(es) antes de guardar.` 
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return;
+    }
+    
     console.log('💾 Iniciando guardado de unidad:', unit.id);
     console.log('📸 Imágenes en editForm:', editForm.images);
+    
+    // Verificar sesión de Supabase Auth antes de guardar
+    try {
+      const { supabase } = await import('../services/supabase');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.warn('⚠️ No hay sesión de Supabase Auth activa. Las imágenes pueden no guardarse correctamente.');
+        const { authService } = await import('../services/authService');
+        const localSession = authService.getSession();
+        if (localSession) {
+          setNotification({ 
+            type: 'error', 
+            message: 'No hay sesión de Supabase Auth activa. Por favor, cierra sesión y vuelve a iniciar sesión antes de guardar imágenes.' 
+          });
+          setTimeout(() => setNotification(null), 8000);
+          return; // No guardar si no hay sesión de Auth
+        }
+      } else {
+        console.log('✅ Sesión de Supabase Auth activa:', session.user.id);
+      }
+    } catch (authCheckError) {
+      console.warn('⚠️ Error al verificar sesión de Auth:', authCheckError);
+    }
     
     // Filtrar y limpiar cualquier blob URL que pueda quedar (por si acaso)
     const cleanedImages = editForm.images.filter(img => {
@@ -357,11 +394,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
       console.error('❌ Error al guardar unidad:', error);
+      console.error('❌ Detalles del error:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      let errorMessage = `Error al guardar: ${error.message || 'Error desconocido'}`;
+      
+      if (error.message?.includes('permission') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
+        errorMessage = `Error de permisos al guardar. Verifica que tengas permisos para editar unidades y que las políticas RLS estén configuradas correctamente.\n\nError: ${error.message}`;
+      }
+      
       setNotification({ 
         type: 'error', 
-        message: `Error al guardar: ${error.message || 'Error desconocido'}` 
+        message: errorMessage
       });
-      setTimeout(() => setNotification(null), 5000);
+      setTimeout(() => setNotification(null), 8000);
     }
   };
 
@@ -442,6 +491,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Mostrar preview temporal mientras se sube
       const tempUrl = URL.createObjectURL(file);
+      
+      // Agregar a la lista de imágenes que se están subiendo
+      setUploadingImages(prev => new Set(prev).add(tempUrl));
+      
       setEditForm({ ...editForm, images: [...editForm.images, tempUrl] });
       console.log('🖼️ Preview temporal creado:', tempUrl);
       
@@ -466,6 +519,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           return updated;
         });
         
+        // Remover de la lista de imágenes que se están subiendo
+        setUploadingImages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(tempUrl);
+          return newSet;
+        });
+        
         // Limpiar el blob URL temporal
         URL.revokeObjectURL(tempUrl);
         
@@ -473,6 +533,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         setTimeout(() => setNotification(null), 3000);
       } catch (error: any) {
         console.error('❌ Error al subir imagen:', error);
+        console.error('❌ Detalles del error:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        });
+        
+        // Remover de la lista de imágenes que se están subiendo
+        setUploadingImages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(tempUrl);
+          return newSet;
+        });
         
         // Remover la imagen temporal si falló la subida
         setEditForm(prev => {
@@ -485,11 +557,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         });
         URL.revokeObjectURL(tempUrl);
         
+        // Mensaje de error más específico
+        let errorMessage = `Error al subir imagen: ${error.message || 'Error desconocido'}`;
+        
+        if (error.message?.includes('Supabase Auth') || error.message?.includes('sesión')) {
+          errorMessage = `No se puede subir la imagen.\n\n${error.message}\n\nPor favor, cierra sesión y vuelve a iniciar sesión para activar la sesión de Supabase Auth necesaria.`;
+        }
+        
         setNotification({ 
           type: 'error', 
-          message: `Error al subir imagen: ${error.message || 'Error desconocido'}` 
+          message: errorMessage
         });
-        setTimeout(() => setNotification(null), 5000);
+        setTimeout(() => setNotification(null), 8000); // Más tiempo para leer el mensaje
       } finally {
         // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
         if (fileInput) {
@@ -2383,7 +2462,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      </div>
                   </div>
 
-                  <button onClick={handleSaveUnit} className="w-full bg-blue-600 text-white py-2.5 rounded font-medium hover:bg-blue-700">Guardar Cambios</button>
+                  <button 
+                    onClick={handleSaveUnit} 
+                    disabled={uploadingImages.size > 0}
+                    className={`w-full py-2.5 rounded font-medium transition-colors ${
+                      uploadingImages.size > 0 
+                        ? 'bg-slate-400 text-white cursor-not-allowed' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {uploadingImages.size > 0 
+                      ? `Subiendo ${uploadingImages.size} imagen(es)...` 
+                      : 'Guardar Cambios'
+                    }
+                  </button>
                </div>
              ) : (
                <div className="text-sm text-slate-600 space-y-3">
@@ -2573,10 +2665,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </div>
                     <div className="col-span-2 hidden md:flex flex-col items-center justify-center text-xs text-slate-500">
                        {worker.startDate && (
-                         <div className="whitespace-nowrap">Inicio: {new Date(worker.startDate).toLocaleDateString('es-ES')}</div>
+                         <div className="whitespace-nowrap">Inicio: {formatDateFromString(worker.startDate)}</div>
                        )}
                        {worker.endDate && (
-                         <div className="text-red-600 whitespace-nowrap">Fin: {new Date(worker.endDate).toLocaleDateString('es-ES')}</div>
+                         <div className="text-red-600 whitespace-nowrap">Fin: {formatDateFromString(worker.endDate)}</div>
                        )}
                        {!worker.startDate && !worker.endDate && <span className="text-slate-300 italic">-</span>}
                     </div>

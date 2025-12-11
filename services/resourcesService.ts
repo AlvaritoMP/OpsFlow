@@ -450,11 +450,48 @@ function transformResourceFromDB(
     // Nuevos campos para personal
     dni: data.dni,
     puesto: data.puesto,
-    startDate: data.start_date,
-    endDate: data.end_date,
+    // Normalizar fechas para evitar problemas de timezone
+    startDate: normalizeDateFromDB(data.start_date),
+    endDate: normalizeDateFromDB(data.end_date),
     personnelStatus: data.personnel_status as 'activo' | 'cesado' || (data.type === 'Personal' ? 'activo' : undefined),
     archived: data.archived || false,
   };
+}
+
+// Función helper para normalizar fechas desde la BD (evita problemas de timezone)
+function normalizeDateFromDB(dateValue: any): string | undefined {
+  if (!dateValue) return undefined;
+  
+  // Si es un string, extraer solo la parte de la fecha (YYYY-MM-DD)
+  if (typeof dateValue === 'string') {
+    return dateValue.split('T')[0].split(' ')[0];
+  } else if (dateValue instanceof Date) {
+    // Si es un objeto Date, usar UTC para evitar problemas de zona horaria
+    const year = dateValue.getUTCFullYear();
+    const month = String(dateValue.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(dateValue.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  
+  return undefined;
+}
+
+// Función helper para normalizar fechas antes de guardar en la BD
+function normalizeDateToDB(dateValue: any): string | undefined {
+  if (!dateValue) return undefined;
+  
+  // Si es un string, extraer solo la parte de la fecha (YYYY-MM-DD)
+  if (typeof dateValue === 'string') {
+    return dateValue.split('T')[0].split(' ')[0];
+  } else if (dateValue instanceof Date) {
+    // Si es un objeto Date, convertir a YYYY-MM-DD usando hora local
+    const year = dateValue.getFullYear();
+    const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+    const day = String(dateValue.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  
+  return undefined;
 }
 
 function transformResourceToDB(resource: Partial<Resource>, unitId?: string): any {
@@ -478,8 +515,9 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
   if (resource.type === ResourceType.PERSONNEL) {
     if (resource.dni !== undefined) result.dni = resource.dni;
     if (resource.puesto !== undefined) result.puesto = resource.puesto;
-    if (resource.startDate !== undefined) result.start_date = resource.startDate;
-    if (resource.endDate !== undefined) result.end_date = resource.endDate;
+    // Normalizar fechas antes de guardar para evitar problemas de timezone
+    if (resource.startDate !== undefined) result.start_date = normalizeDateToDB(resource.startDate);
+    if (resource.endDate !== undefined) result.end_date = normalizeDateToDB(resource.endDate);
     if (resource.personnelStatus !== undefined) result.personnel_status = resource.personnelStatus;
     if (resource.archived !== undefined) result.archived = resource.archived;
   }
