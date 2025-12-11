@@ -222,6 +222,7 @@ export interface Resource {
   
   // Personnel-specific fields (only for type = PERSONNEL)
   dni?: string; // Documento Nacional de Identidad
+  puesto?: string; // Puesto o cargo del trabajador
   startDate?: string; // Fecha de inicio de labores (YYYY-MM-DD)
   endDate?: string; // Fecha de fin de labores (YYYY-MM-DD)
   personnelStatus?: 'activo' | 'cesado'; // Estado: activo o cesado (solo para personal)

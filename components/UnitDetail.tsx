@@ -141,7 +141,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [useStandardAsset, setUseStandardAsset] = useState(true); // Por defecto usar catálogo
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; startDate?: string; endDate?: string }>({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '' });
 
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -843,6 +843,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         assignedShift: newWorkerForm.shift,
         compliancePercentage: 100,
         dni: newWorkerForm.dni || undefined,
+        puesto: newWorkerForm.puesto || undefined,
         startDate: newWorkerForm.startDate || undefined,
         endDate: newWorkerForm.endDate || undefined,
         personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
@@ -2346,7 +2347,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                        </div>
                        <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
-                          <p className="text-xs text-slate-500 truncate">{worker.assignedZones?.join(', ') || 'Sin zona'}</p>
+                          <p className="text-xs text-slate-500 truncate">
+                            {worker.puesto ? `${worker.puesto} • ` : ''}{worker.assignedZones?.join(', ') || 'Sin zona'}
+                          </p>
                        </div>
                     </div>
                     <div className="col-span-2 hidden md:flex items-center justify-center text-sm text-slate-500 font-mono">
@@ -3308,6 +3311,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
                 
                 <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
+                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.puesto || ''} onChange={e => setNewWorkerForm({...newWorkerForm, puesto: e.target.value})} placeholder="Ej. Guardia de Seguridad, Supervisor, etc." />
+                </div>
+                
+                <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Zona(s) Asignada(s)</label>
                     <ZoneMultiSelect 
                         selectedZones={newWorkerForm.zones}
@@ -3560,6 +3568,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
                                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.dni || ''} onChange={e => setEditingResource({...editingResource, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
+                                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.puesto || ''} onChange={e => setEditingResource({...editingResource, puesto: e.target.value})} placeholder="Ej. Guardia de Seguridad, Supervisor, etc." />
                               </div>
                               <div className="grid grid-cols-2 gap-4">
                                   <div>

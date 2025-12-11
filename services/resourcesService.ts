@@ -449,6 +449,7 @@ function transformResourceFromDB(
     maintenanceHistory: maintenance,
     // Nuevos campos para personal
     dni: data.dni,
+    puesto: data.puesto,
     startDate: data.start_date,
     endDate: data.end_date,
     personnelStatus: data.personnel_status as 'activo' | 'cesado' || (data.type === 'Personal' ? 'activo' : undefined),
@@ -476,6 +477,7 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
   // Incluir nuevos campos solo si el recurso es de tipo Personal
   if (resource.type === ResourceType.PERSONNEL) {
     if (resource.dni !== undefined) result.dni = resource.dni;
+    if (resource.puesto !== undefined) result.puesto = resource.puesto;
     if (resource.startDate !== undefined) result.start_date = resource.startDate;
     if (resource.endDate !== undefined) result.end_date = resource.endDate;
     if (resource.personnelStatus !== undefined) result.personnel_status = resource.personnelStatus;
