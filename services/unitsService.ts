@@ -210,18 +210,51 @@ export const unitsService = {
 
       // Actualizar imágenes si se proporcionan
       if (unit.images !== undefined) {
+        console.log(`📸 Actualizando imágenes para unidad ${id}:`, unit.images);
+        
         // Eliminar imágenes existentes
-        await supabase.from('unit_images').delete().eq('unit_id', id);
+        const { error: deleteError } = await supabase.from('unit_images').delete().eq('unit_id', id);
+        if (deleteError) {
+          console.error('❌ Error al eliminar imágenes existentes:', deleteError);
+          throw new Error(`Error al eliminar imágenes existentes: ${deleteError.message}`);
+        }
+        console.log('✅ Imágenes existentes eliminadas');
         
         // Insertar nuevas imágenes
         if (unit.images.length > 0) {
-          await supabase.from('unit_images').insert(
-            unit.images.map((url, index) => ({
+          // Filtrar blob URLs (no deberían llegar aquí, pero por si acaso)
+          const validImages = unit.images.filter(url => {
+            if (url.startsWith('blob:')) {
+              console.warn('⚠️ Se intentó guardar un blob URL, omitiendo:', url);
+              return false;
+            }
+            return true;
+          });
+          
+          if (validImages.length > 0) {
+            const imageRecords = validImages.map((url, index) => ({
               unit_id: id,
               image_url: url,
               display_order: index,
-            }))
-          );
+            }));
+            
+            console.log(`📤 Insertando ${imageRecords.length} imágenes:`, imageRecords);
+            const { data: insertData, error: insertError } = await supabase
+              .from('unit_images')
+              .insert(imageRecords)
+              .select();
+            
+            if (insertError) {
+              console.error('❌ Error al insertar imágenes:', insertError);
+              throw new Error(`Error al insertar imágenes: ${insertError.message}`);
+            }
+            
+            console.log('✅ Imágenes insertadas correctamente:', insertData);
+          } else {
+            console.warn('⚠️ No hay imágenes válidas para guardar (todas eran blob URLs)');
+          }
+        } else {
+          console.log('ℹ️ No hay imágenes para insertar (array vacío)');
         }
       }
 

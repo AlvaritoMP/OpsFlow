@@ -326,27 +326,37 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const handleSaveUnit = async () => {
     if (!onUpdate) return;
     
+    console.log('💾 Iniciando guardado de unidad:', unit.id);
+    console.log('📸 Imágenes en editForm:', editForm.images);
+    
     // Filtrar y limpiar cualquier blob URL que pueda quedar (por si acaso)
-    const cleanedImages = editForm.images.map(img => {
-      // Si es un blob URL, intentar mantenerlo temporalmente pero advertir
+    const cleanedImages = editForm.images.filter(img => {
       if (img.startsWith('blob:')) {
-        console.warn('⚠️ Se encontró un blob URL en las imágenes. Debería haberse subido a Storage.');
-        return img; // Mantenerlo por ahora, pero debería haberse subido
+        console.warn('⚠️ Se encontró un blob URL en las imágenes. Omitiendo:', img);
+        return false; // NO mantener blob URLs, deben haberse subido a Storage
       }
-      return img;
+      return true;
     });
+    
+    console.log('✅ Imágenes limpiadas (sin blob URLs):', cleanedImages);
     
     const cleanedForm = { ...editForm, images: cleanedImages };
     
     try {
       // Actualizar la unidad
+      console.log('🔄 Llamando a onUpdate con:', { 
+        id: cleanedForm.id, 
+        name: cleanedForm.name, 
+        imagesCount: cleanedForm.images.length,
+        images: cleanedForm.images 
+      });
       onUpdate(cleanedForm);
       setIsEditing(false);
       
       setNotification({ type: 'success', message: 'Unidad actualizada correctamente' });
       setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
-      console.error('Error al guardar unidad:', error);
+      console.error('❌ Error al guardar unidad:', error);
       setNotification({ 
         type: 'error', 
         message: `Error al guardar: ${error.message || 'Error desconocido'}` 
@@ -428,24 +438,33 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const file = e.target.files[0];
       const fileInput = e.target;
       
+      console.log('📤 Iniciando subida de imagen:', file.name, file.size, 'bytes');
+      
       // Mostrar preview temporal mientras se sube
       const tempUrl = URL.createObjectURL(file);
       setEditForm({ ...editForm, images: [...editForm.images, tempUrl] });
+      console.log('🖼️ Preview temporal creado:', tempUrl);
       
       try {
         // Subir a Supabase Storage
         const { storageService } = await import('../services/storageService');
         const timestamp = Date.now();
-        const fileName = `unit-${unit.id}-${timestamp}-${file.name}`;
+        const fileName = `unit-${unit.id}-${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
         const path = `units/${unit.id}/${fileName}`;
         
+        console.log('☁️ Subiendo a Storage:', { bucket: 'unit-images', path });
         const permanentUrl = await storageService.uploadFile('unit-images', file, path);
+        console.log('✅ URL permanente obtenida:', permanentUrl);
         
         // Reemplazar el blob URL temporal con la URL permanente
-        setEditForm(prev => ({
-          ...prev,
-          images: prev.images.map(img => img === tempUrl ? permanentUrl : img)
-        }));
+        setEditForm(prev => {
+          const updated = {
+            ...prev,
+            images: prev.images.map(img => img === tempUrl ? permanentUrl : img)
+          };
+          console.log('🔄 Estado actualizado con URL permanente. Total imágenes:', updated.images.length);
+          return updated;
+        });
         
         // Limpiar el blob URL temporal
         URL.revokeObjectURL(tempUrl);
@@ -453,13 +472,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         setNotification({ type: 'success', message: 'Imagen subida correctamente' });
         setTimeout(() => setNotification(null), 3000);
       } catch (error: any) {
-        console.error('Error al subir imagen:', error);
+        console.error('❌ Error al subir imagen:', error);
         
         // Remover la imagen temporal si falló la subida
-        setEditForm(prev => ({
-          ...prev,
-          images: prev.images.filter(img => img !== tempUrl)
-        }));
+        setEditForm(prev => {
+          const updated = {
+            ...prev,
+            images: prev.images.filter(img => img !== tempUrl)
+          };
+          console.log('🗑️ Imagen temporal removida. Total imágenes:', updated.images.length);
+          return updated;
+        });
         URL.revokeObjectURL(tempUrl);
         
         setNotification({ 
