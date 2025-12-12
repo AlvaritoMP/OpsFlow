@@ -112,6 +112,13 @@ export const auditService = {
     offset?: number;
   }): Promise<AuditLog[]> {
     try {
+      // Verificar que el usuario actual es ADMIN o SUPER_ADMIN
+      const currentUser = await authService.getCurrentUser();
+      if (!currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) {
+        console.warn('Usuario no autorizado para ver logs de auditoría');
+        return [];
+      }
+
       let query = supabase
         .from('audit_logs')
         .select('*')

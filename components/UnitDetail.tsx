@@ -2813,7 +2813,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Notification Toast */}
       {notification && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
+        <div className={`fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
           notification.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'
         }`}>
           {notification.type === 'success' ? (
@@ -3484,7 +3484,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* 1. Client Request Modal (Updated with Photos) */}
       {showRequestModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
               <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
                   {/* Header fijo para móvil */}
                   <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -3598,7 +3598,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 2. Tracking / Resolution / Comment Modal (Replaces old Admin Resolve Modal) */}
       {editingRequest && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
               <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-lg flex flex-col animate-in fade-in zoom-in-95 duration-200 md:max-h-[90vh]">
                   {/* Header fijo para móvil */}
                   <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -3739,7 +3739,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 3. New Event Modal */}
       {showEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
              {/* Header fijo para móvil */}
              <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -3810,7 +3810,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* 4. Bulk Import Modal */}
       {showBulkImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-2xl md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             {/* Header fijo para móvil */}
             <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -3968,7 +3968,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 5. Add Worker Modal */}
       {showAddWorkerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
              {/* Header fijo para móvil */}
              <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -4047,7 +4047,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 6. Mass Training Modal */}
       {showMassTrainingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
              {/* Header fijo para móvil */}
              <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -4073,7 +4073,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 7. Mass Asset Assignment Modal (Was missing in previous provided text) */}
       {showAssetAssignmentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
              {/* Header fijo para móvil */}
              <div className="bg-orange-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -4232,7 +4232,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 8. Edit Resource Modal */}
       {editingResource && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
               <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
                   {/* Header fijo para móvil */}
                   <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -4341,7 +4341,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* 9. Add Resource Modal (Logistics) */}
       {showAddResourceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
              {/* Header fijo para móvil */}
              <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -4428,7 +4428,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       {/* 10. Maintenance Modal (Triggered by maintenanceResource state) */}
       {maintenanceResource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
              {/* Header fijo para móvil */}
              <div className="bg-orange-500 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -4496,7 +4496,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 11. Edit Log Modal */}
       {editingLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
              {/* Header fijo para móvil */}
              <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
@@ -4557,7 +4557,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Modal: Supervisión Nocturna */}
       {showNightSupervisionModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-0 md:p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-lg p-0 md:p-6 max-w-6xl w-full h-full md:h-auto md:max-h-[90vh] flex flex-col">
             {/* Header fijo para móvil */}
             <div className="flex justify-between items-center p-4 md:p-0 mb-4 md:mb-6 shrink-0 sticky top-0 bg-white z-10 border-b md:border-b-0 pb-4 md:pb-0">
