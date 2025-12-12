@@ -37,6 +37,15 @@ export const AuditLogs: React.FC = () => {
         offset: (currentPage - 1) * itemsPerPage,
       });
       
+      // Log para debugging
+      console.log('📋 AuditLogs component - Logs recibidos:', data.length);
+      if (data.length > 0) {
+        const uniqueUsers = new Set(data.map(log => log.userId));
+        console.log('👥 Usuarios únicos en los logs mostrados:', uniqueUsers.size, Array.from(uniqueUsers));
+        const userNames = new Set(data.map(log => log.userName));
+        console.log('📝 Nombres de usuarios:', Array.from(userNames));
+      }
+      
       setLogs(data);
       setTotalCount(data.length); // En producción, esto vendría del backend
     } catch (err: any) {

@@ -155,8 +155,16 @@ export const auditService = {
       const { data, error } = await query;
 
       if (error) {
+        console.error('Error al obtener logs de auditoría:', error);
         handleSupabaseError(error);
         return [];
+      }
+
+      // Log para debugging
+      console.log(`📊 Audit logs obtenidos: ${data?.length || 0} registros`);
+      if (data && data.length > 0) {
+        const uniqueUsers = new Set(data.map((log: any) => log.user_id));
+        console.log(`👥 Usuarios únicos en los logs: ${uniqueUsers.size}`, Array.from(uniqueUsers));
       }
 
       return (data || []).map(transformAuditLogFromDB);
