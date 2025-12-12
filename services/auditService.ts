@@ -59,6 +59,10 @@ export interface CreateAuditLogParams {
   description?: string;
 }
 
+// Cache global para evitar logs duplicados
+const lastLogCache: Map<string, number> = new Map();
+const DUPLICATE_WINDOW_MS = 2000; // 2 segundos
+
 export const auditService = {
   // Registrar un log de auditoría
   async log(params: CreateAuditLogParams): Promise<void> {
@@ -68,6 +72,27 @@ export const auditService = {
       if (!user) {
         console.warn('No hay usuario autenticado para registrar log de auditoría');
         return;
+      }
+
+      // Crear una clave única para detectar duplicados
+      const logKey = `${user.id}-${params.actionType}-${params.entityType}-${params.entityId || 'none'}-${JSON.stringify(params.changes?.fields || [])}`;
+      const now = Date.now();
+      const lastLogTime = lastLogCache.get(logKey);
+
+      // Si hay un log similar en los últimos 2 segundos, ignorarlo (probable duplicado)
+      if (lastLogTime && (now - lastLogTime) < DUPLICATE_WINDOW_MS) {
+        console.warn('⚠️ Log duplicado detectado, ignorando:', logKey);
+        return;
+      }
+
+      // Actualizar cache
+      lastLogCache.set(logKey, now);
+      
+      // Limpiar cache antiguo (mantener solo últimos 1000 registros)
+      if (lastLogCache.size > 1000) {
+        const oldestKey = Array.from(lastLogCache.entries())
+          .sort((a, b) => a[1] - b[1])[0][0];
+        lastLogCache.delete(oldestKey);
       }
 
       // Obtener IP y User Agent del navegador
