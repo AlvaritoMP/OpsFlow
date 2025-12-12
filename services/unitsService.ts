@@ -194,10 +194,10 @@ export const unitsService = {
   },
 
   // Actualizar una unidad
-  async update(id: string, unit: Partial<Unit>): Promise<Unit> {
+  async update(id: string, unit: Partial<Unit>, skipAuditLog: boolean = false): Promise<Unit> {
     try {
-      // Obtener la unidad antes de actualizar para el log
-      const oldUnit = await this.getById(id);
+      // Obtener la unidad antes de actualizar para el log (solo si vamos a registrar)
+      const oldUnit = skipAuditLog ? null : await this.getById(id);
       
       const unitData = transformUnitToDB(unit);
 
@@ -273,29 +273,40 @@ export const unitsService = {
       const updatedUnit = await this.getById(id);
       if (!updatedUnit) throw new Error('Unidad no encontrada');
 
-      // Registrar en auditoría
-      await auditService.log({
-        actionType: 'UPDATE',
-        entityType: 'UNIT',
-        entityId: updatedUnit.id,
-        entityName: updatedUnit.name,
-        description: `Unidad "${updatedUnit.name}" actualizada`,
-        changes: {
-          before: oldUnit ? {
-            name: oldUnit.name,
-            clientName: oldUnit.clientName,
-            address: oldUnit.address,
-            status: oldUnit.status,
-          } : undefined,
-          after: {
-            name: updatedUnit.name,
-            clientName: updatedUnit.clientName,
-            address: updatedUnit.address,
-            status: updatedUnit.status,
-          },
-          fields: Object.keys(unitData),
-        },
-      });
+      // Registrar en auditoría solo si no se omite explícitamente (para evitar logs de actualizaciones optimistas)
+      if (!skipAuditLog && oldUnit) {
+        // Solo registrar si hay cambios reales (no solo actualizaciones optimistas)
+        const hasRealChanges = 
+          oldUnit.name !== updatedUnit.name ||
+          oldUnit.clientName !== updatedUnit.clientName ||
+          oldUnit.address !== updatedUnit.address ||
+          oldUnit.status !== updatedUnit.status;
+        
+        if (hasRealChanges) {
+          await auditService.log({
+            actionType: 'UPDATE',
+            entityType: 'UNIT',
+            entityId: updatedUnit.id,
+            entityName: updatedUnit.name,
+            description: `Unidad "${updatedUnit.name}" actualizada`,
+            changes: {
+              before: {
+                name: oldUnit.name,
+                clientName: oldUnit.clientName,
+                address: oldUnit.address,
+                status: oldUnit.status,
+              },
+              after: {
+                name: updatedUnit.name,
+                clientName: updatedUnit.clientName,
+                address: updatedUnit.address,
+                status: updatedUnit.status,
+              },
+              fields: Object.keys(unitData),
+            },
+          });
+        }
+      }
 
       return updatedUnit;
     } catch (error) {

@@ -42,14 +42,31 @@ export const authService = {
   // Obtener usuario actual desde la sesión
   async getCurrentUser(): Promise<User | null> {
     const session = this.getSession();
-    if (!session) return null;
+    if (!session) {
+      console.warn('⚠️ No hay sesión activa en getCurrentUser()');
+      return null;
+    }
+    
+    console.log('🔍 getCurrentUser() - Sesión encontrada:', {
+      userId: session.userId,
+      email: session.email,
+      timestamp: new Date(session.timestamp).toISOString(),
+    });
     
     try {
       // Intentar obtener de la BD
       const dbUser = await usersService.getById(session.userId);
       if (dbUser) {
+        console.log('✅ getCurrentUser() - Usuario obtenido de BD:', {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          role: dbUser.role,
+        });
         return dbUser;
       }
+      
+      console.warn('⚠️ getCurrentUser() - Usuario no encontrado en BD con ID:', session.userId);
       
       // Si no existe en BD, intentar obtener de Supabase Auth como fallback
       // Esto puede pasar si el usuario se autenticó pero no se creó en BD

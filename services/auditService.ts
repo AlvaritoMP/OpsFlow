@@ -1,5 +1,6 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { authService } from './authService';
+import { UserRole } from '../types';
 
 // ============================================
 // SERVICIO DE AUDITORÍA
@@ -67,12 +68,81 @@ export const auditService = {
   // Registrar un log de auditoría
   async log(params: CreateAuditLogParams): Promise<void> {
     try {
-      // Obtener información del usuario actual
-      const user = await authService.getCurrentUser();
-      if (!user) {
-        console.warn('No hay usuario autenticado para registrar log de auditoría');
+      // IMPORTANTE: Obtener usuario desde la sesión LOCAL (localStorage), no de Supabase Auth
+      // La sesión de Supabase Auth puede estar usando la sesión del SUPER_ADMIN
+      // pero la sesión local tiene el usuario correcto que está haciendo la acción
+      const session = authService.getSession();
+      if (!session) {
+        console.warn('⚠️ No hay sesión local para registrar log de auditoría');
+        console.warn('⚠️ Parámetros del log:', params);
         return;
       }
+      
+      // Obtener usuario desde la BD usando el userId de la sesión local
+      const user = await authService.getCurrentUser();
+      if (!user) {
+        console.warn('⚠️ No se pudo obtener usuario de la BD para registrar log de auditoría');
+        console.warn('⚠️ Session userId:', session.userId);
+        console.warn('⚠️ Parámetros del log:', params);
+        return;
+      }
+      
+      // Verificar que el usuario obtenido coincide con la sesión local
+      if (user.id !== session.userId) {
+        console.error('❌ ERROR: El usuario obtenido no coincide con la sesión local!', {
+          sessionUserId: session.userId,
+          sessionEmail: session.email,
+          userObtainedId: user.id,
+          userObtainedEmail: user.email,
+          userObtainedName: user.name,
+        });
+        // Usar el usuario de la sesión local como fallback
+        const fallbackUser = {
+          id: session.userId,
+          email: session.email,
+          name: session.email.split('@')[0],
+          role: 'OPERATIONS' as UserRole,
+        };
+        console.warn('⚠️ Usando usuario de sesión local como fallback:', fallbackUser);
+        
+        // Insertar el log con el usuario de la sesión local
+        const ipAddress = await this.getClientIP();
+        const userAgent = navigator.userAgent;
+        
+        const { error } = await supabase
+          .from('audit_logs')
+          .insert({
+            user_id: fallbackUser.id,
+            user_name: fallbackUser.name,
+            user_email: fallbackUser.email,
+            action_type: params.actionType,
+            entity_type: params.entityType,
+            entity_id: params.entityId || null,
+            entity_name: params.entityName || null,
+            changes: params.changes || null,
+            description: params.description || null,
+            ip_address: ipAddress || null,
+            user_agent: userAgent || null,
+          });
+        
+        if (error) {
+          console.error('Error al registrar log de auditoría (fallback):', error);
+        }
+        return;
+      }
+      
+      // Log detallado para debugging
+      console.log('📝 Registrando log de auditoría:', {
+        userId: user.id,
+        userName: user.name,
+        userEmail: user.email,
+        userRole: user.role,
+        actionType: params.actionType,
+        entityType: params.entityType,
+        entityName: params.entityName,
+        sessionUserId: session.userId,
+        sessionEmail: session.email,
+      });
 
       // Crear una clave única para detectar duplicados
       const logKey = `${user.id}-${params.actionType}-${params.entityType}-${params.entityId || 'none'}-${JSON.stringify(params.changes?.fields || [])}`;
