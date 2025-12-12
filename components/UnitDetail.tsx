@@ -3485,13 +3485,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 1. Client Request Modal (Updated with Photos) */}
       {showRequestModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
                   {/* Header fijo para móvil */}
-                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                       <h3 className="font-bold text-base md:text-lg flex items-center"><MessageSquarePlus className="mr-2" size={18} /><span className="hidden sm:inline">Nuevo Requerimiento</span><span className="sm:hidden">Nuevo</span></h3>
                       <button onClick={() => setShowRequestModal(false)} className="text-white/80 hover:text-white shrink-0"><X size={20} /></button>
                   </div>
-                  <div className="p-6 space-y-4">
+                  <div className="p-6 space-y-4 pt-20 md:pt-6 overflow-y-auto flex-1">
                       <p className="text-sm text-slate-600">Por favor, detalle su observación o solicitud para que nuestro equipo pueda atenderla.</p>
                       <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Categoría</label>
@@ -3599,9 +3599,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 2. Tracking / Resolution / Comment Modal (Replaces old Admin Resolve Modal) */}
       {editingRequest && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-lg flex flex-col animate-in fade-in zoom-in-95 duration-200 md:max-h-[90vh]">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-lg flex flex-col animate-in fade-in zoom-in-95 duration-200 relative md:max-h-[90vh]">
                   {/* Header fijo para móvil */}
-                  <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                  <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                       <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18} /><span className="truncate">Seguimiento de Solicitud</span></h3>
                       <button onClick={() => setEditingRequest(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
                   </div>
@@ -3740,9 +3740,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 3. New Event Modal */}
       {showEventModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
              {/* Header fijo para móvil */}
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                 <h3 className="font-bold text-base md:text-lg flex items-center"><Plus className="mr-2 shrink-0" size={18} /><span className="truncate">Nuevo Evento</span></h3>
                 <button onClick={() => setShowEventModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
@@ -3811,9 +3811,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 4. Bulk Import Modal */}
       {showBulkImportModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-2xl md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-2xl md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
             {/* Header fijo para móvil */}
-            <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+            <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
               <h3 className="font-bold text-base md:text-lg flex items-center min-w-0">
                 <FileSpreadsheet className="mr-2 shrink-0" size={18}/> <span className="truncate">Carga Masiva</span>
               </h3>
@@ -3969,9 +3969,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 5. Add Worker Modal */}
       {showAddWorkerModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
              {/* Header fijo para móvil */}
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                 <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><UserPlus className="mr-2 shrink-0" size={18}/> <span className="truncate">Nuevo Colaborador</span></h3>
                 <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
@@ -4048,9 +4048,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 6. Mass Training Modal */}
       {showMassTrainingModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
              {/* Header fijo para móvil */}
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                 <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Award className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Capacitación</span></h3>
                 <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
@@ -4074,9 +4074,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 7. Mass Asset Assignment Modal (Was missing in previous provided text) */}
       {showAssetAssignmentModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
              {/* Header fijo para móvil */}
-             <div className="bg-orange-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+             <div className="bg-orange-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                 <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Briefcase className="mr-2 shrink-0" size={18}/> <span className="truncate">Asignar EPP / Activo</span></h3>
                 <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
@@ -4233,9 +4233,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 8. Edit Resource Modal */}
       {editingResource && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
                   {/* Header fijo para móvil */}
-                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                       <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18}/> <span className="truncate">Editar Recurso</span></h3>
                       <button onClick={() => setEditingResource(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
                   </div>
@@ -4342,9 +4342,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 9. Add Resource Modal (Logistics) */}
       {showAddResourceModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
              {/* Header fijo para móvil */}
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                 <h3 className="font-bold text-base md:text-lg flex items-center min-w-0">
                     {newResourceType === ResourceType.EQUIPMENT ? <Truck className="mr-2 shrink-0" size={18}/> : <Package className="mr-2 shrink-0" size={18}/>} 
                     <span className="truncate">Nuevo {newResourceType === ResourceType.EQUIPMENT ? 'Equipo' : 'Material'}</span>
@@ -4429,9 +4429,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 10. Maintenance Modal (Triggered by maintenanceResource state) */}
       {maintenanceResource && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
              {/* Header fijo para móvil */}
-             <div className="bg-orange-500 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+             <div className="bg-orange-500 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                 <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Wrench className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Mantenimiento</span></h3>
                 <button onClick={() => setMaintenanceResource(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
@@ -4497,9 +4497,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* 11. Edit Log Modal */}
       {editingLog && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
              {/* Header fijo para móvil */}
-             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 sticky top-0 z-10">
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center shrink-0 absolute top-0 left-0 right-0 z-20">
                 <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18}/> <span className="truncate">Editar Registro</span></h3>
                 <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>

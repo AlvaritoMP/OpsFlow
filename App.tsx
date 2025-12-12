@@ -2276,8 +2276,8 @@ const App: React.FC = () => {
                   </button>
               )}
 
-              {/* Operations Dashboard - Visible for ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
-              {(currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+              {/* Operations Dashboard - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
                     onClick={() => { setCurrentView('operations-dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'operations-dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}

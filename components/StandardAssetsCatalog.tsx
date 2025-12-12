@@ -23,7 +23,7 @@ export const StandardAssetsCatalog: React.FC<StandardAssetsCatalogProps> = ({ cu
   const [filterType, setFilterType] = useState<StandardAsset['type'] | 'ALL'>('ALL');
   const [showInactive, setShowInactive] = useState(false);
 
-  const isAdmin = currentUserRole === 'ADMIN';
+  const isAdmin = currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN';
 
   useEffect(() => {
     loadAssets();
