@@ -121,10 +121,16 @@ export const auditService = {
 
       // Usar RPC o consulta directa para evitar problemas con RLS
       // Primero intentar con la consulta normal
+      // IMPORTANTE: Usar select con count y asegurar que no haya filtros implícitos
+      // El problema puede ser que Supabase esté aplicando algún filtro basado en auth.uid()
+      // aunque RLS esté deshabilitado. Forzamos la consulta sin ningún filtro.
       let query = supabase
         .from('audit_logs')
-        .select('*', { count: 'exact' }) // Agregar count para debugging
+        .select('*', { count: 'exact', head: false }) // head: false para obtener datos
         .order('created_at', { ascending: false });
+      
+      // Log para debugging
+      console.log('🔍 Ejecutando consulta de audit_logs sin filtros...');
 
       if (filters?.actionType) {
         query = query.eq('action_type', filters.actionType);
@@ -146,13 +152,16 @@ export const auditService = {
         query = query.lte('created_at', filters.endDate);
       }
 
-      if (filters?.limit) {
-        query = query.limit(filters.limit);
-      }
+      // NO aplicar limit aquí - obtener todos los registros y luego filtrar en memoria
+      // Esto asegura que veamos logs de todos los usuarios, no solo los más recientes
+      // El componente se encargará de la paginación
+      // if (filters?.limit) {
+      //   query = query.limit(filters.limit);
+      // }
 
-      if (filters?.offset) {
-        query = query.range(filters.offset, filters.offset + (filters.limit || 100) - 1);
-      }
+      // if (filters?.offset) {
+      //   query = query.range(filters.offset, filters.offset + (filters.limit || 100) - 1);
+      // }
 
       const { data, error, count } = await query;
 
