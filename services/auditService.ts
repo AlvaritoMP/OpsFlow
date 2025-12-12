@@ -119,9 +119,11 @@ export const auditService = {
         return [];
       }
 
+      // Usar RPC o consulta directa para evitar problemas con RLS
+      // Primero intentar con la consulta normal
       let query = supabase
         .from('audit_logs')
-        .select('*')
+        .select('*', { count: 'exact' }) // Agregar count para debugging
         .order('created_at', { ascending: false });
 
       if (filters?.actionType) {
@@ -152,19 +154,29 @@ export const auditService = {
         query = query.range(filters.offset, filters.offset + (filters.limit || 100) - 1);
       }
 
-      const { data, error } = await query;
+      const { data, error, count } = await query;
 
       if (error) {
-        console.error('Error al obtener logs de auditoría:', error);
+        console.error('❌ Error al obtener logs de auditoría:', error);
+        console.error('Error details:', JSON.stringify(error, null, 2));
         handleSupabaseError(error);
         return [];
       }
 
       // Log para debugging
-      console.log(`📊 Audit logs obtenidos: ${data?.length || 0} registros`);
+      console.log(`📊 Audit logs obtenidos: ${data?.length || 0} registros (count: ${count})`);
       if (data && data.length > 0) {
         const uniqueUsers = new Set(data.map((log: any) => log.user_id));
+        const userNames = new Set(data.map((log: any) => log.user_name));
         console.log(`👥 Usuarios únicos en los logs: ${uniqueUsers.size}`, Array.from(uniqueUsers));
+        console.log(`📝 Nombres de usuarios:`, Array.from(userNames));
+        
+        // Si solo hay un usuario, puede ser un problema de RLS
+        if (uniqueUsers.size === 1) {
+          console.warn('⚠️ ADVERTENCIA: Solo se están obteniendo logs de un usuario. Puede ser un problema de RLS o autenticación.');
+        }
+      } else {
+        console.warn('⚠️ No se obtuvieron logs de auditoría');
       }
 
       return (data || []).map(transformAuditLogFromDB);
