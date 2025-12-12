@@ -227,6 +227,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
 
+  // Helper para cerrar todos los modales excepto el especificado (útil en móvil)
+  const closeAllModalsExcept = (keepOpen?: string) => {
+    // Solo en móvil (ancho < 768px)
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      if (keepOpen !== 'nightSupervision') setShowNightSupervisionModal(false);
+      if (keepOpen !== 'image') setShowImageModal(false);
+      if (keepOpen !== 'request') setShowRequestModal(false);
+      if (keepOpen !== 'event') setShowEventModal(false);
+      if (keepOpen !== 'addWorker') setShowAddWorkerModal(false);
+      if (keepOpen !== 'bulkImport') setShowBulkImportModal(false);
+      if (keepOpen !== 'addResource') setShowAddResourceModal(false);
+      if (keepOpen !== 'massTraining') setShowMassTrainingModal(false);
+      if (keepOpen !== 'assetAssignment') setShowAssetAssignmentModal(false);
+      if (keepOpen !== 'editingResource') setEditingResource(null);
+      if (keepOpen !== 'maintenance') setMaintenanceResource(null);
+      if (keepOpen !== 'editingLog') setEditingLog(null);
+      if (keepOpen !== 'editingRequest') setEditingRequest(null);
+    }
+  };
+
   // Función para formatear fecha desde string YYYY-MM-DD
   const formatDateFromString = (dateStr: string) => {
     if (!dateStr) return '';
@@ -276,6 +296,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Abrir modal de supervisión nocturna
   const openNightSupervisionModal = async () => {
+    closeAllModalsExcept('nightSupervision');
     setShowNightSupervisionModal(true);
     await loadNightSupervisionShifts();
   };
@@ -1630,6 +1651,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setNewResourceForm({ name: '', quantity: 1, status: type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo', externalId: '', assignedZones: [] });
     setEquipmentResponsibleWorkerId('');
     setGenerateEquipmentConstancy(false);
+    closeAllModalsExcept('addResource');
     setShowAddResourceModal(true);
   }
 
@@ -1838,7 +1860,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
                 {canCreateRequests && (
                     <button 
-                       onClick={() => setShowRequestModal(true)} 
+                       onClick={() => {
+                         closeAllModalsExcept('request');
+                         setShowRequestModal(true);
+                       }} 
                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"
                     >
                         <Plus size={16} className="mr-1.5"/> Nueva Solicitud
@@ -2377,8 +2402,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 cursor-pointer" 
               alt="Main" 
               onClick={() => {
-                setImageModalUrl(unit.images[0]);
-                setShowImageModal(true);
+                  closeAllModalsExcept('image');
+                  setImageModalUrl(unit.images[0]);
+                  setShowImageModal(true);
               }}
             />
           ) : (
@@ -2394,8 +2420,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
                  alt="Sec" 
                  onClick={() => {
-                   setImageModalUrl(unit.images[1]);
-                   setShowImageModal(true);
+                  closeAllModalsExcept('image');
+                  setImageModalUrl(unit.images[1]);
+                  setShowImageModal(true);
                  }}
                />
              ) : (
@@ -2409,8 +2436,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
                  alt="Ter" 
                  onClick={() => {
-                   setImageModalUrl(unit.images[2]);
-                   setShowImageModal(true);
+                  closeAllModalsExcept('image');
+                  setImageModalUrl(unit.images[2]);
+                  setShowImageModal(true);
                  }}
                />
              ) : (
@@ -2421,8 +2449,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold cursor-pointer hover:bg-black/70 transition-colors"
                  onClick={() => {
                    // Mostrar galería completa o la primera imagen adicional
-                   setImageModalUrl(unit.images[3]);
-                   setShowImageModal(true);
+                  closeAllModalsExcept('image');
+                  setImageModalUrl(unit.images[3]);
+                  setShowImageModal(true);
                  }}
                >
                  +{unit.images.length - 3}
@@ -2607,6 +2636,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   alt="thumb" 
                                   className="w-full h-full object-cover rounded border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity" 
                                   onClick={() => {
+                                    closeAllModalsExcept('image');
                                     setImageModalUrl(img);
                                     setShowImageModal(true);
                                   }}
@@ -2679,7 +2709,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <h3 className="text-lg font-semibold text-slate-800 flex items-center">
                   <Calendar className="w-5 h-5 mr-2 text-slate-500" /> Agenda Operativa (30 Días)
                 </h3>
-                {canEditLogs && <button onClick={() => setShowEventModal(true)} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium hover:bg-blue-100 flex items-center"><Plus size={14} className="mr-1"/> Agendar Evento</button>}
+                {canEditLogs && <button onClick={() => {
+                  closeAllModalsExcept('event');
+                  setShowEventModal(true);
+                }} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium hover:bg-blue-100 flex items-center"><Plus size={14} className="mr-1"/> Agendar Evento</button>}
              </div>
              
              <div className="space-y-3">
@@ -2746,19 +2779,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              
             {selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
               <>
-                <button onClick={() => setShowMassTrainingModal(true)} className="bg-indigo-50 text-indigo-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors flex items-center">
+                <button onClick={() => {
+                  closeAllModalsExcept('massTraining');
+                  setShowMassTrainingModal(true);
+                }} className="bg-indigo-50 text-indigo-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors flex items-center">
                    <Award size={16} className="mr-2"/> + Capacitación ({selectedPersonnelIds.length})
                 </button>
-                <button onClick={() => setShowAssetAssignmentModal(true)} className="bg-orange-50 text-orange-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors flex items-center">
+                <button onClick={() => {
+                  closeAllModalsExcept('assetAssignment');
+                  setShowAssetAssignmentModal(true);
+                }} className="bg-orange-50 text-orange-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors flex items-center">
                    <Briefcase size={16} className="mr-2"/> + Entrega EPP ({selectedPersonnelIds.length})
                 </button>
               </>
             )}
             <div className="flex gap-2">
-              <button onClick={() => setShowBulkImportModal(true)} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm">
+              <button onClick={() => {
+                closeAllModalsExcept('bulkImport');
+                setShowBulkImportModal(true);
+              }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm">
                 <Upload size={18} className="mr-2" /> Carga Masiva
               </button>
-              <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+              <button onClick={() => {
+                closeAllModalsExcept('addWorker');
+                setShowAddWorkerModal(true);
+              }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
                 <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
               </button>
             </div>
@@ -3297,7 +3342,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           <p className="text-slate-500 text-sm">Registro de eventos, incidencias y visitas.</p>
         </div>
         {canEditLogs && (
-          <button onClick={() => setShowEventModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+              <button onClick={() => {
+                closeAllModalsExcept('event');
+                setShowEventModal(true);
+              }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
              <Plus size={18} className="mr-2" /> Registrar Evento
           </button>
         )}
@@ -4661,6 +4709,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 alt={`Revisión ${review.review_number}`}
                                 className="w-full max-w-md h-auto rounded cursor-pointer hover:opacity-90 transition-opacity"
                                 onClick={() => {
+                                  closeAllModalsExcept('image');
                                   setImageModalUrl(review.screenshot_url || null);
                                   setShowImageModal(true);
                                 }}
@@ -4668,6 +4717,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               />
                               <button
                                 onClick={() => {
+                                  closeAllModalsExcept('image');
                                   setImageModalUrl(review.screenshot_url || null);
                                   setShowImageModal(true);
                                 }}
@@ -4739,10 +4789,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       )}
 
       {/* Modal: Ver Imagen Completa - Funciona para imágenes de unidad y fotos de supervisión */}
+      {/* Este modal tiene z-index más alto porque puede abrirse desde otros modales */}
       {showImageModal && imageModalUrl && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50" 
-          onClick={() => setShowImageModal(false)}
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[60]" 
+          onClick={() => {
+            closeAllModalsExcept();
+            setShowImageModal(false);
+          }}
         >
           <div className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center p-4">
             {/* Botón cerrar */}
