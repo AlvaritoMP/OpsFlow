@@ -152,16 +152,10 @@ export const auditService = {
         query = query.lte('created_at', filters.endDate);
       }
 
-      // NO aplicar limit aquí - obtener todos los registros y luego filtrar en memoria
+      // IMPORTANTE: Supabase limita a 50 registros por defecto si no se especifica un límite
+      // Forzamos un límite alto (10000) para obtener TODOS los registros
       // Esto asegura que veamos logs de todos los usuarios, no solo los más recientes
-      // El componente se encargará de la paginación
-      // if (filters?.limit) {
-      //   query = query.limit(filters.limit);
-      // }
-
-      // if (filters?.offset) {
-      //   query = query.range(filters.offset, filters.offset + (filters.limit || 100) - 1);
-      // }
+      query = query.limit(10000);
 
       const { data, error, count } = await query;
 
