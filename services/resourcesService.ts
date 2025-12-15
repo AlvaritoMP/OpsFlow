@@ -155,6 +155,28 @@ export const resourcesService = {
 
       if (error) throw error;
 
+      // Actualizar workSchedule (turnos) si se proporcionan
+      if (resource.workSchedule !== undefined) {
+        console.log(`🔄 Actualizando ${resource.workSchedule.length} turnos para recurso ${id}`);
+        
+        // Eliminar turnos existentes
+        const { error: deleteError } = await supabase.from('daily_shifts').delete().eq('resource_id', id);
+        if (deleteError) {
+          console.error('❌ Error al eliminar turnos existentes:', deleteError);
+          throw deleteError;
+        }
+        
+        // Insertar nuevos turnos
+        if (resource.workSchedule.length > 0) {
+          console.log('📅 Insertando turnos:', resource.workSchedule.map(s => ({ 
+            date: s.date, 
+            type: s.type,
+            hours: s.hours
+          })));
+          await this.createDailyShifts(id, resource.workSchedule);
+        }
+      }
+
       // Actualizar assignedAssets si se proporcionan
       if (resource.assignedAssets !== undefined) {
         console.log(`🔄 Actualizando ${resource.assignedAssets.length} activos para recurso ${id}`);
