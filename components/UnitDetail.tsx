@@ -2829,19 +2829,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       )}
 
       {personnelViewMode === 'list' ? (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto md:overflow-hidden">
          {/* Table Header */}
          <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2">
             <div className="col-span-1 flex items-center justify-center">
                <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
             </div>
-            <div className="col-span-3 md:col-span-2">Colaborador</div>
-            <div className="col-span-2 hidden md:block text-center">DNI</div>
-            <div className="col-span-2 text-center">Estado</div>
-            <div className="col-span-2 hidden md:block text-center">Fechas</div>
-            <div className="col-span-1 hidden md:block text-center">Turno</div>
-            <div className="col-span-1 hidden md:block text-center">Cumpl.</div>
-            <div className="col-span-3 md:col-span-2 text-right">Acciones</div>
+            <div className="col-span-3 md:col-span-2 whitespace-nowrap">Colaborador</div>
+            <div className="col-span-2 hidden md:block text-center whitespace-nowrap">DNI</div>
+            <div className="col-span-2 text-center whitespace-nowrap">Estado</div>
+            <div className="col-span-2 hidden md:block text-center whitespace-nowrap">Fechas</div>
+            <div className="col-span-1 hidden md:block text-center whitespace-nowrap">Turno</div>
+            <div className="col-span-1 hidden md:block text-center whitespace-nowrap">Cumpl.</div>
+            <div className="col-span-3 md:col-span-2 text-right whitespace-nowrap">Acciones</div>
          </div>
 
          <div className="divide-y divide-slate-100">
