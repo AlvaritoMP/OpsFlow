@@ -275,32 +275,53 @@ export const unitsService = {
 
       // Registrar en auditoría solo si no se omite explícitamente (para evitar logs de actualizaciones optimistas)
       if (!skipAuditLog && oldUnit) {
-        // Solo registrar si hay cambios reales (no solo actualizaciones optimistas)
-        const hasRealChanges = 
+        // Verificar si hay cambios en campos principales
+        const hasFieldChanges = 
           oldUnit.name !== updatedUnit.name ||
           oldUnit.clientName !== updatedUnit.clientName ||
           oldUnit.address !== updatedUnit.address ||
           oldUnit.status !== updatedUnit.status;
         
-        if (hasRealChanges) {
+        // Verificar si hay cambios en imágenes
+        const oldImagesCount = oldUnit.images?.length || 0;
+        const newImagesCount = updatedUnit.images?.length || 0;
+        const hasImageChanges = oldImagesCount !== newImagesCount || 
+          (unit.images !== undefined && JSON.stringify(oldUnit.images) !== JSON.stringify(updatedUnit.images));
+        
+        // Verificar si hay cambios en recursos
+        const oldResourcesCount = oldUnit.resources?.length || 0;
+        const newResourcesCount = updatedUnit.resources?.length || 0;
+        const hasResourceChanges = oldResourcesCount !== newResourcesCount;
+        
+        // Registrar log si hay cualquier cambio (campos, imágenes o recursos)
+        if (hasFieldChanges || hasImageChanges || hasResourceChanges) {
+          const changeDescription = [];
+          if (hasFieldChanges) changeDescription.push('campos principales');
+          if (hasImageChanges) changeDescription.push(`${newImagesCount} imagen(es)`);
+          if (hasResourceChanges) changeDescription.push('recursos');
+          
           await auditService.log({
             actionType: 'UPDATE',
             entityType: 'UNIT',
             entityId: updatedUnit.id,
             entityName: updatedUnit.name,
-            description: `Unidad "${updatedUnit.name}" actualizada`,
+            description: `Unidad "${updatedUnit.name}" actualizada (${changeDescription.join(', ')})`,
             changes: {
               before: {
                 name: oldUnit.name,
                 clientName: oldUnit.clientName,
                 address: oldUnit.address,
                 status: oldUnit.status,
+                imagesCount: oldImagesCount,
+                resourcesCount: oldResourcesCount,
               },
               after: {
                 name: updatedUnit.name,
                 clientName: updatedUnit.clientName,
                 address: updatedUnit.address,
                 status: updatedUnit.status,
+                imagesCount: newImagesCount,
+                resourcesCount: newResourcesCount,
               },
               fields: Object.keys(unitData),
             },

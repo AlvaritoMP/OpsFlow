@@ -68,9 +68,8 @@ export const auditService = {
   // Registrar un log de auditoría
   async log(params: CreateAuditLogParams): Promise<void> {
     try {
-      // IMPORTANTE: Obtener usuario desde la sesión LOCAL (localStorage), no de Supabase Auth
-      // La sesión de Supabase Auth puede estar usando la sesión del SUPER_ADMIN
-      // pero la sesión local tiene el usuario correcto que está haciendo la acción
+      // SOLUCIÓN DEFINITIVA: Usar directamente la sesión LOCAL (localStorage)
+      // NO usar getCurrentUser() porque puede estar devolviendo el usuario incorrecto
       const session = authService.getSession();
       if (!session) {
         console.warn('⚠️ No hay sesión local para registrar log de auditoría');
@@ -78,74 +77,60 @@ export const auditService = {
         return;
       }
       
-      // Obtener usuario desde la BD usando el userId de la sesión local
-      const user = await authService.getCurrentUser();
-      if (!user) {
-        console.warn('⚠️ No se pudo obtener usuario de la BD para registrar log de auditoría');
-        console.warn('⚠️ Session userId:', session.userId);
-        console.warn('⚠️ Parámetros del log:', params);
-        return;
+      console.log('🔍 auditService.log() - Sesión local encontrada:', {
+        userId: session.userId,
+        email: session.email,
+        timestamp: new Date(session.timestamp).toISOString(),
+      });
+      
+      // Obtener usuario directamente de la BD usando el userId de la sesión local
+      // NO usar getCurrentUser() porque puede tener problemas
+      const { usersService } = await import('./usersService');
+      let user = null;
+      try {
+        user = await usersService.getById(session.userId);
+        if (user) {
+          console.log('✅ auditService.log() - Usuario obtenido de BD:', {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          });
+        } else {
+          console.warn('⚠️ auditService.log() - Usuario no encontrado en BD con ID:', session.userId);
+        }
+      } catch (userError) {
+        console.error('❌ Error al obtener usuario de BD:', userError);
       }
       
-      // Verificar que el usuario obtenido coincide con la sesión local
-      if (user.id !== session.userId) {
-        console.error('❌ ERROR: El usuario obtenido no coincide con la sesión local!', {
-          sessionUserId: session.userId,
-          sessionEmail: session.email,
-          userObtainedId: user.id,
-          userObtainedEmail: user.email,
-          userObtainedName: user.name,
-        });
-        // Usar el usuario de la sesión local como fallback
-        const fallbackUser = {
-          id: session.userId,
-          email: session.email,
-          name: session.email.split('@')[0],
-          role: 'OPERATIONS' as UserRole,
-        };
-        console.warn('⚠️ Usando usuario de sesión local como fallback:', fallbackUser);
-        
-        // Insertar el log con el usuario de la sesión local
-        const ipAddress = await this.getClientIP();
-        const userAgent = navigator.userAgent;
-        
-        const { error } = await supabase
-          .from('audit_logs')
-          .insert({
-            user_id: fallbackUser.id,
-            user_name: fallbackUser.name,
-            user_email: fallbackUser.email,
-            action_type: params.actionType,
-            entity_type: params.entityType,
-            entity_id: params.entityId || null,
-            entity_name: params.entityName || null,
-            changes: params.changes || null,
-            description: params.description || null,
-            ip_address: ipAddress || null,
-            user_agent: userAgent || null,
-          });
-        
-        if (error) {
-          console.error('Error al registrar log de auditoría (fallback):', error);
-        }
-        return;
+      // Si no se encontró el usuario en BD, usar la sesión local como fallback
+      const finalUser = user || {
+        id: session.userId,
+        email: session.email,
+        name: session.email.split('@')[0],
+        role: 'OPERATIONS' as UserRole,
+      };
+      
+      if (!user) {
+        console.warn('⚠️ Usando datos de sesión local como fallback:', finalUser);
       }
       
       // Log detallado para debugging
       console.log('📝 Registrando log de auditoría:', {
-        userId: user.id,
-        userName: user.name,
-        userEmail: user.email,
-        userRole: user.role,
+        userId: finalUser.id,
+        userName: finalUser.name,
+        userEmail: finalUser.email,
+        userRole: finalUser.role,
         actionType: params.actionType,
         entityType: params.entityType,
         entityName: params.entityName,
         sessionUserId: session.userId,
         sessionEmail: session.email,
+        userFromDB: !!user,
       });
 
       // Crear una clave única para detectar duplicados
-      const logKey = `${user.id}-${params.actionType}-${params.entityType}-${params.entityId || 'none'}-${JSON.stringify(params.changes?.fields || [])}`;
+      const logKey = `${finalUser.id}-${params.actionType}-${params.entityType}-${params.entityId || 'none'}-${JSON.stringify(params.changes?.fields || [])}`;
       const now = Date.now();
       const lastLogTime = lastLogCache.get(logKey);
 
@@ -169,13 +154,13 @@ export const auditService = {
       const ipAddress = await this.getClientIP();
       const userAgent = navigator.userAgent;
 
-      // Insertar el log
+      // Insertar el log usando el usuario final (de BD o de sesión local)
       const { error } = await supabase
         .from('audit_logs')
         .insert({
-          user_id: user.id,
-          user_name: user.name || user.email?.split('@')[0] || 'Usuario',
-          user_email: user.email || '',
+          user_id: finalUser.id,
+          user_name: finalUser.name || finalUser.email?.split('@')[0] || 'Usuario',
+          user_email: finalUser.email || '',
           action_type: params.actionType,
           entity_type: params.entityType,
           entity_id: params.entityId || null,
