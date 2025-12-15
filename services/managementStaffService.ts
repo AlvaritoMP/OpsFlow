@@ -184,9 +184,16 @@ function transformStaffToDB(staff: Partial<ManagementStaff>): any {
   };
 
   // Incluir nuevos campos si están presentes
-  if (staff.dni !== undefined) result.dni = staff.dni;
-  if (staff.startDate !== undefined) result.start_date = staff.startDate;
-  if (staff.endDate !== undefined) result.end_date = staff.endDate;
+  if (staff.dni !== undefined) result.dni = staff.dni || null;
+  
+  // Convertir cadenas vacías a null para campos de fecha
+  if (staff.startDate !== undefined) {
+    result.start_date = (staff.startDate && staff.startDate.trim() !== '') ? staff.startDate : null;
+  }
+  if (staff.endDate !== undefined) {
+    result.end_date = (staff.endDate && staff.endDate.trim() !== '') ? staff.endDate : null;
+  }
+  
   if (staff.status !== undefined) result.status = staff.status;
   if (staff.archived !== undefined) result.archived = staff.archived;
 

@@ -619,15 +619,48 @@ const App: React.FC = () => {
     }
 
     try {
+      // Limpiar fechas vacías antes de guardar
+      const cleanedForm = {
+        ...newStaffForm,
+        startDate: (newStaffForm.startDate && newStaffForm.startDate.trim() !== '') ? newStaffForm.startDate : undefined,
+        endDate: (newStaffForm.endDate && newStaffForm.endDate.trim() !== '') ? newStaffForm.endDate : undefined,
+      };
+
+      // Si hay una nueva foto (blob URL), subirla a Supabase Storage primero
+      let finalPhotoUrl = newStaffPhotoUrl || editingStaff?.photo;
+      
+      if (newStaffPhotoUrl && newStaffPhotoUrl.startsWith('blob:')) {
+        // Convertir blob URL a File y subirlo
+        try {
+          const response = await fetch(newStaffPhotoUrl);
+          const blob = await response.blob();
+          const file = new File([blob], `staff-${editingStaff?.id || Date.now()}.jpg`, { type: blob.type });
+          
+          // Subir a Supabase Storage (bucket, file, path)
+          const { storageService } = await import('./services/storageService');
+          const uploadedUrl = await storageService.uploadFile('staff-photos', file, `staff/${editingStaff?.id || Date.now()}-${Date.now()}.jpg`);
+          
+          if (uploadedUrl) {
+            finalPhotoUrl = uploadedUrl;
+            // Limpiar el blob URL para liberar memoria
+            URL.revokeObjectURL(newStaffPhotoUrl);
+          }
+        } catch (uploadError: any) {
+          console.error('Error al subir foto:', uploadError);
+          alert(`Error al subir la foto: ${uploadError.message || 'Error desconocido'}. Se guardará sin foto.`);
+          finalPhotoUrl = editingStaff?.photo || undefined;
+        }
+      }
+
       if (editingStaff) {
         await updateStaff(editingStaff.id, {
-          ...newStaffForm,
-          photo: newStaffPhotoUrl || editingStaff.photo
+          ...cleanedForm,
+          photo: finalPhotoUrl
         });
       } else {
         await createStaff({
-          ...newStaffForm,
-          photo: newStaffPhotoUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2U1ZTdlYiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IiM5Y2EzYjgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj4/PC90ZXh0Pjwvc3ZnPg=='
+          ...cleanedForm,
+          photo: finalPhotoUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2U1ZTdlYiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IiM5Y2EzYjgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj4/PC90ZXh0Pjwvc3ZnPg=='
         });
       }
       
