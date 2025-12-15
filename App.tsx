@@ -382,13 +382,44 @@ const App: React.FC = () => {
     if (!newUnitForm.name || !newUnitForm.clientName) return;
 
     try {
+      // Subir imágenes blob a Supabase Storage antes de crear la unidad
+      const uploadedImages: string[] = [];
+      
+      for (const imgUrl of newUnitImages) {
+        if (imgUrl.startsWith('blob:')) {
+          // Convertir blob URL a File y subirlo
+          try {
+            const response = await fetch(imgUrl);
+            const blob = await response.blob();
+            const file = new File([blob], `unit-image-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`, { type: blob.type });
+            
+            // Subir a Supabase Storage
+            const { storageService } = await import('./services/storageService');
+            const uploadedUrl = await storageService.uploadFile('unit-images', file, `units/temp-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`);
+            
+            if (uploadedUrl) {
+              uploadedImages.push(uploadedUrl);
+              // Limpiar el blob URL para liberar memoria
+              URL.revokeObjectURL(imgUrl);
+            }
+          } catch (uploadError: any) {
+            console.error('Error al subir imagen:', uploadError);
+            // Si falla la subida, omitir esta imagen pero continuar con las demás
+            URL.revokeObjectURL(imgUrl);
+          }
+        } else {
+          // Si ya es una URL válida (no blob), agregarla directamente
+          uploadedImages.push(imgUrl);
+        }
+      }
+
       const newUnitData: Partial<Unit> = {
         name: newUnitForm.name!,
         clientName: newUnitForm.clientName!,
         address: newUnitForm.address || '',
         status: newUnitForm.status as UnitStatus || UnitStatus.ACTIVE,
         description: 'Nueva unidad registrada. Configure zonas y recursos.',
-        images: newUnitImages,
+        images: uploadedImages,
         zones: [],
         resources: [],
         logs: [],
