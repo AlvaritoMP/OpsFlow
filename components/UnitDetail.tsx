@@ -2829,9 +2829,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       )}
 
       {personnelViewMode === 'list' ? (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto md:overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
          {/* Table Header */}
-         <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2">
+         <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[800px]">
             <div className="col-span-1 flex items-center justify-center">
                <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
             </div>
@@ -2848,7 +2848,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             {personnel.map(worker => (
               <div key={worker.id} className="group transition-colors hover:bg-slate-50">
                  {/* Main Row */}
-                 <div className={`grid grid-cols-12 p-4 items-center gap-2 ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
+                 <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[800px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
                     <div className="col-span-1 flex items-center justify-center">
                        <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
                     </div>
