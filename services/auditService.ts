@@ -202,21 +202,47 @@ export const auditService = {
       // Usar función RPC para bypass RLS y obtener TODOS los logs sin restricciones
       // Esta función usa SECURITY DEFINER para ejecutar con permisos elevados
       console.log('🔍 Ejecutando función RPC get_all_audit_logs para obtener TODOS los logs...');
+      console.log('🔍 Filtros aplicados:', filters);
 
-      const { data, error } = await supabase.rpc('get_all_audit_logs', {
-        p_action_type: filters?.actionType || null,
-        p_entity_type: filters?.entityType || null,
-        p_user_id: filters?.userId || null,
-        p_start_date: filters?.startDate || null,
-        p_end_date: filters?.endDate || null,
+      // Construir parámetros para RPC (solo incluir los que no son null/undefined)
+      const rpcParams: any = {
         p_limit_count: 10000
+      };
+      
+      if (filters?.actionType) {
+        rpcParams.p_action_type = filters.actionType;
+      }
+      if (filters?.entityType) {
+        rpcParams.p_entity_type = filters.entityType;
+      }
+      if (filters?.userId) {
+        rpcParams.p_user_id = filters.userId;
+      }
+      if (filters?.startDate) {
+        rpcParams.p_start_date = filters.startDate;
+      }
+      if (filters?.endDate) {
+        rpcParams.p_end_date = filters.endDate;
+      }
+
+      console.log('🔍 Parámetros RPC:', rpcParams);
+      console.log('🔍 Usuario actual que solicita logs:', {
+        id: currentUser.id,
+        name: currentUser.name,
+        email: currentUser.email,
+        role: currentUser.role
       });
+
+      const { data, error } = await supabase.rpc('get_all_audit_logs', rpcParams);
 
       const count = data?.length || 0;
 
       if (error) {
         console.error('❌ Error al obtener logs de auditoría:', error);
         console.error('Error details:', JSON.stringify(error, null, 2));
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
+        console.error('Error hint:', error.hint);
         handleSupabaseError(error);
         return [];
       }
@@ -226,14 +252,26 @@ export const auditService = {
       if (data && data.length > 0) {
         const uniqueUsers = new Set(data.map((log: any) => log.user_id));
         const userNames = new Set(data.map((log: any) => log.user_name));
+        const userEmails = new Set(data.map((log: any) => log.user_email));
+        
         console.log(`👥 Usuarios únicos en los logs: ${uniqueUsers.size}`, Array.from(uniqueUsers));
         console.log(`📝 Nombres de usuarios:`, Array.from(userNames));
+        console.log(`📧 Emails de usuarios:`, Array.from(userEmails));
+        
+        // Mostrar distribución de logs por usuario
+        const logsByUser: Record<string, number> = {};
+        data.forEach((log: any) => {
+          const key = `${log.user_name} (${log.user_email})`;
+          logsByUser[key] = (logsByUser[key] || 0) + 1;
+        });
+        console.log('📊 Distribución de logs por usuario:', logsByUser);
         
         // Verificar que estamos obteniendo logs de múltiples usuarios
         if (uniqueUsers.size > 1) {
           console.log(`✅ Éxito: Se están obteniendo logs de ${uniqueUsers.size} usuarios diferentes`);
         } else if (uniqueUsers.size === 1) {
           console.warn('⚠️ ADVERTENCIA: Solo se están obteniendo logs de un usuario. Verificar que otros usuarios hayan realizado acciones.');
+          console.warn('⚠️ Usuario único encontrado:', Array.from(uniqueUsers)[0]);
         }
       } else {
         console.warn('⚠️ No se obtuvieron logs de auditoría');
