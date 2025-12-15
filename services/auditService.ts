@@ -74,6 +74,10 @@ export const auditService = {
       if (!session) {
         console.warn('⚠️ No hay sesión local para registrar log de auditoría');
         console.warn('⚠️ Parámetros del log:', params);
+        console.warn('⚠️ localStorage completo:', {
+          sessionKey: localStorage.getItem('OPSFLOW_SESSION'),
+          allKeys: Object.keys(localStorage),
+        });
         return;
       }
       
@@ -81,6 +85,7 @@ export const auditService = {
         userId: session.userId,
         email: session.email,
         timestamp: new Date(session.timestamp).toISOString(),
+        sessionAge: Date.now() - session.timestamp,
       });
       
       // Obtener usuario directamente de la BD usando el userId de la sesión local
@@ -154,7 +159,8 @@ export const auditService = {
       const ipAddress = await this.getClientIP();
       const userAgent = navigator.userAgent;
 
-      // Insertar el log usando el usuario final (de BD o de sesión local)
+      // Intentar insertar el log directamente primero
+      let insertError = null;
       const { error } = await supabase
         .from('audit_logs')
         .insert({
@@ -172,8 +178,43 @@ export const auditService = {
         });
 
       if (error) {
-        console.error('Error al registrar log de auditoría:', error);
-        // No lanzar error para no interrumpir el flujo principal
+        insertError = error;
+        console.error('❌ Error al registrar log de auditoría (inserción directa):', error);
+        console.error('❌ Detalles del error:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+        
+        // Si falla la inserción directa, intentar usar RPC como fallback
+        console.warn('⚠️ Intentando insertar log usando función RPC como fallback...');
+        
+        try {
+          const { error: rpcError, data: rpcData } = await supabase.rpc('insert_audit_log', {
+            p_user_id: finalUser.id,
+            p_user_name: finalUser.name || finalUser.email?.split('@')[0] || 'Usuario',
+            p_user_email: finalUser.email || '',
+            p_action_type: params.actionType,
+            p_entity_type: params.entityType,
+            p_entity_id: params.entityId || null,
+            p_entity_name: params.entityName || null,
+            p_changes: params.changes || null,
+            p_description: params.description || null,
+            p_ip_address: ipAddress || null,
+            p_user_agent: userAgent || null,
+          });
+          
+          if (rpcError) {
+            console.error('❌ Error al insertar log usando RPC:', rpcError);
+          } else {
+            console.log('✅ Log insertado exitosamente usando RPC (fallback)');
+          }
+        } catch (rpcErr) {
+          console.error('❌ Error al intentar insertar log usando RPC:', rpcErr);
+        }
+      } else {
+        console.log('✅ Log de auditoría registrado exitosamente');
       }
     } catch (error) {
       console.error('Error inesperado al registrar log de auditoría:', error);
