@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff, UserRole } from '../types';
 import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { checkPermission } from '../services/permissionService';
+import { SafeImage } from './SafeImage';
 
 interface ControlCenterProps {
   units: Unit[];
@@ -651,7 +652,12 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                             <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                                 {editForm.images.map((img, i) => (
                                     <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                        <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                        <SafeImage 
+                                          src={img} 
+                                          className="w-full h-full object-cover rounded border border-slate-200" 
+                                          alt="ev"
+                                          bucket="unit-images"
+                                        />
                                         <button onClick={() => handleRemoveImage(i)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                                     </div>
                                 ))}

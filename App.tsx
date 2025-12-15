@@ -26,6 +26,8 @@ import { Login } from './components/Login';
 import { authService } from './services/authService';
 import { LogOut, FileText } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
+import { SafeImage } from './components/SafeImage';
+import { SafeImage } from './components/SafeImage';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -1536,13 +1538,15 @@ const App: React.FC = () => {
                        <tr key={staff.id} className="hover:bg-slate-50">
                          <td className="px-4 py-4 whitespace-nowrap">
                            <div className="flex items-center">
-                             <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex-shrink-0 mr-3">
-                               {staff.photo ? (
-                                 <img src={staff.photo} alt={staff.name} className="w-full h-full object-cover"/>
-                               ) : (
-                                 <div className="w-full h-full flex items-center justify-center font-bold text-slate-400 text-sm">?</div>
-                               )}
-                             </div>
+                            <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex-shrink-0 mr-3">
+                              <SafeImage 
+                                src={staff.photo} 
+                                alt={staff.name} 
+                                className="w-full h-full object-cover"
+                                bucket="staff-photos"
+                                fallback={<div className="w-full h-full flex items-center justify-center font-bold text-slate-400 text-sm">?</div>}
+                              />
+                            </div>
                              <div>
                                <div className="text-sm font-medium text-slate-900">{staff.name}</div>
                                <div className="text-xs text-slate-500">{staff.email || 'Sin email'}</div>

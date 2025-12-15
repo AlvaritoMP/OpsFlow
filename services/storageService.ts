@@ -169,5 +169,90 @@ export const storageService = {
     const prefixPart = prefix ? `${prefix}-` : '';
     return `${prefixPart}${timestamp}-${random}.${extension}`;
   },
+
+  /**
+   * Valida y regenera una URL de imagen de Supabase Storage si es necesario
+   * @param imageUrl URL de la imagen (puede ser una URL antigua o nueva)
+   * @param bucket Nombre del bucket donde está almacenada la imagen
+   * @returns URL válida de la imagen
+   */
+  async validateAndRegenerateImageUrl(imageUrl: string | null | undefined, bucket: string): Promise<string | null> {
+    if (!imageUrl) return null;
+
+    // Si es un blob URL o data URL, retornarlo tal cual
+    if (imageUrl.startsWith('blob:') || imageUrl.startsWith('data:')) {
+      return imageUrl;
+    }
+
+    // Si ya es una URL válida de Supabase Storage, verificar si necesita regenerarse
+    try {
+      // Intentar extraer el path del archivo de la URL
+      // Las URLs de Supabase Storage tienen el formato: https://[project].supabase.co/storage/v1/object/public/[bucket]/[path]
+      const urlPattern = /\/storage\/v1\/object\/public\/([^\/]+)\/(.+)$/;
+      const match = imageUrl.match(urlPattern);
+      
+      if (match) {
+        const urlBucket = match[1];
+        const filePath = match[2];
+        
+        // Si el bucket coincide, regenerar la URL para asegurar que sea válida
+        if (urlBucket === bucket) {
+          const { data: urlData } = supabase.storage
+            .from(bucket)
+            .getPublicUrl(filePath);
+          
+          if (urlData?.publicUrl) {
+            console.log(`✅ URL regenerada para ${filePath} en bucket ${bucket}`);
+            return urlData.publicUrl;
+          }
+        }
+      }
+      
+      // Si no coincide el patrón pero parece ser una URL de Supabase, intentar regenerarla
+      // Esto puede pasar si la URL cambió por cambio de proyecto o configuración
+      if (imageUrl.includes('supabase.co') || imageUrl.includes('supabase')) {
+        // Intentar extraer el path del final de la URL
+        const pathParts = imageUrl.split('/');
+        const fileName = pathParts[pathParts.length - 1];
+        
+        // Intentar regenerar con el nombre del archivo
+        const { data: urlData } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(fileName);
+        
+        if (urlData?.publicUrl) {
+          console.log(`✅ URL regenerada usando nombre de archivo ${fileName}`);
+          return urlData.publicUrl;
+        }
+      }
+      
+      // Si no se pudo regenerar, retornar la URL original
+      console.warn(`⚠️ No se pudo regenerar URL para: ${imageUrl}`);
+      return imageUrl;
+    } catch (error) {
+      console.error('❌ Error al validar/regenerar URL de imagen:', error);
+      // En caso de error, retornar la URL original
+      return imageUrl;
+    }
+  },
+
+  /**
+   * Helper para obtener el bucket correcto según el tipo de imagen
+   * @param imageUrl URL de la imagen
+   * @returns Nombre del bucket más probable
+   */
+  guessBucketFromUrl(imageUrl: string): string {
+    if (imageUrl.includes('unit-images') || imageUrl.includes('unit_')) {
+      return 'unit-images';
+    }
+    if (imageUrl.includes('staff') || imageUrl.includes('management')) {
+      return 'staff-photos';
+    }
+    if (imageUrl.includes('night-supervision')) {
+      return 'night-supervision-photos';
+    }
+    // Default
+    return 'unit-images';
+  },
 };
 

@@ -5,6 +5,7 @@ import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
+import { SafeImage } from './SafeImage';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -1928,7 +1929,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             <div className="flex gap-2 overflow-x-auto pb-1">
                                                 {req.attachments!.map((img, i) => (
                                                     <div key={i} className="w-16 h-16 shrink-0 rounded border border-slate-200 overflow-hidden bg-slate-100">
-                                                        <img src={img} className="w-full h-full object-cover" alt="client attachment" />
+                                                        <SafeImage 
+                                                          src={img} 
+                                                          className="w-full h-full object-cover" 
+                                                          alt="client attachment"
+                                                          bucket="unit-images"
+                                                          onClick={() => {
+                                                            setImageModalUrl(img);
+                                                            setShowImageModal(true);
+                                                          }}
+                                                        />
                                                     </div>
                                                 ))}
                                             </div>
@@ -2397,14 +2407,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 aspect-video md:aspect-auto md:h-80 rounded-xl overflow-hidden shadow-sm relative group bg-slate-200">
           {unit.images && unit.images.length > 0 ? (
-            <img 
+            <SafeImage 
               src={unit.images[0]} 
               className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 cursor-pointer" 
-              alt="Main" 
+              alt="Imagen principal de la unidad"
+              bucket="unit-images"
+              fallback={<div className="w-full h-full flex items-center justify-center text-slate-400"><Camera size={48} /></div>}
               onClick={() => {
-                  closeAllModalsExcept('image');
-                  setImageModalUrl(unit.images[0]);
-                  setShowImageModal(true);
+                closeAllModalsExcept('image');
+                setImageModalUrl(unit.images[0]);
+                setShowImageModal(true);
+              }}
+              onError={() => {
+                console.warn('⚠️ Imagen principal de unidad falló al cargar');
               }}
             />
           ) : (
@@ -2415,10 +2430,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         <div className="hidden md:flex flex-col gap-4 h-80">
            <div className="flex-1 rounded-xl overflow-hidden shadow-sm relative bg-slate-100">
              {unit.images && unit.images[1] ? (
-               <img 
+               <SafeImage 
                  src={unit.images[1]} 
                  className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
-                 alt="Sec" 
+                 alt="Imagen secundaria de la unidad"
+                 bucket="unit-images"
+                 fallback={<div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>}
                  onClick={() => {
                   closeAllModalsExcept('image');
                   setImageModalUrl(unit.images[1]);
@@ -2431,10 +2448,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            </div>
            <div className="flex-1 rounded-xl overflow-hidden shadow-sm relative bg-slate-100">
              {unit.images && unit.images[2] ? (
-               <img 
+               <SafeImage 
                  src={unit.images[2]} 
                  className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
-                 alt="Ter" 
+                 alt="Imagen terciaria de la unidad"
+                 bucket="unit-images"
+                 fallback={<div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>}
                  onClick={() => {
                   closeAllModalsExcept('image');
                   setImageModalUrl(unit.images[2]);
@@ -2469,7 +2488,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 {/* Coordinator Card */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-blue-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
-                        {unit.coordinator?.photo ? <img src={unit.coordinator.photo} alt="Coord" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-blue-400 font-bold text-4xl">CO</div>}
+                        <SafeImage 
+                            src={unit.coordinator?.photo} 
+                            alt={unit.coordinator?.name || "Coordinador"} 
+                            className="w-full h-full object-cover"
+                            bucket="staff-photos"
+                            fallback={<div className="w-full h-full flex items-center justify-center text-blue-400 font-bold text-4xl">CO</div>}
+                        />
                     </div>
                     <p className="text-base font-bold text-slate-800 mb-1">{unit.coordinator?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-blue-700 bg-blue-100 px-3 py-1 rounded-full font-medium mb-3">
@@ -2489,7 +2514,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 {/* Resident Supervisor */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-indigo-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
-                        {unit.residentSupervisor?.photo ? <img src={unit.residentSupervisor.photo} alt="Res" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
+                        <SafeImage 
+                            src={unit.residentSupervisor?.photo} 
+                            alt={unit.residentSupervisor?.name || "Supervisor Residente"} 
+                            className="w-full h-full object-cover"
+                            bucket="staff-photos"
+                            fallback={<div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
+                        />
                     </div>
                     <p className="text-base font-bold text-slate-800 mb-1">{unit.residentSupervisor?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-indigo-700 bg-indigo-100 px-3 py-1 rounded-full font-medium mb-3">
@@ -2504,7 +2535,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 {/* Roving Supervisor */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
-                        {unit.rovingSupervisor?.photo ? <img src={unit.rovingSupervisor.photo} alt="Ronda" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
+                        <SafeImage 
+                            src={unit.rovingSupervisor?.photo} 
+                            alt={unit.rovingSupervisor?.name || "Supervisor de Ronda"} 
+                            className="w-full h-full object-cover"
+                            bucket="staff-photos"
+                            fallback={<div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
+                        />
                     </div>
                     <p className="text-base font-bold text-slate-800 mb-1">{unit.rovingSupervisor?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-slate-700 bg-slate-200 px-3 py-1 rounded-full font-medium mb-3">
@@ -3222,7 +3259,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div key={eq.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden group">
                          <div className="p-4 flex gap-4">
                              <div className="w-20 h-20 rounded-lg bg-slate-100 shrink-0 overflow-hidden">
-                                 {eq.image ? <img src={eq.image} alt={eq.name} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><Truck size={24}/></div>}
+                                 {eq.image ? (
+                                   <SafeImage 
+                                     src={eq.image} 
+                                     alt={eq.name} 
+                                     className="w-full h-full object-cover"
+                                     bucket="unit-images"
+                                     fallback={<div className="w-full h-full flex items-center justify-center text-slate-400"><Truck size={24}/></div>}
+                                   />
+                                 ) : (
+                                   <div className="w-full h-full flex items-center justify-center text-slate-400"><Truck size={24}/></div>
+                                 )}
                              </div>
                              <div className="flex-1 min-w-0">
                                  <div className="flex justify-between items-start">
@@ -3297,7 +3344,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  {materials.map(mat => (
                      <div key={mat.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex gap-4 items-center group">
                          <div className="w-12 h-12 rounded bg-purple-50 flex items-center justify-center text-purple-600 shrink-0 border border-purple-100">
-                             {mat.image ? <img src={mat.image} alt={mat.name} className="w-full h-full object-cover rounded"/> : <Package size={20}/>}
+                             {mat.image ? (
+                               <SafeImage 
+                                 src={mat.image} 
+                                 alt={mat.name} 
+                                 className="w-full h-full object-cover rounded"
+                                 bucket="unit-images"
+                                 fallback={<Package size={20}/>}
+                               />
+                             ) : (
+                               <Package size={20}/>
+                             )}
                          </div>
                          <div className="flex-1 min-w-0">
                              <div className="flex justify-between items-start">
@@ -3407,7 +3464,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   <div className="flex gap-2 overflow-x-auto pb-2">
                                       {log.images.map((img, i) => (
                                           <div key={i} className="h-20 w-20 shrink-0 rounded-lg overflow-hidden border border-slate-200">
-                                              <img src={img} alt="Evidence" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" />
+                                              <SafeImage 
+                                                src={img} 
+                                                alt="Evidence" 
+                                                className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" 
+                                                bucket="unit-images"
+                                                onClick={() => {
+                                                  setImageModalUrl(img);
+                                                  setShowImageModal(true);
+                                                }}
+                                              />
                                           </div>
                                       ))}
                                   </div>
@@ -3576,7 +3642,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                                    {newRequestImages.map((img, i) => (
                                        <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                           <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                           <SafeImage 
+                              src={img} 
+                              className="w-full h-full object-cover rounded border border-slate-200" 
+                              alt="ev"
+                              bucket="unit-images"
+                              onClick={() => {
+                                setImageModalUrl(img);
+                                setShowImageModal(true);
+                              }}
+                            />
                                            <button onClick={() => setNewRequestImages(newRequestImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                                        </div>
                                    ))}
@@ -3624,7 +3699,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  <div className="flex gap-2 overflow-x-auto pb-1">
                                      {editingRequest.attachments.map((img, i) => (
                                          <div key={i} className="w-20 h-20 shrink-0 rounded border border-slate-200 overflow-hidden">
-                                             <img src={img} className="w-full h-full object-cover" alt="client attachment" />
+                                             <SafeImage 
+                                               src={img} 
+                                               className="w-full h-full object-cover" 
+                                               alt="client attachment"
+                                               bucket="unit-images"
+                                               onClick={() => {
+                                                 setImageModalUrl(img);
+                                                 setShowImageModal(true);
+                                               }}
+                                             />
                                          </div>
                                      ))}
                                  </div>
@@ -3697,7 +3781,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                                                    {resolveAttachments.map((img, i) => (
                                                        <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                                           <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="admin ev" />
+                                                           <SafeImage 
+                                                             src={img} 
+                                                             className="w-full h-full object-cover rounded border border-slate-200" 
+                                                             alt="admin ev"
+                                                             bucket="unit-images"
+                                                             onClick={() => {
+                                                               setImageModalUrl(img);
+                                                               setShowImageModal(true);
+                                                             }}
+                                                           />
                                                            <button onClick={() => handleRemoveResolveImage(i)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                                                        </div>
                                                    ))}
@@ -3724,7 +3817,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       {editingRequest.responseAttachments && editingRequest.responseAttachments.length > 0 && (
                                          <div className="flex gap-2 mt-2 pt-2 border-t border-green-200/50">
                                             {editingRequest.responseAttachments.map((att, i) => (
-                                                <div key={i} className="w-12 h-12 rounded border border-green-200 overflow-hidden"><img src={att} className="w-full h-full object-cover"/></div>
+                                                <div key={i} className="w-12 h-12 rounded border border-green-200 overflow-hidden">
+                                                  <SafeImage 
+                                                    src={att} 
+                                                    className="w-full h-full object-cover"
+                                                    alt="attachment"
+                                                    bucket="unit-images"
+                                                    onClick={() => {
+                                                      setImageModalUrl(att);
+                                                      setShowImageModal(true);
+                                                    }}
+                                                  />
+                                                </div>
                                             ))}
                                          </div>
                                      )}
@@ -3794,7 +3898,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                        {newEventImages.map((img, i) => (
                          <div key={i} className="w-12 h-12 shrink-0 relative group">
-                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <SafeImage 
+                              src={img} 
+                              className="w-full h-full object-cover rounded border border-slate-200" 
+                              alt="ev"
+                              bucket="unit-images"
+                              onClick={() => {
+                                setImageModalUrl(img);
+                                setShowImageModal(true);
+                              }}
+                            />
                             <button onClick={() => setNewEventImages(newEventImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                          </div>
                        ))}
@@ -4480,7 +4593,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                        {newMaintenanceImages.map((img, i) => (
                          <div key={i} className="w-12 h-12 shrink-0 relative group">
-                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <SafeImage 
+                              src={img} 
+                              className="w-full h-full object-cover rounded border border-slate-200" 
+                              alt="ev"
+                              bucket="unit-images"
+                              onClick={() => {
+                                setImageModalUrl(img);
+                                setShowImageModal(true);
+                              }}
+                            />
                             <button onClick={() => setNewMaintenanceImages(newMaintenanceImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                          </div>
                        ))}
@@ -4542,7 +4664,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                        {editingLog.images.map((img, i) => (
                          <div key={i} className="w-12 h-12 shrink-0 relative group">
-                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <SafeImage 
+                              src={img} 
+                              className="w-full h-full object-cover rounded border border-slate-200" 
+                              alt="ev"
+                              bucket="unit-images"
+                              onClick={() => {
+                                setImageModalUrl(img);
+                                setShowImageModal(true);
+                              }}
+                            />
                             <button onClick={() => setEditingLog({...editingLog, images: editingLog.images?.filter((_, idx) => idx !== i)})} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                          </div>
                        ))}
@@ -4846,14 +4977,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             )}
             
             {/* Imagen */}
-            <img
+            <SafeImage
               src={imageModalUrl}
               alt="Imagen completa"
-              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-default"
+              bucket={unit.images?.includes(imageModalUrl) ? 'unit-images' : 'staff-photos'}
               onClick={(e) => e.stopPropagation()}
-              onError={(e) => {
-                console.error('Error al cargar imagen:', imageModalUrl);
-                (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2YzZjRmNiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiM5Y2EzYWYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZW4gbm8gZGlzcG9uaWJsZTwvdGV4dD48L3N2Zz4=';
+              fallback={
+                <div className="max-w-full max-h-full flex items-center justify-center bg-slate-800 rounded-lg p-8">
+                  <div className="text-white text-center">
+                    <Camera size={48} className="mx-auto mb-4 opacity-50" />
+                    <p className="text-lg">Imagen no disponible</p>
+                  </div>
+                </div>
+              }
+              onError={() => {
+                console.error('Error al cargar imagen en modal:', imageModalUrl);
               }}
             />
           </div>
