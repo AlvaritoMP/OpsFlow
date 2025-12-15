@@ -199,45 +199,20 @@ export const auditService = {
         return [];
       }
 
-      // Usar RPC o consulta directa para evitar problemas con RLS
-      // Primero intentar con la consulta normal
-      // IMPORTANTE: Usar select con count y asegurar que no haya filtros implícitos
-      // El problema puede ser que Supabase esté aplicando algún filtro basado en auth.uid()
-      // aunque RLS esté deshabilitado. Forzamos la consulta sin ningún filtro.
-      let query = supabase
-        .from('audit_logs')
-        .select('*', { count: 'exact', head: false }) // head: false para obtener datos
-        .order('created_at', { ascending: false });
-      
-      // Log para debugging
-      console.log('🔍 Ejecutando consulta de audit_logs sin filtros...');
+      // Usar función RPC para bypass RLS y obtener TODOS los logs sin restricciones
+      // Esta función usa SECURITY DEFINER para ejecutar con permisos elevados
+      console.log('🔍 Ejecutando función RPC get_all_audit_logs para obtener TODOS los logs...');
 
-      if (filters?.actionType) {
-        query = query.eq('action_type', filters.actionType);
-      }
+      const { data, error } = await supabase.rpc('get_all_audit_logs', {
+        p_action_type: filters?.actionType || null,
+        p_entity_type: filters?.entityType || null,
+        p_user_id: filters?.userId || null,
+        p_start_date: filters?.startDate || null,
+        p_end_date: filters?.endDate || null,
+        p_limit_count: 10000
+      });
 
-      if (filters?.entityType) {
-        query = query.eq('entity_type', filters.entityType);
-      }
-
-      if (filters?.userId) {
-        query = query.eq('user_id', filters.userId);
-      }
-
-      if (filters?.startDate) {
-        query = query.gte('created_at', filters.startDate);
-      }
-
-      if (filters?.endDate) {
-        query = query.lte('created_at', filters.endDate);
-      }
-
-      // IMPORTANTE: Supabase limita a 50 registros por defecto si no se especifica un límite
-      // Forzamos un límite alto (10000) para obtener TODOS los registros
-      // Esto asegura que veamos logs de todos los usuarios, no solo los más recientes
-      query = query.limit(10000);
-
-      const { data, error, count } = await query;
+      const count = data?.length || 0;
 
       if (error) {
         console.error('❌ Error al obtener logs de auditoría:', error);
@@ -247,16 +222,18 @@ export const auditService = {
       }
 
       // Log para debugging
-      console.log(`📊 Audit logs obtenidos: ${data?.length || 0} registros (count: ${count})`);
+      console.log(`📊 Audit logs obtenidos mediante RPC: ${data?.length || 0} registros`);
       if (data && data.length > 0) {
         const uniqueUsers = new Set(data.map((log: any) => log.user_id));
         const userNames = new Set(data.map((log: any) => log.user_name));
         console.log(`👥 Usuarios únicos en los logs: ${uniqueUsers.size}`, Array.from(uniqueUsers));
         console.log(`📝 Nombres de usuarios:`, Array.from(userNames));
         
-        // Si solo hay un usuario, puede ser un problema de RLS
-        if (uniqueUsers.size === 1) {
-          console.warn('⚠️ ADVERTENCIA: Solo se están obteniendo logs de un usuario. Puede ser un problema de RLS o autenticación.');
+        // Verificar que estamos obteniendo logs de múltiples usuarios
+        if (uniqueUsers.size > 1) {
+          console.log(`✅ Éxito: Se están obteniendo logs de ${uniqueUsers.size} usuarios diferentes`);
+        } else if (uniqueUsers.size === 1) {
+          console.warn('⚠️ ADVERTENCIA: Solo se están obteniendo logs de un usuario. Verificar que otros usuarios hayan realizado acciones.');
         }
       } else {
         console.warn('⚠️ No se obtuvieron logs de auditoría');
