@@ -27,7 +27,6 @@ import { authService } from './services/authService';
 import { LogOut, FileText } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
-import { SafeImage } from './components/SafeImage';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -637,8 +636,9 @@ const App: React.FC = () => {
           const file = new File([blob], `staff-${editingStaff?.id || Date.now()}.jpg`, { type: blob.type });
           
           // Subir a Supabase Storage (bucket, file, path)
+          // Usar 'unit-images' como bucket ya que 'staff-photos' puede no existir
           const { storageService } = await import('./services/storageService');
-          const uploadedUrl = await storageService.uploadFile('staff-photos', file, `staff/${editingStaff?.id || Date.now()}-${Date.now()}.jpg`);
+          const uploadedUrl = await storageService.uploadFile('unit-images', file, `staff/${editingStaff?.id || Date.now()}-${Date.now()}.jpg`);
           
           if (uploadedUrl) {
             finalPhotoUrl = uploadedUrl;
@@ -1576,7 +1576,7 @@ const App: React.FC = () => {
                                 src={staff.photo} 
                                 alt={staff.name} 
                                 className="w-full h-full object-cover"
-                                bucket="staff-photos"
+                                bucket="unit-images"
                                 fallback={<div className="w-full h-full flex items-center justify-center font-bold text-slate-400 text-sm">?</div>}
                               />
                             </div>

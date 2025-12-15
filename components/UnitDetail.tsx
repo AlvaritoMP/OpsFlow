@@ -2492,7 +2492,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             src={unit.coordinator?.photo} 
                             alt={unit.coordinator?.name || "Coordinador"} 
                             className="w-full h-full object-cover"
-                            bucket="staff-photos"
+                            bucket="unit-images"
                             fallback={<div className="w-full h-full flex items-center justify-center text-blue-400 font-bold text-4xl">CO</div>}
                         />
                     </div>
@@ -2518,7 +2518,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             src={unit.residentSupervisor?.photo} 
                             alt={unit.residentSupervisor?.name || "Supervisor Residente"} 
                             className="w-full h-full object-cover"
-                            bucket="staff-photos"
+                            bucket="unit-images"
                             fallback={<div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
                         />
                     </div>
@@ -2539,7 +2539,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             src={unit.rovingSupervisor?.photo} 
                             alt={unit.rovingSupervisor?.name || "Supervisor de Ronda"} 
                             className="w-full h-full object-cover"
-                            bucket="staff-photos"
+                            bucket="unit-images"
                             fallback={<div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
                         />
                     </div>
@@ -4981,7 +4981,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               src={imageModalUrl}
               alt="Imagen completa"
               className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-default"
-              bucket={unit.images?.includes(imageModalUrl) ? 'unit-images' : 'staff-photos'}
+              bucket="unit-images"
               onClick={(e) => e.stopPropagation()}
               fallback={
                 <div className="max-w-full max-h-full flex items-center justify-center bg-slate-800 rounded-lg p-8">
