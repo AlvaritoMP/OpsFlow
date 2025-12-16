@@ -1396,16 +1396,36 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const handleRosterShiftChange = async (resourceId: string, date: string, currentType: ShiftType) => {
      // Cycle: Day -> Afternoon -> Night -> OFF -> Day
+     // Leer el tipo actual desde el estado local para asegurar que tenemos el valor más reciente
+     let actualCurrentType: ShiftType = currentType;
      let nextType: ShiftType = 'Day';
      let hours = 8;
-     if (currentType === 'Day') { nextType = 'Afternoon'; hours = 8; }
-     else if (currentType === 'Afternoon') { nextType = 'Night'; hours = 8; }
-     else if (currentType === 'Night') { nextType = 'OFF'; hours = 0; }
-     else if (currentType === 'OFF') { nextType = 'Day'; hours = 8; }
-     else { nextType = 'Day'; hours = 8; }
-
-     // ACTUALIZACIÓN INSTANTÁNEA: Actualizar solo el estado local (sin llamar a onUpdate)
+     
      setLocalResources(prevResources => {
+         const resource = prevResources.find(r => r.id === resourceId);
+         actualCurrentType = (resource?.workSchedule?.find(s => s.date === date)?.type as ShiftType) || currentType;
+         
+         console.log('🔄 Cambiando turno:', { resourceId, date, currentType, actualCurrentType });
+         
+         if (actualCurrentType === 'Day') { 
+           nextType = 'Afternoon'; 
+           hours = 8; 
+         } else if (actualCurrentType === 'Afternoon') { 
+           nextType = 'Night'; 
+           hours = 8; 
+         } else if (actualCurrentType === 'Night') { 
+           nextType = 'OFF'; 
+           hours = 0; 
+         } else if (actualCurrentType === 'OFF') { 
+           nextType = 'Day'; 
+           hours = 8; 
+         } else { 
+           nextType = 'Day'; 
+           hours = 8; 
+         }
+         console.log('✅ Nuevo tipo:', nextType);
+
+         // ACTUALIZACIÓN INSTANTÁNEA: Actualizar solo el estado local (sin llamar a onUpdate)
          return prevResources.map(r => {
              if (r.id === resourceId) {
                  const schedule = r.workSchedule ? [...r.workSchedule] : [];
@@ -1420,6 +1440,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              return r;
          });
      });
+     
+     // Actualizar solo el turno específico en la base de datos en segundo plano (sin bloquear UI)
+     (async () => {
+       try {
+         const { resourcesService } = await import('../services/resourcesService');
+         await resourcesService.upsertDailyShift(resourceId, { date, type: nextType, hours });
+       } catch (error) {
+         console.error('❌ Error al guardar turno:', error);
+         // Revertir el cambio optimista en caso de error
+         setLocalResources(prevResources => {
+             return prevResources.map(r => {
+                 if (r.id === resourceId) {
+                     const schedule = r.workSchedule ? [...r.workSchedule] : [];
+                     const existingIdx = schedule.findIndex(s => s.date === date);
+                     if (existingIdx >= 0) {
+                         schedule[existingIdx] = { date, type: actualCurrentType, hours: (actualCurrentType === 'OFF' || actualCurrentType === 'Vacation' || actualCurrentType === 'Sick') ? 0 : 8 };
+                     }
+                     return { ...r, workSchedule: schedule };
+                 }
+                 return r;
+             });
+         });
+       }
+     })();
      
      // Actualizar solo el turno específico en la base de datos en segundo plano (sin bloquear UI)
      (async () => {
