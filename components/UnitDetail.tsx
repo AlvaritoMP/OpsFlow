@@ -125,10 +125,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Roster State - Estado local optimizado para actualizaciones rápidas
   const [rosterStartDate, setRosterStartDate] = useState(getMonday(new Date()));
   const [localResources, setLocalResources] = useState<Resource[]>(unit.resources);
+  const [rosterHasUnsavedChanges, setRosterHasUnsavedChanges] = useState(false);
+  const [isSavingRoster, setIsSavingRoster] = useState(false);
   
   // Sincronizar localResources cuando unit.resources cambia desde el padre
   useEffect(() => {
     setLocalResources(unit.resources);
+    setRosterHasUnsavedChanges(false); // Resetear cuando se carga nueva data
   }, [unit.resources]);
 
   // Mass Training State
@@ -1394,7 +1397,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       return dates;
   };
 
-  const handleRosterShiftChange = async (resourceId: string, date: string, currentType: ShiftType) => {
+  const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
      // Cycle: Day -> Afternoon -> Night -> OFF -> Day
      // Leer el tipo actual desde el estado local para asegurar que tenemos el valor más reciente
      let actualCurrentType: ShiftType = currentType;
@@ -1404,8 +1407,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      setLocalResources(prevResources => {
          const resource = prevResources.find(r => r.id === resourceId);
          actualCurrentType = (resource?.workSchedule?.find(s => s.date === date)?.type as ShiftType) || currentType;
-         
-         console.log('🔄 Cambiando turno:', { resourceId, date, currentType, actualCurrentType });
          
          if (actualCurrentType === 'Day') { 
            nextType = 'Afternoon'; 
@@ -1423,9 +1424,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            nextType = 'Day'; 
            hours = 8; 
          }
-         console.log('✅ Nuevo tipo:', nextType);
 
-         // ACTUALIZACIÓN INSTANTÁNEA: Actualizar solo el estado local (sin llamar a onUpdate)
+         // ACTUALIZACIÓN INSTANTÁNEA: Actualizar solo el estado local (SIN guardar en BD todavía)
          return prevResources.map(r => {
              if (r.id === resourceId) {
                  const schedule = r.workSchedule ? [...r.workSchedule] : [];
@@ -1441,54 +1441,59 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          });
      });
      
-     // Actualizar solo el turno específico en la base de datos en segundo plano (sin bloquear UI)
-     (async () => {
-       try {
-         const { resourcesService } = await import('../services/resourcesService');
-         await resourcesService.upsertDailyShift(resourceId, { date, type: nextType, hours });
-       } catch (error) {
-         console.error('❌ Error al guardar turno:', error);
-         // Revertir el cambio optimista en caso de error
-         setLocalResources(prevResources => {
-             return prevResources.map(r => {
-                 if (r.id === resourceId) {
-                     const schedule = r.workSchedule ? [...r.workSchedule] : [];
-                     const existingIdx = schedule.findIndex(s => s.date === date);
-                     if (existingIdx >= 0) {
-                         schedule[existingIdx] = { date, type: actualCurrentType, hours: (actualCurrentType === 'OFF' || actualCurrentType === 'Vacation' || actualCurrentType === 'Sick') ? 0 : 8 };
-                     }
-                     return { ...r, workSchedule: schedule };
-                 }
-                 return r;
-             });
-         });
-       }
-     })();
-     
-     // Actualizar solo el turno específico en la base de datos en segundo plano (sin bloquear UI)
-     (async () => {
-       try {
-         const { resourcesService } = await import('../services/resourcesService');
-         await resourcesService.upsertDailyShift(resourceId, { date, type: nextType, hours });
-       } catch (error) {
-         console.error('❌ Error al guardar turno:', error);
-         // Revertir el cambio optimista en caso de error
-         setLocalResources(prevResources => {
-             return prevResources.map(r => {
-                 if (r.id === resourceId) {
-                     const schedule = r.workSchedule ? [...r.workSchedule] : [];
-                     const existingIdx = schedule.findIndex(s => s.date === date);
-                     if (existingIdx >= 0) {
-                         schedule[existingIdx] = { date, type: currentType, hours: (currentType === 'OFF' || currentType === 'Vacation' || currentType === 'Sick') ? 0 : 8 };
-                     }
-                     return { ...r, workSchedule: schedule };
-                 }
-                 return r;
-             });
-         });
-       }
-     })();
+     // Marcar que hay cambios sin guardar (NO guardar automáticamente)
+     setRosterHasUnsavedChanges(true);
   };
+
+  // Función para guardar toda la planificación de rostering
+  const handleSaveRoster = async () => {
+     if (!onUpdate || isSavingRoster) return;
+     
+     setIsSavingRoster(true);
+     try {
+         const { resourcesService } = await import('../services/resourcesService');
+         
+         // Guardar todos los turnos de todos los recursos que tienen cambios
+         const savePromises: Promise<void>[] = [];
+         
+         localResources.forEach(resource => {
+             if (resource.type === ResourceType.PERSONNEL && resource.workSchedule && resource.workSchedule.length > 0) {
+                 // Guardar todos los turnos de este recurso
+                 resource.workSchedule.forEach(shift => {
+                     savePromises.push(
+                         resourcesService.upsertDailyShift(resource.id, shift).catch(error => {
+                             console.error(`❌ Error al guardar turno para ${resource.name} en ${shift.date}:`, error);
+                             throw error;
+                         })
+                     );
+                 });
+             }
+         });
+         
+         await Promise.all(savePromises);
+         
+         // Actualizar la unidad en el estado padre para sincronizar
+         const updatedResources = localResources.map(r => {
+             if (r.type === ResourceType.PERSONNEL) {
+                 return r; // Ya tiene workSchedule actualizado
+             }
+             return r;
+         });
+         
+         onUpdate({ ...unit, resources: updatedResources });
+         
+         setRosterHasUnsavedChanges(false);
+         setNotification({ type: 'success', message: 'Planificación guardada correctamente' });
+         setTimeout(() => setNotification(null), 3000);
+     } catch (error) {
+         console.error('❌ Error al guardar planificación:', error);
+         setNotification({ type: 'error', message: 'Error al guardar la planificación. Por favor, intente nuevamente.' });
+         setTimeout(() => setNotification(null), 5000);
+     } finally {
+         setIsSavingRoster(false);
+     }
+  };
+
 
   const handleReplicateWeek = () => {
       if (!onUpdate) return;
@@ -3226,6 +3231,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
                 
                 <div className="flex items-center space-x-4">
+                    {rosterHasUnsavedChanges && (
+                        <div className="flex items-center space-x-2 text-amber-600 text-xs font-medium">
+                            <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
+                            <span>Cambios sin guardar</span>
+                        </div>
+                    )}
                     <div className="text-xs text-slate-400 font-medium">Click en turno para cambiar</div>
                     <button 
                         onClick={handleReplicateWeek}
@@ -3233,6 +3244,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         title="Copiar estos turnos a la próxima semana"
                     >
                         <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
+                    </button>
+                    <button 
+                        onClick={handleSaveRoster}
+                        disabled={!rosterHasUnsavedChanges || isSavingRoster}
+                        className={`flex items-center px-4 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm ${
+                            rosterHasUnsavedChanges && !isSavingRoster
+                                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                        }`}
+                        title={rosterHasUnsavedChanges ? 'Guardar todos los cambios de la planificación' : 'No hay cambios para guardar'}
+                    >
+                        {isSavingRoster ? (
+                            <>
+                                <RefreshCw size={14} className="mr-1.5 animate-spin"/> Guardando...
+                            </>
+                        ) : (
+                            <>
+                                <Save size={14} className="mr-1.5"/> Guardar Planificación
+                            </>
+                        )}
                     </button>
                 </div>
              </div>
