@@ -388,6 +388,28 @@ export const resourcesService = {
     );
   },
 
+  // Actualizar un solo turno (upsert: insert o update)
+  async upsertDailyShift(resourceId: string, shift: DailyShift): Promise<void> {
+    const { error } = await supabase
+      .from('daily_shifts')
+      .upsert(
+        {
+          resource_id: resourceId,
+          date: shift.date,
+          type: shift.type,
+          hours: shift.hours,
+        },
+        {
+          onConflict: 'resource_id,date',
+        }
+      );
+    
+    if (error) {
+      console.error('❌ Error al actualizar turno:', error);
+      throw error;
+    }
+  },
+
   async getMaintenanceRecords(resourceId: string): Promise<MaintenanceRecord[]> {
     const { data } = await supabase
       .from('maintenance_records')

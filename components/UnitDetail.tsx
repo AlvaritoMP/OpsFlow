@@ -1388,7 +1388,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       return dates;
   };
 
-  const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
+  const handleRosterShiftChange = async (resourceId: string, date: string, currentType: ShiftType) => {
      if(!onUpdate) return;
      
      // Cycle: Day -> Night -> OFF -> Day
@@ -1399,6 +1399,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      else if (currentType === 'OFF') { nextType = 'Day'; hours = 8; }
      else { nextType = 'Day'; hours = 8; }
 
+     // OPTIMISTIC UPDATE: Actualizar el estado local inmediatamente
      const updatedResources = unit.resources.map(r => {
          if (r.id === resourceId) {
              const schedule = r.workSchedule ? [...r.workSchedule] : [];
@@ -1412,7 +1413,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          }
          return r;
      });
+     
+     // Actualizar UI inmediatamente (optimistic update)
      onUpdate({ ...unit, resources: updatedResources });
+     
+     // Actualizar solo el turno específico en la base de datos en segundo plano
+     try {
+       const { resourcesService } = await import('../services/resourcesService');
+       await resourcesService.upsertDailyShift(resourceId, { date, type: nextType, hours });
+     } catch (error) {
+       console.error('❌ Error al guardar turno:', error);
+       // Revertir el cambio optimista en caso de error
+       // (opcional: podrías mostrar un mensaje de error al usuario)
+     }
   };
 
   const handleReplicateWeek = () => {

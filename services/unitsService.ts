@@ -208,31 +208,45 @@ export const unitsService = {
 
       if (error) throw error;
 
-      // Actualizar imágenes si se proporcionan
+      // Actualizar imágenes SOLO si se proporcionan explícitamente Y realmente han cambiado
+      // Para evitar perder imágenes cuando se actualiza solo un campo (como recursos, zonas, etc.)
       if (unit.images !== undefined) {
-        console.log(`📸 Actualizando imágenes para unidad ${id}:`, unit.images);
+        console.log(`📸 Verificando imágenes para unidad ${id}:`, unit.images);
         
-        // Eliminar imágenes existentes
-        const { error: deleteError } = await supabase.from('unit_images').delete().eq('unit_id', id);
-        if (deleteError) {
-          console.error('❌ Error al eliminar imágenes existentes:', deleteError);
-          throw new Error(`Error al eliminar imágenes existentes: ${deleteError.message}`);
-        }
-        console.log('✅ Imágenes existentes eliminadas');
+        // Obtener imágenes actuales de la base de datos para comparar
+        const { data: currentImages } = await supabase
+          .from('unit_images')
+          .select('image_url')
+          .eq('unit_id', id)
+          .order('display_order');
         
-        // Insertar nuevas imágenes
-        if (unit.images.length > 0) {
-          // Filtrar blob URLs (no deberían llegar aquí, pero por si acaso)
-          const validImages = unit.images.filter(url => {
-            if (url.startsWith('blob:')) {
-              console.warn('⚠️ Se intentó guardar un blob URL, omitiendo:', url);
-              return false;
-            }
-            return true;
-          });
+        const currentImageUrls = (currentImages?.map(img => img.image_url) || []).filter(url => !url.startsWith('blob:'));
+        const newImageUrls = unit.images.filter(url => !url.startsWith('blob:'));
+        
+        // Normalizar arrays para comparación (ordenar y eliminar duplicados)
+        const normalizeUrls = (urls: string[]) => [...new Set(urls)].sort();
+        const currentNormalized = normalizeUrls(currentImageUrls);
+        const newNormalized = normalizeUrls(newImageUrls);
+        
+        // Solo actualizar si las imágenes realmente cambiaron
+        const imagesChanged = JSON.stringify(currentNormalized) !== JSON.stringify(newNormalized);
+        
+        if (imagesChanged) {
+          console.log('🔄 Las imágenes han cambiado, actualizando...');
+          console.log('  Antes:', currentNormalized);
+          console.log('  Después:', newNormalized);
           
-          if (validImages.length > 0) {
-            const imageRecords = validImages.map((url, index) => ({
+          // Eliminar imágenes existentes
+          const { error: deleteError } = await supabase.from('unit_images').delete().eq('unit_id', id);
+          if (deleteError) {
+            console.error('❌ Error al eliminar imágenes existentes:', deleteError);
+            throw new Error(`Error al eliminar imágenes existentes: ${deleteError.message}`);
+          }
+          console.log('✅ Imágenes existentes eliminadas');
+          
+          // Insertar nuevas imágenes
+          if (newImageUrls.length > 0) {
+            const imageRecords = newImageUrls.map((url, index) => ({
               unit_id: id,
               image_url: url,
               display_order: index,
@@ -251,10 +265,10 @@ export const unitsService = {
             
             console.log('✅ Imágenes insertadas correctamente:', insertData);
           } else {
-            console.warn('⚠️ No hay imágenes válidas para guardar (todas eran blob URLs)');
+            console.log('ℹ️ No hay imágenes para insertar (array vacío)');
           }
         } else {
-          console.log('ℹ️ No hay imágenes para insertar (array vacío)');
+          console.log('ℹ️ Las imágenes no han cambiado, preservando imágenes existentes');
         }
       }
 
