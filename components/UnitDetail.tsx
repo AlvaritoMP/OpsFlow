@@ -2901,7 +2901,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  </button>
              </div>
              
-            {selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
+            {canEditPersonnel && selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
               <>
                 <button onClick={() => {
                   closeAllModalsExcept('massTraining');
@@ -2917,20 +2917,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </button>
               </>
             )}
-            <div className="flex gap-2">
-              <button onClick={() => {
-                closeAllModalsExcept('bulkImport');
-                setShowBulkImportModal(true);
-              }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm">
-                <Upload size={18} className="mr-2" /> Carga Masiva
-              </button>
-              <button onClick={() => {
-                closeAllModalsExcept('addWorker');
-                setShowAddWorkerModal(true);
-              }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
-                <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
-              </button>
-            </div>
+            {canEditPersonnel && (
+              <div className="flex gap-2">
+                <button onClick={() => {
+                  closeAllModalsExcept('bulkImport');
+                  setShowBulkImportModal(true);
+                }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm">
+                  <Upload size={18} className="mr-2" /> Carga Masiva
+                </button>
+                <button onClick={() => {
+                  closeAllModalsExcept('addWorker');
+                  setShowAddWorkerModal(true);
+                }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+                  <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
