@@ -122,8 +122,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   
-  // Roster State
+  // Roster State - Estado local optimizado para actualizaciones rápidas
   const [rosterStartDate, setRosterStartDate] = useState(getMonday(new Date()));
+  const [localResources, setLocalResources] = useState<Resource[]>(unit.resources);
+  
+  // Sincronizar localResources cuando unit.resources cambia desde el padre
+  useEffect(() => {
+    setLocalResources(unit.resources);
+  }, [unit.resources]);
 
   // Mass Training State
   const [showMassTrainingModal, setShowMassTrainingModal] = useState(false);
@@ -1389,8 +1395,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleRosterShiftChange = async (resourceId: string, date: string, currentType: ShiftType) => {
-     if(!onUpdate) return;
-     
      // Cycle: Day -> Night -> OFF -> Day
      let nextType: ShiftType = 'Day';
      let hours = 8;
@@ -1399,33 +1403,46 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      else if (currentType === 'OFF') { nextType = 'Day'; hours = 8; }
      else { nextType = 'Day'; hours = 8; }
 
-     // OPTIMISTIC UPDATE: Actualizar el estado local inmediatamente
-     const updatedResources = unit.resources.map(r => {
-         if (r.id === resourceId) {
-             const schedule = r.workSchedule ? [...r.workSchedule] : [];
-             const existingIdx = schedule.findIndex(s => s.date === date);
-             if (existingIdx >= 0) {
-                 schedule[existingIdx] = { date, type: nextType, hours };
-             } else {
-                 schedule.push({ date, type: nextType, hours });
+     // ACTUALIZACIÓN INSTANTÁNEA: Actualizar solo el estado local (sin llamar a onUpdate)
+     setLocalResources(prevResources => {
+         return prevResources.map(r => {
+             if (r.id === resourceId) {
+                 const schedule = r.workSchedule ? [...r.workSchedule] : [];
+                 const existingIdx = schedule.findIndex(s => s.date === date);
+                 if (existingIdx >= 0) {
+                     schedule[existingIdx] = { date, type: nextType, hours };
+                 } else {
+                     schedule.push({ date, type: nextType, hours });
+                 }
+                 return { ...r, workSchedule: schedule };
              }
-             return { ...r, workSchedule: schedule };
-         }
-         return r;
+             return r;
+         });
      });
      
-     // Actualizar UI inmediatamente (optimistic update)
-     onUpdate({ ...unit, resources: updatedResources });
-     
-     // Actualizar solo el turno específico en la base de datos en segundo plano
-     try {
-       const { resourcesService } = await import('../services/resourcesService');
-       await resourcesService.upsertDailyShift(resourceId, { date, type: nextType, hours });
-     } catch (error) {
-       console.error('❌ Error al guardar turno:', error);
-       // Revertir el cambio optimista en caso de error
-       // (opcional: podrías mostrar un mensaje de error al usuario)
-     }
+     // Actualizar solo el turno específico en la base de datos en segundo plano (sin bloquear UI)
+     (async () => {
+       try {
+         const { resourcesService } = await import('../services/resourcesService');
+         await resourcesService.upsertDailyShift(resourceId, { date, type: nextType, hours });
+       } catch (error) {
+         console.error('❌ Error al guardar turno:', error);
+         // Revertir el cambio optimista en caso de error
+         setLocalResources(prevResources => {
+             return prevResources.map(r => {
+                 if (r.id === resourceId) {
+                     const schedule = r.workSchedule ? [...r.workSchedule] : [];
+                     const existingIdx = schedule.findIndex(s => s.date === date);
+                     if (existingIdx >= 0) {
+                         schedule[existingIdx] = { date, type: currentType, hours: currentType === 'OFF' ? 0 : 8 };
+                     }
+                     return { ...r, workSchedule: schedule };
+                 }
+                 return r;
+             });
+         });
+       }
+     })();
   };
 
   const handleReplicateWeek = () => {
@@ -1800,7 +1817,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // --- Helper Data ---
-  const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
+  // Usar localResources para el rostering (actualizaciones rápidas), unit.resources para el resto
+  const resourcesForRoster = personnelViewMode === 'roster' ? localResources : unit.resources;
+  const personnel = resourcesForRoster.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
   const materials = unit.resources.filter(r => r.type === ResourceType.MATERIAL);
 
