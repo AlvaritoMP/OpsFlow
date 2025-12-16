@@ -1395,10 +1395,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleRosterShiftChange = async (resourceId: string, date: string, currentType: ShiftType) => {
-     // Cycle: Day -> Night -> OFF -> Day
+     // Cycle: Day -> Afternoon -> Night -> OFF -> Day
      let nextType: ShiftType = 'Day';
      let hours = 8;
-     if (currentType === 'Day') { nextType = 'Night'; hours = 8; }
+     if (currentType === 'Day') { nextType = 'Afternoon'; hours = 8; }
+     else if (currentType === 'Afternoon') { nextType = 'Night'; hours = 8; }
      else if (currentType === 'Night') { nextType = 'OFF'; hours = 0; }
      else if (currentType === 'OFF') { nextType = 'Day'; hours = 8; }
      else { nextType = 'Day'; hours = 8; }
@@ -1434,7 +1435,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      const schedule = r.workSchedule ? [...r.workSchedule] : [];
                      const existingIdx = schedule.findIndex(s => s.date === date);
                      if (existingIdx >= 0) {
-                         schedule[existingIdx] = { date, type: currentType, hours: currentType === 'OFF' ? 0 : 8 };
+                         schedule[existingIdx] = { date, type: currentType, hours: (currentType === 'OFF' || currentType === 'Vacation' || currentType === 'Sick') ? 0 : 8 };
                      }
                      return { ...r, workSchedule: schedule };
                  }
@@ -1487,6 +1488,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const getShiftColor = (type: string) => {
       switch(type) {
           case 'Day': return 'bg-blue-500 text-white hover:bg-blue-600';
+          case 'Afternoon': return 'bg-amber-500 text-white hover:bg-amber-600';
           case 'Night': return 'bg-indigo-600 text-white hover:bg-indigo-700';
           case 'OFF': return 'bg-slate-200 text-slate-500 hover:bg-slate-300';
           case 'Vacation': return 'bg-orange-400 text-white hover:bg-orange-500';
@@ -3242,7 +3244,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                      onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
                                                      className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
                                                  >
-                                                     {type === 'Day' ? 'Dia' : type === 'Night' ? 'Noc' : type}
+                                                     {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
                                                  </button>
                                              </td>
                                          );

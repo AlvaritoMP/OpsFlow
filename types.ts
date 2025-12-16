@@ -189,7 +189,7 @@ export interface MaintenanceRecord {
 }
 
 // --- ROSTERING TYPES ---
-export type ShiftType = 'Day' | 'Night' | 'OFF' | 'Vacation' | 'Sick';
+export type ShiftType = 'Day' | 'Afternoon' | 'Night' | 'OFF' | 'Vacation' | 'Sick';
 
 export interface DailyShift {
     date: string; // YYYY-MM-DD
