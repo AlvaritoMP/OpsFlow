@@ -230,6 +230,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // --- PERMISSIONS CHECKS ---
   const canEditGeneral = checkPermission(userRole, 'UNIT_OVERVIEW', 'edit');
+  const canViewPersonnel = checkPermission(userRole, 'PERSONNEL', 'view');
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
   const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
@@ -1398,6 +1399,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
+     // No permitir cambios si el usuario no tiene permiso de edición
+     if (!canEditPersonnel) return;
+     
      // Cycle: Day -> Afternoon -> Night -> OFF -> Day
      // Leer el tipo actual desde el estado local para asegurar que tenemos el valor más reciente
      let actualCurrentType: ShiftType = currentType;
@@ -2880,7 +2884,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           <h3 className="text-lg font-semibold text-slate-800">Gestión de Personal ({personnel.length})</h3>
           <p className="text-slate-500 text-sm">Administración de colaboradores, asistencias y capacitaciones.</p>
         </div>
-        {canEditPersonnel && (
+        {canViewPersonnel && (
           <div className="flex gap-2">
              <div className="bg-slate-100 rounded-lg p-1 flex">
                  <button 
@@ -3237,34 +3241,40 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             <span>Cambios sin guardar</span>
                         </div>
                     )}
-                    <div className="text-xs text-slate-400 font-medium">Click en turno para cambiar</div>
-                    <button 
-                        onClick={handleReplicateWeek}
-                        className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
-                        title="Copiar estos turnos a la próxima semana"
-                    >
-                        <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
-                    </button>
-                    <button 
-                        onClick={handleSaveRoster}
-                        disabled={!rosterHasUnsavedChanges || isSavingRoster}
-                        className={`flex items-center px-4 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm ${
-                            rosterHasUnsavedChanges && !isSavingRoster
-                                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                        }`}
-                        title={rosterHasUnsavedChanges ? 'Guardar todos los cambios de la planificación' : 'No hay cambios para guardar'}
-                    >
-                        {isSavingRoster ? (
-                            <>
-                                <RefreshCw size={14} className="mr-1.5 animate-spin"/> Guardando...
-                            </>
-                        ) : (
-                            <>
-                                <Save size={14} className="mr-1.5"/> Guardar Planificación
-                            </>
-                        )}
-                    </button>
+                    {canEditPersonnel ? (
+                        <>
+                            <div className="text-xs text-slate-400 font-medium">Click en turno para cambiar</div>
+                            <button 
+                                onClick={handleReplicateWeek}
+                                className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
+                                title="Copiar estos turnos a la próxima semana"
+                            >
+                                <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
+                            </button>
+                            <button 
+                                onClick={handleSaveRoster}
+                                disabled={!rosterHasUnsavedChanges || isSavingRoster}
+                                className={`flex items-center px-4 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm ${
+                                    rosterHasUnsavedChanges && !isSavingRoster
+                                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                        : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                                }`}
+                                title={rosterHasUnsavedChanges ? 'Guardar todos los cambios de la planificación' : 'No hay cambios para guardar'}
+                            >
+                                {isSavingRoster ? (
+                                    <>
+                                        <RefreshCw size={14} className="mr-1.5 animate-spin"/> Guardando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Save size={14} className="mr-1.5"/> Guardar Planificación
+                                    </>
+                                )}
+                            </button>
+                        </>
+                    ) : (
+                        <div className="text-xs text-slate-500 font-medium italic">Modo consulta - Solo lectura</div>
+                    )}
                 </div>
              </div>
              
@@ -3315,12 +3325,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                          
                                          return (
                                              <td key={i} className="px-2 py-3 text-center relative group">
-                                                 <button 
-                                                     onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
-                                                     className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
-                                                 >
-                                                     {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
-                                                 </button>
+                                                 {canEditPersonnel ? (
+                                                     <button 
+                                                         onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
+                                                         className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
+                                                     >
+                                                         {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
+                                                     </button>
+                                                 ) : (
+                                                     <div className={`w-full py-1.5 rounded text-xs font-bold ${getShiftColor(type)} opacity-75`}>
+                                                         {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
+                                                     </div>
+                                                 )}
                                              </td>
                                          );
                                      })}
