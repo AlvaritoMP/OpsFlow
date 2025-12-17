@@ -61,6 +61,8 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   const [newImageUrl, setNewImageUrl] = useState('');
 
   const canEdit = checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit');
+  const canViewControlCenter = checkPermission(currentUserRole, 'CONTROL_CENTER', 'view');
+  const isOperationsUser = currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN';
 
   // --- Data Aggregation ---
   const allEvents = useMemo(() => {
@@ -138,40 +140,42 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     });
 
     // Add contract alerts as events (only for operations users)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    units.forEach(unit => {
-      unit.resources.forEach(resource => {
-        if (resource.type === ResourceType.PERSONNEL && 
-            resource.inTraining && 
-            resource.trainingStartDate && 
-            !resource.contractGenerated) {
-          
-          const startDate = new Date(resource.trainingStartDate);
-          startDate.setHours(0, 0, 0, 0);
-          const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-          
-          if (daysDiff >= 3) {
-            events.push({
-              id: `contract-alert-${resource.id}`,
-              unitId: unit.id,
-              unitName: unit.name,
-              date: resource.trainingStartDate,
-              category: 'ContractAlert',
-              type: 'Alerta de Contrato',
-              description: `${resource.name} completó ${daysDiff} días de capacitación. Se requiere generar contrato de trabajo.`,
-              status: 'Pendiente',
-              resourceName: resource.name,
-              originalRef: { resource, unit, daysDiff }
-            });
+    if (isOperationsUser) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      units.forEach(unit => {
+        unit.resources.forEach(resource => {
+          if (resource.type === ResourceType.PERSONNEL && 
+              resource.inTraining && 
+              resource.trainingStartDate && 
+              !resource.contractGenerated) {
+            
+            const startDate = new Date(resource.trainingStartDate);
+            startDate.setHours(0, 0, 0, 0);
+            const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+            
+            if (daysDiff >= 3) {
+              events.push({
+                id: `contract-alert-${resource.id}`,
+                unitId: unit.id,
+                unitName: unit.name,
+                date: resource.trainingStartDate,
+                category: 'ContractAlert',
+                type: 'Alerta de Contrato',
+                description: `${resource.name} completó ${daysDiff} días de capacitación. Se requiere generar contrato de trabajo.`,
+                status: 'Pendiente',
+                resourceName: resource.name,
+                originalRef: { resource, unit, daysDiff }
+              });
+            }
           }
-        }
+        });
       });
-    });
+    }
 
     return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [units]);
+  }, [units, isOperationsUser]);
 
   // --- Filtering ---
   const filteredEvents = useMemo(() => {
