@@ -1,5 +1,5 @@
 import React from 'react';
-import { Unit, UnitStatus } from '../types';
+import { Unit, UnitStatus, ResourceType } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Building2, Users, AlertTriangle, CheckCircle } from 'lucide-react';
 
@@ -13,6 +13,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   const totalUnits = units.length;
   const activeUnits = units.filter(u => u.status === UnitStatus.ACTIVE).length;
   const issueUnits = units.filter(u => u.status === UnitStatus.ISSUE).length;
+  const totalWorkers = units.reduce((total, unit) => {
+    return total + unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived).length;
+  }, 0);
   
   const chartData = units
     .filter(u => u.complianceHistory && u.complianceHistory.length > 0)
@@ -30,7 +33,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       </header>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
           <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
             <Building2 size={20} className="md:w-6 md:h-6" />
@@ -47,6 +50,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           <div className="min-w-0">
             <p className="text-xs md:text-sm font-medium text-slate-500">Unidades Operativas</p>
             <p className="text-xl md:text-2xl font-bold text-slate-800">{activeUnits}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-purple-100 text-purple-600 rounded-lg shrink-0">
+            <Users size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Total Trabajadores</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{totalWorkers}</p>
           </div>
         </div>
         <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 sm:col-span-2 md:col-span-1">
