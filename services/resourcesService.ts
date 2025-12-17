@@ -499,6 +499,10 @@ function transformResourceFromDB(
     endDate: normalizeDateFromDB(data.end_date),
     personnelStatus: data.personnel_status as 'activo' | 'cesado' || (data.type === 'Personal' ? 'activo' : undefined),
     archived: data.archived || false,
+    // Campos de capacitación
+    inTraining: data.in_training || false,
+    trainingStartDate: normalizeDateFromDB(data.training_start_date),
+    contractGenerated: data.contract_generated || false,
   };
 }
 
@@ -564,6 +568,10 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     if (resource.endDate !== undefined) result.end_date = normalizeDateToDB(resource.endDate);
     if (resource.personnelStatus !== undefined) result.personnel_status = resource.personnelStatus;
     if (resource.archived !== undefined) result.archived = resource.archived;
+    // Campos de capacitación
+    if (resource.inTraining !== undefined) result.in_training = resource.inTraining;
+    if (resource.trainingStartDate !== undefined) result.training_start_date = normalizeDateToDB(resource.trainingStartDate);
+    if (resource.contractGenerated !== undefined) result.contract_generated = resource.contractGenerated;
   }
 
   return result;

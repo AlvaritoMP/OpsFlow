@@ -2983,7 +2983,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           {worker.name.charAt(0)}
                        </div>
                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
+                            {worker.inTraining && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 shrink-0">
+                                En Capacitación
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-500 truncate">
                             {worker.puesto ? `${worker.puesto} • ` : ''}{worker.assignedZones?.join(', ') || 'Sin zona'}
                           </p>
@@ -4530,6 +4537,39 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         <p className="text-xs text-amber-600 mt-1">El trabajador pasará a estado "Cesado"</p>
                                       )}
                                   </div>
+                              </div>
+                              <div className="border-t border-slate-200 pt-4 mt-4">
+                                  <div className="flex items-center space-x-2 mb-3">
+                                      <input 
+                                          type="checkbox" 
+                                          id="inTraining"
+                                          checked={editingResource.inTraining || false} 
+                                          onChange={e => {
+                                              const newValue = e.target.checked;
+                                              setEditingResource({
+                                                  ...editingResource, 
+                                                  inTraining: newValue,
+                                                  trainingStartDate: newValue && !editingResource.trainingStartDate ? new Date().toISOString().split('T')[0] : editingResource.trainingStartDate
+                                              });
+                                          }}
+                                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                      />
+                                      <label htmlFor="inTraining" className="text-sm font-medium text-slate-700">
+                                          En Periodo de Capacitación
+                                      </label>
+                                  </div>
+                                  {editingResource.inTraining && (
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio de Capacitación</label>
+                                          <input 
+                                              type="date" 
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                                              value={editingResource.trainingStartDate || ''} 
+                                              onChange={e => setEditingResource({...editingResource, trainingStartDate: e.target.value})} 
+                                          />
+                                          <p className="text-xs text-slate-500 mt-1">Después de 3 días se generará una alerta para crear el contrato de trabajo</p>
+                                      </div>
+                                  )}
                               </div>
                           </>
                       )}

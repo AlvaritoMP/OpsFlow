@@ -227,6 +227,9 @@ export interface Resource {
   endDate?: string; // Fecha de fin de labores (YYYY-MM-DD)
   personnelStatus?: 'activo' | 'cesado'; // Estado: activo o cesado (solo para personal)
   archived?: boolean; // Si está archivado (no se muestra en vista normal)
+  inTraining?: boolean; // Si está en periodo de capacitación
+  trainingStartDate?: string; // Fecha de inicio de capacitación (YYYY-MM-DD)
+  contractGenerated?: boolean; // Si ya se generó el contrato de trabajo (resuelve la alerta)
 }
 
 export interface ZoneLayout {

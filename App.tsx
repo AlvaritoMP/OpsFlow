@@ -1120,7 +1120,27 @@ const App: React.FC = () => {
                 <div 
                   key={unit.id} 
                   onClick={() => handleSelectUnit(unit.id)}
-                  className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all cursor-pointer group overflow-hidden relative ${pendingRequestsCount > 0 ? 'ring-2 ring-orange-500 shadow-md' : 'border border-slate-200'}`}
+                  className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all cursor-pointer group overflow-hidden relative ${
+                    pendingRequestsCount > 0 ? 'ring-2 ring-orange-500 shadow-md' : 
+                    (() => {
+                      // Check for contract alerts (workers with 3+ days in training)
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const hasContractAlerts = unit.resources.some(resource => {
+                        if (resource.type === ResourceType.PERSONNEL && 
+                            resource.inTraining && 
+                            resource.trainingStartDate && 
+                            !resource.contractGenerated) {
+                          const startDate = new Date(resource.trainingStartDate);
+                          startDate.setHours(0, 0, 0, 0);
+                          const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+                          return daysDiff >= 3;
+                        }
+                        return false;
+                      });
+                      return hasContractAlerts ? 'ring-2 ring-red-500 shadow-md' : 'border border-slate-200';
+                    })()
+                  }`}
                 >
                   <div className="h-40 w-full overflow-hidden relative bg-slate-200">
                     {unit.images && unit.images.length > 0 ? (
@@ -1150,6 +1170,32 @@ const App: React.FC = () => {
                         </span>
                       </div>
                     )}
+                    
+                    {/* Contract Alerts Badge */}
+                    {(() => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const contractAlertsCount = unit.resources.filter(resource => {
+                        if (resource.type === ResourceType.PERSONNEL && 
+                            resource.inTraining && 
+                            resource.trainingStartDate && 
+                            !resource.contractGenerated) {
+                          const startDate = new Date(resource.trainingStartDate);
+                          startDate.setHours(0, 0, 0, 0);
+                          const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+                          return daysDiff >= 3;
+                        }
+                        return false;
+                      }).length;
+                      
+                      return contractAlertsCount > 0 ? (
+                        <div className={`absolute ${pendingRequestsCount > 0 ? 'top-14' : 'top-3'} left-3 z-10 animate-pulse`}>
+                          <span className="bg-red-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full shadow-md flex items-center border border-white">
+                             <FileText size={12} className="mr-1.5 fill-white"/> {contractAlertsCount} Contrato{contractAlertsCount > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
 
                   <div className="p-5">

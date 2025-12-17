@@ -18,12 +18,24 @@ interface GlobalEvent {
   unitId: string;
   unitName: string;
   date: string; // YYYY-MM-DD
-  category: 'Log' | 'Maintenance' | 'Training';
+  category: 'Log' | 'Maintenance' | 'Training' | 'ContractAlert';
   type: string; // Subtype (e.g., 'Incidencia', 'Preventivo')
   description: string;
   status?: string;
   resourceName?: string; // For maintenance/training
   originalRef: any; // Reference to the original object to allow updating
+}
+
+// Interface for contract generation alerts
+interface ContractAlert {
+  id: string;
+  unitId: string;
+  unitName: string;
+  resourceId: string;
+  resourceName: string;
+  trainingStartDate: string;
+  daysInTraining: number;
+  contractGenerated: boolean;
 }
 
 export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementStaff, onUpdateUnit, currentUserRole }) => {
@@ -121,6 +133,39 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
               originalRef: train
             });
           });
+        }
+      });
+    });
+
+    // Add contract alerts as events (only for operations users)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    units.forEach(unit => {
+      unit.resources.forEach(resource => {
+        if (resource.type === ResourceType.PERSONNEL && 
+            resource.inTraining && 
+            resource.trainingStartDate && 
+            !resource.contractGenerated) {
+          
+          const startDate = new Date(resource.trainingStartDate);
+          startDate.setHours(0, 0, 0, 0);
+          const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (daysDiff >= 3) {
+            events.push({
+              id: `contract-alert-${resource.id}`,
+              unitId: unit.id,
+              unitName: unit.name,
+              date: resource.trainingStartDate,
+              category: 'ContractAlert',
+              type: 'Alerta de Contrato',
+              description: `${resource.name} completó ${daysDiff} días de capacitación. Se requiere generar contrato de trabajo.`,
+              status: 'Pendiente',
+              resourceName: resource.name,
+              originalRef: { resource, unit, daysDiff }
+            });
+          }
         }
       });
     });
@@ -225,8 +270,49 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     setEditForm({...editForm, images: editForm.images.filter((_, i) => i !== index)});
   };
 
+  const handleResolveContractAlert = async (event: GlobalEvent) => {
+    if (!event.originalRef?.resource) return;
+    
+    const unitIndex = units.findIndex(u => u.id === event.unitId);
+    if (unitIndex === -1) return;
+    
+    const updatedUnit = { ...units[unitIndex] };
+    const resourceId = event.originalRef.resource.id;
+    
+    // Update the resource to mark contract as generated
+    updatedUnit.resources = updatedUnit.resources.map(res => {
+      if (res.id === resourceId) {
+        return { ...res, contractGenerated: true };
+      }
+      return res;
+    });
+    
+    // Save to database
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      const resource = updatedUnit.resources.find(r => r.id === resourceId);
+      if (resource) {
+        await resourcesService.update(resourceId, { contractGenerated: true });
+      }
+    } catch (error) {
+      console.error('Error al actualizar recurso:', error);
+      alert('Error al guardar. Por favor, intente nuevamente.');
+      return;
+    }
+    
+    onUpdateUnit(updatedUnit);
+    setEditingEvent(null);
+    alert('Alerta resuelta. El contrato ha sido marcado como generado.');
+  };
+
   const handleSaveEdit = () => {
     if (!editingEvent) return;
+
+    // Handle contract alert resolution
+    if (editingEvent.category === 'ContractAlert') {
+      handleResolveContractAlert(editingEvent);
+      return;
+    }
 
     const unitIndex = units.findIndex(u => u.id === editingEvent.unitId);
     if (unitIndex === -1) return;
@@ -435,6 +521,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                 <option value="Log">Bitácora</option>
                 <option value="Maintenance">Mantenimiento</option>
                 <option value="Training">Capacitación</option>
+                {isOperationsUser && <option value="ContractAlert">Alertas de Contrato</option>}
              </select>
           </div>
        </div>
@@ -471,9 +558,11 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                     <span className={`inline-flex items-center px-1.5 md:px-2 py-0.5 rounded text-[9px] md:text-[10px] font-medium mt-1 
                                         ${ev.category === 'Log' ? 'bg-gray-100 text-gray-800' : 
                                             ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-800' : 
+                                            ev.category === 'ContractAlert' ? 'bg-red-100 text-red-800' :
                                             'bg-blue-100 text-blue-800'}`}>
                                         {ev.category === 'Maintenance' && <Wrench size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         {ev.category === 'Training' && <GraduationCap size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
+                                        {ev.category === 'ContractAlert' && <AlertTriangle size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         <span className="truncate max-w-[60px] md:max-w-none">{ev.type}</span>
                                     </span>
                                 </td>
@@ -605,6 +694,25 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Nota / Puntaje</label>
                         <input type="number" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editForm.score} onChange={e => setEditForm({...editForm, score: Number(e.target.value)})} />
+                    </div>
+                )}
+
+                {editingEvent.category === 'ContractAlert' && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                        <div className="flex items-start space-x-3">
+                            <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                            <div className="flex-1">
+                                <h4 className="font-bold text-amber-900 mb-2">Alerta de Contrato de Trabajo</h4>
+                                <p className="text-sm text-amber-800 mb-3">
+                                    {editingEvent.originalRef?.daysDiff !== undefined && (
+                                        <>El trabajador <strong>{editingEvent.resourceName}</strong> completó <strong>{editingEvent.originalRef.daysDiff} días</strong> de capacitación. Se requiere generar el contrato de trabajo.</>
+                                    )}
+                                </p>
+                                <p className="text-xs text-amber-700 italic">
+                                    Al resolver esta alerta, se marcará que el contrato ha sido generado y la alerta desaparecerá.
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 )}
 
