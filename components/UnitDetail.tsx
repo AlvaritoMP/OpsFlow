@@ -905,27 +905,57 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleMassAssignTraining = () => {
+  const handleMassAssignTraining = async () => {
     if (!onUpdate) return;
-    const newTraining: Training = {
-      id: `t-${Date.now()}`,
-      topic: massTrainingForm.topic,
-      date: massTrainingForm.date,
-      status: massTrainingForm.status as any,
-    };
-    const updatedResources = unit.resources.map(res => {
-      if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
-        return {
-          ...res,
-          trainings: [...(res.trainings || []), { ...newTraining, id: `t-${Date.now()}-${res.id}` }]
-        };
-      }
-      return res;
-    });
-    onUpdate({ ...unit, resources: updatedResources });
-    setShowMassTrainingModal(false);
-    setSelectedPersonnelIds([]);
-    setMassTrainingForm({ topic: '', date: '', status: 'Programado' });
+    
+    setIsSavingWorker(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      
+      const newTraining: Training = {
+        id: `t-${Date.now()}`,
+        topic: massTrainingForm.topic,
+        date: massTrainingForm.date,
+        status: massTrainingForm.status as any,
+      };
+      
+      // Guardar capacitaciones en la base de datos para cada trabajador seleccionado
+      const updatePromises = unit.resources
+        .filter(res => res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id))
+        .map(async (res, index) => {
+          const trainingId = `t-${Date.now()}-${res.id}-${index}`;
+          const updatedTrainings = [...(res.trainings || []), { ...newTraining, id: trainingId }];
+          await resourcesService.update(res.id, { trainings: updatedTrainings });
+          return { ...res, trainings: updatedTrainings };
+        });
+      
+      await Promise.all(updatePromises);
+      
+      // Actualizar estado local después de guardar en BD (usar los mismos IDs que se guardaron)
+      const updatedResources = await Promise.all(
+        unit.resources.map(async (res) => {
+          if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
+            // Recargar el recurso desde BD para obtener los IDs correctos
+            const updatedResource = await resourcesService.getById(res.id);
+            return updatedResource || res;
+          }
+          return res;
+        })
+      );
+      
+      onUpdate({ ...unit, resources: updatedResources });
+      setShowMassTrainingModal(false);
+      setSelectedPersonnelIds([]);
+      setMassTrainingForm({ topic: '', date: '', status: 'Programado' });
+      setNotification({ type: 'success', message: 'Capacitaciones agregadas correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar capacitaciones:', error);
+      setNotification({ type: 'error', message: 'Error al guardar capacitaciones. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
   };
 
   const handleMassAssignAsset = async () => {
@@ -1287,15 +1317,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setShowAssetAssignmentModal(true);
   };
   
-  const handleDeleteTraining = (resourceId: string, trainingId: string) => {
+  const handleDeleteTraining = async (resourceId: string, trainingId: string) => {
       if(!onUpdate) return;
-      const updatedResources = unit.resources.map(r => {
-          if (r.id === resourceId) {
-              return { ...r, trainings: r.trainings?.filter(t => t.id !== trainingId) };
-          }
-          return r;
-      });
-      onUpdate({ ...unit, resources: updatedResources });
+      
+      try {
+          const { resourcesService } = await import('../services/resourcesService');
+          const resource = unit.resources.find(r => r.id === resourceId);
+          if (!resource) return;
+          
+          const updatedTrainings = resource.trainings?.filter(t => t.id !== trainingId) || [];
+          await resourcesService.update(resourceId, { trainings: updatedTrainings });
+          
+          // Actualizar estado local después de guardar en BD
+          const updatedResources = unit.resources.map(r => {
+              if (r.id === resourceId) {
+                  return { ...r, trainings: updatedTrainings };
+              }
+              return r;
+          });
+          onUpdate({ ...unit, resources: updatedResources });
+      } catch (error) {
+          console.error('Error al eliminar capacitación:', error);
+          setNotification({ type: 'error', message: 'Error al eliminar capacitación. Por favor, intente nuevamente.' });
+          setTimeout(() => setNotification(null), 5000);
+      }
   };
 
   const handleDeleteAsset = (resourceId: string, assetId: string) => {

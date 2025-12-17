@@ -198,6 +198,28 @@ export const resourcesService = {
         }
       }
 
+      // Actualizar trainings (capacitaciones) si se proporcionan
+      if (resource.trainings !== undefined) {
+        console.log(`🔄 Actualizando ${resource.trainings.length} capacitaciones para recurso ${id}`);
+        
+        // Eliminar capacitaciones existentes
+        const { error: deleteError } = await supabase.from('trainings').delete().eq('resource_id', id);
+        if (deleteError) {
+          console.error('Error al eliminar capacitaciones existentes:', deleteError);
+          throw deleteError;
+        }
+        
+        // Insertar nuevas capacitaciones
+        if (resource.trainings.length > 0) {
+          console.log('📚 Insertando capacitaciones:', resource.trainings.map(t => ({ 
+            topic: t.topic, 
+            date: t.date,
+            status: t.status
+          })));
+          await this.createTrainings(id, resource.trainings);
+        }
+      }
+
       return await this.getById(id) || resource as Resource;
     } catch (error) {
       handleSupabaseError(error);
