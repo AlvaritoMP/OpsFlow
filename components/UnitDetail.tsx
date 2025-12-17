@@ -4251,6 +4251,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.shift} onChange={e => setNewWorkerForm({...newWorkerForm, shift: e.target.value})}>
                         <option value="">Seleccionar...</option>
                         <option value="Diurno">Diurno</option>
+                        <option value="Tarde">Tarde</option>
                         <option value="Nocturno">Nocturno</option>
                         <option value="Mixto">Mixto</option>
                     </select>
@@ -4505,6 +4506,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}>
                                           <option value="">Seleccionar...</option>
                                           <option value="Diurno">Diurno</option>
+                                          <option value="Tarde">Tarde</option>
                                           <option value="Nocturno">Nocturno</option>
                                           <option value="Mixto">Mixto</option>
                                       </select>
