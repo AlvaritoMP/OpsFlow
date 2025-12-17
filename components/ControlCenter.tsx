@@ -156,11 +156,16 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
             const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
             
             if (daysDiff >= 3) {
+              // Calcular la fecha que cumplió 3 días (fecha de inicio + 3 días)
+              const alertDate = new Date(startDate);
+              alertDate.setDate(alertDate.getDate() + 3);
+              const alertDateStr = alertDate.toISOString().split('T')[0];
+              
               events.push({
                 id: `contract-alert-${resource.id}`,
                 unitId: unit.id,
                 unitName: unit.name,
-                date: resource.trainingStartDate,
+                date: alertDateStr, // Fecha que cumplió 3 días, no la fecha de inicio
                 category: 'ContractAlert',
                 type: 'Alerta de Contrato',
                 description: `${resource.name} completó ${daysDiff} días de capacitación. Se requiere generar contrato de trabajo.`,

@@ -494,6 +494,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           onUpdate({ ...unit, blueprintLayers: updatedLayers, zones: updatedZones });
           if (updatedLayers.length > 0) setActiveLayerId(updatedLayers[0].id);
           else setActiveLayerId(null);
+          
+          setNotification({ type: 'success', message: 'Nivel eliminado y cambios guardados' });
+          setTimeout(() => setNotification(null), 3000);
       }
   };
 
@@ -711,46 +714,87 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleCreateRequest = () => {
+  const handleCreateRequest = async () => {
       if(!onUpdate) return;
       
-      const newRequest: ClientRequest = {
-          id: `req-${Date.now()}`,
-          date: new Date().toISOString().split('T')[0],
-          category: newRequestForm.category as any,
-          priority: newRequestForm.priority as any,
-          status: 'PENDING',
-          description: newRequestForm.description,
-          author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
-          relatedResourceId: newRequestForm.relatedResourceId || undefined,
-          attachments: newRequestImages,
-          comments: []
-      };
+      // Validar campos requeridos
+      if (!newRequestForm.description.trim()) {
+        setNotification({ type: 'error', message: 'Por favor, complete la descripción del requerimiento' });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+      
+      setIsSavingWorker(true);
+      setNotification({ type: 'info', message: 'Guardando requerimiento...' });
+      
+      try {
+        const newRequest: ClientRequest = {
+            id: `req-${Date.now()}`,
+            date: new Date().toISOString().split('T')[0],
+            category: newRequestForm.category as any,
+            priority: newRequestForm.priority as any,
+            status: 'PENDING',
+            description: newRequestForm.description,
+            author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
+            relatedResourceId: newRequestForm.relatedResourceId || undefined,
+            attachments: newRequestImages,
+            comments: []
+        };
 
-      const updatedRequests = [...(unit.requests || []), newRequest];
-      onUpdate({ ...unit, requests: updatedRequests });
-      setShowRequestModal(false);
-      setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
-      setNewRequestImages([]);
+        const updatedRequests = [...(unit.requests || []), newRequest];
+        onUpdate({ ...unit, requests: updatedRequests });
+        setShowRequestModal(false);
+        setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
+        setNewRequestImages([]);
+        
+        setNotification({ type: 'success', message: 'Requerimiento guardado correctamente' });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (error) {
+        console.error('Error al guardar requerimiento:', error);
+        setNotification({ type: 'error', message: 'Error al guardar el requerimiento. Por favor, intente nuevamente.' });
+        setTimeout(() => setNotification(null), 5000);
+      } finally {
+        setIsSavingWorker(false);
+      }
   };
 
-  const handleUpdateRequestStatus = (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[]) => {
+  const handleUpdateRequestStatus = async (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[]) => {
       if(!onUpdate || !editingRequest) return;
-      const updatedRequests = (unit.requests || []).map(req => {
-          if (req.id === editingRequest.id) {
-              return { 
-                  ...req, 
-                  status, 
-                  response: response || req.response,
-                  responseAttachments: attachments || req.responseAttachments,
-                  resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : req.resolvedDate
-              };
-          }
-          return req;
-      });
-      onUpdate({ ...unit, requests: updatedRequests });
-      setEditingRequest(null);
-      setResolveAttachments([]);
+      
+      setIsSavingWorker(true);
+      setNotification({ type: 'info', message: 'Guardando cambios...' });
+      
+      try {
+        const updatedRequests = (unit.requests || []).map(req => {
+            if (req.id === editingRequest.id) {
+                return { 
+                    ...req, 
+                    status, 
+                    response: response || req.response,
+                    responseAttachments: attachments || req.responseAttachments,
+                    resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : req.resolvedDate
+                };
+            }
+            return req;
+        });
+        onUpdate({ ...unit, requests: updatedRequests });
+        setEditingRequest(null);
+        setResolveAttachments([]);
+        
+        const statusMessages = {
+          'PENDING': 'Requerimiento marcado como pendiente',
+          'IN_PROGRESS': 'Requerimiento en progreso',
+          'RESOLVED': 'Requerimiento resuelto correctamente'
+        };
+        setNotification({ type: 'success', message: statusMessages[status] });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (error) {
+        console.error('Error al actualizar requerimiento:', error);
+        setNotification({ type: 'error', message: 'Error al actualizar el requerimiento. Por favor, intente nuevamente.' });
+        setTimeout(() => setNotification(null), 5000);
+      } finally {
+        setIsSavingWorker(false);
+      }
   };
   
   const handleAddResolveImage = () => {
@@ -876,15 +920,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const updateSelectedZoneDetails = (key: string, value: any) => {
       if (!selectedZoneId || !onUpdate) return;
-      const zonesCopy = unit.zones.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
-      if (key === 'color') {
-           // Color is nested in layout
-           const target = unit.zones.find(z => z.id === selectedZoneId);
-           if (target) {
-               zonesCopy.splice(zonesCopy.indexOf(target), 1, { ...target, layout: { ...target.layout!, color: value } });
-           }
+      try {
+        const zonesCopy = unit.zones.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
+        if (key === 'color') {
+             // Color is nested in layout
+             const target = unit.zones.find(z => z.id === selectedZoneId);
+             if (target) {
+                 zonesCopy.splice(zonesCopy.indexOf(target), 1, { ...target, layout: { ...target.layout!, color: value } });
+             }
+        }
+        onUpdate({ ...unit, zones: zonesCopy });
+        
+        // Notificación silenciosa para cambios de planos (solo para cambios importantes)
+        if (key === 'name' || key === 'area') {
+          setNotification({ type: 'success', message: 'Cambios en plano guardados' });
+          setTimeout(() => setNotification(null), 2000);
+        }
+      } catch (error) {
+        console.error('Error al actualizar zona:', error);
+        setNotification({ type: 'error', message: 'Error al guardar cambios en el plano' });
+        setTimeout(() => setNotification(null), 3000);
       }
-      onUpdate({ ...unit, zones: zonesCopy });
   };
 
 
@@ -1857,22 +1913,50 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleCreateEvent = () => {
+  const handleCreateEvent = async () => {
     if (!onUpdate) return;
-    const newLog: OperationalLog = {
-      id: `l-${Date.now()}`,
-      date: newEventForm.date,
-      type: newEventForm.type as any,
-      description: newEventForm.description,
-      author: userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin',
-      images: newEventImages,
-      responsibleIds: newEventResponsibles
-    };
-    onUpdate({ ...unit, logs: [...unit.logs, newLog] });
-    setShowEventModal(false);
-    setNewEventForm({ type: 'Coordinacion', date: '', description: '' });
-    setNewEventImages([]);
-    setNewEventResponsibles([]);
+    
+    // Validar campos requeridos
+    if (!newEventForm.date || !newEventForm.description.trim()) {
+      setNotification({ type: 'error', message: 'Por favor, complete la fecha y descripción del evento' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    setIsSavingWorker(true);
+    setNotification({ type: 'info', message: 'Guardando evento...' });
+    
+    try {
+      const newLog: OperationalLog = {
+        id: `l-${Date.now()}`,
+        date: newEventForm.date,
+        type: newEventForm.type as any,
+        description: newEventForm.description,
+        author: userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin',
+        images: newEventImages,
+        responsibleIds: newEventResponsibles
+      };
+      
+      // Actualizar estado local primero (optimistic update)
+      const updatedUnit = { ...unit, logs: [...unit.logs, newLog] };
+      onUpdate(updatedUnit);
+      
+      // Cerrar modal y limpiar formulario
+      setShowEventModal(false);
+      setNewEventForm({ type: 'Coordinacion', date: '', description: '' });
+      setNewEventImages([]);
+      setNewEventResponsibles([]);
+      
+      // Notificación de éxito
+      setNotification({ type: 'success', message: 'Evento guardado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar evento:', error);
+      setNotification({ type: 'error', message: 'Error al guardar el evento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
   };
 
   const handleAddImageToNewEvent = () => {
@@ -1889,11 +1973,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleUpdateLog = () => {
+  const handleUpdateLog = async () => {
     if (!onUpdate || !editingLog) return;
-    const updatedLogs = unit.logs.map(l => l.id === editingLog.id ? editingLog : l);
-    onUpdate({ ...unit, logs: updatedLogs });
-    setEditingLog(null);
+    
+    setIsSavingWorker(true);
+    setNotification({ type: 'info', message: 'Guardando cambios...' });
+    
+    try {
+      const updatedLogs = unit.logs.map(l => l.id === editingLog.id ? editingLog : l);
+      onUpdate({ ...unit, logs: updatedLogs });
+      setEditingLog(null);
+      
+      setNotification({ type: 'success', message: 'Evento actualizado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al actualizar evento:', error);
+      setNotification({ type: 'error', message: 'Error al actualizar el evento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
   };
 
   const handleAddImageToLog = () => {
@@ -2221,7 +2320,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                </div>
                {canEditBlueprint && (
                    <button 
-                      onClick={() => setIsEditingBlueprint(!isEditingBlueprint)} 
+                      onClick={() => {
+                        if (isEditingBlueprint) {
+                          // Al finalizar edición, confirmar que se guardaron los cambios
+                          setNotification({ type: 'success', message: 'Cambios en plano guardados correctamente' });
+                          setTimeout(() => setNotification(null), 3000);
+                        }
+                        setIsEditingBlueprint(!isEditingBlueprint);
+                      }} 
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center shadow-sm ${isEditingBlueprint ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                    >
                        {isEditingBlueprint ? <CheckSquare size={16} className="mr-2"/> : <Edit2 size={16} className="mr-2"/>} 

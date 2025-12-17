@@ -247,9 +247,11 @@ const App: React.FC = () => {
       // No recargar inmediatamente para evitar cerrar modales
       // Los datos se actualizarán cuando el usuario navegue o recargue manualmente
       // await loadUnits(); // Comentado para evitar que se cierren modales
+      // Notificación de éxito se maneja en el componente que llama
     } catch (error) {
       console.error('Error al actualizar unidad:', error);
-      alert('Error al actualizar la unidad. Por favor, intente nuevamente.');
+      // El error se propaga para que el componente pueda mostrar su propia notificación
+      throw error;
     }
   };
 
