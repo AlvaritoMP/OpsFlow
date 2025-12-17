@@ -14,7 +14,7 @@ interface UnitDetailProps {
   currentUser?: { role: UserRole; linkedClientNames?: string[] }; // Usuario actual para restricciones
   availableClients?: { id: string; name: string }[]; // Lista de clientes disponibles
   onBack: () => void;
-  onUpdate?: (updatedUnit: Unit) => void;
+  onUpdate?: (updatedUnit: Unit) => void | Promise<void>;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -120,7 +120,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [isSavingWorker, setIsSavingWorker] = useState(false);
   const [isUpdatingResource, setIsUpdatingResource] = useState(false);
   const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   
   // Roster State - Estado local optimizado para actualizaciones rápidas
   const [rosterStartDate, setRosterStartDate] = useState(getMonday(new Date()));
@@ -1939,7 +1939,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Actualizar estado local primero (optimistic update)
       const updatedUnit = { ...unit, logs: [...unit.logs, newLog] };
-      onUpdate(updatedUnit);
+      
+      // Esperar a que se guarde en la base de datos (si onUpdate es async)
+      if (onUpdate) {
+        const result = onUpdate(updatedUnit);
+        if (result instanceof Promise) {
+          await result;
+        }
+      }
       
       // Cerrar modal y limpiar formulario
       setShowEventModal(false);
@@ -3091,12 +3098,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* Notification Toast */}
       {notification && (
         <div className={`fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
-          notification.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'
+          notification.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 
+          notification.type === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
+          'bg-blue-50 border border-blue-200 text-blue-800'
         }`}>
           {notification.type === 'success' ? (
             <CheckCircle size={20} className="text-green-600" />
-          ) : (
+          ) : notification.type === 'error' ? (
             <AlertCircle size={20} className="text-red-600" />
+          ) : (
+            <Clock3 size={20} className="text-blue-600" />
           )}
           <span className="font-medium">{notification.message}</span>
           <button onClick={() => setNotification(null)} className="text-slate-400 hover:text-slate-600">
