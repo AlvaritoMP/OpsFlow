@@ -4211,7 +4211,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                    )}
                 </div>
 
-                <button onClick={handleCreateEvent} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Guardar Evento</button>
+                <button 
+                  onClick={handleCreateEvent} 
+                  disabled={isSavingWorker}
+                  className={`w-full py-2.5 rounded-lg font-medium transition-colors mt-2 ${
+                    isSavingWorker 
+                      ? 'bg-slate-400 text-white cursor-not-allowed' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {isSavingWorker ? 'Guardando...' : 'Guardar Evento'}
+                </button>
              </div>
           </div>
         </div>

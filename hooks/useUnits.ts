@@ -11,9 +11,14 @@ export const useUnits = (isAuthenticated: boolean) => {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔄 useUnits: Iniciando carga de unidades...');
+      // Log reducido - solo en desarrollo
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 useUnits: Iniciando carga de unidades...');
+      }
       const data = await unitsService.getAll();
-      console.log(`✅ useUnits: ${data.length} unidades cargadas`);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`✅ useUnits: ${data.length} unidades cargadas`);
+      }
       setUnits(data);
     } catch (err: any) {
       console.error('❌ useUnits: Error al cargar unidades:', err);

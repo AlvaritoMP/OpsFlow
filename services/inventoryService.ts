@@ -16,7 +16,10 @@ export const getApiConfig = (): InventoryApiConfig => {
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (!stored) {
-            console.log('📦 No hay configuración de inventario guardada, usando valores por defecto');
+            // Log reducido - solo en desarrollo
+            if (process.env.NODE_ENV === 'development') {
+              console.log('📦 No hay configuración de inventario guardada, usando valores por defecto');
+            }
             return DEFAULT_CONFIG;
         }
         
@@ -35,7 +38,10 @@ export const getApiConfig = (): InventoryApiConfig => {
             useMock: typeof parsed.useMock === 'boolean' ? parsed.useMock : DEFAULT_CONFIG.useMock
         };
         
-        console.log('✅ Configuración de inventario cargada correctamente');
+        // Log reducido - solo en desarrollo
+        if (process.env.NODE_ENV === 'development') {
+          console.log('✅ Configuración de inventario cargada correctamente');
+        }
         return config;
     } catch (e) {
         console.error('❌ Error al cargar configuración de inventario:', e);

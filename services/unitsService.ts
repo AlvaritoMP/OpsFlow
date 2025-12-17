@@ -29,7 +29,10 @@ export const unitsService = {
   // Obtener todas las unidades
   async getAll(): Promise<Unit[]> {
     try {
-      console.log('🔍 Obteniendo unidades de la base de datos...');
+      // Log reducido - solo en desarrollo
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔍 Obteniendo unidades de la base de datos...');
+      }
       const { data, error } = await supabase
         .from('units')
         .select(`
@@ -51,7 +54,10 @@ export const unitsService = {
         throw error;
       }
 
-      console.log(`📊 Unidades encontradas en BD: ${data?.length || 0}`);
+      // Log reducido - solo en desarrollo
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`📊 Unidades encontradas en BD: ${data?.length || 0}`);
+      }
 
       if (!data || data.length === 0) {
         console.warn('⚠️ No se encontraron unidades en la base de datos');
@@ -59,7 +65,10 @@ export const unitsService = {
       }
 
       // Cargar datos relacionados para cada unidad
-      console.log('🔄 Cargando datos relacionados (recursos, logs, requests, zones, imágenes)...');
+      // Log reducido - solo en desarrollo
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 Cargando datos relacionados (recursos, logs, requests, zones, imágenes)...');
+      }
       const units = await Promise.all(
         data.map(async (unitData) => {
           try {
@@ -83,7 +92,10 @@ export const unitsService = {
             ]);
 
             const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones);
-            console.log(`✅ Unidad ${unitData.name}: ${transformed.images.length} imágenes, ${transformed.logs.length} logs, ${transformed.resources.length} recursos`);
+            // Log reducido - solo en desarrollo
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ Unidad ${unitData.name}: ${transformed.images.length} imágenes, ${transformed.logs.length} logs, ${transformed.resources.length} recursos`);
+            }
             return transformed;
           } catch (err) {
             console.error(`❌ Error al transformar unidad ${unitData.id}:`, err);

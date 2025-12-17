@@ -332,11 +332,12 @@ export const resourcesService = {
     })) || [];
     
     // Debug: verificar códigos de constancia
-    const withConstancy = assets.filter(a => a.constancyCode);
-    if (withConstancy.length > 0) {
-      console.log(`📄 Activos con constancia para recurso ${resourceId}:`, 
-        withConstancy.map(a => ({ name: a.name, code: a.constancyCode })));
-    }
+    // Logs reducidos - solo en modo debug
+    // const withConstancy = assets.filter(a => a.constancyCode);
+    // if (withConstancy.length > 0 && process.env.NODE_ENV === 'development') {
+    //   console.log(`📄 Activos con constancia para recurso ${resourceId}:`, 
+    //     withConstancy.map(a => ({ name: a.name, code: a.constancyCode })));
+    // }
     
     return assets;
   },

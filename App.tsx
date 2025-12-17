@@ -91,7 +91,10 @@ const App: React.FC = () => {
   // API Config State
   const [apiConfig, setApiConfig] = useState<InventoryApiConfig>(() => {
     const config = getApiConfig();
-    console.log('📦 Cargando configuración de inventario al iniciar:', config);
+    // Log reducido - solo en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📦 Cargando configuración de inventario al iniciar:', config);
+    }
     return config;
   });
   const [isInventoryConfigSaved, setIsInventoryConfigSaved] = useState(false);
@@ -99,7 +102,10 @@ const App: React.FC = () => {
   // Gemini API Config State
   const [geminiKey, setGeminiKey] = useState<string>(() => {
     const key = getGeminiApiKey() || '';
-    console.log('📦 Cargando API Key de Gemini al iniciar:', key ? '***' + key.slice(-4) : 'no configurada');
+    // Log reducido - solo en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📦 Cargando API Key de Gemini al iniciar:', key ? '***' + key.slice(-4) : 'no configurada');
+    }
     return key;
   });
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
@@ -148,7 +154,10 @@ const App: React.FC = () => {
   // Permissions State
   const [permissions, setPermissions] = useState<PermissionConfig>(() => {
     const perms = getPermissions();
-    console.log('📦 Cargando permisos al iniciar');
+    // Log reducido - solo en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📦 Cargando permisos al iniciar');
+    }
     return perms;
   });
   const [isPermsSaved, setIsPermsSaved] = useState(false);
