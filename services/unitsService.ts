@@ -43,7 +43,8 @@ export const unitsService = {
           unit_images(*),
           blueprint_layers(*),
           zones(*),
-          compliance_history(*)
+          compliance_history(*),
+          unit_management_staff(management_staff_id)
         `)
         .order('created_at', { ascending: false });
 
@@ -91,7 +92,7 @@ export const unitsService = {
               }),
             ]);
 
-            const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones);
+            const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones, assignedStaff);
             // Log reducido - solo en desarrollo
             if (process.env.NODE_ENV === 'development') {
               console.log(`✅ Unidad ${unitData.name}: ${transformed.images.length} imágenes, ${transformed.logs.length} logs, ${transformed.resources.length} recursos`);
@@ -100,7 +101,7 @@ export const unitsService = {
           } catch (err) {
             console.error(`❌ Error al transformar unidad ${unitData.id}:`, err);
             // Retornar unidad básica sin datos relacionados
-            return transformUnitFromDB(unitData, [], [], [], []);
+            return transformUnitFromDB(unitData, [], [], [], [], []);
           }
         })
       );
@@ -125,7 +126,8 @@ export const unitsService = {
           unit_images(*),
           blueprint_layers(*),
           zones(*),
-          compliance_history(*)
+          compliance_history(*),
+          unit_management_staff(management_staff_id)
         `)
         .eq('id', id)
         .single();
@@ -137,6 +139,21 @@ export const unitsService = {
 
       if (!data) return null;
 
+      // Cargar staff asignado adicional
+      let assignedStaff: string[] = [];
+      try {
+        const { data: staffData } = await supabase
+          .from('unit_management_staff')
+          .select('management_staff_id')
+          .eq('unit_id', data.id);
+        if (staffData) {
+          assignedStaff = staffData.map((s: any) => s.management_staff_id);
+        }
+      } catch (e) {
+        // Si la tabla no existe, simplemente usar array vacío
+        console.warn('⚠️ Tabla unit_management_staff no encontrada, usando array vacío');
+      }
+
       // Cargar datos relacionados
       const [resources, logs, requests, zones] = await Promise.all([
         resourcesService.getByUnitId(data.id),
@@ -145,7 +162,7 @@ export const unitsService = {
         zonesService.getByUnitId(data.id),
       ]);
 
-      return transformUnitFromDB(data, resources, logs, requests, zones);
+      return transformUnitFromDB(data, resources, logs, requests, zones, assignedStaff);
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -296,6 +313,56 @@ export const unitsService = {
         }
       }
 
+      // Actualizar staff asignado si se proporciona
+      if (unit.assignedStaff !== undefined) {
+        try {
+          // Eliminar relaciones existentes
+          const { error: deleteError } = await supabase
+            .from('unit_management_staff')
+            .delete()
+            .eq('unit_id', id);
+          
+          if (deleteError) {
+            // Si la tabla no existe, solo registrar un warning
+            if (deleteError.code === '42P01') {
+              console.warn('⚠️ Tabla unit_management_staff no existe. Ejecute el script SQL para crearla.');
+            } else {
+              console.error('❌ Error al eliminar staff asignado:', deleteError);
+              throw new Error(`Error al eliminar staff asignado: ${deleteError.message}`);
+            }
+          }
+
+          // Insertar nuevas relaciones
+          if (unit.assignedStaff.length > 0) {
+            const staffRecords = unit.assignedStaff.map(staffId => ({
+              unit_id: id,
+              management_staff_id: staffId,
+            }));
+
+            const { error: insertError } = await supabase
+              .from('unit_management_staff')
+              .insert(staffRecords);
+
+            if (insertError) {
+              // Si la tabla no existe, solo registrar un warning
+              if (insertError.code === '42P01') {
+                console.warn('⚠️ Tabla unit_management_staff no existe. Ejecute el script SQL para crearla.');
+              } else {
+                console.error('❌ Error al insertar staff asignado:', insertError);
+                throw new Error(`Error al insertar staff asignado: ${insertError.message}`);
+              }
+            }
+          }
+        } catch (e: any) {
+          // Si la tabla no existe, solo registrar un warning y continuar
+          if (e.code === '42P01' || e.message?.includes('does not exist')) {
+            console.warn('⚠️ Tabla unit_management_staff no existe. Ejecute el script SQL para crearla.');
+          } else {
+            throw e;
+          }
+        }
+      }
+
       const updatedUnit = await this.getById(id);
       if (!updatedUnit) throw new Error('Unidad no encontrada');
 
@@ -409,7 +476,8 @@ function transformUnitFromDB(
   resources: any[] = [],
   logs: any[] = [],
   requests: any[] = [],
-  zones: any[] = []
+  zones: any[] = [],
+  assignedStaff: string[] = []
 ): Unit {
   return {
     id: data.id,
@@ -463,6 +531,7 @@ function transformUnitFromDB(
       phone: data.resident_supervisor.phone,
       photo: data.resident_supervisor.photo,
     } : undefined,
+    assignedStaff: assignedStaff,
   };
 }
 

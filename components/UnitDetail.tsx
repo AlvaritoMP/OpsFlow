@@ -2904,6 +2904,42 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     )}
                 </div>
             </div>
+            
+            {/* Additional Staff Members */}
+            {unit.assignedStaff && unit.assignedStaff.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-slate-200">
+                <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center">
+                  <UserPlus size={16} className="mr-2 text-slate-500" /> Miembros Adicionales del Equipo
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {unit.assignedStaff.map(staffId => {
+                    const staff = availableStaff.find(s => s.id === staffId);
+                    if (!staff) return null;
+                    return (
+                      <div key={staffId} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 hover:shadow-sm transition-shadow">
+                        <div className="w-12 h-12 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 border-2 border-white">
+                          <SafeImage 
+                            src={staff.photo} 
+                            alt={staff.name} 
+                            className="w-full h-full object-cover"
+                            bucket="unit-images"
+                            fallback={<div className="w-full h-full flex items-center justify-center text-slate-400 font-bold text-sm">{staff.name.charAt(0)}</div>}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{staff.name}</p>
+                          <p className="text-xs text-slate-500">
+                            {staff.role === 'COORDINATOR' ? 'Coordinador' : 
+                             staff.role === 'RESIDENT_SUPERVISOR' ? 'Supervisor Residente' : 
+                             'Supervisor de Ronda'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
         </div>
       )}
       
@@ -2988,6 +3024,84 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
                    <div><label className="block text-sm font-medium text-slate-700">Supervisor Residente</label><select className="w-full border border-slate-300 rounded p-2" value={editForm.residentSupervisor?.id || ''} onChange={e => handleSelectStaff('residentSupervisor', e.target.value)}><option value="">Seleccionar...</option>{availableStaff.filter(s => s.role === 'RESIDENT_SUPERVISOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
                    <div><label className="block text-sm font-medium text-slate-700">Supervisor de Ronda</label><select className="w-full border border-slate-300 rounded p-2" value={editForm.rovingSupervisor?.id || ''} onChange={e => handleSelectStaff('rovingSupervisor', e.target.value)}><option value="">Seleccionar...</option>{availableStaff.filter(s => s.role === 'ROVING_SUPERVISOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+
+                  {/* Additional Staff Management */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Miembros Adicionales del Equipo</label>
+                    <p className="text-xs text-slate-500 mb-3">Agregue miembros adicionales del equipo de gestión y supervisión a esta unidad</p>
+                    <div className="space-y-2 mb-3 max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50">
+                      {(editForm.assignedStaff || []).map(staffId => {
+                        const staff = availableStaff.find(s => s.id === staffId);
+                        if (!staff) return null;
+                        return (
+                          <div key={staffId} className="flex items-center justify-between bg-white p-2 rounded border border-slate-200">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+                                {staff.name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-slate-700">{staff.name}</p>
+                                <p className="text-xs text-slate-500">
+                                  {staff.role === 'COORDINATOR' ? 'Coordinador' : 
+                                   staff.role === 'RESIDENT_SUPERVISOR' ? 'Supervisor Residente' : 
+                                   'Supervisor de Ronda'}
+                                </p>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                const current = editForm.assignedStaff || [];
+                                setEditForm({...editForm, assignedStaff: current.filter(id => id !== staffId)});
+                              }}
+                              className="text-red-500 hover:text-red-700 p-1"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {(editForm.assignedStaff || []).length === 0 && (
+                        <p className="text-xs text-slate-400 text-center py-4">No hay miembros adicionales asignados</p>
+                      )}
+                    </div>
+                    <select 
+                      className="w-full border border-slate-300 rounded p-2 text-sm"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const current = editForm.assignedStaff || [];
+                          // Evitar duplicados y evitar agregar los que ya están en roles principales
+                          const mainStaffIds = [
+                            editForm.coordinator?.id,
+                            editForm.residentSupervisor?.id,
+                            editForm.rovingSupervisor?.id
+                          ].filter(Boolean);
+                          
+                          if (!current.includes(e.target.value) && !mainStaffIds.includes(e.target.value)) {
+                            setEditForm({...editForm, assignedStaff: [...current, e.target.value]});
+                          }
+                          e.target.value = '';
+                        }
+                      }}
+                    >
+                      <option value="">Agregar miembro del equipo...</option>
+                      {availableStaff
+                        .filter(s => {
+                          const current = editForm.assignedStaff || [];
+                          const mainStaffIds = [
+                            editForm.coordinator?.id,
+                            editForm.residentSupervisor?.id,
+                            editForm.rovingSupervisor?.id
+                          ].filter(Boolean);
+                          return !current.includes(s.id) && !mainStaffIds.includes(s.id);
+                        })
+                        .map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.role === 'COORDINATOR' ? 'Coordinador' : s.role === 'RESIDENT_SUPERVISOR' ? 'Supervisor Residente' : 'Supervisor de Ronda'})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
 
                   {/* Zones Management */}
                   <div className="pt-4 border-t border-slate-100">

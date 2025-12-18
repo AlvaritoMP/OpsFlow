@@ -296,6 +296,7 @@ export interface Unit {
   coordinator?: UnitContact;
   rovingSupervisor?: UnitContact; // Supervisor de Ronda
   residentSupervisor?: UnitContact; // Supervisor Residente
+  assignedStaff?: string[]; // Array de IDs de management staff asignados a esta unidad
 }
 
 // ============================================
