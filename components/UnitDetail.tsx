@@ -1927,31 +1927,51 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setNotification({ type: 'info', message: 'Guardando evento...' });
     
     try {
-      // Importar logsService dinámicamente
+      // Importar servicios dinámicamente
       const { logsService } = await import('../services/logsService');
+      const { storageService } = await import('../services/storageService');
       
-      // Crear el log directamente en la base de datos
+      // Subir imágenes blob a storage ANTES de guardar el log (en paralelo)
+      let processedImages = newEventImages;
+      if (newEventImages.length > 0) {
+        const imageUploadPromises = newEventImages.map(async (imgUrl) => {
+          if (imgUrl.startsWith('blob:')) {
+            // Convertir blob URL a File
+            const response = await fetch(imgUrl);
+            const blob = await response.blob();
+            const file = new File([blob], `event-image-${Date.now()}.jpg`, { type: blob.type });
+            
+            // Subir a storage
+            const uploadedUrl = await storageService.uploadImage(file, 'unit-images');
+            return uploadedUrl;
+          }
+          return imgUrl; // Ya es una URL permanente
+        });
+        
+        processedImages = await Promise.all(imageUploadPromises);
+      }
+      
+      // Crear el log directamente en la base de datos (ahora con URLs permanentes)
       const savedLog = await logsService.create({
         date: newEventForm.date,
         type: newEventForm.type as any,
         description: newEventForm.description,
         author: userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin',
-        images: newEventImages,
+        images: processedImages,
         responsibleIds: newEventResponsibles
       }, unit.id);
       
-      // Actualizar estado local con el log guardado (que tiene el ID correcto de la BD)
+      // Actualizar estado local directamente (sin recargar toda la unidad)
       const updatedUnit = { ...unit, logs: [...unit.logs, savedLog] };
       
-      // Actualizar la unidad en el estado (sin guardar logs, solo para sincronizar estado)
+      // Actualizar solo el estado local, sin llamar a onUpdate que recarga todo
+      // Esto es más rápido porque no recarga recursos, imágenes, etc.
       if (onUpdate) {
-        const result = onUpdate(updatedUnit);
-        if (result instanceof Promise) {
-          await result;
-        }
+        // Llamar a onUpdate pero no esperar (optimistic update)
+        onUpdate(updatedUnit);
       }
       
-      // Cerrar modal y limpiar formulario
+      // Cerrar modal y limpiar formulario inmediatamente
       setShowEventModal(false);
       setNewEventForm({ type: 'Coordinacion', date: '', description: '' });
       setNewEventImages([]);

@@ -136,6 +136,17 @@ export const storageService = {
   },
 
   /**
+   * Sube una imagen a Supabase Storage (helper para imágenes)
+   * @param file Archivo de imagen a subir
+   * @param bucket Nombre del bucket (default: 'unit-images')
+   * @returns URL pública del archivo subido
+   */
+  async uploadImage(file: File, bucket: string = 'unit-images'): Promise<string> {
+    const path = `events/${Date.now()}-${file.name}`;
+    return this.uploadFile(bucket, file, path);
+  },
+
+  /**
    * Elimina un archivo de Supabase Storage
    * @param bucket Nombre del bucket
    * @param path Ruta del archivo a eliminar

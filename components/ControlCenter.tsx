@@ -63,6 +63,11 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   const canEdit = checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit');
   const canViewControlCenter = checkPermission(currentUserRole, 'CONTROL_CENTER', 'view');
   const isOperationsUser = currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN';
+  const isClient = currentUserRole === 'CLIENT';
+  
+  // Tooltip state for event details
+  const [hoveredEvent, setHoveredEvent] = useState<GlobalEvent | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
 
   // --- Data Aggregation ---
   const allEvents = useMemo(() => {
@@ -453,30 +458,45 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
          </div>
 
          <div className="grid grid-cols-7 auto-rows-fr">
-            {blanks.map((_, i) => <div key={`blank-${i}`} className="h-16 md:h-24 bg-slate-50/50 border-b border-r border-slate-100"></div>)}
+            {blanks.map((_, i) => <div key={`blank-${i}`} className={`${isClient ? 'h-24 md:h-32' : 'h-16 md:h-24'} bg-slate-50/50 border-b border-r border-slate-100`}></div>)}
             {daySlots.map(day => {
                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                const dayEvents = monthEvents.filter(ev => ev.date === dateStr);
                const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
                
                return (
-                  <div key={day} className={`min-h-[4rem] md:min-h-[6rem] border-b border-r border-slate-100 p-0.5 md:p-1 relative group hover:bg-slate-50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
+                  <div key={day} className={`${isClient ? 'min-h-[6rem] md:min-h-[8rem]' : 'min-h-[4rem] md:min-h-[6rem]'} border-b border-r border-slate-100 p-0.5 md:p-1 relative group hover:bg-slate-50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
                      <span className={`text-[10px] md:text-xs font-medium ml-0.5 md:ml-1 ${isToday ? 'bg-blue-600 text-white px-1 md:px-1.5 rounded-full' : 'text-slate-700'}`}>{day}</span>
-                     <div className="mt-0.5 md:mt-1 space-y-0.5 md:space-y-1 overflow-y-auto max-h-12 md:max-h-20 custom-scrollbar">
+                     <div className={`mt-0.5 md:mt-1 space-y-0.5 md:space-y-1 overflow-y-auto ${isClient ? 'max-h-20 md:max-h-28' : 'max-h-12 md:max-h-20'} custom-scrollbar`}>
                         {dayEvents.map(ev => (
                            <div 
                               key={ev.id} 
                               onClick={() => canEdit && handleEditClick(ev)}
-                              className={`text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5 rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} truncate shadow-sm hover:opacity-80 transition-opacity
+                              onMouseEnter={(e) => {
+                                if (isClient) {
+                                  setHoveredEvent(ev);
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setTooltipPosition({ x: rect.left + rect.width / 2, y: rect.top });
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                if (isClient) {
+                                  setHoveredEvent(null);
+                                }
+                              }}
+                              className={`${isClient ? 'text-[10px] md:text-xs px-1 md:px-1.5 py-1 md:py-1.5' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${isClient ? '' : 'truncate'} shadow-sm hover:opacity-80 transition-opacity
                                 ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-100 text-red-700 border-red-200' : 
                                   ev.category === 'Log' ? 'bg-gray-100 text-gray-700 border-gray-200' :
                                   ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-700 border-orange-200' :
                                   'bg-blue-100 text-blue-700 border-blue-200'
                                 }`}
-                              title={`${ev.unitName}: ${ev.description}`}
+                              title={!isClient ? `${ev.unitName}: ${ev.description}` : undefined}
                            >
-                              {ev.type === 'Incidencia' && <AlertTriangle size={6} className="inline mr-0.5 md:w-2 md:h-2"/>}
-                              <span className="truncate block">{ev.description}</span>
+                              {ev.type === 'Incidencia' && <AlertTriangle size={isClient ? 10 : 6} className={`inline mr-0.5 ${isClient ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
+                              <span className={`${isClient ? 'block line-clamp-2' : 'truncate block'}`}>{ev.description}</span>
+                              {isClient && ev.unitName && (
+                                <span className="text-[9px] md:text-[10px] font-semibold text-slate-600 block mt-0.5 truncate">{ev.unitName}</span>
+                              )}
                            </div>
                         ))}
                      </div>
@@ -488,11 +508,58 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     );
   };
 
+  // Tooltip component for event details
+  const EventTooltip = () => {
+    if (!hoveredEvent || !isClient) return null;
+    
+    return (
+      <div 
+        className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 md:p-4 max-w-xs pointer-events-none"
+        style={{
+          left: `${tooltipPosition.x}px`,
+          top: `${tooltipPosition.y - 10}px`,
+          transform: 'translate(-50%, -100%)'
+        }}
+      >
+        <div className="space-y-2">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+            <h4 className="font-bold text-sm text-slate-800">{hoveredEvent.unitName}</h4>
+            <span className={`px-2 py-0.5 rounded text-xs font-medium
+              ${hoveredEvent.category === 'Log' ? 'bg-gray-100 text-gray-800' : 
+                hoveredEvent.category === 'Maintenance' ? 'bg-orange-100 text-orange-800' : 
+                hoveredEvent.category === 'ContractAlert' ? 'bg-red-100 text-red-800' :
+                'bg-blue-100 text-blue-800'}`}>
+              {hoveredEvent.type}
+            </span>
+          </div>
+          <p className="text-xs text-slate-600 line-clamp-4">{hoveredEvent.description}</p>
+          {hoveredEvent.resourceName && (
+            <p className="text-xs font-semibold text-slate-700">Recurso: {hoveredEvent.resourceName}</p>
+          )}
+          {hoveredEvent.status && (
+            <p className="text-xs text-slate-500">Estado: {hoveredEvent.status}</p>
+          )}
+          {hoveredEvent.originalRef?.images?.length > 0 && (
+            <p className="text-xs text-slate-500 flex items-center">
+              <ImageIcon size={12} className="mr-1" /> {hoveredEvent.originalRef.images.length} imagen(es)
+            </p>
+          )}
+          {hoveredEvent.originalRef?.responsibleIds?.length > 0 && (
+            <p className="text-xs text-slate-500 flex items-center">
+              <UserCheck size={12} className="mr-1" /> {hoveredEvent.originalRef.responsibleIds.length} responsable(s)
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Helper to determine if we show full edit features
   const isTrackableRecord = editingEvent?.category === 'Log' || (editingEvent?.category === 'Maintenance' && !editingEvent.id.startsWith('future'));
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 space-y-3 md:space-y-4 animate-in fade-in duration-500 h-full flex flex-col">
+    <div className="p-4 md:p-6 lg:p-8 space-y-3 md:space-y-4 animate-in fade-in duration-500 h-full flex flex-col relative">
+      <EventTooltip />
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 md:gap-4 shrink-0">
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-slate-800">Centro de Control Operativo</h1>
@@ -538,13 +605,13 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
        {/* Split View Content */}
        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 md:gap-6 overflow-hidden">
           {/* Left: Calendar */}
-          <div className="lg:w-5/12 h-full overflow-y-auto custom-scrollbar pr-1">
+          <div className={`${isClient ? 'lg:w-7/12' : 'lg:w-5/12'} h-full overflow-y-auto custom-scrollbar pr-1`}>
              <h3 className="text-xs md:text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><CalendarIcon size={14} className="mr-2 md:w-4 md:h-4"/> Vista Mensual</h3>
              {renderCalendar()}
           </div>
 
           {/* Right: List */}
-          <div className="lg:w-7/12 h-full overflow-hidden flex flex-col">
+          <div className={`${isClient ? 'lg:w-5/12' : 'lg:w-7/12'} h-full overflow-hidden flex flex-col`}>
              <h3 className="text-xs md:text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><List size={14} className="mr-2 md:w-4 md:h-4"/> Detalle de Eventos ({filteredEvents.length})</h3>
              
              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">

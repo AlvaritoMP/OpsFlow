@@ -58,30 +58,48 @@ export const logsService = {
 
       if (error) throw error;
 
-      // Insertar imágenes si existen
+      // Hacer operaciones en paralelo para mejorar rendimiento
+      const promises: Promise<any>[] = [];
+
+      // Insertar imágenes si existen (en paralelo)
       if (log.images && log.images.length > 0) {
-        await supabase.from('log_images').insert(
-          log.images.map(url => ({
-            operational_log_id: data.id,
-            image_url: url,
-          }))
+        promises.push(
+          supabase.from('log_images').insert(
+            log.images.map(url => ({
+              operational_log_id: data.id,
+              image_url: url,
+            }))
+          )
         );
       }
 
-      // Insertar responsables si existen
+      // Insertar responsables si existen (en paralelo)
       if (log.responsibleIds && log.responsibleIds.length > 0) {
-        // Determinar si son recursos o management_staff
-        // Por ahora asumimos que son IDs de recursos o management_staff
-        // Necesitarías lógica adicional para distinguirlos
-        await supabase.from('log_responsible').insert(
-          log.responsibleIds.map(id => ({
-            operational_log_id: data.id,
-            resource_id: id, // Ajustar según tu lógica
-          }))
+        promises.push(
+          supabase.from('log_responsible').insert(
+            log.responsibleIds.map(id => ({
+              operational_log_id: data.id,
+              resource_id: id, // Ajustar según tu lógica
+            }))
+          )
         );
       }
 
-      return await this.getById(data.id) || log as OperationalLog;
+      // Ejecutar todas las operaciones en paralelo
+      if (promises.length > 0) {
+        await Promise.all(promises);
+      }
+
+      // Construir el log directamente en lugar de hacer otra consulta
+      return {
+        id: data.id,
+        date: data.date,
+        type: data.type as any,
+        description: data.description,
+        author: data.author,
+        images: log.images || [],
+        responsibleIds: log.responsibleIds || [],
+      } as OperationalLog;
     } catch (error) {
       handleSupabaseError(error);
       throw error;
