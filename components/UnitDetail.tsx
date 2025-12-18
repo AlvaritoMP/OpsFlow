@@ -236,6 +236,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       startGridY: number;
       startLayout: { x: number, y: number, w: number, h: number };
   }>({ type: 'idle', zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:1,y:1,w:1,h:1} });
+  
+  // Ref para mantener el estado de interacción actualizado en los closures
+  const interactionStateRef = useRef(interactionState);
+  useEffect(() => {
+    interactionStateRef.current = interactionState;
+  }, [interactionState]);
 
 
   // --- PERMISSIONS CHECKS ---
@@ -948,91 +954,124 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const startGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
       const startGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
 
-      setInteractionState({
+      const startLayout = { ...(zone.layout || {x:1,y:1,w:2,h:2,color:'#ccc', layerId: activeLayerId || undefined}) };
+      
+      const newInteractionState = {
           type,
           zoneId: zone.id,
           startGridX,
           startGridY,
-          startLayout: { ...(zone.layout || {x:1,y:1,w:2,h:2,color:'#ccc', layerId: activeLayerId || undefined}) }
-      });
+          startLayout
+      };
+      
+      setInteractionState(newInteractionState);
+      interactionStateRef.current = newInteractionState;
       setSelectedZoneId(zone.id);
-  };
-
-  const handleGridMouseMove = (e: React.MouseEvent) => {
-      if (interactionState.type === 'idle' || !gridRef.current || !interactionState.zoneId) return;
-
-      const gridRect = gridRef.current.getBoundingClientRect();
-      const cellWidth = gridRect.width / 12;
-      const cellHeight = gridRect.height / gridRows; // DYNAMIC
       
-      const currentGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
-      const currentGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
+      // Agregar event listeners globales para capturar el movimiento del mouse incluso fuera del elemento
+      const handleGlobalMouseMove = (e: MouseEvent) => {
+        const currentState = interactionStateRef.current;
+        if (currentState.type === 'idle' || !gridRef.current || !currentState.zoneId) return;
+        
+        const gridRect = gridRef.current.getBoundingClientRect();
+        const cellWidth = gridRect.width / 12;
+        const cellHeight = gridRect.height / gridRows;
+        
+        const currentGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
+        const currentGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
 
-      const deltaX = currentGridX - interactionState.startGridX;
-      const deltaY = currentGridY - interactionState.startGridY;
+        const deltaX = currentGridX - currentState.startGridX;
+        const deltaY = currentGridY - currentState.startGridY;
 
-      // Usar editForm.zones si está disponible, sino unit.zones
-      const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
-      const zonesCopy = [...zonesToUse];
-      const zoneIndex = zonesCopy.findIndex(z => z.id === interactionState.zoneId);
-      if (zoneIndex === -1) return;
+        // Usar editForm.zones si está disponible, sino unit.zones
+        setEditForm(prev => {
+          const zonesToUse = prev.zones && prev.zones.length > 0 ? prev.zones : unit.zones;
+          const zonesCopy = [...zonesToUse];
+          const zoneIndex = zonesCopy.findIndex(z => z.id === currentState.zoneId);
+          if (zoneIndex === -1) return prev;
 
-      const zone = { ...zonesCopy[zoneIndex] };
-      const baseLayout = interactionState.startLayout;
+          const zone = { ...zonesCopy[zoneIndex] };
+          const baseLayout = currentState.startLayout;
 
-      if (interactionState.type === 'drag') {
-          // Update X/Y
-          let newX = baseLayout.x + deltaX;
-          let newY = baseLayout.y + deltaY;
-          
-          // Boundaries (12 columns, gridRows rows)
-          newX = Math.max(1, Math.min(newX, 13 - baseLayout.w));
-          newY = Math.max(1, Math.min(newY, (gridRows + 1) - baseLayout.h)); // Use dynamic gridRows
+          if (currentState.type === 'drag') {
+              // Update X/Y
+              let newX = baseLayout.x + deltaX;
+              let newY = baseLayout.y + deltaY;
+              
+              // Boundaries (12 columns, gridRows rows)
+              newX = Math.max(1, Math.min(newX, 13 - baseLayout.w));
+              newY = Math.max(1, Math.min(newY, (gridRows + 1) - baseLayout.h));
 
-          zone.layout = { ...baseLayout, x: newX, y: newY };
+              zone.layout = { ...baseLayout, x: newX, y: newY };
 
-      } else if (interactionState.type === 'resize') {
-          // Update W/H
-          let newW = baseLayout.w + deltaX;
-          let newH = baseLayout.h + deltaY;
+          } else if (currentState.type === 'resize') {
+              // Update W/H
+              let newW = baseLayout.w + deltaX;
+              let newH = baseLayout.h + deltaY;
 
-          // Min Size & Boundaries
-          newW = Math.max(1, Math.min(newW, 13 - baseLayout.x));
-          newH = Math.max(1, Math.min(newH, (gridRows + 1) - baseLayout.y));
+              // Min Size & Boundaries
+              newW = Math.max(1, Math.min(newW, 13 - baseLayout.x));
+              newH = Math.max(1, Math.min(newH, (gridRows + 1) - baseLayout.y));
 
-          zone.layout = { ...baseLayout, w: newW, h: newH };
-      }
-
-      // Actualizar editForm en lugar de llamar a onUpdate directamente (evita recargas)
-      zonesCopy[zoneIndex] = zone;
-      setEditForm({
-        ...editForm,
-        zones: zonesCopy
-      });
-      
-      // También actualizar el objeto unit localmente para reflejar cambios inmediatos
-      const updatedUnit = { ...unit, zones: zonesCopy };
-      // No llamamos a onUpdate aquí para evitar recargas durante el arrastre
-  };
-
-  const handleGridMouseUp = async () => {
-      // Cuando se suelta el mouse, guardar el layout de la zona en la BD
-      if (interactionState.type !== 'idle' && interactionState.zoneId) {
-        const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
-        const updatedZone = zonesToUse.find(z => z.id === interactionState.zoneId);
-        if (updatedZone && updatedZone.layout) {
-          try {
-            const { zonesService } = await import('../services/zonesService');
-            await zonesService.update(interactionState.zoneId, updatedZone);
-            // Notificación silenciosa (opcional)
-            // setNotification({ type: 'success', message: 'Posición de zona guardada' });
-            // setTimeout(() => setNotification(null), 1500);
-          } catch (error) {
-            console.error('Error al guardar posición de zona:', error);
+              zone.layout = { ...baseLayout, w: newW, h: newH };
           }
+
+          zonesCopy[zoneIndex] = zone;
+          return {
+            ...prev,
+            zones: zonesCopy
+          };
+        });
+      };
+
+      const handleGlobalMouseUp = async () => {
+        const currentState = interactionStateRef.current;
+        
+        // Remover listeners globales
+        document.removeEventListener('mousemove', handleGlobalMouseMove);
+        document.removeEventListener('mouseup', handleGlobalMouseUp);
+        
+        // Guardar cambios en BD
+        if (currentState.type !== 'idle' && currentState.zoneId) {
+          setEditForm(prev => {
+            const zonesToUse = prev.zones && prev.zones.length > 0 ? prev.zones : unit.zones;
+            const updatedZone = zonesToUse.find(z => z.id === currentState.zoneId);
+            if (updatedZone && updatedZone.layout) {
+              // Guardar de forma asíncrona sin bloquear
+              (async () => {
+                try {
+                  const { zonesService } = await import('../services/zonesService');
+                  await zonesService.update(currentState.zoneId!, updatedZone);
+                } catch (error) {
+                  console.error('Error al guardar posición de zona:', error);
+                }
+              })();
+            }
+            return prev;
+          });
         }
-      }
-      setInteractionState({ type: 'idle', zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:0,y:0,w:0,h:0} });
+        
+        // Resetear estado
+        const resetState = { type: 'idle' as const, zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:0,y:0,w:0,h:0} };
+        setInteractionState(resetState);
+        interactionStateRef.current = resetState;
+      };
+
+      // Agregar listeners globales
+      document.addEventListener('mousemove', handleGlobalMouseMove);
+      document.addEventListener('mouseup', handleGlobalMouseUp);
+  };
+
+  // Esta función ya no se usa directamente, pero la mantenemos por compatibilidad
+  const handleGridMouseMove = (e: React.MouseEvent) => {
+      // El movimiento del mouse ahora se maneja con eventos globales en handleGridMouseDown
+      // Esta función se mantiene para evitar errores, pero no hace nada
+  };
+
+  // Esta función ya no se usa directamente, pero la mantenemos por compatibilidad
+  const handleGridMouseUp = () => {
+      // El mouse up ahora se maneja con eventos globales en handleGridMouseDown
+      // Esta función se mantiene para evitar errores, pero no hace nada
   };
 
   const updateSelectedZoneDetails = async (key: string, value: any) => {
