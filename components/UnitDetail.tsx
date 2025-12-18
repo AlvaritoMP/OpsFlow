@@ -1966,12 +1966,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return { id, type: 'resource' as const };
       });
       
+      // Obtener nombre del usuario actual
+      let authorName = 'Admin';
+      try {
+        const { authService } = await import('../services/authService');
+        const currentUserData = await authService.getCurrentUser();
+        if (currentUserData?.name) {
+          authorName = currentUserData.name;
+        } else if (userRole === 'OPERATIONS') {
+          authorName = 'Operaciones';
+        }
+      } catch (e) {
+        // Si falla, usar el rol como fallback
+        authorName = userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin';
+      }
+      
+      // Asegurar que la fecha se guarde correctamente (sin problemas de timezone)
+      // La fecha viene en formato YYYY-MM-DD, mantenerla así
+      const eventDate = newEventForm.date;
+      
       // Crear el log directamente en la base de datos (ahora con URLs permanentes)
       const savedLog = await logsService.create({
-        date: newEventForm.date,
+        date: eventDate,
         type: newEventForm.type as any,
         description: newEventForm.description,
-        author: userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin',
+        author: authorName,
         images: processedImages,
         responsibleIds: newEventResponsibles,
         responsibleData: responsibleData // Pasar información adicional sobre el tipo
@@ -2029,6 +2048,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Importar logsService dinámicamente
       const { logsService } = await import('../services/logsService');
       
+      // Obtener nombre del usuario actual para el autor
+      let authorName = editingLog.author; // Mantener el autor original si no se cambia
+      try {
+        const { authService } = await import('../services/authService');
+        const currentUserData = await authService.getCurrentUser();
+        if (currentUserData?.name) {
+          authorName = currentUserData.name;
+        }
+      } catch (e) {
+        // Si falla, mantener el autor existente
+      }
+      
       // Preparar responsables con información de tipo (igual que en handleCreateEvent)
       const staffIds = new Set(availableStaff.map(s => s.id));
       const personnelIds = new Set(personnel.map(p => p.id));
@@ -2042,9 +2073,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return { id, type: 'resource' as const };
       });
       
+      // Asegurar que la fecha se guarde correctamente (sin problemas de timezone)
+      // La fecha viene en formato YYYY-MM-DD, mantenerla así
+      const eventDate = editingLog.date;
+      
       // Actualizar el log directamente en la base de datos
       const savedLog = await logsService.update(editingLog.id, {
         ...editingLog,
+        date: eventDate,
+        author: authorName,
         responsibleData: responsibleData
       });
       
@@ -3774,13 +3811,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="divide-y divide-slate-100">
-              {[...unit.logs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
+              {[...unit.logs].sort((a,b) => {
+                // Parsear fechas manualmente para evitar problemas de timezone
+                const parseDate = (dateStr: string) => {
+                  const [year, month, day] = dateStr.split('-').map(Number);
+                  return new Date(year, month - 1, day).getTime();
+                };
+                return parseDate(b.date) - parseDate(a.date);
+              }).map(log => {
+                // Parsear fecha manualmente para evitar problemas de timezone
+                const parseDate = (dateStr: string) => {
+                  const [year, month, day] = dateStr.split('-').map(Number);
+                  return new Date(year, month - 1, day);
+                };
+                const logDate = parseDate(log.date);
+                return (
                   <div key={log.id} className="p-6 hover:bg-slate-50 transition-colors">
                       <div className="flex flex-col md:flex-row gap-4">
                           <div className="flex-shrink-0 flex flex-col items-center">
                               <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs mb-2">
-                                  {new Date(log.date).getDate()}
-                                  <span className="block text-[8px] uppercase">{new Date(log.date).toLocaleString('default', { month: 'short' })}</span>
+                                  {logDate.getDate()}
+                                  <span className="block text-[8px] uppercase">{logDate.toLocaleString('default', { month: 'short' })}</span>
                               </div>
                               <div className={`h-full w-0.5 bg-slate-200 my-2`}></div>
                           </div>
@@ -3805,18 +3856,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               <div className="flex flex-wrap gap-4 text-sm text-slate-500 mb-3">
                                   <span className="flex items-center"><UserCheck size={14} className="mr-1.5"/> Autor: {log.author}</span>
                                   {log.responsibleIds && log.responsibleIds.length > 0 && (
-                                      <span className="flex items-center"><Users size={14} className="mr-1.5"/> {log.responsibleIds.length} Involucrados</span>
+                                      <span className="flex items-center"><Users size={14} className="mr-1.5"/> {log.responsibleIds.length} Involucrado{log.responsibleIds.length > 1 ? 's' : ''}</span>
                                   )}
                               </div>
                               
-                              {/* Responsible avatars if any */}
+                              {/* Responsible avatars and names if any */}
                               {log.responsibleIds && log.responsibleIds.length > 0 && (
-                                  <div className="flex -space-x-2 mb-3">
+                                  <div className="flex flex-wrap items-center gap-2 mb-3">
                                       {log.responsibleIds.map(rid => {
                                           const name = getPersonName(rid);
                                           return (
-                                              <div key={rid} className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[10px] font-bold text-slate-600" title={name}>
-                                                  {name.charAt(0)}
+                                              <div key={rid} className="flex items-center gap-2 bg-slate-50 rounded-lg px-2 py-1 border border-slate-200">
+                                                  <div className="w-7 h-7 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[10px] font-bold text-slate-600 shrink-0">
+                                                      {name.charAt(0)}
+                                                  </div>
+                                                  <span className="text-sm text-slate-700 font-medium">{name}</span>
                                               </div>
                                           );
                                       })}
@@ -3845,7 +3899,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           </div>
                       </div>
                   </div>
-              ))}
+                );
+              })}
               {unit.logs.length === 0 && (
                   <div className="p-12 text-center text-slate-400">
                       <ClipboardList size={48} className="mx-auto mb-4 opacity-20"/>
@@ -5089,7 +5144,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      </div>
                    )}
                 </div>
-                <button onClick={handleUpdateLog} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Guardar Cambios</button>
+                <button 
+                  onClick={handleUpdateLog} 
+                  disabled={isSavingWorker}
+                  className={`w-full py-2.5 rounded-lg font-medium transition-colors mt-2 ${
+                    isSavingWorker 
+                      ? 'bg-slate-400 text-white cursor-not-allowed' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {isSavingWorker ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
              </div>
           </div>
         </div>
