@@ -4026,6 +4026,79 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const renderManagement = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+      {/* --- Documents Section --- */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center">
+              <FileText className="w-5 h-5 mr-2 text-slate-500" /> Documentos del Servicio
+            </h3>
+            <p className="text-slate-500 text-sm mt-1">Documentos relacionados al servicio disponibles para descarga</p>
+          </div>
+          {canEditGeneral && (
+            <button
+              onClick={() => {
+                closeAllModalsExcept('documents');
+                setShowDocumentsModal(true);
+              }}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm"
+            >
+              <Upload size={18} className="mr-2" /> Gestionar Documentos
+            </button>
+          )}
+        </div>
+        <div className="p-6">
+          {unit.documents && unit.documents.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {unit.documents.map((doc) => (
+                <div key={doc.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <FileText size={24} className="text-blue-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-slate-800 truncate">{doc.name}</h4>
+                        {doc.description && (
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">{doc.description}</p>
+                        )}
+                      </div>
+                    </div>
+                    {canEditGeneral && (
+                      <button
+                        onClick={() => handleDeleteDocument(doc.id)}
+                        className="text-red-500 hover:text-red-700 p-1 flex-shrink-0"
+                        title="Eliminar documento"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-3">
+                    <span>{formatFileSize(doc.fileSize)}</span>
+                    <span>{new Date(doc.uploadedAt).toLocaleDateString('es-PE')}</span>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadDocument(doc)}
+                    className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-colors"
+                  >
+                    <Download size={16} className="mr-2" /> Descargar
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-slate-400">
+              <FileText size={48} className="mx-auto mb-4 opacity-20" />
+              <p>No hay documentos disponibles</p>
+              {canEditGeneral && (
+                <p className="text-sm mt-2">Haga clic en "Gestionar Documentos" para agregar documentos</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
        <div className="flex justify-between items-center">
         <div>
           <h3 className="text-lg font-semibold text-slate-800">Supervisión y Bitácora</h3>
@@ -5701,6 +5774,128 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 console.error('Error al cargar imagen en modal:', imageModalUrl);
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Documents Management Modal */}
+      {showDocumentsModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-2xl md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+            {/* Header */}
+            <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+              <h3 className="font-bold text-base md:text-lg flex items-center min-w-0">
+                <FileText className="mr-2 shrink-0" size={18}/> 
+                <span className="truncate">Gestionar Documentos</span>
+              </h3>
+              <button onClick={() => setShowDocumentsModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+              {/* Upload Form */}
+              <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                <h4 className="font-semibold text-slate-800 mb-3 flex items-center">
+                  <Upload size={16} className="mr-2" /> Subir Nuevo Documento
+                </h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Documento *</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      value={newDocumentName}
+                      onChange={(e) => setNewDocumentName(e.target.value)}
+                      placeholder="Ej: Contrato de Servicio 2024"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Descripción (opcional)</label>
+                    <textarea
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none h-20"
+                      value={newDocumentDescription}
+                      onChange={(e) => setNewDocumentDescription(e.target.value)}
+                      placeholder="Descripción del documento..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Archivo *</label>
+                    <input
+                      type="file"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setSelectedDocumentFile(e.target.files[0]);
+                        }
+                      }}
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png"
+                    />
+                    {selectedDocumentFile && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        Archivo seleccionado: {selectedDocumentFile.name} ({formatFileSize(selectedDocumentFile.size)})
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleUploadDocument}
+                    disabled={uploadingDocument || !selectedDocumentFile || !newDocumentName.trim()}
+                    className={`w-full py-2.5 rounded-lg font-medium transition-colors ${
+                      uploadingDocument || !selectedDocumentFile || !newDocumentName.trim()
+                        ? 'bg-slate-400 text-white cursor-not-allowed'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {uploadingDocument ? 'Subiendo...' : 'Subir Documento'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Existing Documents */}
+              <div>
+                <h4 className="font-semibold text-slate-800 mb-3 flex items-center">
+                  <FileText size={16} className="mr-2" /> Documentos Existentes ({unit.documents?.length || 0})
+                </h4>
+                {unit.documents && unit.documents.length > 0 ? (
+                  <div className="space-y-2">
+                    {unit.documents.map((doc) => (
+                      <div key={doc.id} className="border border-slate-200 rounded-lg p-3 bg-white flex items-center justify-between">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <FileText size={20} className="text-blue-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-slate-800 truncate">{doc.name}</p>
+                            <p className="text-xs text-slate-500">
+                              {formatFileSize(doc.fileSize)} • {new Date(doc.uploadedAt).toLocaleDateString('es-PE')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleDownloadDocument(doc)}
+                            className="text-blue-600 hover:text-blue-700 p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Descargar"
+                          >
+                            <Download size={18} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDocument(doc.id)}
+                            className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400 text-center py-4">No hay documentos subidos aún</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
