@@ -73,6 +73,21 @@ export const unitsService = {
       const units = await Promise.all(
         data.map(async (unitData) => {
           try {
+            // Cargar assignedStaff primero
+            let assignedStaff: string[] = [];
+            try {
+              const { data: staffData } = await supabase
+                .from('unit_management_staff')
+                .select('management_staff_id')
+                .eq('unit_id', unitData.id);
+              if (staffData) {
+                assignedStaff = staffData.map((s: any) => s.management_staff_id);
+              }
+            } catch (e) {
+              // Si la tabla no existe, simplemente usar array vacío
+              console.warn('⚠️ Tabla unit_management_staff no encontrada, usando array vacío');
+            }
+
             const [resources, logs, requests, zones, documents] = await Promise.all([
               resourcesService.getByUnitId(unitData.id).catch(err => {
                 console.warn(`⚠️ Error al cargar recursos para unidad ${unitData.id}:`, err);
