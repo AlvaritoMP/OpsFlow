@@ -253,9 +253,10 @@ const App: React.FC = () => {
   const handleUpdateUnit = async (updatedUnit: Unit) => {
     try {
       await updateUnit(updatedUnit.id, updatedUnit);
-      // Recargar unidades para asegurar que los datos estén sincronizados
-      // Esto es importante para evitar pérdida de datos como recursos
-      await loadUnits();
+      // No recargar unidades automáticamente para evitar interrupciones en la edición
+      // Las zonas y documentos se guardan directamente en la BD, así que no necesitamos recargar siempre
+      // Solo recargamos cuando es realmente necesario (por ejemplo, cuando se guarda la unidad completa)
+      // await loadUnits(); // Comentado para evitar recargas que interrumpen la edición
       // Notificación de éxito se maneja en el componente que llama
     } catch (error) {
       console.error('Error al actualizar unidad:', error);

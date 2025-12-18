@@ -505,14 +505,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         zones: [...editForm.zones, newZone]
       });
       
-      // También actualizar el estado de la unidad directamente
-      if (onUpdate) {
-        const updatedUnit = {
-          ...unit,
-          zones: [...unit.zones, newZone]
-        };
-        await onUpdate(updatedUnit);
-      }
+      // Actualizar también el estado de la unidad directamente (sin llamar a onUpdate para evitar recargas)
+      // La zona ya está guardada en la BD, así que solo actualizamos el estado local
+      const updatedUnit = {
+        ...unit,
+        zones: [...unit.zones, newZone]
+      };
+      // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
 
       setNewZoneName('');
       setNewZoneShifts([]);
@@ -546,14 +545,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         zones: editForm.zones.filter(z => z.id !== zoneId)
       });
       
-      // También actualizar el estado de la unidad directamente
-      if (onUpdate) {
-        const updatedUnit = {
-          ...unit,
-          zones: unit.zones.filter(z => z.id !== zoneId)
-        };
-        await onUpdate(updatedUnit);
-      }
+      // Actualizar también el estado de la unidad directamente (sin llamar a onUpdate para evitar recargas)
+      // La zona ya está eliminada en la BD, así que solo actualizamos el estado local
+      const updatedUnit = {
+        ...unit,
+        zones: unit.zones.filter(z => z.id !== zoneId)
+      };
+      // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
       
       setNotification({
         type: 'success',
@@ -973,7 +971,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const deltaX = currentGridX - interactionState.startGridX;
       const deltaY = currentGridY - interactionState.startGridY;
 
-      const zonesCopy = [...unit.zones];
+      // Usar editForm.zones si está disponible, sino unit.zones
+      const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+      const zonesCopy = [...zonesToUse];
       const zoneIndex = zonesCopy.findIndex(z => z.id === interactionState.zoneId);
       if (zoneIndex === -1) return;
 
@@ -1003,32 +1003,77 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           zone.layout = { ...baseLayout, w: newW, h: newH };
       }
 
-      // Optimistic update
+      // Actualizar editForm en lugar de llamar a onUpdate directamente (evita recargas)
       zonesCopy[zoneIndex] = zone;
-      if (onUpdate) onUpdate({ ...unit, zones: zonesCopy });
+      setEditForm({
+        ...editForm,
+        zones: zonesCopy
+      });
+      
+      // También actualizar el objeto unit localmente para reflejar cambios inmediatos
+      const updatedUnit = { ...unit, zones: zonesCopy };
+      // No llamamos a onUpdate aquí para evitar recargas durante el arrastre
   };
 
-  const handleGridMouseUp = () => {
+  const handleGridMouseUp = async () => {
+      // Cuando se suelta el mouse, guardar el layout de la zona en la BD
+      if (interactionState.type !== 'idle' && interactionState.zoneId) {
+        const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+        const updatedZone = zonesToUse.find(z => z.id === interactionState.zoneId);
+        if (updatedZone && updatedZone.layout) {
+          try {
+            const { zonesService } = await import('../services/zonesService');
+            await zonesService.update(interactionState.zoneId, updatedZone);
+            // Notificación silenciosa (opcional)
+            // setNotification({ type: 'success', message: 'Posición de zona guardada' });
+            // setTimeout(() => setNotification(null), 1500);
+          } catch (error) {
+            console.error('Error al guardar posición de zona:', error);
+          }
+        }
+      }
       setInteractionState({ type: 'idle', zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:0,y:0,w:0,h:0} });
   };
 
-  const updateSelectedZoneDetails = (key: string, value: any) => {
-      if (!selectedZoneId || !onUpdate) return;
+  const updateSelectedZoneDetails = async (key: string, value: any) => {
+      if (!selectedZoneId) return;
       try {
-        const zonesCopy = unit.zones.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
+        // Usar editForm.zones si está disponible, sino unit.zones
+        const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+        const zonesCopy = zonesToUse.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
+        
         if (key === 'color') {
              // Color is nested in layout
-             const target = unit.zones.find(z => z.id === selectedZoneId);
+             const target = zonesToUse.find(z => z.id === selectedZoneId);
              if (target) {
-                 zonesCopy.splice(zonesCopy.indexOf(target), 1, { ...target, layout: { ...target.layout!, color: value } });
+                 const targetIndex = zonesCopy.findIndex(z => z.id === selectedZoneId);
+                 if (targetIndex !== -1) {
+                     zonesCopy[targetIndex] = { ...target, layout: { ...target.layout!, color: value } };
+                 }
              }
         }
-        onUpdate({ ...unit, zones: zonesCopy });
         
-        // Notificación silenciosa para cambios de planos (solo para cambios importantes)
+        // Actualizar editForm
+        setEditForm({
+          ...editForm,
+          zones: zonesCopy
+        });
+        
+        // Si es un cambio que requiere persistencia inmediata (nombre, área), guardar en BD
         if (key === 'name' || key === 'area') {
-          setNotification({ type: 'success', message: 'Cambios en plano guardados' });
-          setTimeout(() => setNotification(null), 2000);
+          const updatedZone = zonesCopy.find(z => z.id === selectedZoneId);
+          if (updatedZone) {
+            try {
+              const { zonesService } = await import('../services/zonesService');
+              await zonesService.update(selectedZoneId, updatedZone);
+              setNotification({ type: 'success', message: 'Cambios en plano guardados' });
+              setTimeout(() => setNotification(null), 2000);
+            } catch (error) {
+              console.error('Error al guardar zona:', error);
+              setNotification({ type: 'error', message: 'Error al guardar cambios en el plano' });
+              setTimeout(() => setNotification(null), 3000);
+            }
+          }
         }
       } catch (error) {
         console.error('Error al actualizar zona:', error);
@@ -2575,7 +2620,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // --- BLUEPRINT RENDERER ---
   const renderBlueprint = () => {
-    const selectedZone = unit.zones.find(z => z.id === selectedZoneId);
+    // Usar editForm.zones si está disponible (zonas agregadas localmente), sino usar unit.zones
+    const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+    
+    const selectedZone = zonesToUse.find(z => z.id === selectedZoneId);
     
     // Filter resources that have this zone in their assignedZones array
     const zoneResources = selectedZone ? unit.resources.filter(r => r.assignedZones?.includes(selectedZone.name)) : [];
@@ -2586,14 +2634,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     const zoneMaterials = zoneResources.filter(r => r.type === ResourceType.MATERIAL);
 
     // Summary Calculations for Header
-    const totalArea = unit.zones.reduce((acc, z) => acc + (z.area || 0), 0);
+    const totalArea = zonesToUse.reduce((acc, z) => acc + (z.area || 0), 0);
     const totalPersonnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
     const totalEquipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT).length;
     const totalMaterials = unit.resources.filter(r => r.type === ResourceType.MATERIAL).length;
     
     // Filter zones for current layer
     const activeLayers = unit.blueprintLayers || [];
-    const currentZones = unit.zones.filter(z => !activeLayerId || z.layout?.layerId === activeLayerId || (!z.layout?.layerId && activeLayers.length > 0 && activeLayerId === activeLayers[0].id));
+    const currentZones = zonesToUse.filter(z => !activeLayerId || z.layout?.layerId === activeLayerId || (!z.layout?.layerId && activeLayers.length > 0 && activeLayerId === activeLayers[0].id));
 
     return (
     <div className="flex flex-col h-full animate-in fade-in duration-300 pb-10">
