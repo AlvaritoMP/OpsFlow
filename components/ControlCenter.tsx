@@ -68,6 +68,9 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   // Tooltip state for event details
   const [hoveredEvent, setHoveredEvent] = useState<GlobalEvent | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  
+  // State for day events modal
+  const [selectedDayEvents, setSelectedDayEvents] = useState<{ date: string; events: GlobalEvent[] } | null>(null);
 
   // --- Data Aggregation ---
   const allEvents = useMemo(() => {
@@ -468,7 +471,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                   <div key={day} className={`${isClient ? 'min-h-[6rem] md:min-h-[8rem]' : 'min-h-[4rem] md:min-h-[6rem]'} border-b border-r border-slate-100 p-0.5 md:p-1 relative group hover:bg-slate-50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
                      <span className={`text-[10px] md:text-xs font-medium ml-0.5 md:ml-1 ${isToday ? 'bg-blue-600 text-white px-1 md:px-1.5 rounded-full' : 'text-slate-700'}`}>{day}</span>
                      <div className={`mt-0.5 md:mt-1 space-y-0.5 md:space-y-1 overflow-y-auto ${isClient ? 'max-h-20 md:max-h-28' : 'max-h-12 md:max-h-20'} custom-scrollbar`}>
-                        {dayEvents.map(ev => (
+                        {dayEvents.slice(0, isClient ? 2 : 3).map(ev => (
                            <div 
                               key={ev.id} 
                               onClick={() => canEdit && handleEditClick(ev)}
@@ -493,12 +496,23 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                               title={!isClient ? `${ev.unitName}: ${ev.description}` : undefined}
                            >
                               {ev.type === 'Incidencia' && <AlertTriangle size={isClient ? 10 : 6} className={`inline mr-0.5 ${isClient ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
-                              <span className={`${isClient ? 'block line-clamp-2' : 'truncate block'}`}>{ev.description}</span>
-                              {isClient && ev.unitName && (
-                                <span className="text-[9px] md:text-[10px] font-semibold text-slate-600 block mt-0.5 truncate">{ev.unitName}</span>
+                              {isClient && (
+                                <div className="flex items-start gap-1">
+                                  <span className="text-[9px] md:text-[10px] font-bold text-slate-800 block truncate flex-shrink-0 min-w-[60px]">{ev.unitName}</span>
+                                  <span className="text-[9px] md:text-[10px] text-slate-600 block line-clamp-2 flex-1">{ev.type}</span>
+                                </div>
                               )}
+                              <span className={`${isClient ? 'block line-clamp-2 text-[9px] md:text-[10px] mt-0.5' : 'truncate block'}`}>{ev.description}</span>
                            </div>
                         ))}
+                        {dayEvents.length > (isClient ? 2 : 3) && (
+                          <button
+                            onClick={() => setSelectedDayEvents({ date: dateStr, events: dayEvents })}
+                            className={`${isClient ? 'text-[9px] md:text-[10px] px-1 md:px-1.5 py-0.5 md:py-1' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} w-full rounded border border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors font-medium shadow-sm`}
+                          >
+                            +{dayEvents.length - (isClient ? 2 : 3)} más
+                          </button>
+                        )}
                      </div>
                   </div>
                );
@@ -560,6 +574,85 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-3 md:space-y-4 animate-in fade-in duration-500 h-full flex flex-col relative">
       <EventTooltip />
+      
+      {/* Modal para ver todos los eventos de un día */}
+      {selectedDayEvents && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 md:p-4" onClick={() => setSelectedDayEvents(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 border-b border-slate-700 rounded-t-xl flex justify-between items-center shrink-0">
+              <div className="flex items-center min-w-0 flex-1">
+                <CalendarIcon className="mr-2 shrink-0" size={16} />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-base md:text-lg truncate">Eventos del {new Date(selectedDayEvents.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h3>
+                  <p className="text-[10px] md:text-xs text-slate-300">{selectedDayEvents.events.length} evento(s)</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedDayEvents(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={18} className="md:w-5 md:h-5" /></button>
+            </div>
+            
+            <div className="p-4 md:p-6 overflow-y-auto flex-1">
+              <div className="space-y-3">
+                {selectedDayEvents.events.map(ev => (
+                  <div
+                    key={ev.id}
+                    onClick={() => {
+                      if (canEdit) {
+                        setSelectedDayEvents(null);
+                        handleEditClick(ev);
+                      }
+                    }}
+                    className={`p-3 md:p-4 rounded-lg border-2 ${canEdit ? 'cursor-pointer hover:shadow-md' : 'cursor-default'} transition-all
+                      ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-50 border-red-200' : 
+                        ev.category === 'Log' ? 'bg-gray-50 border-gray-200' :
+                        ev.category === 'Maintenance' ? 'bg-orange-50 border-orange-200' :
+                        ev.category === 'ContractAlert' ? 'bg-red-50 border-red-300' :
+                        'bg-blue-50 border-blue-200'
+                      }`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-sm md:text-base text-slate-800 mb-1">{ev.unitName}</h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-1 rounded text-xs font-medium
+                            ${ev.category === 'Log' ? 'bg-gray-100 text-gray-800' : 
+                              ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-800' : 
+                              ev.category === 'ContractAlert' ? 'bg-red-100 text-red-800' :
+                              'bg-blue-100 text-blue-800'}`}>
+                            {ev.type}
+                          </span>
+                          {ev.status && (
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(ev.status)}`}>
+                              {ev.status}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {ev.type === 'Incidencia' && <AlertTriangle size={20} className="text-red-600 shrink-0" />}
+                    </div>
+                    <p className="text-xs md:text-sm text-slate-600 mb-2 line-clamp-3">{ev.description}</p>
+                    {ev.resourceName && (
+                      <p className="text-xs font-semibold text-slate-700 mb-1">Recurso: {ev.resourceName}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {ev.originalRef?.images?.length > 0 && (
+                        <span className="px-2 py-1 inline-flex text-xs font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200 flex items-center">
+                          <ImageIcon size={12} className="mr-1" /> {ev.originalRef.images.length} imagen(es)
+                        </span>
+                      )}
+                      {ev.originalRef?.responsibleIds?.length > 0 && (
+                        <span className="px-2 py-1 inline-flex text-xs font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200 flex items-center">
+                          <UserCheck size={12} className="mr-1" /> {ev.originalRef.responsibleIds.length} responsable(s)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 md:gap-4 shrink-0">
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-slate-800">Centro de Control Operativo</h1>
