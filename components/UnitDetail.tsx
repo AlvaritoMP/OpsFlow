@@ -70,8 +70,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   }, []);
 
   // Mantener el tab activo incluso cuando la unidad se actualiza
-  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
-  const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
+  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
+  const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
   const previousUnitIdRef = useRef<string>(unit.id);
 
   // Estados para modal de supervisión nocturna
@@ -4024,9 +4024,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     </div>
   );
 
-  const renderManagement = () => (
+  const renderDocuments = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
-      {/* --- Documents Section --- */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-200 flex justify-between items-center">
           <div>
@@ -4098,7 +4097,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           )}
         </div>
       </div>
+    </div>
+  );
 
+  const renderManagement = () => (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
        <div className="flex justify-between items-center">
         <div>
           <h3 className="text-lg font-semibold text-slate-800">Supervisión y Bitácora</h3>
@@ -4250,6 +4253,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {checkPermission(userRole, 'CLIENT_REQUESTS', 'view') && (
               <button onClick={() => setActiveTab('requests')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'requests' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Requerimientos</button>
           )}
+          {canViewPersonnel && (
+              <button onClick={() => setActiveTab('documents')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'documents' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Documentos</button>
+          )}
           <button 
             onClick={openNightSupervisionModal}
             className="px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap text-blue-600 hover:text-blue-800 hover:bg-blue-50 flex items-center gap-2 shrink-0"
@@ -4268,6 +4274,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'management' && renderManagement()}
         {activeTab === 'blueprint' && renderBlueprint()}
         {activeTab === 'requests' && renderClientRequests()}
+        {activeTab === 'documents' && renderDocuments()}
       </div>
       
       {/* --- MODALS SECTION --- */}
