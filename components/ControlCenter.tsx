@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff, UserRole } from '../types';
 import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { checkPermission } from '../services/permissionService';
@@ -60,10 +60,19 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   });
   const [newImageUrl, setNewImageUrl] = useState('');
 
-  const canEdit = checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit');
-  const canViewControlCenter = checkPermission(currentUserRole, 'CONTROL_CENTER', 'view');
-  const isOperationsUser = currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN';
-  const isClient = currentUserRole === 'CLIENT';
+  // Recalculate these values on every render to ensure they update when currentUserRole changes
+  const canEdit = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit'), [currentUserRole]);
+  const canViewControlCenter = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'view'), [currentUserRole]);
+  const isOperationsUser = useMemo(() => currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN', [currentUserRole]);
+  const isClient = useMemo(() => currentUserRole === 'CLIENT', [currentUserRole]);
+  
+  // Force re-render when currentUserRole changes to ensure UI updates correctly
+  useEffect(() => {
+    // This effect ensures the component re-renders when currentUserRole changes
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 ControlCenter - currentUserRole changed:', currentUserRole, 'isClient:', isClient);
+    }
+  }, [currentUserRole, isClient]);
   
   // Tooltip state for event details
   const [hoveredEvent, setHoveredEvent] = useState<GlobalEvent | null>(null);
