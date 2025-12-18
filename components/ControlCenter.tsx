@@ -496,21 +496,30 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                               title={!isClient ? `${ev.unitName}: ${ev.description}` : undefined}
                            >
                               {ev.type === 'Incidencia' && <AlertTriangle size={isClient ? 10 : 6} className={`inline mr-0.5 ${isClient ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
-                              {isClient && (
-                                <div className="flex items-start gap-1">
-                                  <span className="text-[9px] md:text-[10px] font-bold text-slate-800 block truncate flex-shrink-0 min-w-[60px]">{ev.unitName}</span>
-                                  <span className="text-[9px] md:text-[10px] text-slate-600 block line-clamp-2 flex-1">{ev.type}</span>
-                                </div>
+                              {isClient ? (
+                                <>
+                                  <div className="flex items-center gap-1 mb-0.5 flex-wrap">
+                                    <span className="text-[9px] md:text-[10px] font-bold text-slate-800 truncate">{ev.unitName}</span>
+                                    <span className="text-[8px] md:text-[9px] text-slate-500 px-1 py-0.5 rounded bg-slate-100 whitespace-nowrap">{ev.type}</span>
+                                  </div>
+                                  <span className="block line-clamp-2 text-[9px] md:text-[10px] text-slate-600 mt-0.5">{ev.description}</span>
+                                </>
+                              ) : (
+                                <span className="truncate block">{ev.description}</span>
                               )}
-                              <span className={`${isClient ? 'block line-clamp-2 text-[9px] md:text-[10px] mt-0.5' : 'truncate block'}`}>{ev.description}</span>
                            </div>
                         ))}
                         {dayEvents.length > (isClient ? 2 : 3) && (
                           <button
-                            onClick={() => setSelectedDayEvents({ date: dateStr, events: dayEvents })}
-                            className={`${isClient ? 'text-[9px] md:text-[10px] px-1 md:px-1.5 py-0.5 md:py-1' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} w-full rounded border border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors font-medium shadow-sm`}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              setSelectedDayEvents({ date: dateStr, events: dayEvents });
+                            }}
+                            className={`${isClient ? 'text-[9px] md:text-[10px] px-1 md:px-1.5 py-0.5 md:py-1' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} w-full rounded border-2 border-slate-400 bg-slate-100 text-slate-800 hover:bg-slate-200 hover:border-slate-500 transition-colors font-semibold shadow-sm cursor-pointer`}
                           >
-                            +{dayEvents.length - (isClient ? 2 : 3)} más
+                            +{dayEvents.length - (isClient ? 2 : 3)} más eventos
                           </button>
                         )}
                      </div>
