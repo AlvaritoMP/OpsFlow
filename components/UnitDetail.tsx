@@ -108,6 +108,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Edit Unit General Info State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(unit);
+  
+  // Sincronizar editForm cuando unit cambia (importante para preservar recursos)
+  useEffect(() => {
+    setEditForm(unit);
+  }, [unit.id]); // Solo cuando cambia el ID de la unidad
   const [newZoneName, setNewZoneName] = useState('');
   const [newZoneShifts, setNewZoneShifts] = useState('');
 
@@ -415,7 +420,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     
     console.log('✅ Imágenes limpiadas (sin blob URLs):', cleanedImages);
     
-    const cleanedForm = { ...editForm, images: cleanedImages };
+    // IMPORTANTE: Preservar recursos, logs, requests, zones, etc. que no se están editando
+    // Solo actualizar los campos que están en editForm, pero mantener el resto de la unidad original
+    const cleanedForm = { 
+      ...unit, // Mantener todos los datos originales de la unidad
+      ...editForm, // Sobrescribir solo con los campos editados
+      images: cleanedImages, // Usar las imágenes limpiadas
+      // Asegurar que resources, logs, requests, zones, etc. se mantengan
+      resources: editForm.resources !== undefined ? editForm.resources : unit.resources,
+      logs: editForm.logs !== undefined ? editForm.logs : unit.logs,
+      requests: editForm.requests !== undefined ? editForm.requests : unit.requests,
+      zones: editForm.zones !== undefined ? editForm.zones : unit.zones,
+      documents: editForm.documents !== undefined ? editForm.documents : unit.documents,
+      assignedStaff: editForm.assignedStaff !== undefined ? editForm.assignedStaff : unit.assignedStaff,
+    };
     
     try {
       // Actualizar la unidad
@@ -423,6 +441,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         id: cleanedForm.id, 
         name: cleanedForm.name, 
         imagesCount: cleanedForm.images.length,
+        resourcesCount: cleanedForm.resources?.length || 0,
         images: cleanedForm.images 
       });
       onUpdate(cleanedForm);

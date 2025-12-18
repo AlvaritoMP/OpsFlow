@@ -253,9 +253,9 @@ const App: React.FC = () => {
   const handleUpdateUnit = async (updatedUnit: Unit) => {
     try {
       await updateUnit(updatedUnit.id, updatedUnit);
-      // No recargar inmediatamente para evitar cerrar modales
-      // Los datos se actualizarán cuando el usuario navegue o recargue manualmente
-      // await loadUnits(); // Comentado para evitar que se cierren modales
+      // Recargar unidades para asegurar que los datos estén sincronizados
+      // Esto es importante para evitar pérdida de datos como recursos
+      await loadUnits();
       // Notificación de éxito se maneja en el componente que llama
     } catch (error) {
       console.error('Error al actualizar unidad:', error);
