@@ -1927,20 +1927,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setNotification({ type: 'info', message: 'Guardando evento...' });
     
     try {
-      const newLog: OperationalLog = {
-        id: `l-${Date.now()}`,
+      // Importar logsService dinámicamente
+      const { logsService } = await import('../services/logsService');
+      
+      // Crear el log directamente en la base de datos
+      const savedLog = await logsService.create({
         date: newEventForm.date,
         type: newEventForm.type as any,
         description: newEventForm.description,
         author: userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin',
         images: newEventImages,
         responsibleIds: newEventResponsibles
-      };
+      }, unit.id);
       
-      // Actualizar estado local primero (optimistic update)
-      const updatedUnit = { ...unit, logs: [...unit.logs, newLog] };
+      // Actualizar estado local con el log guardado (que tiene el ID correcto de la BD)
+      const updatedUnit = { ...unit, logs: [...unit.logs, savedLog] };
       
-      // Esperar a que se guarde en la base de datos (si onUpdate es async)
+      // Actualizar la unidad en el estado (sin guardar logs, solo para sincronizar estado)
       if (onUpdate) {
         const result = onUpdate(updatedUnit);
         if (result instanceof Promise) {
@@ -1987,8 +1990,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setNotification({ type: 'info', message: 'Guardando cambios...' });
     
     try {
-      const updatedLogs = unit.logs.map(l => l.id === editingLog.id ? editingLog : l);
-      onUpdate({ ...unit, logs: updatedLogs });
+      // Importar logsService dinámicamente
+      const { logsService } = await import('../services/logsService');
+      
+      // Actualizar el log directamente en la base de datos
+      const savedLog = await logsService.update(editingLog.id, editingLog);
+      
+      // Actualizar estado local con el log guardado
+      const updatedLogs = unit.logs.map(l => l.id === editingLog.id ? savedLog : l);
+      
+      // Actualizar la unidad en el estado
+      const result = onUpdate({ ...unit, logs: updatedLogs });
+      if (result instanceof Promise) {
+        await result;
+      }
+      
       setEditingLog(null);
       
       setNotification({ type: 'success', message: 'Evento actualizado correctamente' });
