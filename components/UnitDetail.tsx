@@ -114,7 +114,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setEditForm(unit);
   }, [unit.id]); // Solo cuando cambia el ID de la unidad
   const [newZoneName, setNewZoneName] = useState('');
-  const [newZoneShifts, setNewZoneShifts] = useState('');
+  const [newZoneShifts, setNewZoneShifts] = useState<string[]>([]);
 
   // Personnel State
   const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>('list'); // New View Mode
@@ -471,33 +471,103 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleAddZone = () => {
+  const handleAddZone = async () => {
     if (!newZoneName) return;
-    const newZone: Zone = {
-      id: `z-${Date.now()}`,
-      name: newZoneName,
-      shifts: newZoneShifts.split(',').map(s => s.trim()).filter(s => s !== ''),
-      layout: { 
-          x: 1, y: 1, w: 2, h: 2, color: '#e2e8f0',
-          layerId: activeLayerId || undefined // Assign to current layer
-      }, 
-      area: 0
-    };
-    if (newZone.shifts.length === 0) newZone.shifts = ['Diurno']; // Default
     
-    setEditForm({
-      ...editForm,
-      zones: [...editForm.zones, newZone]
-    });
-    setNewZoneName('');
-    setNewZoneShifts('');
+    // Validar que al menos un turno esté seleccionado
+    if (newZoneShifts.length === 0) {
+      setNotification({
+        type: 'error',
+        message: 'Debes seleccionar al menos un turno para la zona'
+      });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    try {
+      // Importar zonesService dinámicamente
+      const { zonesService } = await import('../services/zonesService');
+      
+      // Crear la zona en la base de datos inmediatamente
+      const newZone = await zonesService.create({
+        name: newZoneName,
+        shifts: newZoneShifts, // Ya es un array de ShiftType
+        layout: { 
+          x: 1, y: 1, w: 2, h: 2, color: '#e2e8f0',
+          layerId: activeLayerId || undefined
+        }, 
+        area: 0
+      }, unit.id);
+
+      // Actualizar el estado local con la zona creada (que tiene el ID real de la BD)
+      setEditForm({
+        ...editForm,
+        zones: [...editForm.zones, newZone]
+      });
+      
+      // También actualizar el estado de la unidad directamente
+      if (onUpdate) {
+        const updatedUnit = {
+          ...unit,
+          zones: [...unit.zones, newZone]
+        };
+        await onUpdate(updatedUnit);
+      }
+
+      setNewZoneName('');
+      setNewZoneShifts([]);
+      
+      setNotification({
+        type: 'success',
+        message: 'Zona agregada correctamente'
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: any) {
+      console.error('Error al crear zona:', error);
+      setNotification({
+        type: 'error',
+        message: `Error al crear zona: ${error.message || 'Error desconocido'}`
+      });
+      setTimeout(() => setNotification(null), 5000);
+    }
   };
 
-  const handleDeleteZone = (zoneId: string) => {
-    setEditForm({
-      ...editForm,
-      zones: editForm.zones.filter(z => z.id !== zoneId)
-    });
+  const handleDeleteZone = async (zoneId: string) => {
+    try {
+      // Importar zonesService dinámicamente
+      const { zonesService } = await import('../services/zonesService');
+      
+      // Eliminar la zona de la base de datos
+      await zonesService.delete(zoneId);
+      
+      // Actualizar el estado local
+      setEditForm({
+        ...editForm,
+        zones: editForm.zones.filter(z => z.id !== zoneId)
+      });
+      
+      // También actualizar el estado de la unidad directamente
+      if (onUpdate) {
+        const updatedUnit = {
+          ...unit,
+          zones: unit.zones.filter(z => z.id !== zoneId)
+        };
+        await onUpdate(updatedUnit);
+      }
+      
+      setNotification({
+        type: 'success',
+        message: 'Zona eliminada correctamente'
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: any) {
+      console.error('Error al eliminar zona:', error);
+      setNotification({
+        type: 'error',
+        message: `Error al eliminar zona: ${error.message || 'Error desconocido'}`
+      });
+      setTimeout(() => setNotification(null), 5000);
+    }
   };
 
   // --- Blueprint Layer Management ---
@@ -3243,16 +3313,73 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   {/* Zones Management */}
                   <div className="pt-4 border-t border-slate-100">
                     <label className="block text-sm font-medium text-slate-700 mb-2">Gestión de Zonas y Turnos</label>
-                    {editForm.zones.map(z => (
-                        <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
-                            <div><span className="font-bold text-sm">{z.name}</span> <span className="text-xs text-slate-500">({z.shifts.join(', ')})</span></div>
-                            <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
+                    {editForm.zones.map(z => {
+                        const shiftLabels: Record<string, string> = {
+                            'Day': 'Día',
+                            'Afternoon': 'Tarde',
+                            'Night': 'Noche',
+                            'OFF': 'Descanso',
+                            'Vacation': 'Vacaciones',
+                            'Sick': 'Enfermedad'
+                        };
+                        const displayShifts = z.shifts.map(s => shiftLabels[s] || s).join(', ');
+                        return (
+                            <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
+                                <div><span className="font-bold text-sm">{z.name}</span> <span className="text-xs text-slate-500">({displayShifts})</span></div>
+                                <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
+                            </div>
+                        );
+                    })}
+                    <div className="flex flex-col gap-2 mt-2">
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="Nombre Zona" 
+                                className="flex-1 border border-slate-300 rounded p-1.5 text-sm" 
+                                value={newZoneName} 
+                                onChange={e => setNewZoneName(e.target.value)} 
+                            />
+                            <button 
+                                onClick={handleAddZone} 
+                                className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"
+                            >
+                                Agregar
+                            </button>
                         </div>
-                    ))}
-                    <div className="flex gap-2 mt-2">
-                        <input type="text" placeholder="Nombre Zona" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" value={newZoneName} onChange={e => setNewZoneName(e.target.value)} />
-                        <input type="text" placeholder="Turnos (sep. por coma)" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" value={newZoneShifts} onChange={e => setNewZoneShifts(e.target.value)} />
-                        <button onClick={handleAddZone} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">Agregar</button>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="text-xs text-slate-600 self-center">Turnos:</span>
+                            {(['Day', 'Afternoon', 'Night', 'OFF', 'Vacation', 'Sick'] as const).map(shift => {
+                                const shiftLabels: Record<string, string> = {
+                                    'Day': 'Día',
+                                    'Afternoon': 'Tarde',
+                                    'Night': 'Noche',
+                                    'OFF': 'Descanso',
+                                    'Vacation': 'Vacaciones',
+                                    'Sick': 'Enfermedad'
+                                };
+                                const isSelected = newZoneShifts.includes(shift);
+                                return (
+                                    <button
+                                        key={shift}
+                                        type="button"
+                                        onClick={() => {
+                                            if (isSelected) {
+                                                setNewZoneShifts(newZoneShifts.filter(s => s !== shift));
+                                            } else {
+                                                setNewZoneShifts([...newZoneShifts, shift]);
+                                            }
+                                        }}
+                                        className={`px-3 py-1 rounded text-xs border transition-colors ${
+                                            isSelected
+                                                ? 'bg-blue-600 text-white border-blue-600'
+                                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        {shiftLabels[shift] || shift}
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
                   </div>
 
