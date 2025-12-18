@@ -73,7 +73,7 @@ export const unitsService = {
       const units = await Promise.all(
         data.map(async (unitData) => {
           try {
-            const [resources, logs, requests, zones] = await Promise.all([
+            const [resources, logs, requests, zones, documents] = await Promise.all([
               resourcesService.getByUnitId(unitData.id).catch(err => {
                 console.warn(`⚠️ Error al cargar recursos para unidad ${unitData.id}:`, err);
                 return [];
@@ -90,9 +90,18 @@ export const unitsService = {
                 console.warn(`⚠️ Error al cargar zones para unidad ${unitData.id}:`, err);
                 return [];
               }),
+              (async () => {
+                try {
+                  const { documentsService } = await import('./documentsService');
+                  return await documentsService.getByUnitId(unitData.id);
+                } catch (err) {
+                  console.warn(`⚠️ Error al cargar documentos para unidad ${unitData.id}:`, err);
+                  return [];
+                }
+              })(),
             ]);
 
-            const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones, assignedStaff);
+            const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones, assignedStaff, documents);
             // Log reducido - solo en desarrollo
             if (process.env.NODE_ENV === 'development') {
               console.log(`✅ Unidad ${unitData.name}: ${transformed.images.length} imágenes, ${transformed.logs.length} logs, ${transformed.resources.length} recursos`);
@@ -101,7 +110,7 @@ export const unitsService = {
           } catch (err) {
             console.error(`❌ Error al transformar unidad ${unitData.id}:`, err);
             // Retornar unidad básica sin datos relacionados
-            return transformUnitFromDB(unitData, [], [], [], [], []);
+            return transformUnitFromDB(unitData, [], [], [], [], [], []);
           }
         })
       );
@@ -155,14 +164,23 @@ export const unitsService = {
       }
 
       // Cargar datos relacionados
-      const [resources, logs, requests, zones] = await Promise.all([
+      const [resources, logs, requests, zones, documents] = await Promise.all([
         resourcesService.getByUnitId(data.id),
         logsService.getByUnitId(data.id),
         requestsService.getByUnitId(data.id),
         zonesService.getByUnitId(data.id),
+        (async () => {
+          try {
+            const { documentsService } = await import('./documentsService');
+            return await documentsService.getByUnitId(data.id);
+          } catch (err) {
+            console.warn(`⚠️ Error al cargar documentos para unidad ${data.id}:`, err);
+            return [];
+          }
+        })(),
       ]);
 
-      return transformUnitFromDB(data, resources, logs, requests, zones, assignedStaff);
+      return transformUnitFromDB(data, resources, logs, requests, zones, assignedStaff, documents);
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -477,7 +495,8 @@ function transformUnitFromDB(
   logs: any[] = [],
   requests: any[] = [],
   zones: any[] = [],
-  assignedStaff: string[] = []
+  assignedStaff: string[] = [],
+  documents: any[] = []
 ): Unit {
   return {
     id: data.id,
@@ -532,6 +551,7 @@ function transformUnitFromDB(
       photo: data.resident_supervisor.photo,
     } : undefined,
     assignedStaff: assignedStaff,
+    documents: documents || [],
   };
 }
 

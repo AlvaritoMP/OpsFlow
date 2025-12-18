@@ -277,6 +277,18 @@ export interface UnitContact {
   email?: string;
 }
 
+export interface UnitDocument {
+  id: string;
+  name: string; // Nombre del documento
+  description?: string; // Descripción opcional
+  fileUrl: string; // URL del archivo en Supabase Storage
+  fileName: string; // Nombre original del archivo
+  fileSize: number; // Tamaño del archivo en bytes
+  mimeType: string; // Tipo MIME del archivo
+  uploadedAt: string; // Fecha de carga
+  uploadedBy?: string; // ID del usuario que subió el documento
+}
+
 export interface Unit {
   id: string;
   name: string;
@@ -297,6 +309,9 @@ export interface Unit {
   rovingSupervisor?: UnitContact; // Supervisor de Ronda
   residentSupervisor?: UnitContact; // Supervisor Residente
   assignedStaff?: string[]; // Array de IDs de management staff asignados a esta unidad
+  
+  // Documents
+  documents?: UnitDocument[]; // Documentos relacionados al servicio
 }
 
 // ============================================

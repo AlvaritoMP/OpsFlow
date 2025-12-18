@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview } from '../types';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument } from '../types';
 import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
@@ -183,6 +183,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Log/Event State
   const [showEventModal, setShowEventModal] = useState(false);
+  const [showDocumentsModal, setShowDocumentsModal] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [newDocumentName, setNewDocumentName] = useState('');
+  const [newDocumentDescription, setNewDocumentDescription] = useState('');
+  const [selectedDocumentFile, setSelectedDocumentFile] = useState<File | null>(null);
   const [newEventForm, setNewEventForm] = useState({ type: 'Coordinacion', date: '', description: '' });
   const [newEventImages, setNewEventImages] = useState<string[]>([]);
   const [newEventImageUrl, setNewEventImageUrl] = useState('');
@@ -2022,6 +2027,119 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     } finally {
       setIsSavingWorker(false);
     }
+  };
+
+  // Document Management Functions
+  const handleUploadDocument = async () => {
+    if (!onUpdate || !selectedDocumentFile) {
+      setNotification({ type: 'error', message: 'Por favor, seleccione un archivo' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    if (!newDocumentName.trim()) {
+      setNotification({ type: 'error', message: 'Por favor, ingrese un nombre para el documento' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    setUploadingDocument(true);
+    setNotification({ type: 'info', message: 'Subiendo documento...' });
+
+    try {
+      const { documentsService } = await import('../services/documentsService');
+      
+      const newDocument = await documentsService.create({
+        name: newDocumentName,
+        description: newDocumentDescription || undefined,
+      }, unit.id, selectedDocumentFile);
+
+      // Actualizar la unidad con el nuevo documento
+      const updatedUnit = {
+        ...unit,
+        documents: [...(unit.documents || []), newDocument]
+      };
+
+      if (onUpdate) {
+        await onUpdate(updatedUnit);
+      }
+
+      // Limpiar formulario
+      setNewDocumentName('');
+      setNewDocumentDescription('');
+      setSelectedDocumentFile(null);
+      
+      setNotification({ type: 'success', message: 'Documento subido correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al subir documento:', error);
+      setNotification({ type: 'error', message: 'Error al subir el documento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: string) => {
+    if (!onUpdate) return;
+
+    if (!confirm('¿Está seguro de que desea eliminar este documento?')) {
+      return;
+    }
+
+    setUploadingDocument(true);
+    setNotification({ type: 'info', message: 'Eliminando documento...' });
+
+    try {
+      const { documentsService } = await import('../services/documentsService');
+      await documentsService.delete(documentId);
+
+      // Actualizar la unidad eliminando el documento
+      const updatedUnit = {
+        ...unit,
+        documents: (unit.documents || []).filter(doc => doc.id !== documentId)
+      };
+
+      if (onUpdate) {
+        await onUpdate(updatedUnit);
+      }
+
+      setNotification({ type: 'success', message: 'Documento eliminado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar documento:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el documento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
+
+  const handleDownloadDocument = async (document: UnitDocument) => {
+    try {
+      const { documentsService } = await import('../services/documentsService');
+      const downloadUrl = await documentsService.getDownloadUrl(document.id);
+      
+      if (downloadUrl) {
+        // Abrir en nueva pestaña para descargar
+        window.open(downloadUrl, '_blank');
+      } else {
+        setNotification({ type: 'error', message: 'No se pudo obtener la URL de descarga' });
+        setTimeout(() => setNotification(null), 3000);
+      }
+    } catch (error) {
+      console.error('Error al descargar documento:', error);
+      setNotification({ type: 'error', message: 'Error al descargar el documento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   };
 
   const handleAddImageToNewEvent = () => {
