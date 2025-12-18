@@ -74,15 +74,36 @@ export const logsService = {
       }
 
       // Insertar responsables si existen (en paralelo)
+      // Los responsables pueden ser tanto resources como management_staff
       if (log.responsibleIds && log.responsibleIds.length > 0) {
-        promises.push(
-          supabase.from('log_responsible').insert(
-            log.responsibleIds.map(id => ({
-              operational_log_id: data.id,
-              resource_id: id, // Ajustar según tu lógica
-            }))
-          )
-        );
+        const responsibleInserts: any[] = [];
+        
+        // Si tenemos información sobre el tipo de cada responsable, usarla
+        // De lo contrario, intentar ambos campos (uno será null)
+        const responsibleData = (log as any).responsibleData || [];
+        
+        if (responsibleData.length > 0) {
+          // Usar la información de tipo proporcionada
+          responsibleInserts.push(...responsibleData.map((rd: any) => ({
+            operational_log_id: data.id,
+            resource_id: rd.type === 'resource' ? rd.id : null,
+            management_staff_id: rd.type === 'staff' ? rd.id : null
+          })));
+        } else {
+          // Sin información de tipo, intentar ambos campos
+          // La BD debería tener constraints para asegurar que uno sea null
+          responsibleInserts.push(...log.responsibleIds.map(id => ({
+            operational_log_id: data.id,
+            resource_id: id,
+            management_staff_id: null
+          })));
+        }
+        
+        if (responsibleInserts.length > 0) {
+          promises.push(
+            supabase.from('log_responsible').insert(responsibleInserts)
+          );
+        }
       }
 
       // Ejecutar todas las operaciones en paralelo
@@ -90,8 +111,8 @@ export const logsService = {
         await Promise.all(promises);
       }
 
-      // Construir el log directamente en lugar de hacer otra consulta
-      return {
+      // Recargar el log completo para obtener los responsables guardados
+      return await this.getById(data.id) || {
         id: data.id,
         date: data.date,
         type: data.type as any,
@@ -118,19 +139,64 @@ export const logsService = {
 
       if (error) throw error;
 
+      // Hacer operaciones en paralelo para mejorar rendimiento
+      const promises: Promise<any>[] = [];
+
       // Actualizar imágenes si se proporcionan
       if (log.images !== undefined) {
-        await supabase.from('log_images').delete().eq('operational_log_id', id);
-        if (log.images.length > 0) {
-          await supabase.from('log_images').insert(
-            log.images.map(url => ({
-              operational_log_id: id,
-              image_url: url,
-            }))
-          );
-        }
+        promises.push(
+          supabase.from('log_images').delete().eq('operational_log_id', id).then(() => {
+            if (log.images && log.images.length > 0) {
+              return supabase.from('log_images').insert(
+                log.images.map(url => ({
+                  operational_log_id: id,
+                  image_url: url,
+                }))
+              );
+            }
+          })
+        );
       }
 
+      // Actualizar responsables si se proporcionan
+      if (log.responsibleIds !== undefined) {
+        // Primero eliminar responsables existentes
+        promises.push(
+          supabase.from('log_responsible').delete().eq('operational_log_id', id).then(() => {
+            if (log.responsibleIds && log.responsibleIds.length > 0) {
+              const responsibleData = (log as any).responsibleData || [];
+              const responsibleInserts: any[] = [];
+              
+              if (responsibleData.length > 0) {
+                // Usar la información de tipo proporcionada
+                responsibleInserts.push(...responsibleData.map((rd: any) => ({
+                  operational_log_id: id,
+                  resource_id: rd.type === 'resource' ? rd.id : null,
+                  management_staff_id: rd.type === 'staff' ? rd.id : null
+                })));
+              } else {
+                // Sin información de tipo, usar resource_id por defecto
+                responsibleInserts.push(...log.responsibleIds.map(rid => ({
+                  operational_log_id: id,
+                  resource_id: rid,
+                  management_staff_id: null
+                })));
+              }
+              
+              if (responsibleInserts.length > 0) {
+                return supabase.from('log_responsible').insert(responsibleInserts);
+              }
+            }
+          })
+        );
+      }
+
+      // Ejecutar todas las operaciones en paralelo
+      if (promises.length > 0) {
+        await Promise.all(promises);
+      }
+
+      // Recargar el log completo para obtener los responsables guardados
       return await this.getById(id) || log as OperationalLog;
     } catch (error) {
       handleSupabaseError(error);

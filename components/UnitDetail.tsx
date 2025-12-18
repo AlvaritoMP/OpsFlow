@@ -1951,6 +1951,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         processedImages = await Promise.all(imageUploadPromises);
       }
       
+      // Preparar responsables con información de tipo
+      // Necesitamos distinguir entre staff y resources para guardarlos correctamente
+      const staffIds = new Set(availableStaff.map(s => s.id));
+      const personnelIds = new Set(personnel.map(p => p.id));
+      
+      const responsibleData = newEventResponsibles.map(id => {
+        if (staffIds.has(id)) {
+          return { id, type: 'staff' as const };
+        } else if (personnelIds.has(id)) {
+          return { id, type: 'resource' as const };
+        }
+        // Por defecto, asumir que es resource
+        return { id, type: 'resource' as const };
+      });
+      
       // Crear el log directamente en la base de datos (ahora con URLs permanentes)
       const savedLog = await logsService.create({
         date: newEventForm.date,
@@ -1958,7 +1973,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         description: newEventForm.description,
         author: userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin',
         images: processedImages,
-        responsibleIds: newEventResponsibles
+        responsibleIds: newEventResponsibles,
+        responsibleData: responsibleData // Pasar información adicional sobre el tipo
       }, unit.id);
       
       // Actualizar estado local directamente (sin recargar toda la unidad)
@@ -2013,8 +2029,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Importar logsService dinámicamente
       const { logsService } = await import('../services/logsService');
       
+      // Preparar responsables con información de tipo (igual que en handleCreateEvent)
+      const staffIds = new Set(availableStaff.map(s => s.id));
+      const personnelIds = new Set(personnel.map(p => p.id));
+      
+      const responsibleData = (editingLog.responsibleIds || []).map(id => {
+        if (staffIds.has(id)) {
+          return { id, type: 'staff' as const };
+        } else if (personnelIds.has(id)) {
+          return { id, type: 'resource' as const };
+        }
+        return { id, type: 'resource' as const };
+      });
+      
       // Actualizar el log directamente en la base de datos
-      const savedLog = await logsService.update(editingLog.id, editingLog);
+      const savedLog = await logsService.update(editingLog.id, {
+        ...editingLog,
+        responsibleData: responsibleData
+      });
       
       // Actualizar estado local con el log guardado
       const updatedLogs = unit.logs.map(l => l.id === editingLog.id ? savedLog : l);
