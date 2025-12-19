@@ -31,6 +31,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       id: u.id
     }));
 
+  // Get list of active worker IDs (matching the same criteria as totalWorkers)
+  const activeWorkerIds = useMemo(() => {
+    const workerIds = new Set<string>();
+    units.forEach(unit => {
+      unit.resources
+        .filter(r => r.type === ResourceType.PERSONNEL && !r.archived)
+        .forEach(r => workerIds.add(r.id));
+    });
+    return workerIds;
+  }, [units]);
+
   // Calculate workers by shift for today
   useEffect(() => {
     const loadShiftMetrics = async () => {
@@ -49,12 +60,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         if (shiftsError) {
           console.error('Error loading shifts:', shiftsError);
         } else {
-          // Count unique workers by shift type
+          // Count unique workers by shift type, but only include active (non-archived) workers
           const dayWorkers = new Set<string>();
           const afternoonWorkers = new Set<string>();
           const nightWorkers = new Set<string>();
 
           shiftsData?.forEach(shift => {
+            // Only count if the worker is in the active workers list
+            if (!activeWorkerIds.has(shift.resource_id)) return;
+            
             if (shift.type === 'Day') {
               dayWorkers.add(shift.resource_id);
             } else if (shift.type === 'Afternoon') {
@@ -72,11 +86,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         }
       } catch (error) {
         console.error('Error loading shift metrics:', error);
+      } finally {
+        setLoadingMetrics(false);
       }
     };
 
     loadShiftMetrics();
-  }, [units]);
+  }, [units, activeWorkerIds]);
 
   // Calculate reten coverages (completed assignments)
   useEffect(() => {
@@ -101,6 +117,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     loadRetenMetrics();
   }, []);
 
+  // Note: setLoadingMetrics(false) is now handled in loadShiftMetrics finally block
+
   // Calculate new workers this month
   const newWorkersCount = useMemo(() => {
     const today = new Date();
@@ -122,7 +140,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
 
   useEffect(() => {
     setNewWorkersThisMonth(newWorkersCount);
-    setLoadingMetrics(false);
   }, [newWorkersCount]);
 
   return (
