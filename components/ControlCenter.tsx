@@ -61,17 +61,15 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   const [newImageUrl, setNewImageUrl] = useState('');
 
   // Calculate these values directly from currentUserRole to ensure they're always up-to-date
-  // Use useMemo to ensure they update when currentUserRole changes
-  const canEdit = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit'), [currentUserRole]);
-  const canViewControlCenter = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'view'), [currentUserRole]);
-  const isOperationsUser = useMemo(() => currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN', [currentUserRole]);
-  const isClient = useMemo(() => currentUserRole === 'CLIENT', [currentUserRole]);
+  // IMPORTANT: Calculate directly without useMemo to ensure fresh values on every render
+  const canEdit = checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit');
+  const canViewControlCenter = checkPermission(currentUserRole, 'CONTROL_CENTER', 'view');
+  const isOperationsUser = currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN';
+  const isClient = currentUserRole === 'CLIENT';
   
-  // Force component to update when currentUserRole changes
-  const [, forceUpdate] = useState({});
+  // Debug logging - always log to help diagnose
   useEffect(() => {
-    console.log('🔄 ControlCenter - currentUserRole changed:', currentUserRole, 'isClient:', isClient);
-    forceUpdate({});
+    console.log('🔄 ControlCenter RENDER - currentUserRole:', currentUserRole, 'isClient:', isClient, 'typeof:', typeof currentUserRole, 'strict equality:', currentUserRole === 'CLIENT');
   }, [currentUserRole, isClient]);
   
   // Tooltip state for event details
@@ -451,6 +449,9 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       const d = new Date(ev.date + 'T00:00:00'); 
       return d.getMonth() === month && d.getFullYear() === year;
     });
+    
+    // Calculate isClientUser once per render to ensure consistency
+    const isClientUser = currentUserRole === 'CLIENT';
 
     const blanks = Array(firstDay).fill(null);
     const daySlots = Array.from({ length: days }, (_, i) => i + 1);
@@ -470,42 +471,42 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
          </div>
 
          <div className="grid grid-cols-7 auto-rows-fr">
-            {blanks.map((_, i) => <div key={`blank-${i}`} className={`${isClient ? 'h-24 md:h-32' : 'h-16 md:h-24'} bg-slate-50/50 border-b border-r border-slate-100`}></div>)}
+            {blanks.map((_, i) => <div key={`blank-${i}`} className={`${isClientUser ? 'h-24 md:h-32' : 'h-16 md:h-24'} bg-slate-50/50 border-b border-r border-slate-100`}></div>)}
             {daySlots.map(day => {
                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                const dayEvents = monthEvents.filter(ev => ev.date === dateStr);
                const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
                
                return (
-                  <div key={day} className={`${isClient ? 'min-h-[6rem] md:min-h-[8rem]' : 'min-h-[4rem] md:min-h-[6rem]'} border-b border-r border-slate-100 p-0.5 md:p-1 relative group hover:bg-slate-50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
+                  <div key={day} className={`${isClientUser ? 'min-h-[6rem] md:min-h-[8rem]' : 'min-h-[4rem] md:min-h-[6rem]'} border-b border-r border-slate-100 p-0.5 md:p-1 relative group hover:bg-slate-50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
                      <span className={`text-[10px] md:text-xs font-medium ml-0.5 md:ml-1 ${isToday ? 'bg-blue-600 text-white px-1 md:px-1.5 rounded-full' : 'text-slate-700'}`}>{day}</span>
-                     <div className={`mt-0.5 md:mt-1 space-y-0.5 md:space-y-1 overflow-y-auto ${isClient ? 'max-h-20 md:max-h-28' : 'max-h-12 md:max-h-20'} custom-scrollbar`}>
-                        {dayEvents.slice(0, isClient ? 2 : 3).map(ev => (
+                     <div className={`mt-0.5 md:mt-1 space-y-0.5 md:space-y-1 overflow-y-auto ${isClientUser ? 'max-h-20 md:max-h-28' : 'max-h-12 md:max-h-20'} custom-scrollbar`}>
+                        {dayEvents.slice(0, isClientUser ? 2 : 3).map(ev => (
                            <div 
                               key={ev.id} 
                               onClick={() => canEdit && handleEditClick(ev)}
                               onMouseEnter={(e) => {
-                                if (isClient) {
+                                if (isClientUser) {
                                   setHoveredEvent(ev);
                                   const rect = e.currentTarget.getBoundingClientRect();
                                   setTooltipPosition({ x: rect.left + rect.width / 2, y: rect.top });
                                 }
                               }}
                               onMouseLeave={() => {
-                                if (isClient) {
+                                if (isClientUser) {
                                   setHoveredEvent(null);
                                 }
                               }}
-                              className={`${isClient ? 'text-[10px] md:text-xs px-1 md:px-1.5 py-1 md:py-1.5' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${isClient ? '' : 'truncate'} shadow-sm hover:opacity-80 transition-opacity
+                              className={`${isClientUser ? 'text-[10px] md:text-xs px-1 md:px-1.5 py-1 md:py-1.5' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${isClientUser ? '' : 'truncate'} shadow-sm hover:opacity-80 transition-opacity
                                 ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-100 text-red-700 border-red-200' : 
                                   ev.category === 'Log' ? 'bg-gray-100 text-gray-700 border-gray-200' :
                                   ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-700 border-orange-200' :
                                   'bg-blue-100 text-blue-700 border-blue-200'
                                 }`}
-                              title={!isClient ? `${ev.unitName}: ${ev.description}` : undefined}
+                              title={!isClientUser ? `${ev.unitName}: ${ev.description}` : undefined}
                            >
-                              {ev.type === 'Incidencia' && <AlertTriangle size={isClient ? 10 : 6} className={`inline mr-0.5 ${isClient ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
-                              {isClient ? (
+                              {ev.type === 'Incidencia' && <AlertTriangle size={isClientUser ? 10 : 6} className={`inline mr-0.5 ${isClientUser ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
+                              {isClientUser ? (
                                 <>
                                   <div className="flex items-center gap-1 mb-0.5 flex-wrap">
                                     <span className="text-[9px] md:text-[10px] font-bold text-slate-800 truncate">{ev.unitName}</span>
@@ -518,7 +519,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                               )}
                            </div>
                         ))}
-                        {dayEvents.length > (isClient ? 2 : 3) && (
+                        {dayEvents.length > (isClientUser ? 2 : 3) && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -526,9 +527,9 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                               e.preventDefault();
                               setSelectedDayEvents({ date: dateStr, events: dayEvents });
                             }}
-                            className={`${isClient ? 'text-[9px] md:text-[10px] px-1 md:px-1.5 py-0.5 md:py-1' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} w-full rounded border-2 border-slate-400 bg-slate-100 text-slate-800 hover:bg-slate-200 hover:border-slate-500 transition-colors font-semibold shadow-sm cursor-pointer`}
+                            className={`${isClientUser ? 'text-[9px] md:text-[10px] px-1 md:px-1.5 py-0.5 md:py-1' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} w-full rounded border-2 border-slate-400 bg-slate-100 text-slate-800 hover:bg-slate-200 hover:border-slate-500 transition-colors font-semibold shadow-sm cursor-pointer`}
                           >
-                            +{dayEvents.length - (isClient ? 2 : 3)} más eventos
+                            +{dayEvents.length - (isClientUser ? 2 : 3)} más eventos
                           </button>
                         )}
                      </div>
@@ -542,7 +543,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
 
   // Tooltip component for event details
   const EventTooltip = () => {
-    if (!hoveredEvent || !isClient) return null;
+    if (!hoveredEvent || currentUserRole !== 'CLIENT') return null;
     
     return (
       <div 
@@ -716,13 +717,13 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
        {/* Split View Content */}
        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 md:gap-6 overflow-hidden">
           {/* Left: Calendar */}
-          <div className={`${isClient ? 'lg:w-7/12' : 'lg:w-5/12'} h-full overflow-y-auto custom-scrollbar pr-1`}>
+          <div className={`${currentUserRole === 'CLIENT' ? 'lg:w-7/12' : 'lg:w-5/12'} h-full overflow-y-auto custom-scrollbar pr-1`}>
              <h3 className="text-xs md:text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><CalendarIcon size={14} className="mr-2 md:w-4 md:h-4"/> Vista Mensual</h3>
              {renderCalendar()}
           </div>
 
           {/* Right: List */}
-          <div className={`${isClient ? 'lg:w-5/12' : 'lg:w-7/12'} h-full overflow-hidden flex flex-col`}>
+          <div className={`${currentUserRole === 'CLIENT' ? 'lg:w-5/12' : 'lg:w-7/12'} h-full overflow-hidden flex flex-col`}>
              <h3 className="text-xs md:text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><List size={14} className="mr-2 md:w-4 md:h-4"/> Detalle de Eventos ({filteredEvents.length})</h3>
              
              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">
