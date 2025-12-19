@@ -1049,7 +1049,7 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'control-center') {
-      return <ControlCenter units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
+      return <ControlCenter key={`control-center-${currentUser.role}`} units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'client-control-center') {

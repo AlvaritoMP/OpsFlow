@@ -64,7 +64,8 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   const canEdit = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit'), [currentUserRole]);
   const canViewControlCenter = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'view'), [currentUserRole]);
   const isOperationsUser = useMemo(() => currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN', [currentUserRole]);
-  const isClient = useMemo(() => currentUserRole === 'CLIENT', [currentUserRole]);
+  // Calculate isClient directly from currentUserRole to ensure it's always up-to-date
+  const isClient = currentUserRole === 'CLIENT';
   
   // Force re-render when currentUserRole changes to ensure UI updates correctly
   useEffect(() => {
