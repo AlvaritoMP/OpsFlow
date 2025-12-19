@@ -31,68 +31,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       id: u.id
     }));
 
-  // Get list of active worker IDs (matching the same criteria as totalWorkers)
-  const activeWorkerIds = useMemo(() => {
-    const workerIds = new Set<string>();
+  // Calculate workers by shift based on assignedShift field (not rostering)
+  const workersByShiftCount = useMemo(() => {
+    let dayCount = 0;
+    let afternoonCount = 0;
+    let nightCount = 0;
+
     units.forEach(unit => {
       unit.resources
         .filter(r => r.type === ResourceType.PERSONNEL && !r.archived)
-        .forEach(r => workerIds.add(r.id));
+        .forEach(r => {
+          const shift = r.assignedShift?.toLowerCase() || '';
+          
+          // Map assignedShift values to turnos
+          // "Diurno" -> Día
+          // "Tarde" -> Tarde
+          // "Nocturno" -> Noche
+          // "Mixto" -> could be counted in multiple or none, for now we'll skip it
+          
+          if (shift.includes('diurno') || shift === 'día' || shift === 'dia' || shift === 'day' || shift === 'morning') {
+            dayCount++;
+          } else if (shift.includes('tarde') || shift === 'afternoon') {
+            afternoonCount++;
+          } else if (shift.includes('nocturno') || shift === 'noche' || shift === 'night') {
+            nightCount++;
+          }
+          // "Mixto" is not counted in any specific shift
+        });
     });
-    return workerIds;
+
+    return { day: dayCount, afternoon: afternoonCount, night: nightCount };
   }, [units]);
 
-  // Calculate workers by shift for today
   useEffect(() => {
-    const loadShiftMetrics = async () => {
-      try {
-        setLoadingMetrics(true);
-        const { supabase } = await import('../services/supabase');
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        
-        // Get all workers with shifts for today
-        const { data: shiftsData, error: shiftsError } = await supabase
-          .from('daily_shifts')
-          .select('type, resource_id')
-          .eq('date', today)
-          .in('type', ['Day', 'Afternoon', 'Night']);
-
-        if (shiftsError) {
-          console.error('Error loading shifts:', shiftsError);
-        } else {
-          // Count unique workers by shift type, but only include active (non-archived) workers
-          const dayWorkers = new Set<string>();
-          const afternoonWorkers = new Set<string>();
-          const nightWorkers = new Set<string>();
-
-          shiftsData?.forEach(shift => {
-            // Only count if the worker is in the active workers list
-            if (!activeWorkerIds.has(shift.resource_id)) return;
-            
-            if (shift.type === 'Day') {
-              dayWorkers.add(shift.resource_id);
-            } else if (shift.type === 'Afternoon') {
-              afternoonWorkers.add(shift.resource_id);
-            } else if (shift.type === 'Night') {
-              nightWorkers.add(shift.resource_id);
-            }
-          });
-
-          setWorkersByShift({
-            day: dayWorkers.size,
-            afternoon: afternoonWorkers.size,
-            night: nightWorkers.size
-          });
-        }
-      } catch (error) {
-        console.error('Error loading shift metrics:', error);
-      } finally {
-        setLoadingMetrics(false);
-      }
-    };
-
-    loadShiftMetrics();
-  }, [units, activeWorkerIds]);
+    setWorkersByShift(workersByShiftCount);
+    setLoadingMetrics(false);
+  }, [workersByShiftCount]);
 
   // Calculate reten coverages (completed assignments)
   useEffect(() => {
