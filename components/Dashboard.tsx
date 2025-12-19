@@ -68,7 +68,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     setLoadingMetrics(false);
   }, [workersByShiftCount]);
 
-  // Calculate reten coverages (completed assignments)
+  // Calculate reten coverages (all assignments in the month)
   useEffect(() => {
     const loadRetenMetrics = async () => {
       try {
@@ -80,9 +80,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         const startDate = firstDayOfMonth.toISOString().split('T')[0];
         const endDate = lastDayOfMonth.toISOString().split('T')[0];
         
+        // Get all assignments in the month (not just completed ones)
         const assignments = await retenesService.getAssignmentsByDateRange(startDate, endDate);
-        const completedAssignments = assignments.filter(a => a.status === 'completada');
-        setRetenCoverages(completedAssignments.length);
+        // Count all assignments, regardless of status
+        setRetenCoverages(assignments.length);
       } catch (error) {
         console.error('Error loading reten metrics:', error);
       }
