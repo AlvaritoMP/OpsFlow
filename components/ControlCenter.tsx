@@ -61,14 +61,17 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   const [newImageUrl, setNewImageUrl] = useState('');
 
   // Calculate these values directly from currentUserRole to ensure they're always up-to-date
-  const canEdit = checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit');
-  const canViewControlCenter = checkPermission(currentUserRole, 'CONTROL_CENTER', 'view');
-  const isOperationsUser = currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN';
-  const isClient = currentUserRole === 'CLIENT';
+  // Use useMemo to ensure they update when currentUserRole changes
+  const canEdit = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit'), [currentUserRole]);
+  const canViewControlCenter = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'view'), [currentUserRole]);
+  const isOperationsUser = useMemo(() => currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN', [currentUserRole]);
+  const isClient = useMemo(() => currentUserRole === 'CLIENT', [currentUserRole]);
   
-  // Debug logging
+  // Force component to update when currentUserRole changes
+  const [, forceUpdate] = useState({});
   useEffect(() => {
-    console.log('🔍 ControlCenter - currentUserRole:', currentUserRole, 'isClient:', isClient, 'typeof:', typeof currentUserRole);
+    console.log('🔄 ControlCenter - currentUserRole changed:', currentUserRole, 'isClient:', isClient);
+    forceUpdate({});
   }, [currentUserRole, isClient]);
   
   // Tooltip state for event details

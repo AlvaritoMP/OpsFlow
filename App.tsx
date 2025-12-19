@@ -1049,7 +1049,8 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'control-center') {
-      return <ControlCenter key={`control-center-${currentUser.role}`} units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
+      // Force remount when view or user role changes
+      return <ControlCenter key={`control-center-${currentView}-${currentUser.role}-${currentUser.id}`} units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'client-control-center') {

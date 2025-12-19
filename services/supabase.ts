@@ -14,7 +14,7 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true, // CRÍTICO: Necesario para que Storage funcione
     autoRefreshToken: true,
-    storage: window.localStorage, // Usar localStorage para persistir sesión
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined, // Usar localStorage solo en el navegador
     storageKey: 'supabase.auth.token', // Clave específica para Auth
   },
   global: {

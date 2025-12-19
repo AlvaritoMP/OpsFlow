@@ -496,20 +496,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Crear la zona en la base de datos inmediatamente
       const newZone = await zonesService.create({
-        name: newZoneName,
+      name: newZoneName,
         shifts: newZoneShifts, // Ya es un array de ShiftType
-        layout: { 
+      layout: { 
           x: 1, y: 1, w: 2, h: 2, color: '#e2e8f0',
           layerId: activeLayerId || undefined
-        }, 
-        area: 0
+      }, 
+      area: 0
       }, unit.id);
-
+    
       // Actualizar el estado local con la zona creada (que tiene el ID real de la BD)
-      setEditForm({
-        ...editForm,
-        zones: [...editForm.zones, newZone]
-      });
+    setEditForm({
+      ...editForm,
+      zones: [...editForm.zones, newZone]
+    });
       
       // Actualizar también el estado de la unidad directamente (sin llamar a onUpdate para evitar recargas)
       // La zona ya está guardada en la BD, así que solo actualizamos el estado local
@@ -519,7 +519,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       };
       // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
 
-      setNewZoneName('');
+    setNewZoneName('');
       setNewZoneShifts([]);
       
       setNotification({
@@ -546,10 +546,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       await zonesService.delete(zoneId);
       
       // Actualizar el estado local
-      setEditForm({
-        ...editForm,
-        zones: editForm.zones.filter(z => z.id !== zoneId)
-      });
+    setEditForm({
+      ...editForm,
+      zones: editForm.zones.filter(z => z.id !== zoneId)
+    });
       
       // Actualizar también el estado de la unidad directamente (sin llamar a onUpdate para evitar recargas)
       // La zona ya está eliminada en la BD, así que solo actualizamos el estado local
@@ -826,24 +826,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setNotification({ type: 'info', message: 'Guardando requerimiento...' });
       
       try {
-        const newRequest: ClientRequest = {
-            id: `req-${Date.now()}`,
-            date: new Date().toISOString().split('T')[0],
-            category: newRequestForm.category as any,
-            priority: newRequestForm.priority as any,
-            status: 'PENDING',
-            description: newRequestForm.description,
-            author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
-            relatedResourceId: newRequestForm.relatedResourceId || undefined,
-            attachments: newRequestImages,
-            comments: []
-        };
+      const newRequest: ClientRequest = {
+          id: `req-${Date.now()}`,
+          date: new Date().toISOString().split('T')[0],
+          category: newRequestForm.category as any,
+          priority: newRequestForm.priority as any,
+          status: 'PENDING',
+          description: newRequestForm.description,
+          author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
+          relatedResourceId: newRequestForm.relatedResourceId || undefined,
+          attachments: newRequestImages,
+          comments: []
+      };
 
-        const updatedRequests = [...(unit.requests || []), newRequest];
-        onUpdate({ ...unit, requests: updatedRequests });
-        setShowRequestModal(false);
-        setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
-        setNewRequestImages([]);
+      const updatedRequests = [...(unit.requests || []), newRequest];
+      onUpdate({ ...unit, requests: updatedRequests });
+      setShowRequestModal(false);
+      setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
+      setNewRequestImages([]);
         
         setNotification({ type: 'success', message: 'Requerimiento guardado correctamente' });
         setTimeout(() => setNotification(null), 3000);
@@ -863,21 +863,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setNotification({ type: 'info', message: 'Guardando cambios...' });
       
       try {
-        const updatedRequests = (unit.requests || []).map(req => {
-            if (req.id === editingRequest.id) {
-                return { 
-                    ...req, 
-                    status, 
-                    response: response || req.response,
-                    responseAttachments: attachments || req.responseAttachments,
-                    resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : req.resolvedDate
-                };
-            }
-            return req;
-        });
-        onUpdate({ ...unit, requests: updatedRequests });
-        setEditingRequest(null);
-        setResolveAttachments([]);
+      const updatedRequests = (unit.requests || []).map(req => {
+          if (req.id === editingRequest.id) {
+              return { 
+                  ...req, 
+                  status, 
+                  response: response || req.response,
+                  responseAttachments: attachments || req.responseAttachments,
+                  resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : req.resolvedDate
+              };
+          }
+          return req;
+      });
+      onUpdate({ ...unit, requests: updatedRequests });
+      setEditingRequest(null);
+      setResolveAttachments([]);
         
         const statusMessages = {
           'PENDING': 'Requerimiento marcado como pendiente',
@@ -972,13 +972,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const handleGlobalMouseMove = (e: MouseEvent) => {
         const currentState = interactionStateRef.current;
         if (currentState.type === 'idle' || !gridRef.current || !currentState.zoneId) return;
-        
-        const gridRect = gridRef.current.getBoundingClientRect();
-        const cellWidth = gridRect.width / 12;
+
+      const gridRect = gridRef.current.getBoundingClientRect();
+      const cellWidth = gridRect.width / 12;
         const cellHeight = gridRect.height / gridRows;
-        
-        const currentGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
-        const currentGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
+      
+      const currentGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
+      const currentGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
 
         const deltaX = currentGridX - currentState.startGridX;
         const deltaY = currentGridY - currentState.startGridY;
@@ -990,33 +990,33 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           const zoneIndex = zonesCopy.findIndex(z => z.id === currentState.zoneId);
           if (zoneIndex === -1) return prev;
 
-          const zone = { ...zonesCopy[zoneIndex] };
+      const zone = { ...zonesCopy[zoneIndex] };
           const baseLayout = currentState.startLayout;
 
           if (currentState.type === 'drag') {
-              // Update X/Y
-              let newX = baseLayout.x + deltaX;
-              let newY = baseLayout.y + deltaY;
-              
-              // Boundaries (12 columns, gridRows rows)
-              newX = Math.max(1, Math.min(newX, 13 - baseLayout.w));
+          // Update X/Y
+          let newX = baseLayout.x + deltaX;
+          let newY = baseLayout.y + deltaY;
+          
+          // Boundaries (12 columns, gridRows rows)
+          newX = Math.max(1, Math.min(newX, 13 - baseLayout.w));
               newY = Math.max(1, Math.min(newY, (gridRows + 1) - baseLayout.h));
 
-              zone.layout = { ...baseLayout, x: newX, y: newY };
+          zone.layout = { ...baseLayout, x: newX, y: newY };
 
           } else if (currentState.type === 'resize') {
-              // Update W/H
-              let newW = baseLayout.w + deltaX;
-              let newH = baseLayout.h + deltaY;
+          // Update W/H
+          let newW = baseLayout.w + deltaX;
+          let newH = baseLayout.h + deltaY;
 
-              // Min Size & Boundaries
-              newW = Math.max(1, Math.min(newW, 13 - baseLayout.x));
-              newH = Math.max(1, Math.min(newH, (gridRows + 1) - baseLayout.y));
+          // Min Size & Boundaries
+          newW = Math.max(1, Math.min(newW, 13 - baseLayout.x));
+          newH = Math.max(1, Math.min(newH, (gridRows + 1) - baseLayout.y));
 
-              zone.layout = { ...baseLayout, w: newW, h: newH };
-          }
+          zone.layout = { ...baseLayout, w: newW, h: newH };
+      }
 
-          zonesCopy[zoneIndex] = zone;
+      zonesCopy[zoneIndex] = zone;
           return {
             ...prev,
             zones: zonesCopy
@@ -1081,10 +1081,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
         const zonesCopy = zonesToUse.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
         
-        if (key === 'color') {
-             // Color is nested in layout
+      if (key === 'color') {
+           // Color is nested in layout
              const target = zonesToUse.find(z => z.id === selectedZoneId);
-             if (target) {
+           if (target) {
                  const targetIndex = zonesCopy.findIndex(z => z.id === selectedZoneId);
                  if (targetIndex !== -1) {
                      zonesCopy[targetIndex] = { ...target, layout: { ...target.layout!, color: value } };
@@ -1146,12 +1146,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     try {
       const { resourcesService } = await import('../services/resourcesService');
       
-      const newTraining: Training = {
-        id: `t-${Date.now()}`,
-        topic: massTrainingForm.topic,
-        date: massTrainingForm.date,
-        status: massTrainingForm.status as any,
-      };
+    const newTraining: Training = {
+      id: `t-${Date.now()}`,
+      topic: massTrainingForm.topic,
+      date: massTrainingForm.date,
+      status: massTrainingForm.status as any,
+    };
       
       // Guardar capacitaciones en la base de datos para cada trabajador seleccionado
       const updatePromises = unit.resources
@@ -1168,19 +1168,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Actualizar estado local después de guardar en BD (usar los mismos IDs que se guardaron)
       const updatedResources = await Promise.all(
         unit.resources.map(async (res) => {
-          if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
+      if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
             // Recargar el recurso desde BD para obtener los IDs correctos
             const updatedResource = await resourcesService.getById(res.id);
             return updatedResource || res;
-          }
-          return res;
+      }
+      return res;
         })
       );
       
-      onUpdate({ ...unit, resources: updatedResources });
-      setShowMassTrainingModal(false);
-      setSelectedPersonnelIds([]);
-      setMassTrainingForm({ topic: '', date: '', status: 'Programado' });
+    onUpdate({ ...unit, resources: updatedResources });
+    setShowMassTrainingModal(false);
+    setSelectedPersonnelIds([]);
+    setMassTrainingForm({ topic: '', date: '', status: 'Programado' });
       setNotification({ type: 'success', message: 'Capacitaciones agregadas correctamente' });
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
@@ -1235,12 +1235,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           try {
             const assetForConstancy: AssignedAsset = {
               id: `a-${Date.now()}-${worker.id}`,
-              name: assetAssignmentForm.name,
-              type: assetAssignmentForm.type as any,
+        name: assetAssignmentForm.name,
+        type: assetAssignmentForm.type as any,
               dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
-              serialNumber: assetAssignmentForm.serialNumber
-            };
-
+        serialNumber: assetAssignmentForm.serialNumber
+    };
+    
             // Generar constancia (solo guardar en BD, no descargar PDF)
             console.log(`🔄 Generando constancia para trabajador ${worker.name} (DNI: ${worker.dni})`);
             const constancy = await constancyService.generateAssetConstancy(
@@ -1271,8 +1271,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         console.log(`📊 Total de códigos generados: ${Object.keys(constancyCodes).length} de ${selectedWorkers.length} trabajadores`);
 
         // Asignar activos con códigos de constancia
-        const updatedResources = unit.resources.map(res => {
-          if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
+    const updatedResources = unit.resources.map(res => {
+        if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
             const constancyCode = constancyCodes[res.id];
             if (!constancyCode) {
               console.warn(`⚠️ No se generó código de constancia para trabajador ${res.id}`);
@@ -1296,17 +1296,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             });
             
             return {
-              ...res,
+                ...res,
               assignedAssets: [...(res.assignedAssets || []), assetWithConstancy]
             };
-          }
-          return res;
-        });
+        }
+        return res;
+    });
 
         // Cerrar modal ANTES de actualizar para evitar que se recargue y cierre
-        setShowAssetAssignmentModal(false);
-        setSelectedPersonnelIds([]);
-        setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+    setShowAssetAssignmentModal(false);
+    setSelectedPersonnelIds([]);
+    setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
         setGenerateConstancy(true);
         
         // Actualizar unidad (esto guardará los activos con códigos de constancia)
@@ -1373,21 +1373,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     try {
       const { resourcesService } = await import('../services/resourcesService');
       const newWorker = await resourcesService.create({
-        name: newWorkerForm.name,
-        type: ResourceType.PERSONNEL,
-        quantity: 1,
-        status: StaffStatus.ACTIVE,
+      name: newWorkerForm.name,
+      type: ResourceType.PERSONNEL,
+      quantity: 1,
+      status: StaffStatus.ACTIVE,
         assignedZones: newWorkerForm.zones,
-        assignedShift: newWorkerForm.shift,
-        compliancePercentage: 100,
+      assignedShift: newWorkerForm.shift,
+      compliancePercentage: 100,
         dni: newWorkerForm.dni || undefined,
         puesto: newWorkerForm.puesto || undefined,
         startDate: newWorkerForm.startDate || undefined,
         endDate: newWorkerForm.endDate || undefined,
         personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
         archived: false,
-        trainings: [],
-        assignedAssets: []
+      trainings: [],
+      assignedAssets: []
       }, unit.id);
       
       // Actualizar solo los recursos localmente para mantener el tab activo
@@ -1403,7 +1403,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }, 100);
       
       // Cerrar modal y limpiar formulario
-      setShowAddWorkerModal(false);
+    setShowAddWorkerModal(false);
       setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
@@ -1563,13 +1563,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           await resourcesService.update(resourceId, { trainings: updatedTrainings });
           
           // Actualizar estado local después de guardar en BD
-          const updatedResources = unit.resources.map(r => {
-              if (r.id === resourceId) {
+      const updatedResources = unit.resources.map(r => {
+          if (r.id === resourceId) {
                   return { ...r, trainings: updatedTrainings };
-              }
-              return r;
-          });
-          onUpdate({ ...unit, resources: updatedResources });
+          }
+          return r;
+      });
+      onUpdate({ ...unit, resources: updatedResources });
       } catch (error) {
           console.error('Error al eliminar capacitación:', error);
           setNotification({ type: 'error', message: 'Error al eliminar capacitación. Por favor, intente nuevamente.' });
@@ -1710,18 +1710,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
          // ACTUALIZACIÓN INSTANTÁNEA: Actualizar solo el estado local (SIN guardar en BD todavía)
          return prevResources.map(r => {
-             if (r.id === resourceId) {
-                 const schedule = r.workSchedule ? [...r.workSchedule] : [];
-                 const existingIdx = schedule.findIndex(s => s.date === date);
-                 if (existingIdx >= 0) {
-                     schedule[existingIdx] = { date, type: nextType, hours };
-                 } else {
-                     schedule.push({ date, type: nextType, hours });
-                 }
-                 return { ...r, workSchedule: schedule };
+         if (r.id === resourceId) {
+             const schedule = r.workSchedule ? [...r.workSchedule] : [];
+             const existingIdx = schedule.findIndex(s => s.date === date);
+             if (existingIdx >= 0) {
+                 schedule[existingIdx] = { date, type: nextType, hours };
+             } else {
+                 schedule.push({ date, type: nextType, hours });
              }
-             return r;
-         });
+             return { ...r, workSchedule: schedule };
+         }
+         return r;
+     });
      });
      
      // Marcar que hay cambios sin guardar (NO guardar automáticamente)
@@ -1763,7 +1763,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              return r;
          });
          
-         onUpdate({ ...unit, resources: updatedResources });
+     onUpdate({ ...unit, resources: updatedResources });
          
          setRosterHasUnsavedChanges(false);
          setNotification({ type: 'success', message: 'Planificación guardada correctamente' });
@@ -1872,9 +1872,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       await resourcesService.update(editingResource.id, editingResource);
       
       // Actualizar solo el recurso localmente para mantener el tab activo
-      const updatedResources = unit.resources.map(r => r.id === editingResource.id ? editingResource : r);
+    const updatedResources = unit.resources.map(r => r.id === editingResource.id ? editingResource : r);
       const currentTab = activeTabRef.current; // Guardar el tab actual
-      onUpdate({ ...unit, resources: updatedResources });
+    onUpdate({ ...unit, resources: updatedResources });
       
       // Asegurar que el tab se mantenga
       setTimeout(() => {
@@ -1884,7 +1884,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }, 100);
       
       // Cerrar modal y mostrar notificación
-      setEditingResource(null);
+    setEditingResource(null);
       setNotification({ type: 'success', message: 'Trabajador actualizado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -2166,8 +2166,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Crear el log directamente en la base de datos (ahora con URLs permanentes)
       const savedLog = await logsService.create({
         date: eventDate,
-        type: newEventForm.type as any,
-        description: newEventForm.description,
+      type: newEventForm.type as any,
+      description: newEventForm.description,
         author: authorName,
         images: processedImages,
         responsibleIds: newEventResponsibles,
@@ -2185,10 +2185,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
       
       // Cerrar modal y limpiar formulario inmediatamente
-      setShowEventModal(false);
-      setNewEventForm({ type: 'Coordinacion', date: '', description: '' });
-      setNewEventImages([]);
-      setNewEventResponsibles([]);
+    setShowEventModal(false);
+    setNewEventForm({ type: 'Coordinacion', date: '', description: '' });
+    setNewEventImages([]);
+    setNewEventResponsibles([]);
       
       // Notificación de éxito
       setNotification({ type: 'success', message: 'Evento guardado correctamente' });
@@ -2385,7 +2385,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         await result;
       }
       
-      setEditingLog(null);
+    setEditingLog(null);
       
       setNotification({ type: 'success', message: 'Evento actualizado correctamente' });
       setTimeout(() => setNotification(null), 3000);
@@ -3411,10 +3411,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         };
                         const displayShifts = z.shifts.map(s => shiftLabels[s] || s).join(', ');
                         return (
-                            <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
+                        <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
                                 <div><span className="font-bold text-sm">{z.name}</span> <span className="text-xs text-slate-500">({displayShifts})</span></div>
-                                <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
-                            </div>
+                            <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
+                        </div>
                         );
                     })}
                     <div className="flex flex-col gap-2 mt-2">
@@ -3657,8 +3657,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   closeAllModalsExcept('addWorker');
                   setShowAddWorkerModal(true);
                 }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
-                  <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
-                </button>
+              <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
+            </button>
               </div>
             )}
           </div>
@@ -3716,17 +3716,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                        </div>
                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
+                          <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
                             {worker.inTraining && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 shrink-0">
                                 En Capacitación
                               </span>
                             )}
-                          </div>
+                       </div>
                           <p className="text-xs text-slate-500 truncate">
                             {worker.puesto ? `${worker.puesto} • ` : ''}{worker.assignedZones?.join(', ') || 'Sin zona'}
                           </p>
-                       </div>
+                    </div>
                     </div>
                     <div className="col-span-2 hidden md:flex items-center justify-center text-sm text-slate-500 font-mono">
                        {worker.dni || <span className="text-slate-300 italic">-</span>}
@@ -3748,15 +3748,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          <div className="text-red-600 whitespace-nowrap">Fin: {formatDateFromString(worker.endDate)}</div>
                        )}
                        {!worker.startDate && !worker.endDate && <span className="text-slate-300 italic">-</span>}
-                    </div>
+                            </div>
                     <div className="col-span-1 hidden md:flex items-center justify-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
                     <div className="col-span-1 hidden md:flex items-center justify-center">
                         <div className="flex items-center">
                             <div className="w-12 bg-slate-200 rounded-full h-1.5 mr-1">
                                 <div className={`h-1.5 rounded-full ${worker.compliancePercentage && worker.compliancePercentage >= 90 ? 'bg-green-500' : 'bg-yellow-500'}`} style={{ width: `${worker.compliancePercentage || 0}%` }}></div>
-                            </div>
-                            <span className="text-xs font-medium">{worker.compliancePercentage || 0}%</span>
                         </div>
+                            <span className="text-xs font-medium">{worker.compliancePercentage || 0}%</span>
+                    </div>
                     </div>
                     <div className="col-span-3 md:col-span-2 flex justify-end items-center gap-2">
                         <button onClick={() => togglePersonnelExpand(worker.id)} className="text-slate-400 hover:text-blue-600 p-1" disabled={isArchivingPersonnel === worker.id}>
@@ -3768,9 +3768,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     {isUpdatingResource && editingResource?.id === worker.id ? (
                                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                                     ) : (
-                                      <Edit2 size={16} />
+                                <Edit2 size={16} />
                                     )}
-                                </button>
+                            </button>
                                 <button 
                                     onClick={async () => {
                                         if (confirm(`¿Está seguro de eliminar a ${worker.name}? Esta acción no se puede deshacer.`)) {
@@ -3939,7 +3939,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                     <Trash2 size={12}/>
                                                 </button>
                                             )}
-                                        </div>
+                                    </div>
                                     </div>
                                     );
                                 }) : <p className="text-xs text-slate-400 italic">Sin activos asignados.</p>}
@@ -3984,14 +3984,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     )}
                     {canEditPersonnel ? (
                         <>
-                            <div className="text-xs text-slate-400 font-medium">Click en turno para cambiar</div>
-                            <button 
-                                onClick={handleReplicateWeek}
-                                className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
-                                title="Copiar estos turnos a la próxima semana"
-                            >
-                                <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
-                            </button>
+                    <div className="text-xs text-slate-400 font-medium">Click en turno para cambiar</div>
+                    <button 
+                        onClick={handleReplicateWeek}
+                        className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
+                        title="Copiar estos turnos a la próxima semana"
+                    >
+                        <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
+                    </button>
                             <button 
                                 onClick={handleSaveRoster}
                                 disabled={!rosterHasUnsavedChanges || isSavingRoster}
@@ -4067,12 +4067,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                          return (
                                              <td key={i} className="px-2 py-3 text-center relative group">
                                                  {canEditPersonnel ? (
-                                                     <button 
-                                                         onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
-                                                         className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
-                                                     >
+                                                 <button 
+                                                     onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
+                                                     className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
+                                                 >
                                                          {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
-                                                     </button>
+                                                 </button>
                                                  ) : (
                                                      <div className={`w-full py-1.5 rounded text-xs font-bold ${getShiftColor(type)} opacity-75`}>
                                                          {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
@@ -4328,7 +4328,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               )}
             </div>
           )}
-        </div>
+         </div>
       </div>
     </div>
   );
@@ -4409,7 +4409,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           return (
                                               <div key={rid} className="flex items-center gap-2 bg-slate-50 rounded-lg px-2 py-1 border border-slate-200">
                                                   <div className="w-7 h-7 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[10px] font-bold text-slate-600 shrink-0">
-                                                      {name.charAt(0)}
+                                                  {name.charAt(0)}
                                                   </div>
                                                   <span className="text-sm text-slate-700 font-medium">{name}</span>
                                               </div>
@@ -5101,7 +5101,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
                     <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.startDate || ''} onChange={e => setNewWorkerForm({...newWorkerForm, startDate: e.target.value})} />
-                  </div>
+             </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
                     <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.endDate || ''} onChange={e => {
@@ -5233,8 +5233,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </p>
                       )}
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
                       <select 
                         className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-100" 
                         value={assetAssignmentForm.type} 
@@ -5271,8 +5271,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         <option value="Tecnologia">Tecnología (Celular/Laptop)</option>
                         <option value="Herramienta">Herramienta</option>
                         <option value="Otro">Otro</option>
-                      </select>
-                    </div>
+                    </select>
+                </div>
                   </>
                 )}
                 
@@ -5340,26 +5340,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
                                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.puesto || ''} onChange={e => setEditingResource({...editingResource, puesto: e.target.value})} placeholder="Ej. Guardia de Seguridad, Supervisor, etc." />
                               </div>
-                              <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                      <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
-                                      <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}>
+                          <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
+                                  <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}>
                                           <option value="">Seleccionar...</option>
-                                          <option value="Diurno">Diurno</option>
+                                      <option value="Diurno">Diurno</option>
                                           <option value="Tarde">Tarde</option>
-                                          <option value="Nocturno">Nocturno</option>
-                                          <option value="Mixto">Mixto</option>
-                                      </select>
-                                  </div>
-                                  <div>
-                                      <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
-                                      <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}>
-                                          <option value="Activo">Activo</option>
-                                          <option value="De Licencia">De Licencia</option>
-                                          <option value="Reemplazo Temporal">Reemplazo Temporal</option>
-                                      </select>
-                                  </div>
+                                      <option value="Nocturno">Nocturno</option>
+                                      <option value="Mixto">Mixto</option>
+                                  </select>
                               </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
+                                  <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}>
+                                      <option value="Activo">Activo</option>
+                                      <option value="De Licencia">De Licencia</option>
+                                      <option value="Reemplazo Temporal">Reemplazo Temporal</option>
+                                  </select>
+                              </div>
+                          </div>
                               <div className="grid grid-cols-2 gap-4">
                                   <div>
                                       <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
@@ -6135,7 +6135,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <p className="text-sm text-slate-400 text-center py-4">No hay documentos subidos aún</p>
                 )}
               </div>
-            </div>
+             </div>
           </div>
         </div>
       )}
