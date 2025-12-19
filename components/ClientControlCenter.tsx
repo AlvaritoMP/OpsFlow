@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Unit, ManagementStaff } from '../types';
-import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Eye } from 'lucide-react';
+import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Eye, X, Image as ImageIcon, UserCheck } from 'lucide-react';
 
 interface ClientControlCenterProps {
   units: Unit[];
@@ -28,6 +28,13 @@ export const ClientControlCenter: React.FC<ClientControlCenterProps> = ({ units,
   
   // Calendar State
   const [currentDate, setCurrentDate] = useState(new Date());
+  
+  // Tooltip state for event details
+  const [hoveredEvent, setHoveredEvent] = useState<GlobalEvent | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  
+  // Modal state for day events
+  const [selectedDayEvents, setSelectedDayEvents] = useState<{ date: string; events: GlobalEvent[] } | null>(null);
 
   // --- Data Aggregation (Read-only) ---
   const allEvents = useMemo(() => {
@@ -136,34 +143,27 @@ export const ClientControlCenter: React.FC<ClientControlCenterProps> = ({ units,
     const daysInMonth = lastDay.getDate();
     const startingDayOfWeek = firstDay.getDay();
 
-    const days = [];
-    // Empty cells for days before month starts
-    for (let i = 0; i < startingDayOfWeek; i++) {
-      days.push(null);
-    }
-    // Days of the month
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(i);
-    }
-    return days;
+    return {
+      days: daysInMonth,
+      firstDay: startingDayOfWeek,
+      year,
+      month
+    };
   };
 
-  const getEventsForDay = (day: number | null) => {
-    if (day === null) return [];
-    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return filteredEvents.filter(e => e.date === dateStr);
-  };
-
-  const navigateMonth = (direction: 'prev' | 'next') => {
+  const changeMonth = (delta: number) => {
     setCurrentDate(prev => {
       const newDate = new Date(prev);
-      if (direction === 'prev') {
-        newDate.setMonth(prev.getMonth() - 1);
-      } else {
-        newDate.setMonth(prev.getMonth() + 1);
-      }
+      newDate.setMonth(prev.getMonth() + delta);
       return newDate;
     });
+  };
+  
+  const getStatusColor = (status?: string) => {
+    if (!status) return 'bg-gray-100 text-gray-600';
+    if (status.includes('Completado') || status.includes('Resuelto')) return 'bg-green-100 text-green-700';
+    if (status.includes('Pendiente') || status.includes('En Progreso')) return 'bg-yellow-100 text-yellow-700';
+    return 'bg-gray-100 text-gray-600';
   };
 
   const getCategoryIcon = (category: string) => {
@@ -378,6 +378,89 @@ export const ClientControlCenter: React.FC<ClientControlCenterProps> = ({ units,
           </div>
         )}
       </div>
+      
+      {/* Tooltip for event details */}
+      {hoveredEvent && (
+        <div 
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 md:p-4 max-w-xs pointer-events-none"
+          style={{
+            left: `${tooltipPosition.x}px`,
+            top: `${tooltipPosition.y - 10}px`,
+            transform: 'translate(-50%, -100%)'
+          }}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+              <h4 className="font-bold text-sm text-slate-800">{hoveredEvent.unitName}</h4>
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${getCategoryColor(hoveredEvent.category)}`}>
+                {hoveredEvent.type}
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 line-clamp-4">{hoveredEvent.description}</p>
+            {hoveredEvent.resourceName && (
+              <p className="text-xs font-semibold text-slate-700">Recurso: {hoveredEvent.resourceName}</p>
+            )}
+            {hoveredEvent.status && (
+              <p className="text-xs text-slate-500">Estado: {hoveredEvent.status}</p>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Modal for day events */}
+      {selectedDayEvents && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 md:p-4" onClick={() => setSelectedDayEvents(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 border-b border-slate-700 rounded-t-xl flex justify-between items-center shrink-0">
+              <div className="flex items-center min-w-0 flex-1">
+                <CalendarIcon className="mr-2 shrink-0" size={16} />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-base md:text-lg truncate">Eventos del {new Date(selectedDayEvents.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h3>
+                  <p className="text-[10px] md:text-xs text-slate-300">{selectedDayEvents.events.length} evento(s)</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedDayEvents(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={18} className="md:w-5 md:h-5" /></button>
+            </div>
+
+            <div className="p-4 md:p-6 overflow-y-auto flex-1">
+              <div className="space-y-3">
+                {selectedDayEvents.events.map(ev => (
+                  <div
+                    key={ev.id}
+                    className={`p-3 md:p-4 rounded-lg border-2 cursor-default transition-all
+                      ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-50 border-red-200' :
+                        ev.category === 'Log' ? 'bg-gray-50 border-gray-200' :
+                        ev.category === 'Maintenance' ? 'bg-orange-50 border-orange-200' :
+                        'bg-blue-50 border-blue-200'
+                      }`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-sm md:text-base text-slate-800 mb-1">{ev.unitName}</h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${getCategoryColor(ev.category)}`}>
+                            {ev.type}
+                          </span>
+                          {ev.status && (
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(ev.status)}`}>
+                              {ev.status}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {ev.type === 'Incidencia' && <AlertTriangle size={20} className="text-red-600 shrink-0" />}
+                    </div>
+                    <p className="text-xs md:text-sm text-slate-600 mb-2 line-clamp-3">{ev.description}</p>
+                    {ev.resourceName && (
+                      <p className="text-xs font-semibold text-slate-700 mb-1">Recurso: {ev.resourceName}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
