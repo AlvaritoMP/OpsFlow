@@ -39,6 +39,9 @@ interface ContractAlert {
 }
 
 export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementStaff, onUpdateUnit, currentUserRole }) => {
+  // Log immediately when component renders
+  console.log('🎯 ControlCenter COMPONENT RENDERED - currentUserRole:', currentUserRole, 'typeof:', typeof currentUserRole, '=== CLIENT:', currentUserRole === 'CLIENT');
+  
   const [filterUnit, setFilterUnit] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -69,7 +72,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   
   // Debug logging - always log to help diagnose
   useEffect(() => {
-    console.log('🔄 ControlCenter RENDER - currentUserRole:', currentUserRole, 'isClient:', isClient, 'typeof:', typeof currentUserRole, 'strict equality:', currentUserRole === 'CLIENT');
+    console.log('🔄 ControlCenter useEffect - currentUserRole:', currentUserRole, 'isClient:', isClient, 'typeof:', typeof currentUserRole, 'strict equality:', currentUserRole === 'CLIENT');
   }, [currentUserRole, isClient]);
   
   // Tooltip state for event details
@@ -452,6 +455,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     
     // Calculate isClientUser once per render to ensure consistency
     const isClientUser = currentUserRole === 'CLIENT';
+    console.log('📅 renderCalendar - currentUserRole:', currentUserRole, 'isClientUser:', isClientUser);
 
     const blanks = Array(firstDay).fill(null);
     const daySlots = Array.from({ length: days }, (_, i) => i + 1);
