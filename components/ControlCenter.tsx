@@ -60,19 +60,15 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   });
   const [newImageUrl, setNewImageUrl] = useState('');
 
-  // Recalculate these values on every render to ensure they update when currentUserRole changes
-  const canEdit = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit'), [currentUserRole]);
-  const canViewControlCenter = useMemo(() => checkPermission(currentUserRole, 'CONTROL_CENTER', 'view'), [currentUserRole]);
-  const isOperationsUser = useMemo(() => currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN', [currentUserRole]);
-  // Calculate isClient directly from currentUserRole to ensure it's always up-to-date
+  // Calculate these values directly from currentUserRole to ensure they're always up-to-date
+  const canEdit = checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit');
+  const canViewControlCenter = checkPermission(currentUserRole, 'CONTROL_CENTER', 'view');
+  const isOperationsUser = currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN';
   const isClient = currentUserRole === 'CLIENT';
   
-  // Force re-render when currentUserRole changes to ensure UI updates correctly
+  // Debug logging
   useEffect(() => {
-    // This effect ensures the component re-renders when currentUserRole changes
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔄 ControlCenter - currentUserRole changed:', currentUserRole, 'isClient:', isClient);
-    }
+    console.log('🔍 ControlCenter - currentUserRole:', currentUserRole, 'isClient:', isClient, 'typeof:', typeof currentUserRole);
   }, [currentUserRole, isClient]);
   
   // Tooltip state for event details
