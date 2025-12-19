@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, UnitStatus, ResourceType } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Building2, Users, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus } from 'lucide-react';
 
 interface DashboardProps {
   units: Unit[];
@@ -9,6 +9,12 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => {
+  // States for new metrics
+  const [workersByShift, setWorkersByShift] = useState({ day: 0, afternoon: 0, night: 0 });
+  const [retenCoverages, setRetenCoverages] = useState(0);
+  const [newWorkersThisMonth, setNewWorkersThisMonth] = useState(0);
+  const [loadingMetrics, setLoadingMetrics] = useState(true);
+
   // Calculate aggregations
   const totalUnits = units.length;
   const activeUnits = units.filter(u => u.status === UnitStatus.ACTIVE).length;
@@ -25,6 +31,100 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       id: u.id
     }));
 
+  // Calculate workers by shift for today
+  useEffect(() => {
+    const loadShiftMetrics = async () => {
+      try {
+        setLoadingMetrics(true);
+        const { supabase } = await import('../services/supabase');
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        
+        // Get all workers with shifts for today
+        const { data: shiftsData, error: shiftsError } = await supabase
+          .from('daily_shifts')
+          .select('type, resource_id')
+          .eq('date', today)
+          .in('type', ['Day', 'Afternoon', 'Night']);
+
+        if (shiftsError) {
+          console.error('Error loading shifts:', shiftsError);
+        } else {
+          // Count unique workers by shift type
+          const dayWorkers = new Set<string>();
+          const afternoonWorkers = new Set<string>();
+          const nightWorkers = new Set<string>();
+
+          shiftsData?.forEach(shift => {
+            if (shift.type === 'Day') {
+              dayWorkers.add(shift.resource_id);
+            } else if (shift.type === 'Afternoon') {
+              afternoonWorkers.add(shift.resource_id);
+            } else if (shift.type === 'Night') {
+              nightWorkers.add(shift.resource_id);
+            }
+          });
+
+          setWorkersByShift({
+            day: dayWorkers.size,
+            afternoon: afternoonWorkers.size,
+            night: nightWorkers.size
+          });
+        }
+      } catch (error) {
+        console.error('Error loading shift metrics:', error);
+      }
+    };
+
+    loadShiftMetrics();
+  }, [units]);
+
+  // Calculate reten coverages (completed assignments)
+  useEffect(() => {
+    const loadRetenMetrics = async () => {
+      try {
+        const { retenesService } = await import('../services/retenesService');
+        const today = new Date();
+        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        
+        const startDate = firstDayOfMonth.toISOString().split('T')[0];
+        const endDate = lastDayOfMonth.toISOString().split('T')[0];
+        
+        const assignments = await retenesService.getAssignmentsByDateRange(startDate, endDate);
+        const completedAssignments = assignments.filter(a => a.status === 'completada');
+        setRetenCoverages(completedAssignments.length);
+      } catch (error) {
+        console.error('Error loading reten metrics:', error);
+      }
+    };
+
+    loadRetenMetrics();
+  }, []);
+
+  // Calculate new workers this month
+  const newWorkersCount = useMemo(() => {
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const firstDayStr = firstDayOfMonth.toISOString().split('T')[0];
+    
+    const newWorkers = units.reduce((count, unit) => {
+      return count + unit.resources.filter(r => {
+        if (r.type !== ResourceType.PERSONNEL || r.archived) return false;
+        if (!r.startDate) return false;
+        // Check if startDate is in current month
+        const startDate = new Date(r.startDate);
+        return startDate >= firstDayOfMonth && startDate <= today;
+      }).length;
+    }, 0);
+    
+    return newWorkers;
+  }, [units]);
+
+  useEffect(() => {
+    setNewWorkersThisMonth(newWorkersCount);
+    setLoadingMetrics(false);
+  }, [newWorkersCount]);
+
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 animate-in fade-in duration-500">
       <header className="mb-4 md:mb-6">
@@ -33,7 +133,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       </header>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">
         <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
           <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
             <Building2 size={20} className="md:w-6 md:h-6" />
@@ -61,13 +161,60 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{totalWorkers}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 sm:col-span-2 md:col-span-1">
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
           <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
             <AlertTriangle size={20} className="md:w-6 md:h-6" />
           </div>
           <div className="min-w-0">
             <p className="text-xs md:text-sm font-medium text-slate-500">Con Incidencias</p>
             <p className="text-xl md:text-2xl font-bold text-slate-800">{issueUnits}</p>
+          </div>
+        </div>
+        
+        {/* New Cards */}
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-yellow-100 text-yellow-600 rounded-lg shrink-0">
+            <Sun size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Día</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.day}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-orange-100 text-orange-600 rounded-lg shrink-0">
+            <Clock size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Tarde</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.afternoon}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-indigo-100 text-indigo-600 rounded-lg shrink-0">
+            <Moon size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Noche</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.night}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-teal-100 text-teal-600 rounded-lg shrink-0">
+            <Shield size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Coberturas Retenes</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : retenCoverages}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-pink-100 text-pink-600 rounded-lg shrink-0">
+            <UserPlus size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Nuevos este Mes</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{newWorkersThisMonth}</p>
           </div>
         </div>
       </div>
