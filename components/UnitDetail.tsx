@@ -2683,7 +2683,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     const currentZones = zonesToUse.filter(z => !activeLayerId || z.layout?.layerId === activeLayerId || (!z.layout?.layerId && activeLayers.length > 0 && activeLayerId === activeLayers[0].id));
 
     return (
-    <div className="flex flex-col h-full animate-in fade-in duration-300 pb-10">
+    <div className="flex flex-col animate-in fade-in duration-300 pb-10">
        
        {/* 1. TOP SUMMARY HEADER */}
        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -2778,26 +2778,52 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            </div>
        </div>
 
-       <div className="flex flex-col lg:flex-row gap-6 min-h-[500px] h-[500px] md:h-[600px] lg:h-[600px]">
+       <div className="flex flex-col lg:flex-row gap-6 w-full">
            {/* MAP CANVAS */}
            <div 
-              className="flex-1 bg-slate-900 rounded-xl relative overflow-hidden shadow-inner border border-slate-700 select-none flex flex-col min-h-0"
+              className="flex-1 bg-slate-900 rounded-xl relative shadow-inner border-2 border-slate-700 select-none flex flex-col overflow-visible"
+              style={{ 
+                minHeight: '400px', 
+                height: '400px',
+                display: 'flex',
+                flexDirection: 'column'
+              }}
            >
               {/* Scrollable Container */}
               <div 
                   ref={gridRef}
-                  className="flex-1 overflow-auto relative custom-scrollbar bg-slate-900 min-h-0"
+                  className="flex-1 overflow-auto relative custom-scrollbar bg-slate-900"
+                  style={{ 
+                    minHeight: '350px',
+                    position: 'relative',
+                    width: '100%',
+                    height: '100%',
+                    flex: '1 1 auto'
+                  }}
                   onMouseMove={handleGridMouseMove}
                   onMouseUp={handleGridMouseUp}
                   onMouseLeave={handleGridMouseUp}
               >
                   {/* Grid Background Pattern */}
-                  <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '8.33% 8.33%' }}></div>
+                  <div 
+                    className="absolute inset-0 opacity-20 pointer-events-none" 
+                    style={{ 
+                      backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', 
+                      backgroundSize: '8.33% 8.33%',
+                      zIndex: 1
+                    }}
+                  ></div>
                   
                   {/* Grid Container (12 cols x 12 rows fixed per page) */}
                   <div 
-                    className="grid grid-cols-12 gap-2 w-full p-4 md:p-8 min-h-[400px] md:min-h-[600px] min-w-full md:min-w-[600px]"
-                    style={{ gridTemplateRows: `repeat(${gridRows}, minmax(60px, 1fr))` }} // Dynamic Rows
+                    className="grid grid-cols-12 gap-2 w-full p-4 md:p-8 relative"
+                    style={{ 
+                      gridTemplateRows: `repeat(${gridRows}, minmax(60px, 1fr))`,
+                      minHeight: '400px',
+                      minWidth: '100%',
+                      position: 'relative',
+                      zIndex: 2
+                    }}
                   >
                       {currentZones.map(zone => {
                           // Count resources in this zone (checking inclusion in array)
@@ -2892,7 +2918,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            </div>
 
            {/* DYNAMIC SIDEBAR */}
-           <div className="w-full lg:w-96 flex flex-col gap-6 h-full min-h-0">
+           <div className="w-full lg:w-96 flex flex-col gap-6">
                
                {/* 1. Edit Zone Details Panel */}
                {selectedZone ? (
