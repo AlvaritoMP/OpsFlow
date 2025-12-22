@@ -2778,15 +2778,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            </div>
        </div>
 
-       <div className="flex flex-col lg:flex-row gap-6 h-[700px] lg:h-[600px]">
+       <div className="flex flex-col lg:flex-row gap-6 min-h-[500px] h-[500px] md:h-[600px] lg:h-[600px]">
            {/* MAP CANVAS */}
            <div 
-              className="flex-1 bg-slate-900 rounded-xl relative overflow-hidden shadow-inner border border-slate-700 select-none flex flex-col"
+              className="flex-1 bg-slate-900 rounded-xl relative overflow-hidden shadow-inner border border-slate-700 select-none flex flex-col min-h-0"
            >
               {/* Scrollable Container */}
               <div 
                   ref={gridRef}
-                  className="flex-1 overflow-auto relative custom-scrollbar bg-slate-900"
+                  className="flex-1 overflow-auto relative custom-scrollbar bg-slate-900 min-h-0"
                   onMouseMove={handleGridMouseMove}
                   onMouseUp={handleGridMouseUp}
                   onMouseLeave={handleGridMouseUp}
@@ -2796,7 +2796,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   
                   {/* Grid Container (12 cols x 12 rows fixed per page) */}
                   <div 
-                    className="grid grid-cols-12 gap-2 w-full p-8 min-h-[600px] min-w-[600px]"
+                    className="grid grid-cols-12 gap-2 w-full p-4 md:p-8 min-h-[400px] md:min-h-[600px] min-w-full md:min-w-[600px]"
                     style={{ gridTemplateRows: `repeat(${gridRows}, minmax(60px, 1fr))` }} // Dynamic Rows
                   >
                       {currentZones.map(zone => {
@@ -2892,7 +2892,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            </div>
 
            {/* DYNAMIC SIDEBAR */}
-           <div className="w-full lg:w-96 flex flex-col gap-6 h-full">
+           <div className="w-full lg:w-96 flex flex-col gap-6 h-full min-h-0">
                
                {/* 1. Edit Zone Details Panel */}
                {selectedZone ? (
