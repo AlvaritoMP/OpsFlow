@@ -2834,7 +2834,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   
                   {/* Grid Container (12 cols x 12 rows fixed per page) */}
                   <div 
-                    className="grid grid-cols-12 gap-2 w-full p-2 md:p-8 relative"
+                    className={`grid grid-cols-12 w-full relative ${
+                      isMobile ? 'gap-0.5 p-1' : 'gap-2 p-2 md:p-8'
+                    }`}
                     style={{ 
                       gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`,
                       // En móvil: altura 100% para llenar el contenedor cuadrado y mantener proporción
@@ -2877,48 +2879,60 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     }}
                               >
                                   {/* Zone Header */}
-                                  <div className="flex justify-between items-center p-3 bg-white/20 backdrop-blur-sm">
-                                      <span className="font-bold text-xs md:text-sm leading-tight uppercase tracking-wide truncate">{zone.name}</span>
-                                      {isEditingBlueprint && <Move size={12} className="opacity-50"/>}
+                                  <div className={`flex justify-between items-center bg-white/20 backdrop-blur-sm ${isMobile ? 'p-1' : 'p-3'}`}>
+                                      <span className={`font-bold leading-tight uppercase tracking-wide truncate ${
+                                        isMobile ? 'text-[8px]' : 'text-xs md:text-sm'
+                                      }`}>{zone.name}</span>
+                                      {isEditingBlueprint && <Move size={isMobile ? 8 : 12} className="opacity-50"/>}
                                   </div>
                                   
                                   {/* Zone Content (Icons) */}
-                                  <div className="flex-1 p-2 flex flex-col justify-center items-center gap-2">
-                                      <div className="flex gap-4 items-center justify-center">
+                                  <div className={`flex-1 flex flex-col justify-center items-center ${isMobile ? 'p-0.5 gap-0.5' : 'p-2 gap-2'}`}>
+                                      <div className={`flex items-center justify-center ${isMobile ? 'gap-1' : 'gap-4'}`}>
                                           {zP > 0 && (
                                               <div className="flex flex-col items-center">
-                                                  <Users size={24} className="mb-0.5 opacity-80" />
-                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zP}</span>
+                                                  <Users size={isMobile ? 12 : 24} className={`opacity-80 ${isMobile ? 'mb-0' : 'mb-0.5'}`} />
+                                                  <span className={`font-bold bg-white/40 rounded-full ${
+                                                    isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
+                                                  }`}>{zP}</span>
                                               </div>
                                           )}
                                           {zE > 0 && (
                                               <div className="flex flex-col items-center">
-                                                  <Truck size={24} className="mb-0.5 opacity-80" />
-                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zE}</span>
+                                                  <Truck size={isMobile ? 12 : 24} className={`opacity-80 ${isMobile ? 'mb-0' : 'mb-0.5'}`} />
+                                                  <span className={`font-bold bg-white/40 rounded-full ${
+                                                    isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
+                                                  }`}>{zE}</span>
                                               </div>
                                           )}
                                             {zM > 0 && (
                                               <div className="flex flex-col items-center">
-                                                  <Package size={24} className="mb-0.5 opacity-80" />
-                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zM}</span>
+                                                  <Package size={isMobile ? 12 : 24} className={`opacity-80 ${isMobile ? 'mb-0' : 'mb-0.5'}`} />
+                                                  <span className={`font-bold bg-white/40 rounded-full ${
+                                                    isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
+                                                  }`}>{zM}</span>
                                               </div>
                                           )}
                                       </div>
                                   </div>
 
                                   {/* Zone Footer */}
-                                  <div className="p-2 flex justify-between items-end">
-                                      <div className="text-[10px] bg-white/50 px-2 py-0.5 rounded-full font-mono font-medium backdrop-blur-sm shadow-sm">
+                                  <div className={`flex justify-between items-end ${isMobile ? 'p-0.5' : 'p-2'}`}>
+                                      <div className={`bg-white/50 rounded-full font-mono font-medium backdrop-blur-sm shadow-sm ${
+                                        isMobile ? 'text-[7px] px-1 py-0' : 'text-[10px] px-2 py-0.5'
+                                      }`}>
                                           {zone.area || 0} m²
                                       </div>
                                       
                                       {/* Resize Handle (Only visible in edit mode) */}
                                       {isEditingBlueprint && (
                                           <div 
-                                              className="w-6 h-6 bg-white rounded-full shadow-md flex items-center justify-center cursor-se-resize hover:scale-110 transition-transform absolute bottom-1 right-1"
+                                              className={`bg-white rounded-full shadow-md flex items-center justify-center cursor-se-resize hover:scale-110 transition-transform absolute ${
+                                                isMobile ? 'w-4 h-4 bottom-0.5 right-0.5' : 'w-6 h-6 bottom-1 right-1'
+                                              }`}
                                               onMouseDown={(e) => handleGridMouseDown(e, zone, 'resize')}
                                           >
-                                              <Maximize2 size={12} className="text-slate-600"/>
+                                              <Maximize2 size={isMobile ? 8 : 12} className="text-slate-600"/>
                                           </div>
                                       )}
                                   </div>
