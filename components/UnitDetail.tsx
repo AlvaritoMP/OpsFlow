@@ -2657,6 +2657,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
 
+  // Hook para detectar si estamos en móvil
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // --- BLUEPRINT RENDERER ---
   const renderBlueprint = () => {
     // Usar editForm.zones si está disponible (zonas agregadas localmente), sino usar unit.zones
@@ -2781,10 +2793,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
        <div className="flex flex-col lg:flex-row gap-6 w-full">
            {/* MAP CANVAS */}
            <div 
-              className="flex-1 bg-slate-900 rounded-xl relative shadow-inner border-2 border-slate-700 select-none flex flex-col overflow-visible"
+              className={`flex-1 bg-slate-900 rounded-xl relative shadow-inner border-2 border-slate-700 select-none flex flex-col overflow-hidden ${
+                isMobile ? 'aspect-square' : ''
+              }`}
               style={{ 
-                minHeight: '400px', 
-                height: '400px',
+                // En móvil: mantener relación de aspecto 1:1 (cuadrado) para mostrar miniatura proporcional
+                // En desktop: altura flexible
+                width: '100%',
+                minHeight: isMobile ? 'auto' : '600px',
+                height: isMobile ? 'auto' : '600px',
+                maxHeight: isMobile ? '100vw' : 'none',
                 display: 'flex',
                 flexDirection: 'column'
               }}
@@ -2794,7 +2812,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   ref={gridRef}
                   className="flex-1 overflow-auto relative custom-scrollbar bg-slate-900"
                   style={{ 
-                    minHeight: '350px',
+                    minHeight: '0',
                     position: 'relative',
                     width: '100%',
                     height: '100%',
@@ -2816,13 +2834,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   
                   {/* Grid Container (12 cols x 12 rows fixed per page) */}
                   <div 
-                    className="grid grid-cols-12 gap-2 w-full p-4 md:p-8 relative"
+                    className="grid grid-cols-12 gap-2 w-full p-2 md:p-8 relative"
                     style={{ 
-                      gridTemplateRows: `repeat(${gridRows}, minmax(60px, 1fr))`,
-                      minHeight: '400px',
+                      gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`,
+                      // En móvil: altura 100% para llenar el contenedor cuadrado y mantener proporción
+                      // En desktop: altura mínima fija
+                      height: isMobile ? '100%' : 'auto',
+                      minHeight: isMobile ? '100%' : '600px',
                       minWidth: '100%',
                       position: 'relative',
-                      zIndex: 2
+                      zIndex: 2,
+                      // Asegurar que el grid mantenga la proporción en móvil
+                      aspectRatio: isMobile ? '1 / 1' : undefined
                     }}
                   >
                       {currentZones.map(zone => {
