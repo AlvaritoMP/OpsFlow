@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck, Moon } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck, Moon, Search } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -38,6 +38,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
   
   // Settings accordion state
   const [settingsSections, setSettingsSections] = useState<Record<string, boolean>>({
@@ -988,20 +989,35 @@ const App: React.FC = () => {
   const visibleUnits = React.useMemo(() => {
       if (!currentUser) return [];
       
-      if (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') return units;
+      let filtered: Unit[];
       
-      // If user has linked clients, filter by them
-      if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
-          return units.filter(u => currentUser.linkedClientNames?.includes(u.clientName));
+      // First, filter by user permissions
+      if (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') {
+          filtered = units;
+      } else if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
+          // If user has linked clients, filter by them
+          filtered = units.filter(u => currentUser.linkedClientNames?.includes(u.clientName));
+      } else {
+          // If no linked clients (and not admin), behavior depends on role.
+          // Usually Operations sees ALL if not restricted.
+          // Client sees NONE if not linked.
+          if (currentUser.role === 'CLIENT') return [];
+          filtered = units;
       }
       
-      // If no linked clients (and not admin), behavior depends on role.
-      // Usually Operations sees ALL if not restricted.
-      // Client sees NONE if not linked.
-      if (currentUser.role === 'CLIENT') return [];
+      // Then, apply search filter if there's a query
+      if (unitSearchQuery.trim()) {
+          const query = unitSearchQuery.toLowerCase().trim();
+          filtered = filtered.filter(unit => 
+              unit.name.toLowerCase().includes(query) ||
+              unit.clientName?.toLowerCase().includes(query) ||
+              unit.address?.toLowerCase().includes(query) ||
+              unit.status?.toLowerCase().includes(query)
+          );
+      }
       
-      return units;
-  }, [units, currentUser]);
+      return filtered;
+  }, [units, currentUser, unitSearchQuery]);
 
   // Extract unique client names for the dropdown
   const availableClients = React.useMemo(() => {
@@ -1147,14 +1163,41 @@ const App: React.FC = () => {
 
       return (
         <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500">
-          <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-slate-800">Gestión de Unidades</h1>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">Gestión de Unidades</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                {visibleUnits.length} {visibleUnits.length === 1 ? 'unidad encontrada' : 'unidades encontradas'}
+                {unitSearchQuery && ` para "${unitSearchQuery}"`}
+              </p>
+            </div>
             {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
               <button 
                 onClick={() => setShowAddUnitModal(true)}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 transition-colors shadow-sm"
               >
                 <Plus size={20} className="mr-2" /> Nueva Unidad
+              </button>
+            )}
+          </div>
+          
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+            <input
+              type="text"
+              placeholder="Buscar unidades por nombre, cliente, dirección o estado..."
+              value={unitSearchQuery}
+              onChange={(e) => setUnitSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+            />
+            {unitSearchQuery && (
+              <button
+                onClick={() => setUnitSearchQuery('')}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                title="Limpiar búsqueda"
+              >
+                <X size={18} />
               </button>
             )}
           </div>
@@ -1285,7 +1328,22 @@ const App: React.FC = () => {
             {visibleUnits.length === 0 && (
                 <div className="col-span-1 md:col-span-3 p-12 text-center text-slate-400 bg-white rounded-xl border border-dashed border-slate-300">
                     <Building size={48} className="mx-auto mb-4 opacity-20"/>
-                    <p>No se encontraron unidades asignadas a su cuenta.</p>
+                    <h3 className="text-lg font-semibold text-slate-600 mb-2">
+                      {unitSearchQuery ? 'No se encontraron unidades' : 'No hay unidades'}
+                    </h3>
+                    <p>
+                      {unitSearchQuery 
+                        ? `No hay unidades que coincidan con "${unitSearchQuery}". Intenta con otros términos.`
+                        : 'No se encontraron unidades asignadas a su cuenta.'}
+                    </p>
+                    {unitSearchQuery && (
+                      <button
+                        onClick={() => setUnitSearchQuery('')}
+                        className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium underline"
+                      >
+                        Limpiar búsqueda
+                      </button>
+                    )}
                 </div>
             )}
           </div>
