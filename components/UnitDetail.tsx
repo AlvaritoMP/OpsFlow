@@ -221,6 +221,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [resolveImageUrl, setResolveImageUrl] = useState('');
   const [resolveStatus, setResolveStatus] = useState<'PENDING' | 'IN_PROGRESS' | 'RESOLVED'>('PENDING');
   const [resolveResponse, setResolveResponse] = useState<string>('');
+  const [resolveTitle, setResolveTitle] = useState<string>('');
   
   // Inline Comments State (Map requestId -> draft text)
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -877,7 +878,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
   };
 
-  const handleUpdateRequestStatus = async (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[]) => {
+  const handleUpdateRequestStatus = async (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[], title?: string) => {
       if(!onUpdate || !editingRequest) return;
       
       setIsSavingRequest(true);
@@ -896,6 +897,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         // Actualizar el request en la base de datos
         await requestsService.update(editingRequest.id, {
           status,
+          title: title !== undefined ? (title.trim() || undefined) : editingRequest.title,
           response: response || editingRequest.response,
           responseAttachments: attachments || editingRequest.responseAttachments,
           resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : editingRequest.resolvedDate
@@ -916,6 +918,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         }
         setResolveAttachments([]);
         setResolveResponse('');
+        setResolveTitle('');
         
         const statusMessages = {
           'PENDING': 'Requerimiento marcado como pendiente',
@@ -2618,6 +2621,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 setResolveAttachments(req.responseAttachments || []);
                                                 setResolveStatus(req.status);
                                                 setResolveResponse(req.response || '');
+                                                setResolveTitle(req.title || '');
                                             }} 
                                             className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200"
                                             title="Gestionar Estado / Resolver"
@@ -3383,7 +3387,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     onClick={() => setIsEditing(!isEditing)}
                     className="flex items-center bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                   >
-                    {isEditing ? <><Save size={16} className="mr-1.5"/> Guardar</> : <><Edit2 size={16} className="mr-1.5"/> Editar Información</>}
+                    <Edit2 size={16} className="mr-1.5"/> {isEditing ? 'Cancelar Edición' : 'Editar Información'}
                   </button>
                 )}
              </div>
@@ -4864,6 +4868,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               {userRole !== 'CLIENT' ? (
                                   <div className="space-y-4">
                                       <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Título (Opcional)</label>
+                                          <input 
+                                            type="text"
+                                            className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Agregar o editar título del requerimiento"
+                                            value={resolveTitle}
+                                            onChange={(e) => setResolveTitle(e.target.value)}
+                                          />
+                                      </div>
+                                      <div>
                                           <label className="block text-sm font-medium text-slate-700 mb-1">Nuevo Estado</label>
                                           <select 
                                             className="w-full border border-slate-300 rounded-lg p-2 outline-none"
@@ -4920,7 +4934,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                                       <button 
                                         onClick={() => {
-                                            handleUpdateRequestStatus(resolveStatus, resolveResponse, resolveAttachments);
+                                            handleUpdateRequestStatus(resolveStatus, resolveResponse, resolveAttachments, resolveTitle);
                                         }}
                                         disabled={isSavingRequest}
                                         className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
