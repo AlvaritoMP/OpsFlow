@@ -219,6 +219,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [editingRequest, setEditingRequest] = useState<ClientRequest | null>(null); // For tracking/discussion
   const [resolveAttachments, setResolveAttachments] = useState<string[]>([]);
   const [resolveImageUrl, setResolveImageUrl] = useState('');
+  const [resolveStatus, setResolveStatus] = useState<'PENDING' | 'IN_PROGRESS' | 'RESOLVED'>('PENDING');
+  const [resolveResponse, setResolveResponse] = useState<string>('');
   
   // Inline Comments State (Map requestId -> draft text)
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -913,6 +915,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           setEditingRequest(null);
         }
         setResolveAttachments([]);
+        setResolveResponse('');
         
         const statusMessages = {
           'PENDING': 'Requerimiento marcado como pendiente',
@@ -2613,6 +2616,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             onClick={() => {
                                                 setEditingRequest(req);
                                                 setResolveAttachments(req.responseAttachments || []);
+                                                setResolveStatus(req.status);
+                                                setResolveResponse(req.response || '');
                                             }} 
                                             className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200"
                                             title="Gestionar Estado / Resolver"
@@ -4862,8 +4867,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           <label className="block text-sm font-medium text-slate-700 mb-1">Nuevo Estado</label>
                                           <select 
                                             className="w-full border border-slate-300 rounded-lg p-2 outline-none"
-                                            defaultValue={editingRequest.status}
-                                            id="resolve-status"
+                                            value={resolveStatus}
+                                            onChange={(e) => setResolveStatus(e.target.value as 'PENDING' | 'IN_PROGRESS' | 'RESOLVED')}
                                           >
                                               <option value="PENDING">Pendiente</option>
                                               <option value="IN_PROGRESS">En Proceso</option>
@@ -4876,8 +4881,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           <textarea 
                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none h-20" 
                                              placeholder="Indique las acciones tomadas..."
-                                             defaultValue={editingRequest.response || ''}
-                                             id="resolve-response"
+                                             value={resolveResponse}
+                                             onChange={(e) => setResolveResponse(e.target.value)}
                                           />
                                       </div>
 
@@ -4915,13 +4920,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                                       <button 
                                         onClick={() => {
-                                            const status = (document.getElementById('resolve-status') as HTMLSelectElement).value as any;
-                                            const response = (document.getElementById('resolve-response') as HTMLTextAreaElement).value;
-                                            handleUpdateRequestStatus(status, response, resolveAttachments);
-                                        }} 
-                                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                                            handleUpdateRequestStatus(resolveStatus, resolveResponse, resolveAttachments);
+                                        }}
+                                        disabled={isSavingRequest}
+                                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                       >
-                                          Actualizar Estado
+                                          {isSavingRequest ? (
+                                            <>
+                                              <RefreshCw size={16} className="animate-spin" />
+                                              <span>Guardando...</span>
+                                            </>
+                                          ) : (
+                                            <span>Actualizar Estado</span>
+                                          )}
                                       </button>
                                   </div>
                               ) : (
