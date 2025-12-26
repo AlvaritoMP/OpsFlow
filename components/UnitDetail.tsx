@@ -5,6 +5,7 @@ import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
+import { requestsService } from '../services/requestsService';
 import { SafeImage } from './SafeImage';
 
 interface UnitDetailProps {
@@ -125,6 +126,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [isSavingWorker, setIsSavingWorker] = useState(false);
   const [isUpdatingResource, setIsUpdatingResource] = useState(false);
   const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
+  const [isSavingRequest, setIsSavingRequest] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   
   // Roster State - Estado local optimizado para actualizaciones rápidas
@@ -822,12 +824,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return;
       }
       
-      setIsSavingWorker(true);
+      setIsSavingRequest(true);
       setNotification({ type: 'info', message: 'Guardando requerimiento...' });
       
       try {
-      const newRequest: ClientRequest = {
-          id: `req-${Date.now()}`,
+        // Crear el request en la base de datos
+        const savedRequest = await requestsService.create({
           date: new Date().toISOString().split('T')[0],
           category: newRequestForm.category as any,
           priority: newRequestForm.priority as any,
@@ -837,13 +839,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           relatedResourceId: newRequestForm.relatedResourceId || undefined,
           attachments: newRequestImages,
           comments: []
-      };
+        }, unit.id);
 
-      const updatedRequests = [...(unit.requests || []), newRequest];
-      onUpdate({ ...unit, requests: updatedRequests });
-      setShowRequestModal(false);
-      setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
-      setNewRequestImages([]);
+        // Recargar todos los requests desde la BD para asegurar consistencia
+        const allRequests = await requestsService.getByUnitId(unit.id);
+        
+        // Actualizar la unidad con los requests recargados
+        onUpdate({ ...unit, requests: allRequests });
+        
+        // Limpiar el formulario y cerrar el modal
+        setShowRequestModal(false);
+        setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
+        setNewRequestImages([]);
         
         setNotification({ type: 'success', message: 'Requerimiento guardado correctamente' });
         setTimeout(() => setNotification(null), 3000);
@@ -852,32 +859,39 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         setNotification({ type: 'error', message: 'Error al guardar el requerimiento. Por favor, intente nuevamente.' });
         setTimeout(() => setNotification(null), 5000);
       } finally {
-        setIsSavingWorker(false);
+        setIsSavingRequest(false);
       }
   };
 
   const handleUpdateRequestStatus = async (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[]) => {
       if(!onUpdate || !editingRequest) return;
       
-      setIsSavingWorker(true);
+      setIsSavingRequest(true);
       setNotification({ type: 'info', message: 'Guardando cambios...' });
       
       try {
-      const updatedRequests = (unit.requests || []).map(req => {
-          if (req.id === editingRequest.id) {
-              return { 
-                  ...req, 
-                  status, 
-                  response: response || req.response,
-                  responseAttachments: attachments || req.responseAttachments,
-                  resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : req.resolvedDate
-              };
-          }
-          return req;
-      });
-      onUpdate({ ...unit, requests: updatedRequests });
-      setEditingRequest(null);
-      setResolveAttachments([]);
+        // Actualizar el request en la base de datos
+        await requestsService.update(editingRequest.id, {
+          status,
+          response: response || editingRequest.response,
+          responseAttachments: attachments || editingRequest.responseAttachments,
+          resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : editingRequest.resolvedDate
+        });
+
+        // Recargar todos los requests desde la BD para asegurar consistencia
+        const allRequests = await requestsService.getByUnitId(unit.id);
+        
+        // Actualizar la unidad con los requests recargados
+        onUpdate({ ...unit, requests: allRequests });
+        
+        // Actualizar el request en edición con los datos recargados
+        const updatedRequest = allRequests.find(r => r.id === editingRequest.id);
+        if (updatedRequest) {
+          setEditingRequest(updatedRequest);
+        } else {
+          setEditingRequest(null);
+        }
+        setResolveAttachments([]);
         
         const statusMessages = {
           'PENDING': 'Requerimiento marcado como pendiente',
@@ -891,7 +905,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         setNotification({ type: 'error', message: 'Error al actualizar el requerimiento. Por favor, intente nuevamente.' });
         setTimeout(() => setNotification(null), 5000);
       } finally {
-        setIsSavingWorker(false);
+        setIsSavingRequest(false);
       }
   };
   
@@ -914,27 +928,35 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // INLINE COMMENTS HANDLER
-  const handleInlineCommentSubmit = (reqId: string) => {
+  const handleInlineCommentSubmit = async (reqId: string) => {
       const text = commentDrafts[reqId];
       if (!onUpdate || !text || !text.trim()) return;
 
-      const newComment = {
+      try {
+        const newComment = {
           id: `c-${Date.now()}`,
           author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
           role: userRole,
           date: new Date().toISOString(),
           text: text
-      };
+        };
 
-      const updatedRequests = (unit.requests || []).map(req => {
-          if (req.id === reqId) {
-              return { ...req, comments: [...(req.comments || []), newComment] };
-          }
-          return req;
-      });
+        // Guardar el comentario en la base de datos
+        await requestsService.addComment(reqId, newComment);
 
-      onUpdate({ ...unit, requests: updatedRequests });
-      setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
+        // Recargar todos los requests desde la BD para asegurar consistencia
+        const allRequests = await requestsService.getByUnitId(unit.id);
+        
+        // Actualizar la unidad con los requests recargados
+        onUpdate({ ...unit, requests: allRequests });
+        
+        // Limpiar el draft del comentario
+        setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
+      } catch (error) {
+        console.error('Error al agregar comentario:', error);
+        setNotification({ type: 'error', message: 'Error al agregar el comentario. Por favor, intente nuevamente.' });
+        setTimeout(() => setNotification(null), 3000);
+      }
   };
 
 
@@ -4688,10 +4710,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                       <button 
                         onClick={handleCreateRequest} 
-                        disabled={!newRequestForm.description}
-                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50"
+                        disabled={!newRequestForm.description.trim() || isSavingRequest}
+                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
                       >
-                          Enviar Solicitud
+                          {isSavingRequest ? (
+                            <>
+                              <RefreshCw size={16} className="animate-spin" />
+                              <span>Guardando...</span>
+                            </>
+                          ) : (
+                            <span>Enviar Solicitud</span>
+                          )}
                       </button>
                   </div>
               </div>

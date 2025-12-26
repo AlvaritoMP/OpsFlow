@@ -24,7 +24,7 @@ import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
 import { Login } from './components/Login';
 import { authService } from './services/authService';
-import { LogOut, FileText } from 'lucide-react';
+import { LogOut, FileText, RefreshCw } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
 
@@ -67,6 +67,7 @@ const App: React.FC = () => {
   // New Unit Images State
   const [newUnitImages, setNewUnitImages] = useState<string[]>([]);
   const [newUnitImageUrl, setNewUnitImageUrl] = useState('');
+  const [isCreatingUnit, setIsCreatingUnit] = useState(false);
 
   // User Management State
   const [showUserModal, setShowUserModal] = useState(false);
@@ -393,6 +394,8 @@ const App: React.FC = () => {
   const handleAddUnit = async () => {
     if (!newUnitForm.name || !newUnitForm.clientName) return;
 
+    setIsCreatingUnit(true);
+    
     try {
       // Subir imágenes blob a Supabase Storage antes de crear la unidad
       const uploadedImages: string[] = [];
@@ -439,14 +442,23 @@ const App: React.FC = () => {
         complianceHistory: [{ month: 'Actual', score: 100 }] // Default start
       };
 
+      // Crear la unidad en la base de datos
       await createUnit(newUnitData);
+      
+      // Recargar todas las unidades desde la BD para asegurar consistencia
+      await loadUnits();
+      
+      // Limpiar el formulario y cerrar el modal
       setShowAddUnitModal(false);
       setNewUnitForm({ name: '', clientName: '', address: '', status: UnitStatus.ACTIVE });
       setNewUnitImages([]);
       setNewUnitImageUrl('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al crear unidad:', error);
-      alert('Error al crear la unidad. Por favor, intente nuevamente.');
+      const errorMessage = error?.message || 'Error al crear la unidad. Por favor, intente nuevamente.';
+      alert(errorMessage);
+    } finally {
+      setIsCreatingUnit(false);
     }
   };
 
@@ -1355,10 +1367,17 @@ const App: React.FC = () => {
 
                     <button 
                       onClick={handleAddUnit} 
-                      disabled={!newUnitForm.name || !newUnitForm.clientName}
-                      className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                      disabled={!newUnitForm.name || !newUnitForm.clientName || isCreatingUnit}
+                      className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center justify-center gap-2"
                     >
-                      Crear Unidad
+                      {isCreatingUnit ? (
+                        <>
+                          <RefreshCw size={16} className="animate-spin" />
+                          <span>Creando unidad...</span>
+                        </>
+                      ) : (
+                        <span>Crear Unidad</span>
+                      )}
                     </button>
                 </div>
               </div>
