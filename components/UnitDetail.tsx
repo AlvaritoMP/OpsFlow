@@ -1979,12 +1979,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setIsUpdatingResource(true);
     try {
       const { resourcesService } = await import('../services/resourcesService');
+      
+      // Guardar en la BD
       await resourcesService.update(editingResource.id, editingResource);
       
-      // Actualizar solo el recurso localmente para mantener el tab activo
-    const updatedResources = unit.resources.map(r => r.id === editingResource.id ? editingResource : r);
+      // Recargar el recurso desde la BD para asegurar sincronización completa
+      const updatedResourceFromDB = await resourcesService.getById(editingResource.id);
+      
+      if (!updatedResourceFromDB) {
+        throw new Error('No se pudo recargar el recurso actualizado');
+      }
+      
+      // Actualizar solo el recurso localmente con los datos de la BD
+      const updatedResources = unit.resources.map(r => 
+        r.id === editingResource.id ? updatedResourceFromDB : r
+      );
+      
       const currentTab = activeTabRef.current; // Guardar el tab actual
-    onUpdate({ ...unit, resources: updatedResources });
+      onUpdate({ ...unit, resources: updatedResources });
       
       // Asegurar que el tab se mantenga
       setTimeout(() => {
@@ -1994,12 +2006,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }, 100);
       
       // Cerrar modal y mostrar notificación
-    setEditingResource(null);
-      setNotification({ type: 'success', message: 'Trabajador actualizado correctamente' });
+      setEditingResource(null);
+      setNotification({ type: 'success', message: 'Cambios guardados correctamente' });
       setTimeout(() => setNotification(null), 3000);
-      
-      // No recargar automáticamente - los cambios ya se guardaron en la BD
-      // La recarga se hace cuando el usuario navega o cuando se guarda explícitamente
     } catch (error) {
       console.error('Error al actualizar trabajador:', error);
       setNotification({ type: 'error', message: 'Error al actualizar el trabajador. Por favor, intente nuevamente.' });

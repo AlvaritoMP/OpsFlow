@@ -269,6 +269,26 @@ const App: React.FC = () => {
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
+  const handleDeleteUnit = async (unitId: string, unitName: string) => {
+    if (!confirm(`¿Está seguro de eliminar la unidad "${unitName}"?\n\nEsta acción no se puede deshacer y eliminará todos los datos asociados (personal, equipos, eventos, documentos, etc.).`)) {
+      return;
+    }
+
+    try {
+      await deleteUnit(unitId);
+      // Si la unidad eliminada estaba seleccionada, volver a la lista
+      if (selectedUnitId === unitId) {
+        setSelectedUnitId(null);
+      }
+      // Recargar unidades para actualizar la lista
+      await loadUnits();
+      alert(`✅ Unidad "${unitName}" eliminada correctamente`);
+    } catch (error: any) {
+      console.error('Error al eliminar unidad:', error);
+      alert(`Error al eliminar la unidad: ${error.message || 'Error desconocido'}`);
+    }
+  };
+
   const handleUpdateUnit = async (updatedUnit: Unit) => {
     try {
       // Guardar en la base de datos
@@ -1211,8 +1231,7 @@ const App: React.FC = () => {
               return (
                 <div 
                   key={unit.id} 
-                  onClick={() => handleSelectUnit(unit.id)}
-                  className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all cursor-pointer group overflow-hidden relative ${
+                  className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all group overflow-hidden relative ${
                     pendingRequestsCount > 0 ? 'ring-2 ring-orange-500 shadow-md' : 
                     (() => {
                       // Check for contract alerts (workers with 3+ days in training)
@@ -1291,7 +1310,26 @@ const App: React.FC = () => {
                   </div>
 
                   <div className="p-5">
-                    <h3 className="font-bold text-lg text-slate-800 mb-1">{unit.name}</h3>
+                    <div className="flex justify-between items-start mb-1">
+                      <h3 
+                        className="font-bold text-lg text-slate-800 cursor-pointer hover:text-blue-600 transition-colors flex-1"
+                        onClick={() => handleSelectUnit(unit.id)}
+                      >
+                        {unit.name}
+                      </h3>
+                      {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteUnit(unit.id, unit.name);
+                          }}
+                          className="text-red-400 hover:text-red-600 p-1.5 rounded hover:bg-red-50 transition-colors ml-2"
+                          title="Eliminar unidad"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
                     <p className="text-sm text-slate-500 mb-3">{unit.clientName}</p>
                     
                     <div className="flex items-center text-slate-500 text-sm mb-4">
