@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, Resource, ResourceType, RequiredPosition } from '../types';
 import { positionsService } from '../services/positionsService';
 import { Position } from '../types';
-import { Users, AlertCircle, CheckCircle, XCircle, Briefcase, Building } from 'lucide-react';
+import { Users, AlertCircle, CheckCircle, XCircle, Briefcase, Building, X } from 'lucide-react';
 
 interface HeadcountProps {
   units: Unit[];
@@ -25,7 +25,7 @@ interface PositionSummary {
 export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
 
   useEffect(() => {
     loadPositions();
@@ -43,12 +43,18 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
     }
   };
 
+  // Filtrar unidades según selección
+  const filteredUnits = useMemo(() => {
+    if (selectedUnitIds.length === 0) return units;
+    return units.filter(u => selectedUnitIds.includes(u.id));
+  }, [units, selectedUnitIds]);
+
   // Calcular resumen de puestos (sin duplicar trabajadores compartidos en totales)
   const positionSummary = useMemo(() => {
     const summary: PositionSummary[] = [];
     const positionMap = new Map<string, PositionSummary>();
 
-    units.forEach(unit => {
+    filteredUnits.forEach(unit => {
       const requiredPositions = unit.requiredPositions || [];
       const personnel = (unit.resources || []).filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
 
@@ -85,7 +91,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
       const sharedWorkers = new Set<string>(); // Set de identificadores de trabajadores compartidos ya contados
       let totalUnique = 0;
       
-      units.forEach(unit => {
+      filteredUnits.forEach(unit => {
         const requiredPositions = unit.requiredPositions || [];
         const reqPos = requiredPositions.find(rp => rp.positionId === positionId);
         if (reqPos) {
@@ -115,11 +121,11 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
     });
 
     return Array.from(positionMap.values()).sort((a, b) => a.positionName.localeCompare(b.positionName));
-  }, [units, positions]);
+  }, [filteredUnits, positions]);
 
   // Calcular resumen por unidad
   const unitSummary = useMemo(() => {
-    return units.map(unit => {
+    return filteredUnits.map(unit => {
       const requiredPositions = unit.requiredPositions || [];
       const personnel = (unit.resources || []).filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
       
@@ -151,11 +157,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
         }),
       };
     }).sort((a, b) => a.unitName.localeCompare(b.unitName));
-  }, [units, positions]);
-
-  const filteredUnitSummary = selectedUnitId
-    ? unitSummary.filter(u => u.unitId === selectedUnitId)
-    : unitSummary;
+  }, [filteredUnits, positions]);
 
   const overallStats = useMemo(() => {
     const totalRequired = unitSummary.reduce((sum, u) => sum + u.totalRequired, 0);
@@ -170,6 +172,22 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
       coveragePercentage,
     };
   }, [unitSummary]);
+
+  const toggleUnitSelection = (unitId: string) => {
+    setSelectedUnitIds(prev => 
+      prev.includes(unitId) 
+        ? prev.filter(id => id !== unitId)
+        : [...prev, unitId]
+    );
+  };
+
+  const selectAllUnits = () => {
+    setSelectedUnitIds(units.map(u => u.id));
+  };
+
+  const clearSelection = () => {
+    setSelectedUnitIds([]);
+  };
 
   if (loading) {
     return (
@@ -235,17 +253,55 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
 
       {/* Filtro por unidad */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-        <label className="block text-sm font-medium text-slate-700 mb-2">Filtrar por Unidad</label>
-        <select
-          className="w-full md:w-64 border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
-          value={selectedUnitId || ''}
-          onChange={(e) => setSelectedUnitId(e.target.value || null)}
-        >
-          <option value="">Todas las unidades</option>
-          {units.map(unit => (
-            <option key={unit.id} value={unit.id}>{unit.name}</option>
-          ))}
-        </select>
+        <div className="flex justify-between items-center mb-3">
+          <label className="block text-sm font-medium text-slate-700">Filtrar por Unidad</label>
+          <div className="flex gap-2">
+            {selectedUnitIds.length > 0 && (
+              <button
+                onClick={clearSelection}
+                className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center"
+              >
+                <X size={14} className="mr-1" /> Limpiar
+              </button>
+            )}
+            {selectedUnitIds.length < units.length && (
+              <button
+                onClick={selectAllUnits}
+                className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Seleccionar todas
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-2">
+          {units.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-2">No hay unidades disponibles</p>
+          ) : (
+            units.map(unit => (
+              <label
+                key={unit.id}
+                className="flex items-center space-x-2 p-2 hover:bg-slate-50 rounded cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedUnitIds.includes(unit.id)}
+                  onChange={() => toggleUnitSelection(unit.id)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-700 flex-1">{unit.name}</span>
+                {unit.clientName && (
+                  <span className="text-xs text-slate-500">({unit.clientName})</span>
+                )}
+              </label>
+            ))
+          )}
+        </div>
+        {selectedUnitIds.length > 0 && (
+          <p className="text-xs text-slate-500 mt-2">
+            {selectedUnitIds.length} {selectedUnitIds.length === 1 ? 'unidad seleccionada' : 'unidades seleccionadas'}
+          </p>
+        )}
       </div>
 
       {/* Resumen por puesto */}
@@ -328,12 +384,12 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
           </h3>
         </div>
         <div className="divide-y divide-slate-200">
-          {filteredUnitSummary.length === 0 ? (
+          {unitSummary.length === 0 ? (
             <div className="px-6 py-8 text-center text-slate-400">
               No hay unidades con puestos requeridos definidos
             </div>
           ) : (
-            filteredUnitSummary.map((unit) => {
+            unitSummary.map((unit) => {
               const unitCoverage = unit.totalRequired > 0 ? (unit.totalCovered / unit.totalRequired) * 100 : 0;
               return (
                 <div key={unit.unitId} className="p-6">
