@@ -30,7 +30,13 @@ export type AppFeature =
   | 'BLUEPRINT' 
   | 'CONTROL_CENTER' 
   | 'REPORTS' 
-  | 'CLIENT_REQUESTS' // New Feature
+  | 'CLIENT_REQUESTS'
+  | 'HEADCOUNT'
+  | 'POSITIONS_MANAGEMENT'
+  | 'NIGHT_SUPERVISION'
+  | 'RETENES'
+  | 'ASSETS_CATALOG'
+  | 'DOCUMENTS'
   | 'SETTINGS';
 
 export interface PermissionRule {

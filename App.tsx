@@ -39,6 +39,21 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   
+  // Settings accordion state
+  const [settingsSections, setSettingsSections] = useState<Record<string, boolean>>({
+    permissions: true, // Abierto por defecto
+    branding: false,
+    users: false,
+    staff: false,
+    clients: false,
+    integrations: false,
+    positions: false,
+  });
+  
+  const toggleSettingsSection = (section: string) => {
+    setSettingsSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+  
   // Usar hooks de Supabase (solo cargar si está autenticado)
   const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits } = useUnits(isAuthenticated);
   const { users, loading: usersLoading, createUser, updateUser, deleteUser, loadUsers } = useUsers(isAuthenticated);
@@ -1408,10 +1423,17 @@ const App: React.FC = () => {
 
            {/* --- PERMISSIONS MANAGEMENT (NEW) --- */}
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 flex items-center"><Shield className="mr-2" size={18} /> Control de Accesos y Permisos</h3>
+                <button
+                  onClick={() => toggleSettingsSection('permissions')}
+                  className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+                >
+                  <h3 className="font-bold text-slate-700 flex items-center"><Shield className="mr-2" size={18} /> Control de Accesos y Permisos</h3>
+                  <div className="flex items-center gap-2">
                     {isPermsSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-                </div>
+                    <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.permissions ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+                {settingsSections.permissions && (
                 <div className="p-6">
                     <p className="text-sm text-slate-600 mb-6">Defina qué pueden ver y editar los diferentes roles en la plataforma.</p>
                     
@@ -1476,14 +1498,22 @@ const App: React.FC = () => {
                         </button>
                     </div>
                 </div>
+                )}
            </div>
 
             {/* --- Branding Configuration --- */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 flex items-center"><Palette className="mr-2" size={18} /> Personalización de Marca</h3>
+                <button
+                  onClick={() => toggleSettingsSection('branding')}
+                  className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+                >
+                  <h3 className="font-bold text-slate-700 flex items-center"><Palette className="mr-2" size={18} /> Personalización de Marca</h3>
+                  <div className="flex items-center gap-2">
                     {isLogoSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-                </div>
+                    <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.branding ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+                {settingsSections.branding && (
                 <div className="p-6">
                     <p className="text-sm text-slate-600 mb-4">Actualice el logotipo que aparece en el menú lateral y en los reportes.</p>
                     <div className="flex flex-col md:flex-row gap-6 items-start">
@@ -1528,18 +1558,30 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                )}
             </div>
 
            {/* --- Users Management --- */}
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+             <button
+               onClick={() => toggleSettingsSection('users')}
+               className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+             >
                <h3 className="font-bold text-slate-700 flex items-center"><Users className="mr-2" size={18} /> Usuarios Registrados</h3>
-               {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
-                 <button onClick={openAddUserModal} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
-                    <UserPlus size={14} className="mr-1.5" /> Nuevo Usuario
-                 </button>
-               )}
-             </div>
+               <div className="flex items-center gap-2">
+                 {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); openAddUserModal(); }} 
+                     className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center"
+                   >
+                      <UserPlus size={14} className="mr-1.5" /> Nuevo Usuario
+                   </button>
+                 )}
+                 <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.users ? 'rotate-180' : ''}`} />
+               </div>
+             </button>
+             {settingsSections.users && (
+             <div className="p-6">
              <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-white">
                   <tr>
@@ -1648,16 +1690,28 @@ const App: React.FC = () => {
                    )}
                 </tbody>
              </table>
+             </div>
+             )}
            </div>
 
            {/* --- Management Staff Registry --- */}
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+             <button
+               onClick={() => toggleSettingsSection('staff')}
+               className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+             >
                <h3 className="font-bold text-slate-700 flex items-center"><Briefcase className="mr-2" size={18} /> Gestión de Equipo de Supervisión (Global)</h3>
-               <button onClick={() => { setEditingStaff(null); setNewStaffForm({ name: '', role: 'COORDINATOR', email: '', status: 'activo', archived: false }); setNewStaffPhotoUrl(''); setShowAddStaffModal(true); }} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
-                  <Plus size={14} className="mr-1.5" /> Agregar Personal
-               </button>
-             </div>
+               <div className="flex items-center gap-2">
+                 <button 
+                   onClick={(e) => { e.stopPropagation(); setEditingStaff(null); setNewStaffForm({ name: '', role: 'COORDINATOR', email: '', status: 'activo', archived: false }); setNewStaffPhotoUrl(''); setShowAddStaffModal(true); }} 
+                   className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center"
+                 >
+                    <Plus size={14} className="mr-1.5" /> Agregar Personal
+                 </button>
+                 <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.staff ? 'rotate-180' : ''}`} />
+               </div>
+             </button>
+             {settingsSections.staff && (
              <div className="p-6">
                <table className="min-w-full divide-y divide-slate-200">
                  <thead className="bg-slate-50">
@@ -1764,17 +1818,28 @@ const App: React.FC = () => {
                  </tbody>
                </table>
              </div>
+             )}
            </div>
 
            {/* --- Clients Management (admin y superadmin) --- */}
            {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-               <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+               <button
+                 onClick={() => toggleSettingsSection('clients')}
+                 className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+               >
                  <h3 className="font-bold text-slate-700 flex items-center"><Building className="mr-2" size={18} /> Gestión de Clientes</h3>
-                 <button onClick={openAddClientModal} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
-                   <Plus size={14} className="mr-1.5" /> Nuevo Cliente
-                 </button>
-               </div>
+                 <div className="flex items-center gap-2">
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); openAddClientModal(); }} 
+                     className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center"
+                   >
+                     <Plus size={14} className="mr-1.5" /> Nuevo Cliente
+                   </button>
+                   <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.clients ? 'rotate-180' : ''}`} />
+                 </div>
+               </button>
+               {settingsSections.clients && (
                <div className="p-6">
                  {clientsLoading ? (
                    <div className="text-center py-8 text-slate-500">
@@ -1834,17 +1899,29 @@ const App: React.FC = () => {
                    </div>
                  )}
                </div>
-             </div>
+             )}
+           </div>
            )}
 
-           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              {/* --- Google Gemini API Configuration --- */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 flex items-center"><Sparkles className="mr-2 text-purple-500" size={18} /> Google Gemini API (IA)</h3>
-                    {isGeminiSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-                </div>
-                <div className="p-6 space-y-4">
+           {/* --- Integrations & API Configuration --- */}
+           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+             <button
+               onClick={() => toggleSettingsSection('integrations')}
+               className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+             >
+               <h3 className="font-bold text-slate-700 flex items-center"><Globe className="mr-2" size={18} /> Integraciones y APIs</h3>
+               <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.integrations ? 'rotate-180' : ''}`} />
+             </button>
+             {settingsSections.integrations && (
+             <div className="p-6">
+               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                 {/* --- Google Gemini API Configuration --- */}
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                   <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50 flex justify-between items-center">
+                       <h3 className="font-bold text-slate-700 flex items-center"><Sparkles className="mr-2 text-purple-500" size={18} /> Google Gemini API (IA)</h3>
+                       {isGeminiSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                   </div>
+                   <div className="p-6 space-y-4">
                     <p className="text-sm text-slate-600">Configura tu clave API para habilitar la generación de reportes ejecutivos inteligentes.</p>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Key size={14} className="mr-1"/> API Key</label>
@@ -1862,21 +1939,16 @@ const App: React.FC = () => {
                           <Save size={16} className="mr-2"/> Guardar API Key
                        </button>
                     </div>
-                </div>
-              </div>
+                   </div>
+                 </div>
 
-              {/* --- Positions Management --- */}
-              {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
-                <PositionsManagementSection currentUserRole={currentUser?.role} />
-              )}
-
-              {/* --- API Configuration Section (Inventory) --- */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 flex items-center"><Globe className="mr-2" size={18} /> API Inventario (Integración)</h3>
-                    {isInventoryConfigSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-                </div>
-                <div className="p-6">
+                 {/* --- API Configuration Section (Inventory) --- */}
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                   <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                       <h3 className="font-bold text-slate-700 flex items-center"><Server className="mr-2" size={18} /> API Inventario (Integración)</h3>
+                       {isInventoryConfigSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                   </div>
+                   <div className="p-6">
                     <div className="space-y-4">
                         <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
                             <div>
@@ -1916,9 +1988,30 @@ const App: React.FC = () => {
                             </button>
                         </div>
                     </div>
-                </div>
-              </div>
+                   </div>
+                 </div>
+               </div>
+             </div>
+             )}
            </div>
+
+           {/* --- Positions Management --- */}
+           {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+               <button
+                 onClick={() => toggleSettingsSection('positions')}
+                 className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+               >
+                 <h3 className="font-bold text-slate-700 flex items-center"><Briefcase className="mr-2" size={18} /> Gestión de Puestos Predefinidos</h3>
+                 <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.positions ? 'rotate-180' : ''}`} />
+               </button>
+               {settingsSections.positions && (
+               <div className="p-6">
+                 <PositionsManagementSection currentUserRole={currentUser?.role} />
+               </div>
+               )}
+             </div>
+           )}
 
 
            {/* Add/Edit User Modal */}
