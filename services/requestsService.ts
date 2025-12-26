@@ -49,14 +49,35 @@ export const requestsService = {
   async create(request: Partial<ClientRequest>, unitId: string): Promise<ClientRequest> {
     try {
       const requestData = transformRequestToDB(request, unitId);
-
-      const { data, error } = await supabase
+      
+      let data: any;
+      let cleanedData = { ...requestData };
+      
+      // Intentar insertar con title si existe
+      const { data: insertData, error } = await supabase
         .from('client_requests')
-        .insert(requestData)
+        .insert(cleanedData)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Si el error es porque la columna title no existe, intentar sin title
+        if ((error.message?.includes("title") || error.code === 'PGRST204') && cleanedData.title !== undefined) {
+          console.warn('⚠️ Columna title no existe en la BD, creando sin title');
+          delete cleanedData.title;
+          const { data: retryData, error: retryError } = await supabase
+            .from('client_requests')
+            .insert(cleanedData)
+            .select()
+            .single();
+          if (retryError) throw retryError;
+          data = retryData;
+        } else {
+          throw error;
+        }
+      } else {
+        data = insertData;
+      }
 
       // Insertar adjuntos si existen
       if (request.attachments && request.attachments.length > 0) {
@@ -85,13 +106,39 @@ export const requestsService = {
   async update(id: string, request: Partial<ClientRequest>): Promise<ClientRequest> {
     try {
       const requestData = transformRequestToDB(request);
+      
+      // Si hay un error relacionado con la columna title, intentar sin ella
+      let cleanedData = { ...requestData };
+      if (cleanedData.title !== undefined) {
+        // Intentar primero con title
+        const { error } = await supabase
+          .from('client_requests')
+          .update(cleanedData)
+          .eq('id', id);
 
-      const { error } = await supabase
-        .from('client_requests')
-        .update(requestData)
-        .eq('id', id);
+        if (error) {
+          // Si el error es porque la columna title no existe, intentar sin title
+          if (error.message?.includes("title") || error.code === 'PGRST204') {
+            console.warn('⚠️ Columna title no existe en la BD, actualizando sin title');
+            delete cleanedData.title;
+            const { error: retryError } = await supabase
+              .from('client_requests')
+              .update(cleanedData)
+              .eq('id', id);
+            if (retryError) throw retryError;
+          } else {
+            throw error;
+          }
+        }
+      } else {
+        // Si no hay title, actualizar normalmente
+        const { error } = await supabase
+          .from('client_requests')
+          .update(cleanedData)
+          .eq('id', id);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       // Actualizar adjuntos de respuesta si se proporcionan
       if (request.responseAttachments !== undefined) {
@@ -201,10 +248,9 @@ function transformRequestFromDB(data: any): ClientRequest {
 }
 
 function transformRequestToDB(request: Partial<ClientRequest>, unitId?: string): any {
-  return {
+  const data: any = {
     unit_id: unitId,
     date: request.date,
-    title: request.title,
     category: request.category,
     priority: request.priority,
     status: request.status,
@@ -214,5 +260,12 @@ function transformRequestToDB(request: Partial<ClientRequest>, unitId?: string):
     response: request.response,
     resolved_date: request.resolvedDate,
   };
+  
+  // Solo incluir title si está definido (para evitar errores si la columna no existe aún)
+  if (request.title !== undefined) {
+    data.title = request.title;
+  }
+  
+  return data;
 }
 
