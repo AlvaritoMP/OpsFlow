@@ -19,9 +19,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   const totalUnits = units.length;
   const activeUnits = units.filter(u => u.status === UnitStatus.ACTIVE).length;
   const issueUnits = units.filter(u => u.status === UnitStatus.ISSUE).length;
-  const totalWorkers = units.reduce((total, unit) => {
-    return total + unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived).length;
-  }, 0);
+  // Calcular total de trabajadores sin duplicar los compartidos
+  const totalWorkers = useMemo(() => {
+    const uniqueWorkers = new Set<string>(); // Set para trabajadores compartidos únicos
+    let uniqueCount = 0; // Contador de trabajadores únicos
+    let sharedCount = 0; // Contador de trabajadores compartidos (solo una vez)
+
+    units.forEach(unit => {
+      unit.resources
+        .filter(r => r.type === ResourceType.PERSONNEL && !r.archived && r.personnelStatus !== 'cesado')
+        .forEach(r => {
+          if (r.isShared) {
+            // Trabajador compartido: usar identificador único (DNI o nombre)
+            const identifier = r.dni || r.name;
+            if (!uniqueWorkers.has(identifier)) {
+              uniqueWorkers.add(identifier);
+              sharedCount++;
+            }
+          } else {
+            // Trabajador único: contar en cada unidad
+            uniqueCount++;
+          }
+        });
+    });
+
+    return uniqueCount + sharedCount;
+  }, [units]);
   
   const chartData = units
     .filter(u => u.complianceHistory && u.complianceHistory.length > 0)
@@ -32,16 +55,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     }));
 
   // Calculate workers by shift based on assignedShift field (not rostering)
+  // No duplicar trabajadores compartidos
   const workersByShiftCount = useMemo(() => {
     let dayCount = 0;
     let afternoonCount = 0;
     let nightCount = 0;
+    const sharedWorkersByShift = new Map<string, Set<string>>(); // Map<shift, Set<identifier>>
 
     units.forEach(unit => {
       unit.resources
-        .filter(r => r.type === ResourceType.PERSONNEL && !r.archived)
+        .filter(r => r.type === ResourceType.PERSONNEL && !r.archived && r.personnelStatus !== 'cesado')
         .forEach(r => {
           const shift = r.assignedShift?.toLowerCase() || '';
+          const identifier = r.dni || r.name;
           
           // Map assignedShift values to turnos
           // "Diurno" -> Día
@@ -49,14 +75,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           // "Nocturno" -> Noche
           // "Mixto" -> could be counted in multiple or none, for now we'll skip it
           
+          let shiftType: 'day' | 'afternoon' | 'night' | null = null;
           if (shift.includes('diurno') || shift === 'día' || shift === 'dia' || shift === 'day' || shift === 'morning') {
-            dayCount++;
+            shiftType = 'day';
           } else if (shift.includes('tarde') || shift === 'afternoon') {
-            afternoonCount++;
+            shiftType = 'afternoon';
           } else if (shift.includes('nocturno') || shift === 'noche' || shift === 'night') {
-            nightCount++;
+            shiftType = 'night';
           }
-          // "Mixto" is not counted in any specific shift
+          
+          if (shiftType) {
+            if (r.isShared) {
+              // Trabajador compartido: solo contar una vez por turno
+              if (!sharedWorkersByShift.has(shiftType)) {
+                sharedWorkersByShift.set(shiftType, new Set());
+              }
+              const shiftSet = sharedWorkersByShift.get(shiftType)!;
+              if (!shiftSet.has(identifier)) {
+                shiftSet.add(identifier);
+                if (shiftType === 'day') dayCount++;
+                else if (shiftType === 'afternoon') afternoonCount++;
+                else if (shiftType === 'night') nightCount++;
+              }
+            } else {
+              // Trabajador único: contar en cada unidad
+              if (shiftType === 'day') dayCount++;
+              else if (shiftType === 'afternoon') afternoonCount++;
+              else if (shiftType === 'night') nightCount++;
+            }
+          }
         });
     });
 
@@ -94,23 +141,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
 
   // Note: setLoadingMetrics(false) is now handled in loadShiftMetrics finally block
 
-  // Calculate new workers this month
+  // Calculate new workers this month (sin duplicar compartidos)
   const newWorkersCount = useMemo(() => {
     const today = new Date();
     const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const firstDayStr = firstDayOfMonth.toISOString().split('T')[0];
+    const sharedNewWorkers = new Set<string>(); // Para trabajadores compartidos nuevos
+    let uniqueNewCount = 0;
+    let sharedNewCount = 0;
     
-    const newWorkers = units.reduce((count, unit) => {
-      return count + unit.resources.filter(r => {
-        if (r.type !== ResourceType.PERSONNEL || r.archived) return false;
-        if (!r.startDate) return false;
-        // Check if startDate is in current month
-        const startDate = new Date(r.startDate);
-        return startDate >= firstDayOfMonth && startDate <= today;
-      }).length;
-    }, 0);
+    units.forEach(unit => {
+      unit.resources
+        .filter(r => {
+          if (r.type !== ResourceType.PERSONNEL || r.archived || r.personnelStatus === 'cesado') return false;
+          if (!r.startDate) return false;
+          const startDate = new Date(r.startDate);
+          return startDate >= firstDayOfMonth && startDate <= today;
+        })
+        .forEach(r => {
+          if (r.isShared) {
+            // Trabajador compartido: solo contar una vez
+            const identifier = r.dni || r.name;
+            if (!sharedNewWorkers.has(identifier)) {
+              sharedNewWorkers.add(identifier);
+              sharedNewCount++;
+            }
+          } else {
+            // Trabajador único: contar en cada unidad
+            uniqueNewCount++;
+          }
+        });
+    });
     
-    return newWorkers;
+    return uniqueNewCount + sharedNewCount;
   }, [units]);
 
   useEffect(() => {

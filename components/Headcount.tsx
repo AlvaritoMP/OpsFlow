@@ -43,7 +43,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
     }
   };
 
-  // Calcular resumen de puestos
+  // Calcular resumen de puestos (sin duplicar trabajadores compartidos en totales)
   const positionSummary = useMemo(() => {
     const summary: PositionSummary[] = [];
     const positionMap = new Map<string, PositionSummary>();
@@ -64,19 +64,54 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
         }
 
         const summaryItem = positionMap.get(reqPos.positionId)!;
-        const covered = personnel.filter(p => p.puesto === reqPos.positionName || p.puesto === reqPos.positionId).length;
+        // Contar trabajadores para esta unidad (cantidad bruta)
+        const unitPersonnel = personnel.filter(p => p.puesto === reqPos.positionName || p.puesto === reqPos.positionId);
+        const covered = unitPersonnel.length;
         const deficit = reqPos.quantity - covered;
 
         summaryItem.totalRequired += reqPos.quantity;
-        summaryItem.totalCovered += covered;
         summaryItem.units.push({
           unitId: unit.id,
           unitName: unit.name,
           required: reqPos.quantity,
-          covered,
+          covered, // Cantidad bruta para la unidad
           deficit,
         });
       });
+    });
+
+    // Recalcular totalCovered correctamente para cada posición (sin duplicar compartidos)
+    positionMap.forEach((summaryItem, positionId) => {
+      const sharedWorkers = new Set<string>(); // Set de identificadores de trabajadores compartidos ya contados
+      let totalUnique = 0;
+      
+      units.forEach(unit => {
+        const requiredPositions = unit.requiredPositions || [];
+        const reqPos = requiredPositions.find(rp => rp.positionId === positionId);
+        if (reqPos) {
+          const personnel = (unit.resources || []).filter(
+            r => r.type === ResourceType.PERSONNEL && 
+            r.personnelStatus !== 'cesado' &&
+            (r.puesto === reqPos.positionName || r.puesto === reqPos.positionId)
+          );
+          
+          personnel.forEach(p => {
+            const identifier = p.dni || p.name;
+            if (p.isShared) {
+              // Trabajador compartido: solo contar una vez en el total
+              if (!sharedWorkers.has(identifier)) {
+                sharedWorkers.add(identifier);
+                totalUnique++;
+              }
+            } else {
+              // Trabajador único: contar siempre
+              totalUnique++;
+            }
+          });
+        }
+      });
+      
+      summaryItem.totalCovered = totalUnique;
     });
 
     return Array.from(positionMap.values()).sort((a, b) => a.positionName.localeCompare(b.positionName));

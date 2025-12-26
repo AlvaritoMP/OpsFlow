@@ -179,7 +179,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1 });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '' });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string; isShared?: boolean }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '', isShared: false });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -1490,6 +1490,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       compliancePercentage: 100,
         dni: newWorkerForm.dni || undefined,
         puesto: newWorkerForm.puesto || undefined,
+        isShared: newWorkerForm.isShared || false,
         startDate: newWorkerForm.startDate || undefined,
         endDate: newWorkerForm.endDate || undefined,
         personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
@@ -1599,6 +1600,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             compliancePercentage: 100,
             dni: row.dni?.trim() || undefined,
             puesto: row.puesto?.trim() || undefined,
+            isShared: row.compartido === true || row.compartido === 'true' || row.compartido === 'Sí' || row.compartido === 'Sí' || false,
             startDate: row.fechaInicio || undefined,
             endDate: row.fechaFin || undefined,
             personnelStatus: row.fechaFin ? 'cesado' : 'activo',
@@ -5436,6 +5438,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </select>
                 </div>
 
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newWorkerForm.isShared || false}
+                      onChange={(e) => setNewWorkerForm({...newWorkerForm, isShared: e.target.checked})}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-slate-700">Trabajador Compartido</span>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Marque esta opción si el trabajador puede trabajar en múltiples unidades. Los trabajadores compartidos solo se contarán una vez en los totales del sistema.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
@@ -5690,6 +5709,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   {positions.length === 0 && (
                                     <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
                                   )}
+                              </div>
+                              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={editingResource.isShared || false}
+                                    onChange={(e) => setEditingResource({...editingResource, isShared: e.target.checked})}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <div>
+                                    <span className="text-sm font-medium text-slate-700">Trabajador Compartido</span>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                      Marque esta opción si el trabajador puede trabajar en múltiples unidades. Los trabajadores compartidos solo se contarán una vez en los totales del sistema.
+                                    </p>
+                                  </div>
+                                </label>
                               </div>
                           <div className="grid grid-cols-2 gap-4">
                               <div>

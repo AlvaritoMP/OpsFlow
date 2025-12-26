@@ -231,6 +231,7 @@ export interface Resource {
   inTraining?: boolean; // Si está en periodo de capacitación
   trainingStartDate?: string; // Fecha de inicio de capacitación (YYYY-MM-DD)
   contractGenerated?: boolean; // Si ya se generó el contrato de trabajo (resuelve la alerta)
+  isShared?: boolean; // Si el trabajador es compartido entre múltiples unidades (true) o único (false). Por defecto false (único)
 }
 
 export interface ZoneLayout {
