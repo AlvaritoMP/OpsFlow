@@ -179,6 +179,7 @@ function transformRequestFromDB(data: any): ClientRequest {
   return {
     id: data.id,
     date: data.date,
+    title: data.title,
     category: data.category as any,
     priority: data.priority as any,
     status: data.status as any,
@@ -203,6 +204,7 @@ function transformRequestToDB(request: Partial<ClientRequest>, unitId?: string):
   return {
     unit_id: unitId,
     date: request.date,
+    title: request.title,
     category: request.category,
     priority: request.priority,
     status: request.status,

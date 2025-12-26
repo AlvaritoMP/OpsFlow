@@ -102,6 +102,7 @@ export interface RequestComment {
 export interface ClientRequest {
   id: string;
   date: string;
+  title?: string; // Título del requerimiento
   category: 'PERSONNEL' | 'LOGISTICS' | 'GENERAL';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED';

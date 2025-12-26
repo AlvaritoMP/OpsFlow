@@ -205,7 +205,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Client Requests State
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [newRequestForm, setNewRequestForm] = useState<{ category: string, description: string, priority: string, relatedResourceId: string }>({
+  const [newRequestForm, setNewRequestForm] = useState<{ title: string, category: string, description: string, priority: string, relatedResourceId: string }>({
+      title: '',
       category: 'GENERAL',
       description: '',
       priority: 'MEDIUM',
@@ -818,6 +819,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       if(!onUpdate) return;
       
       // Validar campos requeridos
+      if (!newRequestForm.title?.trim()) {
+        setNotification({ type: 'error', message: 'Por favor, complete el título del requerimiento' });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
       if (!newRequestForm.description.trim()) {
         setNotification({ type: 'error', message: 'Por favor, complete la descripción del requerimiento' });
         setTimeout(() => setNotification(null), 3000);
@@ -828,14 +834,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setNotification({ type: 'info', message: 'Guardando requerimiento...' });
       
       try {
+        // Obtener el nombre real del usuario
+        const { authService } = await import('../services/authService');
+        const currentUserData = await authService.getCurrentUser();
+        const authorName = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
+        
         // Crear el request en la base de datos
         const savedRequest = await requestsService.create({
           date: new Date().toISOString().split('T')[0],
+          title: newRequestForm.title.trim(),
           category: newRequestForm.category as any,
           priority: newRequestForm.priority as any,
           status: 'PENDING',
           description: newRequestForm.description,
-          author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
+          author: authorName,
           relatedResourceId: newRequestForm.relatedResourceId || undefined,
           attachments: newRequestImages,
           comments: []
@@ -849,7 +861,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         
         // Limpiar el formulario y cerrar el modal
         setShowRequestModal(false);
-        setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
+        setNewRequestForm({ title: '', category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
         setNewRequestImages([]);
         
         setNotification({ type: 'success', message: 'Requerimiento guardado correctamente' });
@@ -870,6 +882,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setNotification({ type: 'info', message: 'Guardando cambios...' });
       
       try {
+        // Obtener el nombre real del usuario para la respuesta si se proporciona
+        let responseAuthor = editingRequest.author;
+        if (response && !editingRequest.response) {
+          // Si es una nueva respuesta, obtener el nombre del usuario actual
+          const { authService } = await import('../services/authService');
+          const currentUserData = await authService.getCurrentUser();
+          responseAuthor = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
+        }
+        
         // Actualizar el request en la base de datos
         await requestsService.update(editingRequest.id, {
           status,
@@ -933,29 +954,49 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       if (!onUpdate || !text || !text.trim()) return;
 
       try {
+        // Obtener el nombre real del usuario
+        const { authService } = await import('../services/authService');
+        const currentUserData = await authService.getCurrentUser();
+        const authorName = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
+        
         const newComment = {
           id: `c-${Date.now()}`,
-          author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
+          author: authorName,
           role: userRole,
           date: new Date().toISOString(),
           text: text
         };
 
-        // Guardar el comentario en la base de datos
+        // Actualización optimista: agregar el comentario inmediatamente a la UI
+        const updatedRequests = (unit.requests || []).map(req => {
+          if (req.id === reqId) {
+            return { ...req, comments: [...(req.comments || []), newComment] };
+          }
+          return req;
+        });
+        
+        // Actualizar la unidad inmediatamente para feedback rápido
+        onUpdate({ ...unit, requests: updatedRequests });
+        
+        // Limpiar el draft del comentario inmediatamente
+        setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
+
+        // Guardar el comentario en la base de datos en segundo plano
         await requestsService.addComment(reqId, newComment);
 
         // Recargar todos los requests desde la BD para asegurar consistencia
         const allRequests = await requestsService.getByUnitId(unit.id);
         
-        // Actualizar la unidad con los requests recargados
+        // Actualizar la unidad con los requests recargados (con el ID real del comentario de la BD)
         onUpdate({ ...unit, requests: allRequests });
-        
-        // Limpiar el draft del comentario
-        setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
       } catch (error) {
         console.error('Error al agregar comentario:', error);
         setNotification({ type: 'error', message: 'Error al agregar el comentario. Por favor, intente nuevamente.' });
         setTimeout(() => setNotification(null), 3000);
+        
+        // Revertir la actualización optimista en caso de error
+        const allRequests = await requestsService.getByUnitId(unit.id);
+        onUpdate({ ...unit, requests: allRequests });
       }
   };
 
@@ -2556,6 +2597,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                  </span>
                                                  <span className="text-xs text-slate-400 font-mono">{req.date}</span>
                                              </div>
+                                             {req.title && (
+                                                 <h4 className="font-bold text-slate-800 text-base mb-1">
+                                                     {req.title}
+                                                 </h4>
+                                             )}
                                              <h4 className="font-bold text-slate-800 text-sm">
                                                  {req.category === 'PERSONNEL' ? 'Personal' : req.category === 'LOGISTICS' ? 'Logística' : 'General'}
                                                  {relatedRes && <span className="font-normal text-slate-500 ml-1">sobre: {relatedRes.name}</span>}
@@ -4609,6 +4655,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <div className="p-6 space-y-4 md:pt-0 overflow-y-auto flex-1">
                       <p className="text-sm text-slate-600">Por favor, detalle su observación o solicitud para que nuestro equipo pueda atenderla.</p>
                       <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Título <span className="text-red-500">*</span></label>
+                          <input 
+                            type="text"
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Ej: Solicitud de memorándum - Inasistencia"
+                            value={newRequestForm.title}
+                            onChange={(e) => setNewRequestForm({...newRequestForm, title: e.target.value})}
+                          />
+                      </div>
+                      <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Categoría</label>
                           <select 
                             className="w-full border border-slate-300 rounded-lg p-2 outline-none"
@@ -4710,7 +4766,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                       <button 
                         onClick={handleCreateRequest} 
-                        disabled={!newRequestForm.description.trim() || isSavingRequest}
+                        disabled={!newRequestForm.title?.trim() || !newRequestForm.description.trim() || isSavingRequest}
                         className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
                       >
                           {isSavingRequest ? (
@@ -4746,6 +4802,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               </span>
                               <span className="text-xs text-slate-400">{editingRequest.date}</span>
                           </div>
+                          {editingRequest.title && (
+                              <h4 className="font-bold text-slate-800 text-base mb-2">{editingRequest.title}</h4>
+                          )}
                           <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-100 italic mb-3">"{editingRequest.description}"</p>
                           
                           {/* Client Attachments Display */}
