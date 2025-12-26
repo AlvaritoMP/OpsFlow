@@ -290,6 +290,27 @@ export interface UnitDocument {
   uploadedBy?: string; // ID del usuario que subió el documento
 }
 
+// ============================================
+// POSICIONES/PUESTOS PREDEFINIDOS
+// ============================================
+
+export interface Position {
+  id: string;
+  name: string; // Nombre del puesto (ej: "Supervisor", "Operario de Limpieza", "Seguridad")
+  description?: string; // Descripción opcional del puesto
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  updatedBy?: string;
+}
+
+export interface RequiredPosition {
+  positionId: string; // ID del puesto predefinido
+  positionName?: string; // Nombre del puesto (cached para evitar joins)
+  quantity: number; // Cantidad requerida
+}
+
 export interface Unit {
   id: string;
   name: string;
@@ -313,6 +334,9 @@ export interface Unit {
   
   // Documents
   documents?: UnitDocument[]; // Documentos relacionados al servicio
+  
+  // Required Positions
+  requiredPositions?: RequiredPosition[]; // Puestos requeridos en la unidad
 }
 
 // ============================================

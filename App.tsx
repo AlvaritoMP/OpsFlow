@@ -12,7 +12,7 @@ import { StandardAssetsCatalog } from './components/StandardAssetsCatalog';
 import { Retenes } from './components/Retenes';
 import { NightSupervision } from './components/NightSupervision';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
-import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative } from './types';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
 import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission } from './services/permissionService';
@@ -27,6 +27,8 @@ import { authService } from './services/authService';
 import { LogOut, FileText, RefreshCw } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
+import { PositionsManagementSection } from './components/PositionsManagement';
+import { Headcount } from './components/Headcount';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -34,7 +36,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
@@ -256,9 +258,10 @@ const App: React.FC = () => {
       // Guardar en la base de datos
       await updateUnit(updatedUnit.id, updatedUnit);
       
-      // Recargar todas las unidades desde la BD para asegurar consistencia
-      // Esto es importante para que los cambios se reflejen inmediatamente en la UI
-      await loadUnits();
+      // NO recargar automáticamente todas las unidades para evitar interrupciones
+      // El estado local ya se actualiza con updateUnit, y los cambios se reflejan inmediatamente
+      // Solo recargar si es realmente necesario (por ejemplo, cuando se guarda la unidad completa)
+      // await loadUnits(); // Comentado para evitar recargas que interrumpen la edición
       
       // Notificación de éxito se maneja en el componente que llama
     } catch (error) {
@@ -1099,6 +1102,10 @@ const App: React.FC = () => {
       return <Retenes units={visibleUnits} currentUserRole={currentUser.role} />;
     }
 
+    if (currentView === 'headcount') {
+      return <Headcount units={visibleUnits} />;
+    }
+
     if (currentView === 'units') {
       if (selectedUnitId) {
         const unit = units.find(u => u.id === selectedUnitId);
@@ -1858,6 +1865,11 @@ const App: React.FC = () => {
                 </div>
               </div>
 
+              {/* --- Positions Management --- */}
+              {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+                <PositionsManagementSection currentUserRole={currentUser?.role} />
+              )}
+
               {/* --- API Configuration Section (Inventory) --- */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
@@ -2443,6 +2455,17 @@ const App: React.FC = () => {
                   >
                     <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Retenes</span>
+                  </button>
+              )}
+
+              {/* Headcount - Visible for SUPER_ADMIN, ADMIN, OPERATIONS */}
+              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS') && (
+                  <button 
+                    onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Users size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Headcount</span>
                   </button>
               )}
 

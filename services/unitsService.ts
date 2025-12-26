@@ -544,6 +544,7 @@ function transformUnitFromDB(
       month: item.month,
       score: Number(item.score),
     })) || [],
+    requiredPositions: data.required_positions ? (Array.isArray(data.required_positions) ? data.required_positions : []) : [],
     coordinator: data.coordinator ? {
       id: data.coordinator.id,
       name: data.coordinator.name,
@@ -570,8 +571,8 @@ function transformUnitFromDB(
   };
 }
 
-function transformUnitToDB(unit: Partial<Unit>): Partial<UnitRow> {
-  return {
+function transformUnitToDB(unit: Partial<Unit>): any {
+  const data: any = {
     name: unit.name,
     client_name: unit.clientName,
     address: unit.address,
@@ -581,6 +582,13 @@ function transformUnitToDB(unit: Partial<Unit>): Partial<UnitRow> {
     roving_supervisor_id: unit.rovingSupervisor?.id,
     resident_supervisor_id: unit.residentSupervisor?.id,
   };
+  
+  // Incluir required_positions si está definido
+  if (unit.requiredPositions !== undefined) {
+    data.required_positions = unit.requiredPositions;
+  }
+  
+  return data;
 }
 
 function transformZoneFromDB(zone: any) {

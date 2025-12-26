@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument } from '../types';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition } from '../types';
 import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
@@ -68,6 +68,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
     };
     loadStandardAssets();
+  }, []);
+
+  // Cargar puestos predefinidos
+  React.useEffect(() => {
+    const loadPositions = async () => {
+      try {
+        const { positionsService } = await import('../services/positionsService');
+        const data = await positionsService.getAll(true); // Incluir inactivos para referencia
+        setPositions(data);
+      } catch (error) {
+        console.error('Error al cargar puestos:', error);
+      }
+    };
+    loadPositions();
   }, []);
 
   // Mantener el tab activo incluso cuando la unidad se actualiza
@@ -157,6 +171,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [generateConstancy, setGenerateConstancy] = useState(true); // Por defecto generar constancia
   const [standardAssets, setStandardAssets] = useState<Array<{ id: string; name: string; type: string; defaultSerialNumberPrefix?: string }>>([]);
   const [useStandardAsset, setUseStandardAsset] = useState(true); // Por defecto usar catálogo
+  
+  // Positions State
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [showRequiredPositionsModal, setShowRequiredPositionsModal] = useState(false);
+  const [editingRequiredPosition, setEditingRequiredPosition] = useState<RequiredPosition | null>(null);
+  const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1 });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
   const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '' });
@@ -335,9 +355,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // CRITICAL FIX: Sync local edit state when parent unit prop changes
+  // Solo sincronizar cuando cambia el ID de la unidad, no en cada cambio de unit
+  // Esto evita loops infinitos cuando unit se actualiza desde el padre
   useEffect(() => {
-    setEditForm(unit);
-  }, [unit]);
+    if (!isEditing && previousUnitIdRef.current !== unit.id) {
+      setEditForm(unit);
+      previousUnitIdRef.current = unit.id;
+    }
+  }, [unit.id, isEditing]); // Solo cuando cambia el ID de la unidad o el estado de edición
 
   // Initial Layer Set
   useEffect(() => {
@@ -842,6 +867,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const currentUserData = await authService.getCurrentUser();
         const authorName = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
         
+        console.log('📝 Creando requerimiento - Usuario actual:', {
+          name: currentUserData?.name,
+          email: currentUserData?.email,
+          role: userRole,
+          authorName
+        });
+        
         // Crear el request en la base de datos
         const savedRequest = await requestsService.create({
           date: new Date().toISOString().split('T')[0],
@@ -964,6 +996,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const { authService } = await import('../services/authService');
         const currentUserData = await authService.getCurrentUser();
         const authorName = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
+        
+        console.log('💬 Agregando comentario - Usuario actual:', {
+          name: currentUserData?.name,
+          email: currentUserData?.email,
+          role: userRole,
+          authorName
+        });
         
         const newComment = {
           id: `c-${Date.now()}`,
@@ -1957,25 +1996,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setNotification({ type: 'success', message: 'Trabajador actualizado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
-      // Recargar en segundo plano para sincronizar con BD (sin afectar la UI)
-      setTimeout(async () => {
-        try {
-          const { unitsService } = await import('../services/unitsService');
-          const refreshedUnit = await unitsService.getById(unit.id);
-          if (refreshedUnit && onUpdate) {
-            const savedTab = activeTabRef.current; // Guardar el tab antes de actualizar
-            onUpdate({ ...refreshedUnit });
-            // Restaurar el tab activo después de la actualización
-            setTimeout(() => {
-              if (activeTab !== savedTab) {
-                setActiveTab(savedTab);
-              }
-            }, 50);
-          }
-        } catch (error) {
-          console.error('Error al sincronizar unidad:', error);
-        }
-      }, 500);
+      // No recargar automáticamente - los cambios ya se guardaron en la BD
+      // La recarga se hace cuando el usuario navega o cuando se guarda explícitamente
     } catch (error) {
       console.error('Error al actualizar trabajador:', error);
       setNotification({ type: 'error', message: 'Error al actualizar el trabajador. Por favor, intente nuevamente.' });
@@ -3740,6 +3762,135 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 ))}
              </div>
            </div>
+
+           {/* Required Positions Section */}
+           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+             <div className="flex justify-between items-center mb-4">
+               <h3 className="text-lg font-semibold text-slate-800 flex items-center">
+                 <Briefcase className="w-5 h-5 mr-2 text-slate-500" /> Puestos Requeridos
+               </h3>
+               {canEditGeneral && (
+                 <button
+                   onClick={() => {
+                     setShowRequiredPositionsModal(true);
+                     setEditingRequiredPosition(null);
+                     setRequiredPositionForm({ positionId: '', quantity: 1 });
+                   }}
+                   className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+                 >
+                   <Plus size={14} className="mr-1.5" /> Agregar Puesto
+                 </button>
+               )}
+             </div>
+             
+             {(() => {
+               const requiredPositions = unit.requiredPositions || [];
+               const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
+               
+               if (requiredPositions.length === 0) {
+                 return (
+                   <div className="text-center py-8 text-slate-400">
+                     <Briefcase size={48} className="mx-auto mb-4 opacity-20" />
+                     <p className="text-sm">No hay puestos requeridos definidos</p>
+                     {canEditGeneral && (
+                       <button
+                         onClick={() => {
+                           setShowRequiredPositionsModal(true);
+                           setEditingRequiredPosition(null);
+                           setRequiredPositionForm({ positionId: '', quantity: 1 });
+                         }}
+                         className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                       >
+                         Agregar el primer puesto requerido
+                       </button>
+                     )}
+                   </div>
+                 );
+               }
+
+               return (
+                 <div className="space-y-3">
+                   {requiredPositions.map((reqPos, index) => {
+                     const positionName = reqPos.positionName || positions.find(p => p.id === reqPos.positionId)?.name || 'Desconocido';
+                     const covered = personnel.filter(p => p.puesto === positionName || p.puesto === reqPos.positionId).length;
+                     const deficit = reqPos.quantity - covered;
+                     const coverage = reqPos.quantity > 0 ? (covered / reqPos.quantity) * 100 : 0;
+                     
+                     return (
+                       <div key={index} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                         <div className="flex items-center justify-between mb-2">
+                           <div className="flex-1">
+                             <h4 className="font-medium text-slate-800">{positionName}</h4>
+                             <div className="flex items-center space-x-4 mt-2 text-sm">
+                               <span className="text-slate-600">Requerido: <strong>{reqPos.quantity}</strong></span>
+                               <span className={covered >= reqPos.quantity ? 'text-green-600' : 'text-orange-600'}>
+                                 Cubierto: <strong>{covered}</strong>
+                               </span>
+                               {deficit > 0 && (
+                                 <span className="text-red-600 flex items-center">
+                                   <AlertCircle size={14} className="mr-1" /> Falta: <strong>{deficit}</strong>
+                                 </span>
+                               )}
+                               {deficit === 0 && (
+                                 <span className="text-green-600 flex items-center">
+                                   <CheckCircle size={14} className="mr-1" /> Completo
+                                 </span>
+                               )}
+                             </div>
+                           </div>
+                           {canEditGeneral && (
+                             <div className="flex items-center space-x-2">
+                               <button
+                                 onClick={() => {
+                                   setEditingRequiredPosition(reqPos);
+                                   setRequiredPositionForm({
+                                     positionId: reqPos.positionId,
+                                     quantity: reqPos.quantity,
+                                   });
+                                   setShowRequiredPositionsModal(true);
+                                 }}
+                                 className="text-blue-600 hover:text-blue-800 p-1"
+                                 title="Editar"
+                               >
+                                 <Edit2 size={16} />
+                               </button>
+                               <button
+                                 onClick={async () => {
+                                   if (confirm(`¿Eliminar el puesto requerido "${positionName}"?`)) {
+                                     const updated = (unit.requiredPositions || []).filter((_, i) => i !== index);
+                                     if (onUpdate) {
+                                       await onUpdate({ ...unit, requiredPositions: updated });
+                                       setNotification({ type: 'success', message: 'Puesto requerido eliminado' });
+                                       setTimeout(() => setNotification(null), 3000);
+                                     }
+                                   }
+                                 }}
+                                 className="text-red-600 hover:text-red-800 p-1"
+                                 title="Eliminar"
+                               >
+                                 <Trash2 size={16} />
+                               </button>
+                             </div>
+                           )}
+                         </div>
+                         <div className="mt-2">
+                           <div className="w-full bg-slate-200 rounded-full h-2">
+                             <div
+                               className={`h-2 rounded-full transition-all ${
+                                 coverage >= 100 ? 'bg-green-600' : coverage >= 80 ? 'bg-yellow-500' : 'bg-red-600'
+                               }`}
+                               style={{ width: `${Math.min(coverage, 100)}%` }}
+                             />
+                           </div>
+                           <p className="text-xs text-slate-500 mt-1">Cobertura: {coverage.toFixed(1)}%</p>
+                         </div>
+                       </div>
+                     );
+                   })}
+                 </div>
+               );
+             })()}
+           </div>
         </div>
       </div>
     </div>
@@ -5251,7 +5402,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
-                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.puesto || ''} onChange={e => setNewWorkerForm({...newWorkerForm, puesto: e.target.value})} placeholder="Ej. Guardia de Seguridad, Supervisor, etc." />
+                  <select 
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                    value={newWorkerForm.puesto || ''} 
+                    onChange={e => setNewWorkerForm({...newWorkerForm, puesto: e.target.value})}
+                  >
+                    <option value="">Seleccionar puesto...</option>
+                    {positions.filter(p => p.isActive).map(position => (
+                      <option key={position.id} value={position.name}>{position.name}</option>
+                    ))}
+                  </select>
+                  {positions.length === 0 && (
+                    <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
+                  )}
                 </div>
                 
                 <div>
@@ -5514,7 +5677,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
-                                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.puesto || ''} onChange={e => setEditingResource({...editingResource, puesto: e.target.value})} placeholder="Ej. Guardia de Seguridad, Supervisor, etc." />
+                                  <select 
+                                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                                    value={editingResource.puesto || ''} 
+                                    onChange={e => setEditingResource({...editingResource, puesto: e.target.value})}
+                                  >
+                                    <option value="">Seleccionar puesto...</option>
+                                    {positions.filter(p => p.isActive).map(position => (
+                                      <option key={position.id} value={position.name}>{position.name}</option>
+                                    ))}
+                                  </select>
+                                  {positions.length === 0 && (
+                                    <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
+                                  )}
                               </div>
                           <div className="grid grid-cols-2 gap-4">
                               <div>
@@ -6190,6 +6365,139 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 console.error('Error al cargar imagen en modal:', imageModalUrl);
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Required Positions Modal */}
+      {showRequiredPositionsModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center">
+                <Briefcase className="mr-2" size={20} />
+                {editingRequiredPosition ? 'Editar Puesto Requerido' : 'Agregar Puesto Requerido'}
+              </h3>
+              <button onClick={() => setShowRequiredPositionsModal(false)} className="text-white/80 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Puesto <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={requiredPositionForm.positionId}
+                  onChange={(e) => {
+                    const position = positions.find(p => p.id === e.target.value);
+                    setRequiredPositionForm({
+                      ...requiredPositionForm,
+                      positionId: e.target.value,
+                    });
+                  }}
+                >
+                  <option value="">Seleccionar puesto...</option>
+                  {positions.filter(p => p.isActive).map(position => (
+                    <option key={position.id} value={position.id}>{position.name}</option>
+                  ))}
+                </select>
+                {positions.length === 0 && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Cantidad Requerida <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={requiredPositionForm.quantity}
+                  onChange={(e) => setRequiredPositionForm({
+                    ...requiredPositionForm,
+                    quantity: parseInt(e.target.value) || 1,
+                  })}
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowRequiredPositionsModal(false)}
+                className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!requiredPositionForm.positionId || !requiredPositionForm.quantity || requiredPositionForm.quantity < 1) {
+                    setNotification({ type: 'error', message: 'Por favor, complete todos los campos requeridos' });
+                    setTimeout(() => setNotification(null), 3000);
+                    return;
+                  }
+
+                  const position = positions.find(p => p.id === requiredPositionForm.positionId);
+                  if (!position) {
+                    setNotification({ type: 'error', message: 'Puesto no encontrado' });
+                    setTimeout(() => setNotification(null), 3000);
+                    return;
+                  }
+
+                  const currentRequired = unit.requiredPositions || [];
+                  let updated: RequiredPosition[];
+
+                  if (editingRequiredPosition) {
+                    // Editar existente
+                    updated = currentRequired.map((req, index) => {
+                      const existingIndex = currentRequired.findIndex(
+                        r => r.positionId === editingRequiredPosition.positionId
+                      );
+                      if (index === existingIndex) {
+                        return {
+                          positionId: requiredPositionForm.positionId,
+                          positionName: position.name,
+                          quantity: requiredPositionForm.quantity,
+                        };
+                      }
+                      return req;
+                    });
+                  } else {
+                    // Verificar si ya existe
+                    const exists = currentRequired.some(r => r.positionId === requiredPositionForm.positionId);
+                    if (exists) {
+                      setNotification({ type: 'error', message: 'Este puesto ya está en la lista de requeridos' });
+                      setTimeout(() => setNotification(null), 3000);
+                      return;
+                    }
+                    // Agregar nuevo
+                    updated = [
+                      ...currentRequired,
+                      {
+                        positionId: requiredPositionForm.positionId,
+                        positionName: position.name,
+                        quantity: requiredPositionForm.quantity,
+                      },
+                    ];
+                  }
+
+                  if (onUpdate) {
+                    await onUpdate({ ...unit, requiredPositions: updated });
+                    setNotification({ type: 'success', message: editingRequiredPosition ? 'Puesto requerido actualizado' : 'Puesto requerido agregado' });
+                    setTimeout(() => setNotification(null), 3000);
+                    setShowRequiredPositionsModal(false);
+                    setEditingRequiredPosition(null);
+                    setRequiredPositionForm({ positionId: '', quantity: 1 });
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              >
+                <Save size={16} className="mr-2" /> {editingRequiredPosition ? 'Guardar Cambios' : 'Agregar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
