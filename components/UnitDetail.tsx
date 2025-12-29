@@ -967,6 +967,54 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         setIsSavingRequest(false);
       }
   };
+
+  // Eliminar requerimiento (solo para administradores)
+  const handleDeleteRequest = async (requestId: string) => {
+    if (!onUpdate) return;
+    
+    // Verificar permisos: solo ADMIN y SUPER_ADMIN pueden eliminar requerimientos
+    if (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
+      setNotification({ type: 'error', message: 'Solo los administradores pueden eliminar requerimientos.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    const requestToDelete = unit.requests?.find(r => r.id === requestId);
+    if (!requestToDelete) return;
+    
+    const requestTitle = requestToDelete.title || 'Sin título';
+    if (!confirm(`¿Está seguro de eliminar este requerimiento?\n\nTítulo: ${requestTitle}\nCategoría: ${requestToDelete.category}\nEstado: ${requestToDelete.status}\n\nEsta acción no se puede deshacer.`)) {
+      return;
+    }
+    
+    setIsSavingRequest(true);
+    setNotification({ type: 'info', message: 'Eliminando requerimiento...' });
+    
+    try {
+      await requestsService.delete(requestId);
+      
+      // Actualizar estado local
+      const updatedRequests = (unit.requests || []).filter(r => r.id !== requestId);
+      const result = onUpdate({ ...unit, requests: updatedRequests });
+      if (result instanceof Promise) {
+        await result;
+      }
+      
+      // Si el requerimiento eliminado estaba en edición, cerrar el modal
+      if (editingRequest?.id === requestId) {
+        setEditingRequest(null);
+      }
+      
+      setNotification({ type: 'success', message: 'Requerimiento eliminado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar requerimiento:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el requerimiento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingRequest(false);
+    }
+  };
   
   const handleAddResolveImage = () => {
     if (!resolveImageUrl) return;
@@ -2500,6 +2548,49 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
+  // Eliminar evento (solo para equipo operativo)
+  const handleDeleteLog = async (logId: string) => {
+    if (!onUpdate) return;
+    
+    // Verificar permisos: solo OPERATIONS puede eliminar eventos
+    if (userRole !== 'OPERATIONS' && userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
+      setNotification({ type: 'error', message: 'No tienes permisos para eliminar eventos.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    const logToDelete = unit.logs.find(l => l.id === logId);
+    if (!logToDelete) return;
+    
+    if (!confirm(`¿Está seguro de eliminar este evento?\n\nTipo: ${logToDelete.type}\nDescripción: ${logToDelete.description}\n\nEsta acción no se puede deshacer.`)) {
+      return;
+    }
+    
+    setIsSavingWorker(true);
+    setNotification({ type: 'info', message: 'Eliminando evento...' });
+    
+    try {
+      const { logsService } = await import('../services/logsService');
+      await logsService.delete(logId);
+      
+      // Actualizar estado local
+      const updatedLogs = unit.logs.filter(l => l.id !== logId);
+      const result = onUpdate({ ...unit, logs: updatedLogs });
+      if (result instanceof Promise) {
+        await result;
+      }
+      
+      setNotification({ type: 'success', message: 'Evento eliminado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar evento:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el evento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
+  };
+
   const handleAddImageToLog = () => {
     if (!editingLog || !newLogImageUrl) return;
     setEditingLog({
@@ -2647,20 +2738,32 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                              </h4>
                                          </div>
                                          
-                                         {/* Old Edit Button - Kept for Resolving/Changing Status */}
-                                         <button 
-                                            onClick={() => {
-                                                setEditingRequest(req);
-                                                setResolveAttachments(req.responseAttachments || []);
-                                                setResolveStatus(req.status);
-                                                setResolveResponse(req.response || '');
-                                                setResolveTitle(req.title || '');
-                                            }} 
-                                            className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200"
-                                            title="Gestionar Estado / Resolver"
-                                         >
-                                             <Edit2 size={14}/>
-                                         </button>
+                                         <div className="flex items-center gap-1">
+                                             {/* Old Edit Button - Kept for Resolving/Changing Status */}
+                                             <button 
+                                                onClick={() => {
+                                                    setEditingRequest(req);
+                                                    setResolveAttachments(req.responseAttachments || []);
+                                                    setResolveStatus(req.status);
+                                                    setResolveResponse(req.response || '');
+                                                    setResolveTitle(req.title || '');
+                                                }} 
+                                                className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200"
+                                                title="Gestionar Estado / Resolver"
+                                             >
+                                                 <Edit2 size={14}/>
+                                             </button>
+                                             {/* Botón de eliminación: visible solo para administradores */}
+                                             {(userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') && (
+                                                 <button 
+                                                     onClick={() => handleDeleteRequest(req.id)} 
+                                                     className="text-xs bg-slate-50 hover:bg-red-50 text-slate-600 hover:text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200 hover:border-red-200"
+                                                     title="Eliminar requerimiento"
+                                                 >
+                                                     <Trash2 size={14}/>
+                                                 </button>
+                                             )}
+                                         </div>
                                      </div>
                                      
                                      <p className="text-slate-700 text-sm mb-4 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
@@ -4689,11 +4792,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       </span>
                                       <h4 className="text-base font-bold text-slate-800">{log.description}</h4>
                                   </div>
-                                  {canEditLogs && (
-                                      <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-2 hover:bg-slate-100 rounded-lg transition-colors">
-                                          <Edit2 size={16}/>
-                                      </button>
-                                  )}
+                                  <div className="flex items-center gap-1">
+                                      {canEditLogs && (
+                                          <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-2 hover:bg-slate-100 rounded-lg transition-colors" title="Editar evento">
+                                              <Edit2 size={16}/>
+                                          </button>
+                                      )}
+                                      {/* Botón de eliminación: visible para equipo operativo */}
+                                      {(userRole === 'OPERATIONS' || userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') && (
+                                          <button 
+                                              onClick={() => handleDeleteLog(log.id)} 
+                                              className="text-slate-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors" 
+                                              title="Eliminar evento"
+                                          >
+                                              <Trash2 size={16}/>
+                                          </button>
+                                      )}
+                                  </div>
                               </div>
                               
                               <div className="flex flex-wrap gap-4 text-sm text-slate-500 mb-3">
