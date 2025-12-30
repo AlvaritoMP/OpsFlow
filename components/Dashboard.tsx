@@ -164,44 +164,55 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         
         // Calculate daily utilization ratio
         if (totalRetenes > 0) {
-          // Group assignments by date
-          const assignmentsByDate = new Map<string, Set<string>>(); // date -> Set of reten_ids
+          // Group assignments by date - count ALL coverages (assignments), not just unique retenes
+          const coveragesByDate = new Map<string, number>(); // date -> count of all coverages
           
           assignments.forEach(assignment => {
             const date = assignment.assignment_date;
-            if (!assignmentsByDate.has(date)) {
-              assignmentsByDate.set(date, new Set());
-            }
-            assignmentsByDate.get(date)!.add(assignment.reten_id);
+            const currentCount = coveragesByDate.get(date) || 0;
+            coveragesByDate.set(date, currentCount + 1);
           });
           
           // Calculate daily percentage for each day, then average
-          // Fórmula: Para cada día del mes (solo días transcurridos):
-          //   1. Contar retenes únicos utilizados ese día (sin duplicar)
-          //   2. Calcular porcentaje diario: (retenes únicos del día / total retenes) × 100
-          //   3. Promediar todos los porcentajes diarios del mes
+          // Fórmula: Para cada día del mes:
+          //   1. Contar TODAS las coberturas (asignaciones) realizadas ese día (incluye múltiples usos del mismo retén)
+          //   2. Calcular porcentaje diario: (coberturas del día / total retenes) × 100
+          //      Nota: Puede ser > 100% si un retén se usa múltiples veces en el mismo día
+          //   3. Promediar todos los porcentajes diarios del mes (solo días con coberturas)
           const daysInMonth = lastDayOfMonth.getDate();
           const dailyPercentages: number[] = [];
-          const dailyDetails: Array<{ date: string; retenesUsed: number; percentage: number }> = [];
+          const dailyDetails: Array<{ date: string; coverages: number; percentage: number }> = [];
           
           // Iterate through each day of the calculation month (all days, since it's a complete month)
           for (let day = 1; day <= daysInMonth; day++) {
             const currentDate = new Date(calculationYear, calculationMonth, day);
             const dateStr = currentDate.toISOString().split('T')[0];
             
-            // Count all days of the complete month (no need to check if date <= today)
-            const retenesUsedOnDate = assignmentsByDate.get(dateStr)?.size || 0;
-            // Calculate daily percentage: (retenes únicos del día / total retenes) × 100
-            const dailyPercentage = (retenesUsedOnDate / totalRetenes) * 100;
-            dailyPercentages.push(dailyPercentage);
-            dailyDetails.push({
-              date: dateStr,
-              retenesUsed: retenesUsedOnDate,
-              percentage: dailyPercentage
-            });
+            // Count all coverages (assignments) for this date
+            const coveragesOnDate = coveragesByDate.get(dateStr) || 0;
+            // Only include days where retenes were actually used
+            if (coveragesOnDate > 0) {
+              // Calculate daily percentage: (coberturas del día / total retenes) × 100
+              // Esto puede ser > 100% si hay múltiples coberturas del mismo retén
+              const dailyPercentage = (coveragesOnDate / totalRetenes) * 100;
+              dailyPercentages.push(dailyPercentage);
+              dailyDetails.push({
+                date: dateStr,
+                coverages: coveragesOnDate,
+                percentage: dailyPercentage
+              });
+            } else {
+              // Track days without usage for logging
+              dailyDetails.push({
+                date: dateStr,
+                coverages: 0,
+                percentage: 0
+              });
+            }
           }
           
-          // Calculate average of daily percentages
+          // Calculate average of daily percentages (only for days with retenes used)
+          // Solo promediar los días en los que realmente se utilizaron retenes
           const avgDailyPercentage = dailyPercentages.length > 0
             ? dailyPercentages.reduce((sum, pct) => sum + pct, 0) / dailyPercentages.length
             : 0;
@@ -209,20 +220,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           // Log detailed calculation for debugging
           const monthName = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
                             'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][calculationMonth];
+          const daysWithUsage = dailyPercentages.length;
+          const daysWithoutUsage = daysInMonth - daysWithUsage;
+          const sumOfPercentages = dailyPercentages.reduce((sum, pct) => sum + pct, 0);
+          
           console.log('📊 CÁLCULO DE UTILIZACIÓN DE RETENES:');
           console.log(`📅 Mes calculado: ${monthName} ${calculationYear}`);
           console.log(`Total de retenes disponibles: ${totalRetenes}`);
-          console.log(`Total de asignaciones en el mes: ${assignments.length}`);
-          console.log(`Días del mes: ${dailyPercentages.length}`);
-          console.log('\n📅 Detalle por día:');
-          dailyDetails.forEach(detail => {
-            console.log(`  ${detail.date}: ${detail.retenesUsed} retenes únicos → ${detail.percentage.toFixed(2)}%`);
+          console.log(`Total de coberturas (asignaciones) en el mes: ${assignments.length}`);
+          console.log(`Días totales del mes: ${daysInMonth}`);
+          console.log(`Días con coberturas realizadas: ${daysWithUsage}`);
+          console.log(`Días sin coberturas: ${daysWithoutUsage}`);
+          console.log('\n📅 Detalle por día (solo días con coberturas):');
+          dailyDetails.filter(d => d.coverages > 0).forEach(detail => {
+            console.log(`  ${detail.date}: ${detail.coverages} coberturas → ${detail.percentage.toFixed(2)}%`);
           });
-          const sumOfPercentages = dailyPercentages.reduce((sum, pct) => sum + pct, 0);
+          if (daysWithoutUsage > 0) {
+            console.log(`\n⚠️ Días sin coberturas (${daysWithoutUsage} días excluidos del promedio):`);
+            dailyDetails.filter(d => d.coverages === 0).forEach(detail => {
+              console.log(`  ${detail.date}: 0 coberturas`);
+            });
+          }
           console.log(`\n✅ Cálculo del promedio:`);
-          console.log(`   Suma de porcentajes diarios: ${sumOfPercentages.toFixed(2)}%`);
-          console.log(`   Días del mes: ${dailyPercentages.length}`);
-          console.log(`   Promedio mensual: ${sumOfPercentages.toFixed(2)}% / ${dailyPercentages.length} = ${avgDailyPercentage.toFixed(2)}%`);
+          console.log(`   Suma de porcentajes diarios (solo días con coberturas): ${sumOfPercentages.toFixed(2)}%`);
+          console.log(`   Días con coberturas realizadas: ${daysWithUsage}`);
+          console.log(`   Promedio mensual: ${sumOfPercentages.toFixed(2)}% / ${daysWithUsage} = ${avgDailyPercentage.toFixed(2)}%`);
+          console.log(`\nℹ️ Nota: El porcentaje puede ser > 100% si un retén se utiliza múltiples veces en el mismo día.`);
           
           setRetenUtilizationRatio(avgDailyPercentage);
         } else {
