@@ -438,6 +438,27 @@ const App: React.FC = () => {
     setIsCreatingUnit(true);
     
     try {
+      // Geocodificar la dirección para obtener coordenadas
+      let latitude: number | undefined;
+      let longitude: number | undefined;
+      
+      if (newUnitForm.address && newUnitForm.address.trim().length > 0) {
+        try {
+          const { geocodingService } = await import('./services/geocodingService');
+          const geocodeResult = await geocodingService.geocodeAddress(newUnitForm.address);
+          if (geocodeResult) {
+            latitude = geocodeResult.latitude;
+            longitude = geocodeResult.longitude;
+            console.log(`✅ Coordenadas obtenidas para "${newUnitForm.address}":`, { latitude, longitude });
+          } else {
+            console.warn(`⚠️ No se pudieron obtener coordenadas para "${newUnitForm.address}"`);
+          }
+        } catch (geocodeError) {
+          console.error('Error al geocodificar dirección:', geocodeError);
+          // Continuar sin coordenadas si falla la geocodificación
+        }
+      }
+
       // Subir imágenes blob a Supabase Storage antes de crear la unidad
       const uploadedImages: string[] = [];
       
@@ -477,6 +498,8 @@ const App: React.FC = () => {
         description: 'Nueva unidad registrada. Configure zonas y recursos.',
         images: uploadedImages,
         zones: [],
+        latitude,
+        longitude,
         resources: [],
         logs: [],
         requests: [],

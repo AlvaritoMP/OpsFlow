@@ -497,12 +497,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     
     console.log('✅ Imágenes limpiadas (sin blob URLs):', cleanedImages);
     
+    // Geocodificar la dirección si cambió
+    let latitude = editForm.latitude;
+    let longitude = editForm.longitude;
+    
+    const addressChanged = editForm.address !== unit.address;
+    if (addressChanged && editForm.address && editForm.address.trim().length > 0) {
+      try {
+        const { geocodingService } = await import('../services/geocodingService');
+        const geocodeResult = await geocodingService.geocodeAddress(editForm.address);
+        if (geocodeResult) {
+          latitude = geocodeResult.latitude;
+          longitude = geocodeResult.longitude;
+          console.log(`✅ Coordenadas actualizadas para "${editForm.address}":`, { 
+            latitude: geocodeResult.latitude, 
+            longitude: geocodeResult.longitude 
+          });
+        } else {
+          console.warn(`⚠️ No se pudieron obtener coordenadas para "${editForm.address}"`);
+          // Si no se encuentran coordenadas y no había coordenadas previas, limpiarlas
+          if (!unit.latitude || !unit.longitude) {
+            latitude = undefined;
+            longitude = undefined;
+          }
+        }
+      } catch (geocodeError) {
+        console.error('Error al geocodificar dirección:', geocodeError);
+        // Continuar sin actualizar coordenadas si falla la geocodificación
+      }
+    }
+    
     // IMPORTANTE: Preservar recursos, logs, requests, zones, etc. que no se están editando
     // Solo actualizar los campos que están en editForm, pero mantener el resto de la unidad original
     const cleanedForm = { 
       ...unit, // Mantener todos los datos originales de la unidad
       ...editForm, // Sobrescribir solo con los campos editados
       images: cleanedImages, // Usar las imágenes limpiadas
+      latitude, // Coordenadas geocodificadas
+      longitude,
       // Asegurar que resources, logs, requests, zones, etc. se mantengan
       resources: editForm.resources !== undefined ? editForm.resources : unit.resources,
       logs: editForm.logs !== undefined ? editForm.logs : unit.logs,
@@ -519,7 +551,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         name: cleanedForm.name, 
         imagesCount: cleanedForm.images.length,
         resourcesCount: cleanedForm.resources?.length || 0,
-        images: cleanedForm.images 
+        images: cleanedForm.images,
+        latitude: cleanedForm.latitude,
+        longitude: cleanedForm.longitude
       });
       onUpdate(cleanedForm);
       setIsEditing(false);
