@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition } from '../types';
 import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
@@ -2615,11 +2615,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // --- Helper Data ---
   // Usar localResources para el rostering (actualizaciones rápidas), unit.resources para el resto
   const resourcesForRoster = personnelViewMode === 'roster' ? localResources : unit.resources;
-  const archivedPersonnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.archived === true);
-  const personnel = resourcesForRoster.filter(r => 
-    r.type === ResourceType.PERSONNEL && 
-    (showArchivedPersonnel ? r.archived === true : !r.archived)
-  );
+  
+  // Calcular personal archivado usando useMemo para asegurar disponibilidad
+  const archivedPersonnel = useMemo(() => {
+    return unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.archived === true);
+  }, [unit.resources]);
+  
+  const personnel = useMemo(() => {
+    return resourcesForRoster.filter(r => 
+      r.type === ResourceType.PERSONNEL && 
+      (showArchivedPersonnel ? r.archived === true : !r.archived)
+    );
+  }, [resourcesForRoster, showArchivedPersonnel]);
+  
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
   const materials = unit.resources.filter(r => r.type === ResourceType.MATERIAL);
 
