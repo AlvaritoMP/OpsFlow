@@ -4349,8 +4349,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         )}
                     </div>
                  </div>
-              ))
-            )}
 
                  {/* Expanded Details */}
                  {expandedPersonnel === worker.id && (
@@ -4436,13 +4434,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </div>
                     </div>
                  )}
-              </div>
-            ))}
-            {personnel.length === 0 && (
-                <div className="p-8 text-center text-slate-400">
-                    <Users size={48} className="mx-auto mb-2 opacity-20"/>
-                    <p>No hay personal registrado en esta unidad.</p>
                 </div>
+              ))
             )}
          </div>
       </div>
