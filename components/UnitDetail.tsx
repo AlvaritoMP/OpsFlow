@@ -84,6 +84,45 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     loadPositions();
   }, []);
 
+  // Corregir trabajadores con endDate que no están marcados como cesados/archivados
+  React.useEffect(() => {
+    const fixCesadosWorkers = async () => {
+      if (!onUpdate) return;
+      
+      const workersToFix = unit.resources.filter(r => 
+        r.type === ResourceType.PERSONNEL && 
+        r.endDate && 
+        (r.personnelStatus !== 'cesado' || !r.archived)
+      );
+
+      if (workersToFix.length === 0) return;
+
+      try {
+        const { resourcesService } = await import('../services/resourcesService');
+        const updatePromises = workersToFix.map(worker => 
+          resourcesService.update(worker.id, {
+            personnelStatus: 'cesado' as const,
+            archived: true
+          })
+        );
+
+        await Promise.all(updatePromises);
+        
+        // Recargar la unidad para reflejar los cambios
+        const { unitsService } = await import('../services/unitsService');
+        const updatedUnit = await unitsService.getById(unit.id);
+        if (updatedUnit) {
+          onUpdate(updatedUnit);
+        }
+      } catch (error) {
+        console.error('Error al corregir trabajadores cesados:', error);
+      }
+    };
+
+    // Ejecutar solo una vez al cargar la unidad
+    fixCesadosWorkers();
+  }, [unit.id]); // Solo cuando cambia el ID de la unidad
+
   // Mantener el tab activo incluso cuando la unidad se actualiza
   const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
   const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
@@ -2029,12 +2068,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     try {
       const { resourcesService } = await import('../services/resourcesService');
       
-      // Si es personal y se establece endDate o está cesado, archivarlo automáticamente
-      const shouldArchive = editingResource.type === ResourceType.PERSONNEL && 
-        (editingResource.endDate || editingResource.personnelStatus === 'cesado');
+      // Si es personal y se establece endDate, marcarlo como cesado y archivarlo automáticamente
+      const hasEndDate = editingResource.type === ResourceType.PERSONNEL && editingResource.endDate;
+      const isCesado = editingResource.type === ResourceType.PERSONNEL && editingResource.personnelStatus === 'cesado';
+      const shouldArchive = hasEndDate || isCesado;
       
       const resourceToUpdate = shouldArchive 
-        ? { ...editingResource, archived: true, personnelStatus: 'cesado' as const }
+        ? { 
+            ...editingResource, 
+            archived: true, 
+            personnelStatus: hasEndDate ? 'cesado' as const : editingResource.personnelStatus 
+          }
         : editingResource;
       
       // Guardar en la BD

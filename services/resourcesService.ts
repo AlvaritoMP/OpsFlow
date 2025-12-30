@@ -521,8 +521,24 @@ function transformResourceFromDB(
     // Normalizar fechas para evitar problemas de timezone
     startDate: normalizeDateFromDB(data.start_date),
     endDate: normalizeDateFromDB(data.end_date),
-    personnelStatus: data.personnel_status as 'activo' | 'cesado' || (data.type === 'Personal' ? 'activo' : undefined),
-    archived: data.archived || false,
+    // Si tiene endDate, automáticamente es cesado (a menos que esté explícitamente marcado como activo)
+    personnelStatus: (() => {
+      const normalizedEndDate = normalizeDateFromDB(data.end_date);
+      if (normalizedEndDate) {
+        // Si tiene fecha de fin, es cesado
+        return 'cesado' as const;
+      }
+      // Si no tiene fecha de fin, usar el valor de la BD o 'activo' por defecto
+      return (data.personnel_status as 'activo' | 'cesado') || (data.type === 'Personal' ? 'activo' : undefined);
+    })(),
+    // Si tiene endDate o está cesado, debería estar archivado automáticamente
+    archived: (() => {
+      const normalizedEndDate = normalizeDateFromDB(data.end_date);
+      const isCesado = normalizedEndDate || data.personnel_status === 'cesado';
+      // Si está cesado pero no archivado, retornar false (se archivará al guardar)
+      // Si ya está archivado en la BD, mantenerlo
+      return data.archived || false;
+    })(),
     // Campos de capacitación
     inTraining: data.in_training || false,
     trainingStartDate: normalizeDateFromDB(data.training_start_date),
