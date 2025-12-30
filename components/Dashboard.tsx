@@ -437,7 +437,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
 
   // Chart/Table order state for drag and drop
   type ChartId = 'complianceChart' | 'activityChart' | 'recentActivity' | 'unitsMap';
-  const defaultChartOrder: ChartId[] = ['unitsMap', 'complianceChart', 'activityChart', 'recentActivity'];
+  const defaultChartOrder: ChartId[] = ['recentActivity', 'unitsMap', 'complianceChart', 'activityChart'];
   
   const [chartOrder, setChartOrder] = useState<ChartId[]>(() => {
     const saved = localStorage.getItem('dashboard-chart-order');
@@ -470,6 +470,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   };
 
   const handleChartDragOver = (e: React.DragEvent, chartId: ChartId) => {
+    // No permitir soltar sobre unitsMap
+    if (chartId === 'unitsMap') {
+      return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (draggedChart && draggedChart !== chartId) {
@@ -488,13 +492,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       setDragOverChart(null);
       return;
     }
+    
+    // No permitir mover unitsMap
+    if (draggedChart === 'unitsMap' || targetChartId === 'unitsMap') {
+      setDraggedChart(null);
+      setDragOverChart(null);
+      return;
+    }
 
     const newOrder = [...chartOrder];
     const draggedIndex = newOrder.indexOf(draggedChart);
     const targetIndex = newOrder.indexOf(targetChartId);
 
+    if (draggedIndex === -1 || targetIndex === -1) {
+      setDraggedChart(null);
+      setDragOverChart(null);
+      return;
+    }
+
     newOrder.splice(draggedIndex, 1);
     newOrder.splice(targetIndex, 0, draggedChart);
+    
+    // Asegurar que unitsMap esté después de recentActivity
+    const mapIndex = newOrder.indexOf('unitsMap');
+    const recentIndex = newOrder.indexOf('recentActivity');
+    if (mapIndex >= 0 && recentIndex >= 0 && mapIndex !== recentIndex + 1) {
+      newOrder.splice(mapIndex, 1);
+      newOrder.splice(recentIndex + 1, 0, 'unitsMap');
+    }
 
     setChartOrder(newOrder);
     setDraggedChart(null);
@@ -801,18 +826,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             return (
               <div
                 key={chartId}
-                draggable
-                onDragStart={(e) => handleChartDragStart(e, chartId)}
-                onDragOver={(e) => handleChartDragOver(e, chartId)}
-                onDragLeave={handleChartDragLeave}
-                onDrop={(e) => handleChartDrop(e, chartId)}
-                onDragEnd={handleChartDragEnd}
-                className={`
-                  transition-all duration-200
-                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
-                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
-                  hover:shadow-md cursor-move
-                `}
+                className="transition-all duration-200"
               >
                 <UnitsMap units={units} onSelectUnit={onSelectUnit} />
               </div>

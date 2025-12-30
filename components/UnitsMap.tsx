@@ -13,6 +13,7 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
   const [TileLayer, setTileLayer] = useState<any>(null);
   const [Marker, setMarker] = useState<any>(null);
   const [Popup, setPopup] = useState<any>(null);
+  const [Tooltip, setTooltip] = useState<any>(null);
   const [useMap, setUseMap] = useState<any>(null);
   const [L, setL] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -37,6 +38,7 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
         setTileLayer(() => leaflet.TileLayer);
         setMarker(() => leaflet.Marker);
         setPopup(() => leaflet.Popup);
+        setTooltip(() => leaflet.Tooltip);
         setUseMap(() => leaflet.useMap);
         setL(leafletLib.default);
         setIsLoaded(true);
@@ -46,7 +48,7 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
     }
   }, []);
 
-  if (!isLoaded || !MapContainer || !L) {
+  if (!isLoaded || !MapContainer || !L || !Tooltip) {
     return (
       <div className="h-96 w-full rounded-lg border border-slate-200 flex items-center justify-center bg-slate-50" style={{ minHeight: '384px' }}>
         <div className="text-center">
@@ -129,6 +131,19 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
           width: 100% !important;
           z-index: 0;
         }
+        .unit-label-tooltip {
+          background: rgba(255, 255, 255, 0.95) !important;
+          border: 1px solid #cbd5e1 !important;
+          border-radius: 6px !important;
+          padding: 4px 8px !important;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+          font-weight: 600 !important;
+          color: #1e293b !important;
+          pointer-events: none !important;
+        }
+        .unit-label-tooltip .leaflet-tooltip-arrow {
+          border-top-color: #cbd5e1 !important;
+        }
       `}</style>
       <MapContainer
         center={[-12.0464, -77.0428]}
@@ -148,6 +163,14 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
             position={[unit.latitude!, unit.longitude!]}
             icon={createCustomIcon(unit.status)}
           >
+            <Tooltip 
+              permanent 
+              direction="top" 
+              offset={[0, -10]}
+              className="unit-label-tooltip"
+            >
+              <span className="font-semibold text-slate-800 text-xs whitespace-nowrap">{unit.name}</span>
+            </Tooltip>
             <Popup>
               <div className="p-2">
                 <h4 className="font-semibold text-slate-800 mb-1">{unit.name}</h4>
