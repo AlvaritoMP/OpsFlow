@@ -441,7 +441,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   
   const [chartOrder, setChartOrder] = useState<ChartId[]>(() => {
     const saved = localStorage.getItem('dashboard-chart-order');
-    return saved ? JSON.parse(saved) : defaultChartOrder;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Asegurar que 'unitsMap' esté en el orden (agregarlo si no está)
+      if (!parsed.includes('unitsMap')) {
+        const updated = ['unitsMap', ...parsed];
+        localStorage.setItem('dashboard-chart-order', JSON.stringify(updated));
+        return updated;
+      }
+      return parsed;
+    }
+    return defaultChartOrder;
   });
   
   const [draggedChart, setDraggedChart] = useState<ChartId | null>(null);
@@ -638,7 +648,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
 
       {/* Charts Area - Draggable */}
       <div className="space-y-4 md:space-y-6">
+        {(() => {
+          console.log('🗺️ Dashboard - chartOrder:', chartOrder);
+          console.log('🗺️ Dashboard - units con coordenadas:', units.filter(u => u.latitude && u.longitude).length);
+          return null;
+        })()}
         {chartOrder.map((chartId) => {
+          console.log('🗺️ Dashboard - Renderizando chartId:', chartId);
           if (chartId === 'complianceChart') {
             return chartData.length > 0 ? (
               <div
@@ -781,6 +797,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           }
           
           if (chartId === 'unitsMap') {
+            console.log('🗺️ Dashboard - Renderizando unitsMap con', units.length, 'unidades');
             return (
               <div
                 key={chartId}

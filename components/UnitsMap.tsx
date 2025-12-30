@@ -184,10 +184,14 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
 };
 
 export const UnitsMap: React.FC<UnitsMapProps> = ({ units, onSelectUnit }) => {
+  console.log('🗺️ UnitsMap - Recibidas', units.length, 'unidades');
   const unitsWithCoords = units.filter(u => u.latitude && u.longitude);
+  console.log('🗺️ UnitsMap - Unidades con coordenadas:', unitsWithCoords.length);
+  console.log('🗺️ UnitsMap - Unidades con coordenadas detalle:', unitsWithCoords.map(u => ({ name: u.name, lat: u.latitude, lon: u.longitude })));
 
   // Si no hay unidades con coordenadas, mostrar mensaje
   if (unitsWithCoords.length === 0) {
+    console.log('🗺️ UnitsMap - Mostrando mensaje: no hay coordenadas');
     return (
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-3 mb-4">
