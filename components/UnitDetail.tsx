@@ -566,6 +566,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         longitude: cleanedForm.longitude,
         hasCoordinates: !!(cleanedForm.latitude && cleanedForm.longitude)
       });
+      console.log('🔄 Coordenadas detalladas:', {
+        latitude: cleanedForm.latitude,
+        longitude: cleanedForm.longitude,
+        typeLat: typeof cleanedForm.latitude,
+        typeLon: typeof cleanedForm.longitude
+      });
       onUpdate(cleanedForm);
       setIsEditing(false);
       

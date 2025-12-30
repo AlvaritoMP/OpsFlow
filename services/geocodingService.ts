@@ -23,46 +23,69 @@ export const geocodingService = {
     }
 
     try {
-      // Usar Nominatim API (OpenStreetMap) - gratuita y sin API key
-      // Agregar "Perú" o "Lima, Perú" si no está en la dirección para mejorar resultados
-      let searchQuery = address.trim();
-      if (!searchQuery.toLowerCase().includes('perú') && !searchQuery.toLowerCase().includes('peru')) {
-        searchQuery = `${searchQuery}, Perú`;
+      // Estrategia de búsqueda: intentar diferentes variaciones
+      const searchQueries: string[] = [];
+      const baseAddress = address.trim();
+      
+      // 1. Dirección completa con "Lima, Perú"
+      if (!baseAddress.toLowerCase().includes('lima')) {
+        searchQueries.push(`${baseAddress}, Lima, Perú`);
       }
-
-      const encodedAddress = encodeURIComponent(searchQuery);
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodedAddress}&format=json&limit=1&addressdetails=1`;
-
-      console.log('🗺️ geocodingService - URL de búsqueda:', url);
-
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'OpsFlow/1.0' // Nominatim requiere User-Agent
+      
+      // 2. Dirección completa con "Perú"
+      if (!baseAddress.toLowerCase().includes('perú') && !baseAddress.toLowerCase().includes('peru')) {
+        searchQueries.push(`${baseAddress}, Perú`);
+      }
+      
+      // 3. Dirección original
+      searchQueries.push(baseAddress);
+      
+      // 4. Si tiene número, intentar sin el número (solo calle y distrito)
+      const numberMatch = baseAddress.match(/^(\d+[\s,.-]*)?(.+)$/);
+      if (numberMatch && numberMatch[1]) {
+        const streetPart = numberMatch[2].trim();
+        if (streetPart.length > 5) { // Solo si queda algo significativo
+          searchQueries.push(`${streetPart}, Lima, Perú`);
         }
-      });
-
-      console.log('🗺️ geocodingService - Respuesta recibida:', response.status, response.statusText);
-
-      if (!response.ok) {
-        console.warn('⚠️ Error en geocodificación:', response.statusText);
-        return null;
       }
 
-      const data = await response.json();
-      console.log('🗺️ geocodingService - Datos recibidos:', data);
+      // Intentar cada variación hasta encontrar resultados
+      for (const searchQuery of searchQueries) {
+        const encodedAddress = encodeURIComponent(searchQuery);
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodedAddress}&format=json&limit=1&addressdetails=1`;
 
-      if (Array.isArray(data) && data.length > 0) {
-        const result = data[0];
-        const coords = {
-          latitude: parseFloat(result.lat),
-          longitude: parseFloat(result.lon),
-          displayName: result.display_name || address
-        };
-        console.log('🗺️ geocodingService - Coordenadas obtenidas:', coords);
-        return coords;
+        console.log('🗺️ geocodingService - Intentando búsqueda:', searchQuery);
+        console.log('🗺️ geocodingService - URL:', url);
+
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'OpsFlow/1.0' // Nominatim requiere User-Agent
+          }
+        });
+
+        console.log('🗺️ geocodingService - Respuesta:', response.status, response.statusText);
+
+        if (!response.ok) {
+          console.warn('⚠️ Error en geocodificación:', response.statusText);
+          continue; // Intentar siguiente variación
+        }
+
+        const data = await response.json();
+        console.log('🗺️ geocodingService - Resultados encontrados:', data?.length || 0);
+
+        if (Array.isArray(data) && data.length > 0) {
+          const result = data[0];
+          const coords = {
+            latitude: parseFloat(result.lat),
+            longitude: parseFloat(result.lon),
+            displayName: result.display_name || address
+          };
+          console.log('✅ geocodingService - Coordenadas obtenidas:', coords);
+          return coords;
+        }
       }
 
-      console.log('🗺️ geocodingService - No se encontraron resultados');
+      console.log('⚠️ geocodingService - No se encontraron resultados para ninguna variación');
       return null;
     } catch (error) {
       console.error('❌ Error al geocodificar dirección:', error);
