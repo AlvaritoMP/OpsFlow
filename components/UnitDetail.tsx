@@ -135,6 +135,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>('list'); // New View Mode
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
+  const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado
   
   // Loading and notification states
   const [isSavingWorker, setIsSavingWorker] = useState(false);
@@ -4014,8 +4015,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800">Gestión de Personal ({personnel.length})</h3>
-          <p className="text-slate-500 text-sm">Administración de colaboradores, asistencias y capacitaciones.</p>
+          <h3 className="text-lg font-semibold text-slate-800">
+            Gestión de Personal ({showArchivedPersonnel ? archivedPersonnel.length : personnel.length})
+            {!showArchivedPersonnel && archivedPersonnel.length > 0 && (
+              <span className="text-sm font-normal text-slate-500 ml-2">
+                ({archivedPersonnel.length} archivado{archivedPersonnel.length > 1 ? 's' : ''})
+              </span>
+            )}
+          </h3>
+          <p className="text-slate-500 text-sm">
+            {showArchivedPersonnel ? 'Personal archivado' : 'Administración de colaboradores, asistencias y capacitaciones.'}
+          </p>
         </div>
         {canViewPersonnel && (
           <div className="flex gap-2">
@@ -4023,16 +4033,32 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  <button 
                     onClick={() => setPersonnelViewMode('list')} 
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'list' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                    disabled={showArchivedPersonnel}
                  >
                      <Users size={14} className="mr-1.5"/> Lista
                  </button>
                  <button 
                     onClick={() => setPersonnelViewMode('roster')} 
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'roster' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                    disabled={showArchivedPersonnel}
                  >
                      <Calendar size={14} className="mr-1.5"/> Turnos / Rostering
                  </button>
              </div>
+             {/* Botón para mostrar/ocultar personal archivado */}
+             {archivedPersonnel.length > 0 && (
+               <button
+                 onClick={() => setShowArchivedPersonnel(!showArchivedPersonnel)}
+                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center ${
+                   showArchivedPersonnel 
+                     ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                 }`}
+               >
+                 <Archive size={16} className="mr-2"/>
+                 {showArchivedPersonnel ? 'Ver Activos' : `Ver Archivados (${archivedPersonnel.length})`}
+               </button>
+             )}
              
             {canEditPersonnel && selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
               <>
@@ -4094,9 +4120,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {personnelViewMode === 'list' ? (
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
          {/* Table Header */}
-         <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[800px]">
+         <div className={`grid grid-cols-12 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[800px] ${
+           showArchivedPersonnel ? 'bg-amber-50' : 'bg-slate-50'
+         }`}>
             <div className="col-span-1 flex items-center justify-center">
-               <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+               {!showArchivedPersonnel && (
+                 <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+               )}
             </div>
             <div className="col-span-3 md:col-span-2 whitespace-nowrap">Colaborador</div>
             <div className="col-span-2 hidden md:block text-center whitespace-nowrap">DNI</div>
@@ -4108,12 +4138,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          </div>
 
          <div className="divide-y divide-slate-100">
-            {personnel.map(worker => (
-              <div key={worker.id} className="group transition-colors hover:bg-slate-50">
+            {personnel.length === 0 ? (
+              <div className="p-12 text-center text-slate-400">
+                <Archive size={48} className="mx-auto mb-4 opacity-20"/>
+                <p className="font-medium">
+                  {showArchivedPersonnel ? 'No hay personal archivado' : 'No hay personal registrado'}
+                </p>
+              </div>
+            ) : (
+              personnel.map(worker => (
+                <div key={worker.id} className={`group transition-colors hover:bg-slate-50 ${showArchivedPersonnel ? 'bg-amber-50/30' : ''}`}>
                  {/* Main Row */}
                  <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[800px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
                     <div className="col-span-1 flex items-center justify-center">
-                       <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
+                       {!showArchivedPersonnel && (
+                         <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
+                       )}
                     </div>
                     <div className="col-span-3 md:col-span-2 flex items-center min-w-0">
                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
@@ -4176,9 +4216,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 <Edit2 size={16} />
                                     )}
                             </button>
-                                <button 
-                                    onClick={async () => {
-                                        if (confirm(`¿Está seguro de eliminar a ${worker.name}? Esta acción no se puede deshacer.`)) {
+                                {!showArchivedPersonnel && (
+                                  <>
+                                    <button 
+                                        onClick={async () => {
+                                            if (confirm(`¿Está seguro de eliminar a ${worker.name}? Esta acción no se puede deshacer.`)) {
                                             if (!onUpdate) return;
                                             try {
                                                 const { resourcesService } = await import('../services/resourcesService');
@@ -4263,10 +4305,52 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         )}
                                     </button>
                                 )}
+                              </>
+                            )}
+                            {showArchivedPersonnel && (
+                                <button 
+                                    onClick={async () => {
+                                        if (confirm(`¿Desarchivar a ${worker.name}? El trabajador volverá a aparecer en la lista de personal activo.`)) {
+                                            setIsArchivingPersonnel(worker.id);
+                                            try {
+                                                const { resourcesService } = await import('../services/resourcesService');
+                                                await resourcesService.update(worker.id, { archived: false });
+                                                // Recargar recursos desde BD
+                                                if (onUpdate) {
+                                                    const { unitsService } = await import('../services/unitsService');
+                                                    const refreshedUnit = await unitsService.getById(unit.id);
+                                                    if (refreshedUnit) {
+                                                        onUpdate(refreshedUnit);
+                                                    }
+                                                }
+                                                setNotification({ type: 'success', message: 'Trabajador desarchivado correctamente' });
+                                                setTimeout(() => setNotification(null), 3000);
+                                            } catch (error) {
+                                                console.error('Error al desarchivar trabajador:', error);
+                                                setNotification({ type: 'error', message: 'Error al desarchivar el trabajador. Por favor, intente nuevamente.' });
+                                                setTimeout(() => setNotification(null), 5000);
+                                            } finally {
+                                                setIsArchivingPersonnel(null);
+                                            }
+                                        }
+                                    }}
+                                    className="text-green-600 hover:text-green-900 p-1 disabled:opacity-50" 
+                                    title="Desarchivar trabajador"
+                                    disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
+                                >
+                                    {isArchivingPersonnel === worker.id ? (
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                                    ) : (
+                                      <Archive size={16} />
+                                    )}
+                                </button>
+                            )}
                             </>
                         )}
                     </div>
                  </div>
+              ))
+            )}
 
                  {/* Expanded Details */}
                  {expandedPersonnel === worker.id && (
