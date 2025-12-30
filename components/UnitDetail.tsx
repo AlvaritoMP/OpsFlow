@@ -1543,7 +1543,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         startDate: newWorkerForm.startDate || undefined,
         endDate: newWorkerForm.endDate || undefined,
         personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
-        archived: false,
+        archived: newWorkerForm.endDate ? true : false, // Archivar automáticamente si tiene fecha de fin
       trainings: [],
       assignedAssets: []
       }, unit.id);
@@ -1653,7 +1653,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             startDate: row.fechaInicio || undefined,
             endDate: row.fechaFin || undefined,
             personnelStatus: row.fechaFin ? 'cesado' : 'activo',
-            archived: false,
+            archived: row.fechaFin ? true : false, // Archivar automáticamente si tiene fecha de fin
             trainings: [],
             assignedAssets: []
           }, unit.id);
@@ -2029,8 +2029,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     try {
       const { resourcesService } = await import('../services/resourcesService');
       
+      // Si es personal y se establece endDate o está cesado, archivarlo automáticamente
+      const shouldArchive = editingResource.type === ResourceType.PERSONNEL && 
+        (editingResource.endDate || editingResource.personnelStatus === 'cesado');
+      
+      const resourceToUpdate = shouldArchive 
+        ? { ...editingResource, archived: true, personnelStatus: 'cesado' as const }
+        : editingResource;
+      
       // Guardar en la BD
-      await resourcesService.update(editingResource.id, editingResource);
+      await resourcesService.update(editingResource.id, resourceToUpdate);
       
       // Recargar el recurso desde la BD para asegurar sincronización completa
       const updatedResourceFromDB = await resourcesService.getById(editingResource.id);
@@ -2056,7 +2064,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y mostrar notificación
       setEditingResource(null);
-      setNotification({ type: 'success', message: 'Cambios guardados correctamente' });
+      const message = shouldArchive 
+        ? 'Trabajador cesado y archivado correctamente' 
+        : 'Cambios guardados correctamente';
+      setNotification({ type: 'success', message });
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       console.error('Error al actualizar trabajador:', error);
@@ -2617,15 +2628,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const resourcesForRoster = personnelViewMode === 'roster' ? localResources : unit.resources;
   
   // Calcular personal archivado usando useMemo para asegurar disponibilidad
+  // Incluye personal archivado explícitamente O personal cesado (que se archiva automáticamente)
   const archivedPersonnel = useMemo(() => {
-    return unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.archived === true);
+    return unit.resources.filter(r => 
+      r.type === ResourceType.PERSONNEL && 
+      (r.archived === true || r.personnelStatus === 'cesado')
+    );
   }, [unit.resources]);
   
   const personnel = useMemo(() => {
-    return resourcesForRoster.filter(r => 
-      r.type === ResourceType.PERSONNEL && 
-      (showArchivedPersonnel ? r.archived === true : !r.archived)
-    );
+    return resourcesForRoster.filter(r => {
+      if (r.type !== ResourceType.PERSONNEL) return false;
+      // Si estamos viendo archivados, mostrar solo los archivados o cesados
+      if (showArchivedPersonnel) {
+        return r.archived === true || r.personnelStatus === 'cesado';
+      }
+      // Si estamos viendo activos, excluir archivados y cesados
+      return !r.archived && r.personnelStatus !== 'cesado';
+    });
   }, [resourcesForRoster, showArchivedPersonnel]);
   
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
@@ -4274,10 +4294,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 >
                                     <Trash2 size={16} />
                                 </button>
-                                {worker.personnelStatus === 'cesado' && (
+                                {/* El botón de archivar manual ya no es necesario para cesados, 
+                                    ya que se archivan automáticamente. Pero lo mantenemos por si 
+                                    alguien quiere archivar manualmente antes de cesar */}
+                                {worker.personnelStatus === 'cesado' && !worker.archived && (
                                     <button 
                                         onClick={async () => {
-                                            if (confirm('¿Archivar este trabajador? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
+                                            if (confirm('¿Archivar este trabajador cesado? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
                                                 setIsArchivingPersonnel(worker.id);
                                                 try {
                                                     const { resourcesService } = await import('../services/resourcesService');
@@ -4307,7 +4330,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             }
                                         }}
                                         className="text-amber-600 hover:text-amber-900 p-1 disabled:opacity-50" 
-                                        title="Archivar trabajador"
+                                        title="Archivar trabajador cesado"
                                         disabled={isArchivingPersonnel === worker.id}
                                     >
                                         {isArchivingPersonnel === worker.id ? (
@@ -5680,7 +5703,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       setNewWorkerForm({...newWorkerForm, endDate});
                     }} />
                     {newWorkerForm.endDate && (
-                      <p className="text-xs text-amber-600 mt-1">El trabajador pasará a estado "Cesado"</p>
+                      <p className="text-xs text-amber-600 mt-1">El trabajador será cesado y archivado automáticamente</p>
                     )}
                   </div>
                 </div>
@@ -5971,11 +5994,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         setEditingResource({
                                           ...editingResource, 
                                           endDate,
-                                          // El trigger de la BD cambiará automáticamente el personnelStatus a 'cesado'
+                                          personnelStatus: endDate ? 'cesado' as const : 'activo' as const,
+                                          // Se archivará automáticamente al guardar si tiene endDate
                                         });
                                       }} />
                                       {editingResource.endDate && (
-                                        <p className="text-xs text-amber-600 mt-1">El trabajador pasará a estado "Cesado"</p>
+                                        <p className="text-xs text-amber-600 mt-1">El trabajador será cesado y archivado automáticamente al guardar</p>
                                       )}
                                   </div>
                               </div>
