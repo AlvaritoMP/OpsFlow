@@ -50,7 +50,7 @@ const getMonday = (d: Date) => {
   return new Date(date.setDate(diff));
 }
 
-export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate }) => {
+export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, googleMapsApiKey }) => {
   // Cargar activos estándar al montar el componente
   React.useEffect(() => {
     const loadStandardAssets = async () => {
@@ -511,7 +511,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       try {
         const { geocodingService } = await import('../services/geocodingService');
         console.log('🗺️ Llamando a geocodingService.geocodeAddress...');
-        const geocodeResult = await geocodingService.geocodeAddress(editForm.address);
+        const geocodeResult = await geocodingService.geocodeAddress(editForm.address, googleMapsApiKey);
         console.log('🗺️ Resultado de geocodificación:', geocodeResult);
         if (geocodeResult) {
           latitude = geocodeResult.latitude;

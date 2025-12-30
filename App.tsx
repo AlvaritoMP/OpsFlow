@@ -129,6 +129,13 @@ const App: React.FC = () => {
   });
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
 
+  // Google Maps Geocoding API Config State
+  const [googleMapsKey, setGoogleMapsKey] = useState<string>(() => {
+    const key = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
+    return key;
+  });
+  const [isGoogleMapsSaved, setIsGoogleMapsSaved] = useState(false);
+
 
   // Branding State
   const [companyLogo, setCompanyLogo] = useState<string>(() => {
@@ -445,7 +452,7 @@ const App: React.FC = () => {
       if (newUnitForm.address && newUnitForm.address.trim().length > 0) {
         try {
           const { geocodingService } = await import('./services/geocodingService');
-          const geocodeResult = await geocodingService.geocodeAddress(newUnitForm.address);
+          const geocodeResult = await geocodingService.geocodeAddress(newUnitForm.address, googleMapsKey);
           if (geocodeResult) {
             latitude = geocodeResult.latitude;
             longitude = geocodeResult.longitude;
@@ -1199,7 +1206,8 @@ const App: React.FC = () => {
             currentUser={currentUser} // Pass current user for restrictions
             availableClients={clients.map(c => ({ id: c.id, name: c.name }))} // Pass available clients
             onBack={() => setSelectedUnitId(null)} 
-            onUpdate={handleUpdateUnit} 
+            onUpdate={handleUpdateUnit}
+            googleMapsApiKey={googleMapsKey}
           />
         );
       }
@@ -2055,6 +2063,37 @@ const App: React.FC = () => {
                     <div className="flex justify-between items-center mt-4">
                        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-xs text-purple-600 hover:text-purple-800 underline">Obtener API Key</a>
                        <button onClick={handleSaveGeminiKey} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center">
+                          <Save size={16} className="mr-2"/> Guardar API Key
+                       </button>
+                    </div>
+                   </div>
+                 </div>
+
+                 {/* --- Google Maps Geocoding API Configuration --- */}
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                   <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-green-50 flex justify-between items-center">
+                       <h3 className="font-bold text-slate-700 flex items-center"><MapPin className="mr-2 text-blue-500" size={18} /> Google Maps Geocoding API</h3>
+                       {isGoogleMapsSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                   </div>
+                   <div className="p-6 space-y-4">
+                    <p className="text-sm text-slate-600">Configura tu clave API para geocodificación de direcciones. Se usa como respaldo cuando OpenStreetMap no encuentra resultados.</p>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Key size={14} className="mr-1"/> API Key</label>
+                      <input 
+                        type="password" 
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        value={googleMapsKey}
+                        onChange={e => setGoogleMapsKey(e.target.value)}
+                        placeholder="Pegar API Key de Google Cloud Console..."
+                      />
+                    </div>
+                    <div className="flex justify-between items-center mt-4">
+                       <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline">Obtener API Key</a>
+                       <button onClick={() => {
+                         localStorage.setItem('GOOGLE_MAPS_API_KEY', googleMapsKey);
+                         setIsGoogleMapsSaved(true);
+                         setTimeout(() => setIsGoogleMapsSaved(false), 3000);
+                       }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center">
                           <Save size={16} className="mr-2"/> Guardar API Key
                        </button>
                     </div>

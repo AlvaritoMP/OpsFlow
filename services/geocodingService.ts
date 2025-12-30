@@ -13,9 +13,10 @@ export const geocodingService = {
   /**
    * Geocodifica una dirección y retorna las coordenadas
    * @param address Dirección completa (ej: "Av. Javier Prado 450, Lima, Perú")
+   * @param googleApiKey Opcional: API key de Google Maps para usar como fallback
    * @returns Coordenadas o null si no se encuentra
    */
-  async geocodeAddress(address: string): Promise<GeocodingResult | null> {
+  async geocodeAddress(address: string, googleApiKey?: string): Promise<GeocodingResult | null> {
     console.log('🗺️ geocodingService.geocodeAddress - Dirección recibida:', address);
     if (!address || address.trim().length === 0) {
       console.log('🗺️ geocodingService - Dirección vacía, retornando null');
@@ -85,7 +86,40 @@ export const geocodingService = {
         }
       }
 
-      console.log('⚠️ geocodingService - No se encontraron resultados para ninguna variación');
+      console.log('⚠️ geocodingService - No se encontraron resultados en Nominatim');
+      
+      // Si hay API key de Google Maps, intentar con Google Geocoding API como fallback
+      if (googleApiKey && googleApiKey.trim().length > 0) {
+        console.log('🗺️ geocodingService - Intentando con Google Maps Geocoding API...');
+        try {
+          const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(baseAddress)}&key=${googleApiKey}`;
+          console.log('🗺️ geocodingService - Google Maps URL:', googleUrl.replace(googleApiKey, '***'));
+          
+          const googleResponse = await fetch(googleUrl);
+          const googleData = await googleResponse.json();
+          
+          console.log('🗺️ geocodingService - Google Maps respuesta:', googleData.status);
+          
+          if (googleData.status === 'OK' && googleData.results && googleData.results.length > 0) {
+            const result = googleData.results[0];
+            const location = result.geometry.location;
+            const coords = {
+              latitude: location.lat,
+              longitude: location.lng,
+              displayName: result.formatted_address || address
+            };
+            console.log('✅ geocodingService - Coordenadas obtenidas de Google Maps:', coords);
+            return coords;
+          } else {
+            console.warn('⚠️ geocodingService - Google Maps no encontró resultados:', googleData.status);
+          }
+        } catch (googleError) {
+          console.error('❌ Error al geocodificar con Google Maps:', googleError);
+        }
+      } else {
+        console.log('ℹ️ geocodingService - No hay API key de Google Maps configurada');
+      }
+      
       return null;
     } catch (error) {
       console.error('❌ Error al geocodificar dirección:', error);
