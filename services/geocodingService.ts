@@ -16,7 +16,9 @@ export const geocodingService = {
    * @returns Coordenadas o null si no se encuentra
    */
   async geocodeAddress(address: string): Promise<GeocodingResult | null> {
+    console.log('🗺️ geocodingService.geocodeAddress - Dirección recibida:', address);
     if (!address || address.trim().length === 0) {
+      console.log('🗺️ geocodingService - Dirección vacía, retornando null');
       return null;
     }
 
@@ -31,11 +33,15 @@ export const geocodingService = {
       const encodedAddress = encodeURIComponent(searchQuery);
       const url = `https://nominatim.openstreetmap.org/search?q=${encodedAddress}&format=json&limit=1&addressdetails=1`;
 
+      console.log('🗺️ geocodingService - URL de búsqueda:', url);
+
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'OpsFlow/1.0' // Nominatim requiere User-Agent
         }
       });
+
+      console.log('🗺️ geocodingService - Respuesta recibida:', response.status, response.statusText);
 
       if (!response.ok) {
         console.warn('⚠️ Error en geocodificación:', response.statusText);
@@ -43,16 +49,20 @@ export const geocodingService = {
       }
 
       const data = await response.json();
+      console.log('🗺️ geocodingService - Datos recibidos:', data);
 
       if (Array.isArray(data) && data.length > 0) {
         const result = data[0];
-        return {
+        const coords = {
           latitude: parseFloat(result.lat),
           longitude: parseFloat(result.lon),
           displayName: result.display_name || address
         };
+        console.log('🗺️ geocodingService - Coordenadas obtenidas:', coords);
+        return coords;
       }
 
+      console.log('🗺️ geocodingService - No se encontraron resultados');
       return null;
     } catch (error) {
       console.error('❌ Error al geocodificar dirección:', error);

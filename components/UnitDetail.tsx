@@ -497,19 +497,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     
     console.log('✅ Imágenes limpiadas (sin blob URLs):', cleanedImages);
     
-    // Geocodificar la dirección si cambió
+    // Geocodificar la dirección si cambió O si no hay coordenadas
     let latitude = editForm.latitude;
     let longitude = editForm.longitude;
     
     const addressChanged = editForm.address !== unit.address;
-    if (addressChanged && editForm.address && editForm.address.trim().length > 0) {
+    const hasNoCoordinates = !editForm.latitude || !editForm.longitude;
+    const hasAddress = editForm.address && editForm.address.trim().length > 0;
+    
+    // Geocodificar si: la dirección cambió O si no hay coordenadas pero hay dirección
+    if ((addressChanged || hasNoCoordinates) && hasAddress) {
+      console.log(`🗺️ Geocodificando dirección: "${editForm.address}" (cambió: ${addressChanged}, sin coordenadas: ${hasNoCoordinates})`);
       try {
         const { geocodingService } = await import('../services/geocodingService');
+        console.log('🗺️ Llamando a geocodingService.geocodeAddress...');
         const geocodeResult = await geocodingService.geocodeAddress(editForm.address);
+        console.log('🗺️ Resultado de geocodificación:', geocodeResult);
         if (geocodeResult) {
           latitude = geocodeResult.latitude;
           longitude = geocodeResult.longitude;
-          console.log(`✅ Coordenadas actualizadas para "${editForm.address}":`, { 
+          console.log(`✅ Coordenadas obtenidas para "${editForm.address}":`, { 
             latitude: geocodeResult.latitude, 
             longitude: geocodeResult.longitude 
           });
@@ -522,9 +529,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           }
         }
       } catch (geocodeError) {
-        console.error('Error al geocodificar dirección:', geocodeError);
+        console.error('❌ Error al geocodificar dirección:', geocodeError);
         // Continuar sin actualizar coordenadas si falla la geocodificación
       }
+    } else {
+      console.log(`ℹ️ No se geocodifica: dirección cambió=${addressChanged}, sin coordenadas=${hasNoCoordinates}, tiene dirección=${hasAddress}`);
     }
     
     // IMPORTANTE: Preservar recursos, logs, requests, zones, etc. que no se están editando
@@ -548,12 +557,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Actualizar la unidad
       console.log('🔄 Llamando a onUpdate con:', { 
         id: cleanedForm.id, 
-        name: cleanedForm.name, 
+        name: cleanedForm.name,
+        address: cleanedForm.address,
         imagesCount: cleanedForm.images.length,
         resourcesCount: cleanedForm.resources?.length || 0,
         images: cleanedForm.images,
         latitude: cleanedForm.latitude,
-        longitude: cleanedForm.longitude
+        longitude: cleanedForm.longitude,
+        hasCoordinates: !!(cleanedForm.latitude && cleanedForm.longitude)
       });
       onUpdate(cleanedForm);
       setIsEditing(false);
