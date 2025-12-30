@@ -661,7 +661,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
                   <h3 className="text-base md:text-lg font-semibold text-slate-800">Cumplimiento del Servicio (Mes Actual)</h3>
                   <GripVertical size={16} className="text-slate-400 opacity-50" />
                 </div>
-          <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Cumplimiento del Servicio (Mes Actual)</h3>
           <div className="h-64 md:h-80 w-full overflow-x-auto" style={{ minHeight: '256px', minWidth: '100%' }}>
             <ResponsiveContainer width="100%" height="100%" minHeight={256}>
               <BarChart data={chartData} layout="vertical" margin={{ left: 40, right: 10 }}>
@@ -798,13 +797,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
                   hover:shadow-md cursor-move
                 `}
               >
-                <div className="relative">
-                  <GripVertical 
-                    size={16} 
-                    className="absolute top-4 right-4 z-10 text-slate-400 opacity-50 pointer-events-none" 
-                  />
-                  <UnitsMap units={units} onSelectUnit={onSelectUnit} />
-                </div>
+                <UnitsMap units={units} onSelectUnit={onSelectUnit} />
               </div>
             );
           }
