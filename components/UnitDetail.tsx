@@ -2615,7 +2615,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // --- Helper Data ---
   // Usar localResources para el rostering (actualizaciones rápidas), unit.resources para el resto
   const resourcesForRoster = personnelViewMode === 'roster' ? localResources : unit.resources;
-  const personnel = resourcesForRoster.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
+  const archivedPersonnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.archived === true);
+  const personnel = resourcesForRoster.filter(r => 
+    r.type === ResourceType.PERSONNEL && 
+    (showArchivedPersonnel ? r.archived === true : !r.archived)
+  );
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
   const materials = unit.resources.filter(r => r.type === ResourceType.MATERIAL);
 
