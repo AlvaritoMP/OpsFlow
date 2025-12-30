@@ -20,27 +20,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   const [personnelEntryRate, setPersonnelEntryRate] = useState<number>(0);
   const [personnelExitRate, setPersonnelExitRate] = useState<number>(0);
   
-  // Card order state for drag and drop
-  type CardId = 'totalUnits' | 'activeUnits' | 'totalWorkers' | 'issueUnits' | 'dayShift' | 'afternoonShift' | 'nightShift' | 'retenCoverages' | 'retenUtilization' | 'newWorkers' | 'personnelRotation' | 'entryRate' | 'exitRate';
-  const defaultCardOrder: CardId[] = [
-    'totalUnits', 'activeUnits', 'totalWorkers', 'issueUnits',
-    'dayShift', 'afternoonShift', 'nightShift',
-    'retenCoverages', 'retenUtilization',
-    'newWorkers', 'personnelRotation', 'entryRate', 'exitRate'
-  ];
-  
-  const [cardOrder, setCardOrder] = useState<CardId[]>(() => {
-    const saved = localStorage.getItem('dashboard-card-order');
-    return saved ? JSON.parse(saved) : defaultCardOrder;
-  });
-  
-  const [draggedCard, setDraggedCard] = useState<CardId | null>(null);
-  const [dragOverCard, setDragOverCard] = useState<CardId | null>(null);
-  
-  // Save card order to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('dashboard-card-order', JSON.stringify(cardOrder));
-  }, [cardOrder]);
 
   // Calculate aggregations
   const totalUnits = units.length;
@@ -148,18 +127,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       try {
         const { retenesService } = await import('../services/retenesService');
         const today = new Date();
-        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-        
-        const startDate = firstDayOfMonth.toISOString().split('T')[0];
-        const endDate = lastDayOfMonth.toISOString().split('T')[0];
         
         // Get all retenes (total available)
         const allRetenes = await retenesService.getAll();
         const totalRetenes = allRetenes.length;
         
-        // Get all assignments in the month
-        const assignments = await retenesService.getAssignmentsByDateRange(startDate, endDate);
+        // Get assignments from a wide range to find the last month with data
+        const wideStartDate = new Date(today.getFullYear() - 1, 0, 1).toISOString().split('T')[0];
+        const wideEndDate = today.toISOString().split('T')[0];
+        const allAssignments = await retenesService.getAssignmentsByDateRange(wideStartDate, wideEndDate);
+        
+        if (allAssignments.length === 0) {
+          setRetenCoverages(0);
+          setRetenUtilizationRatio(0);
+          return;
+        }
+        
+        // Find the last month with assignments
+        const lastAssignmentDate = new Date(allAssignments[allAssignments.length - 1].assignment_date);
+        const calculationMonth = lastAssignmentDate.getMonth();
+        const calculationYear = lastAssignmentDate.getFullYear();
+        
+        const firstDayOfMonth = new Date(calculationYear, calculationMonth, 1);
+        const lastDayOfMonth = new Date(calculationYear, calculationMonth + 1, 0);
+        
+        const startDate = firstDayOfMonth.toISOString().split('T')[0];
+        const endDate = lastDayOfMonth.toISOString().split('T')[0];
+        
+        // Get all assignments in the last month with data
+        const assignments = allAssignments.filter(a => {
+          const assignmentDate = new Date(a.assignment_date);
+          return assignmentDate >= firstDayOfMonth && assignmentDate <= lastDayOfMonth;
+        });
+        
         setRetenCoverages(assignments.length);
         
         // Calculate daily utilization ratio
@@ -176,27 +176,53 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           });
           
           // Calculate daily percentage for each day, then average
+          // Fórmula: Para cada día del mes (solo días transcurridos):
+          //   1. Contar retenes únicos utilizados ese día (sin duplicar)
+          //   2. Calcular porcentaje diario: (retenes únicos del día / total retenes) × 100
+          //   3. Promediar todos los porcentajes diarios del mes
           const daysInMonth = lastDayOfMonth.getDate();
           const dailyPercentages: number[] = [];
+          const dailyDetails: Array<{ date: string; retenesUsed: number; percentage: number }> = [];
           
-          // Iterate through each day of the month
+          // Iterate through each day of the calculation month (all days, since it's a complete month)
           for (let day = 1; day <= daysInMonth; day++) {
-            const currentDate = new Date(today.getFullYear(), today.getMonth(), day);
+            const currentDate = new Date(calculationYear, calculationMonth, day);
             const dateStr = currentDate.toISOString().split('T')[0];
             
-            // Only count days that have passed
-            if (currentDate <= today) {
-              const retenesUsedOnDate = assignmentsByDate.get(dateStr)?.size || 0;
-              // Calculate daily percentage: (retenes únicos del día / total retenes) × 100
-              const dailyPercentage = (retenesUsedOnDate / totalRetenes) * 100;
-              dailyPercentages.push(dailyPercentage);
-            }
+            // Count all days of the complete month (no need to check if date <= today)
+            const retenesUsedOnDate = assignmentsByDate.get(dateStr)?.size || 0;
+            // Calculate daily percentage: (retenes únicos del día / total retenes) × 100
+            const dailyPercentage = (retenesUsedOnDate / totalRetenes) * 100;
+            dailyPercentages.push(dailyPercentage);
+            dailyDetails.push({
+              date: dateStr,
+              retenesUsed: retenesUsedOnDate,
+              percentage: dailyPercentage
+            });
           }
           
           // Calculate average of daily percentages
           const avgDailyPercentage = dailyPercentages.length > 0
             ? dailyPercentages.reduce((sum, pct) => sum + pct, 0) / dailyPercentages.length
             : 0;
+          
+          // Log detailed calculation for debugging
+          const monthName = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][calculationMonth];
+          console.log('📊 CÁLCULO DE UTILIZACIÓN DE RETENES:');
+          console.log(`📅 Mes calculado: ${monthName} ${calculationYear}`);
+          console.log(`Total de retenes disponibles: ${totalRetenes}`);
+          console.log(`Total de asignaciones en el mes: ${assignments.length}`);
+          console.log(`Días del mes: ${dailyPercentages.length}`);
+          console.log('\n📅 Detalle por día:');
+          dailyDetails.forEach(detail => {
+            console.log(`  ${detail.date}: ${detail.retenesUsed} retenes únicos → ${detail.percentage.toFixed(2)}%`);
+          });
+          const sumOfPercentages = dailyPercentages.reduce((sum, pct) => sum + pct, 0);
+          console.log(`\n✅ Cálculo del promedio:`);
+          console.log(`   Suma de porcentajes diarios: ${sumOfPercentages.toFixed(2)}%`);
+          console.log(`   Días del mes: ${dailyPercentages.length}`);
+          console.log(`   Promedio mensual: ${sumOfPercentages.toFixed(2)}% / ${dailyPercentages.length} = ${avgDailyPercentage.toFixed(2)}%`);
           
           setRetenUtilizationRatio(avgDailyPercentage);
         } else {
@@ -328,8 +354,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       
       // Calculate metrics
       if (totalWorkersAtStart > 0) {
-        // Rotación mensual = (nuevos - salidas) / total a inicio de mes
-        const rotation = ((newWorkersCount - totalWorkersExited) / totalWorkersAtStart) * 100;
+        // Rotación mensual = (nuevos + salidas) / total a inicio de mes
+        const rotation = ((newWorkersCount + totalWorkersExited) / totalWorkersAtStart) * 100;
         setPersonnelRotation(rotation);
         
         // Tasa de ingreso = nuevos / total a inicio de mes
@@ -385,147 +411,65 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     calculateUnitsActivity();
   }, [units]);
 
-  // Drag and drop handlers
-  const handleDragStart = (e: React.DragEvent, cardId: CardId) => {
-    setDraggedCard(cardId);
+  // Chart/Table order state for drag and drop
+  type ChartId = 'complianceChart' | 'activityChart' | 'recentActivity';
+  const defaultChartOrder: ChartId[] = ['complianceChart', 'activityChart', 'recentActivity'];
+  
+  const [chartOrder, setChartOrder] = useState<ChartId[]>(() => {
+    const saved = localStorage.getItem('dashboard-chart-order');
+    return saved ? JSON.parse(saved) : defaultChartOrder;
+  });
+  
+  const [draggedChart, setDraggedChart] = useState<ChartId | null>(null);
+  const [dragOverChart, setDragOverChart] = useState<ChartId | null>(null);
+  
+  // Save chart order to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('dashboard-chart-order', JSON.stringify(chartOrder));
+  }, [chartOrder]);
+
+  // Drag and drop handlers for charts
+  const handleChartDragStart = (e: React.DragEvent, chartId: ChartId) => {
+    setDraggedChart(chartId);
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', cardId);
+    e.dataTransfer.setData('text/html', chartId);
   };
 
-  const handleDragOver = (e: React.DragEvent, cardId: CardId) => {
+  const handleChartDragOver = (e: React.DragEvent, chartId: ChartId) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    if (draggedCard && draggedCard !== cardId) {
-      setDragOverCard(cardId);
+    if (draggedChart && draggedChart !== chartId) {
+      setDragOverChart(chartId);
     }
   };
 
-  const handleDragLeave = () => {
-    setDragOverCard(null);
+  const handleChartDragLeave = () => {
+    setDragOverChart(null);
   };
 
-  const handleDrop = (e: React.DragEvent, targetCardId: CardId) => {
+  const handleChartDrop = (e: React.DragEvent, targetChartId: ChartId) => {
     e.preventDefault();
-    if (!draggedCard || draggedCard === targetCardId) {
-      setDraggedCard(null);
-      setDragOverCard(null);
+    if (!draggedChart || draggedChart === targetChartId) {
+      setDraggedChart(null);
+      setDragOverChart(null);
       return;
     }
 
-    const newOrder = [...cardOrder];
-    const draggedIndex = newOrder.indexOf(draggedCard);
-    const targetIndex = newOrder.indexOf(targetCardId);
+    const newOrder = [...chartOrder];
+    const draggedIndex = newOrder.indexOf(draggedChart);
+    const targetIndex = newOrder.indexOf(targetChartId);
 
     newOrder.splice(draggedIndex, 1);
-    newOrder.splice(targetIndex, 0, draggedCard);
+    newOrder.splice(targetIndex, 0, draggedChart);
 
-    setCardOrder(newOrder);
-    setDraggedCard(null);
-    setDragOverCard(null);
+    setChartOrder(newOrder);
+    setDraggedChart(null);
+    setDragOverChart(null);
   };
 
-  const handleDragEnd = () => {
-    setDraggedCard(null);
-    setDragOverCard(null);
-  };
-
-  // Card definitions with their content
-  const cardDefinitions: Record<CardId, { icon: React.ReactNode; label: string; value: string | number; subtitle?: string; bgColor: string; iconColor: string }> = {
-    totalUnits: {
-      icon: <Building2 size={20} className="md:w-6 md:h-6" />,
-      label: 'Unidades Totales',
-      value: totalUnits,
-      bgColor: 'bg-blue-100',
-      iconColor: 'text-blue-600'
-    },
-    activeUnits: {
-      icon: <CheckCircle size={20} className="md:w-6 md:h-6" />,
-      label: 'Unidades Operativas',
-      value: activeUnits,
-      bgColor: 'bg-green-100',
-      iconColor: 'text-green-600'
-    },
-    totalWorkers: {
-      icon: <Users size={20} className="md:w-6 md:h-6" />,
-      label: 'Total Trabajadores',
-      value: totalWorkers,
-      bgColor: 'bg-purple-100',
-      iconColor: 'text-purple-600'
-    },
-    issueUnits: {
-      icon: <AlertTriangle size={20} className="md:w-6 md:h-6" />,
-      label: 'Con Incidencias',
-      value: issueUnits,
-      bgColor: 'bg-red-100',
-      iconColor: 'text-red-600'
-    },
-    dayShift: {
-      icon: <Sun size={20} className="md:w-6 md:h-6" />,
-      label: 'Turno Día',
-      value: loadingMetrics ? '...' : workersByShift.day,
-      bgColor: 'bg-yellow-100',
-      iconColor: 'text-yellow-600'
-    },
-    afternoonShift: {
-      icon: <Clock size={20} className="md:w-6 md:h-6" />,
-      label: 'Turno Tarde',
-      value: loadingMetrics ? '...' : workersByShift.afternoon,
-      bgColor: 'bg-orange-100',
-      iconColor: 'text-orange-600'
-    },
-    nightShift: {
-      icon: <Moon size={20} className="md:w-6 md:h-6" />,
-      label: 'Turno Noche',
-      value: loadingMetrics ? '...' : workersByShift.night,
-      bgColor: 'bg-indigo-100',
-      iconColor: 'text-indigo-600'
-    },
-    retenCoverages: {
-      icon: <Shield size={20} className="md:w-6 md:h-6" />,
-      label: 'Coberturas Retenes',
-      value: loadingMetrics ? '...' : retenCoverages,
-      bgColor: 'bg-teal-100',
-      iconColor: 'text-teal-600'
-    },
-    retenUtilization: {
-      icon: <Shield size={20} className="md:w-6 md:h-6" />,
-      label: 'Utilización Retenes',
-      value: loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`,
-      subtitle: 'Promedio diario del mes',
-      bgColor: 'bg-cyan-100',
-      iconColor: 'text-cyan-600'
-    },
-    newWorkers: {
-      icon: <UserPlus size={20} className="md:w-6 md:h-6" />,
-      label: 'Nuevos este Mes',
-      value: newWorkersThisMonth,
-      bgColor: 'bg-pink-100',
-      iconColor: 'text-pink-600'
-    },
-    personnelRotation: {
-      icon: <TrendingUp size={20} className="md:w-6 md:h-6" />,
-      label: 'Rotación Mensual',
-      value: `${personnelRotation.toFixed(1)}%`,
-      subtitle: '(Nuevos - Salidas) / Inicio',
-      bgColor: 'bg-emerald-100',
-      iconColor: 'text-emerald-600'
-    },
-    entryRate: {
-      icon: <UserPlus size={20} className="md:w-6 md:h-6" />,
-      label: 'Tasa de Ingreso',
-      value: `${personnelEntryRate.toFixed(1)}%`,
-      subtitle: 'Nuevos / Inicio',
-      bgColor: 'bg-blue-100',
-      iconColor: 'text-blue-600'
-    },
-    exitRate: {
-      icon: <UserMinus size={20} className="md:w-6 md:h-6" />,
-      label: 'Tasa de Salida',
-      value: `${personnelExitRate.toFixed(1)}%`,
-      subtitle: 'Ceses / Inicio',
-      bgColor: 'bg-red-100',
-      iconColor: 'text-red-600'
-    }
+  const handleChartDragEnd = () => {
+    setDraggedChart(null);
+    setDragOverChart(null);
   };
 
   return (
@@ -535,54 +479,164 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         <p className="text-sm md:text-base text-slate-500">Visión global del cumplimiento y estado de unidades.</p>
       </header>
 
-      {/* KPI Cards - Draggable */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
-        {cardOrder.map((cardId) => {
-          const card = cardDefinitions[cardId];
-          if (!card) return null;
-          
-          const isDragging = draggedCard === cardId;
-          const isDragOver = dragOverCard === cardId;
-          
-          return (
-            <div
-              key={cardId}
-              draggable
-              onDragStart={(e) => handleDragStart(e, cardId)}
-              onDragOver={(e) => handleDragOver(e, cardId)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, cardId)}
-              onDragEnd={handleDragEnd}
-              className={`
-                bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 
-                flex items-center space-x-3 md:space-x-4
-                cursor-move transition-all duration-200
-                ${isDragging ? 'opacity-50 scale-95' : ''}
-                ${isDragOver ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
-                hover:shadow-md hover:border-blue-300
-              `}
-            >
-              <div className={`p-2 md:p-3 ${card.bgColor} ${card.iconColor} rounded-lg shrink-0 relative`}>
-                {card.icon}
-                <div className="absolute -top-1 -right-1 opacity-30">
-                  <GripVertical size={12} className={card.iconColor} />
-                </div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs md:text-sm font-medium text-slate-500">{card.label}</p>
-                <p className="text-xl md:text-2xl font-bold text-slate-800">{card.value}</p>
-                {card.subtitle && (
-                  <p className="text-[10px] text-slate-400">{card.subtitle}</p>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
+            <Building2 size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Unidades Totales</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{totalUnits}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-green-100 text-green-600 rounded-lg shrink-0">
+            <CheckCircle size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Unidades Operativas</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{activeUnits}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-purple-100 text-purple-600 rounded-lg shrink-0">
+            <Users size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Total Trabajadores</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{totalWorkers}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
+            <AlertTriangle size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Con Incidencias</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{issueUnits}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-yellow-100 text-yellow-600 rounded-lg shrink-0">
+            <Sun size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Día</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.day}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-orange-100 text-orange-600 rounded-lg shrink-0">
+            <Clock size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Tarde</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.afternoon}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-indigo-100 text-indigo-600 rounded-lg shrink-0">
+            <Moon size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Noche</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.night}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-teal-100 text-teal-600 rounded-lg shrink-0">
+            <Shield size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Coberturas Retenes</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : retenCoverages}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-cyan-100 text-cyan-600 rounded-lg shrink-0">
+            <Shield size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Utilización Retenes</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">
+              {loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`}
+            </p>
+            <p className="text-[10px] text-slate-400">Promedio diario del mes anterior</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-pink-100 text-pink-600 rounded-lg shrink-0">
+            <UserPlus size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Nuevos este Mes</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">{newWorkersThisMonth}</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-emerald-100 text-emerald-600 rounded-lg shrink-0">
+            <TrendingUp size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Rotación Mensual</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">
+              {personnelRotation.toFixed(1)}%
+            </p>
+            <p className="text-[10px] text-slate-400">(Nuevos + Salidas) / Inicio</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
+            <UserPlus size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Tasa de Ingreso</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">
+              {personnelEntryRate.toFixed(1)}%
+            </p>
+            <p className="text-[10px] text-slate-400">Nuevos / Inicio</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
+            <UserMinus size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Tasa de Salida</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">
+              {personnelExitRate.toFixed(1)}%
+            </p>
+            <p className="text-[10px] text-slate-400">Ceses / Inicio</p>
+          </div>
+        </div>
       </div>
 
-      {/* Charts Area */}
-      {chartData.length > 0 ? (
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
+      {/* Charts Area - Draggable */}
+      <div className="space-y-4 md:space-y-6">
+        {chartOrder.map((chartId) => {
+          if (chartId === 'complianceChart') {
+            return chartData.length > 0 ? (
+              <div
+                key={chartId}
+                draggable
+                onDragStart={(e) => handleChartDragStart(e, chartId)}
+                onDragOver={(e) => handleChartDragOver(e, chartId)}
+                onDragLeave={handleChartDragLeave}
+                onDrop={(e) => handleChartDrop(e, chartId)}
+                onDragEnd={handleChartDragEnd}
+                className={`
+                  bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
+                  transition-all duration-200
+                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
+                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                  hover:shadow-md hover:border-blue-300 cursor-move
+                `}
+              >
+                <div className="flex items-center justify-between mb-3 md:mb-4">
+                  <h3 className="text-base md:text-lg font-semibold text-slate-800">Cumplimiento del Servicio (Mes Actual)</h3>
+                  <GripVertical size={16} className="text-slate-400 opacity-50" />
+                </div>
           <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Cumplimiento del Servicio (Mes Actual)</h3>
           <div className="h-64 md:h-80 w-full overflow-x-auto" style={{ minHeight: '256px', minWidth: '100%' }}>
             <ResponsiveContainer width="100%" height="100%" minHeight={256}>
@@ -602,19 +656,56 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[10px] md:text-xs text-slate-400 mt-2 text-center">* Click en la barra para ver detalle de la unidad</p>
-        </div>
-      ) : (
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Cumplimiento del Servicio</h3>
-          <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos de cumplimiento disponibles para mostrar.</p>
-        </div>
-      )}
-
-      {/* Units Activity Chart */}
-      {unitsActivityData.length > 0 ? (
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Unidades con Mayor Actividad</h3>
+                <p className="text-[10px] md:text-xs text-slate-400 mt-2 text-center">* Click en la barra para ver detalle de la unidad</p>
+              </div>
+            ) : (
+              <div
+                key={chartId}
+                draggable
+                onDragStart={(e) => handleChartDragStart(e, chartId)}
+                onDragOver={(e) => handleChartDragOver(e, chartId)}
+                onDragLeave={handleChartDragLeave}
+                onDrop={(e) => handleChartDrop(e, chartId)}
+                onDragEnd={handleChartDragEnd}
+                className={`
+                  bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
+                  transition-all duration-200
+                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
+                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                  hover:shadow-md hover:border-blue-300 cursor-move
+                `}
+              >
+                <div className="flex items-center justify-between mb-3 md:mb-4">
+                  <h3 className="text-base md:text-lg font-semibold text-slate-800">Cumplimiento del Servicio</h3>
+                  <GripVertical size={16} className="text-slate-400 opacity-50" />
+                </div>
+                <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos de cumplimiento disponibles para mostrar.</p>
+              </div>
+            );
+          }
+          
+          if (chartId === 'activityChart') {
+            return unitsActivityData.length > 0 ? (
+              <div
+                key={chartId}
+                draggable
+                onDragStart={(e) => handleChartDragStart(e, chartId)}
+                onDragOver={(e) => handleChartDragOver(e, chartId)}
+                onDragLeave={handleChartDragLeave}
+                onDrop={(e) => handleChartDrop(e, chartId)}
+                onDragEnd={handleChartDragEnd}
+                className={`
+                  bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
+                  transition-all duration-200
+                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
+                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                  hover:shadow-md hover:border-blue-300 cursor-move
+                `}
+              >
+                <div className="flex items-center justify-between mb-3 md:mb-4">
+                  <h3 className="text-base md:text-lg font-semibold text-slate-800">Unidades con Mayor Actividad</h3>
+                  <GripVertical size={16} className="text-slate-400 opacity-50" />
+                </div>
           <div className="h-64 md:h-80 w-full overflow-x-auto" style={{ minHeight: '256px', minWidth: '100%' }}>
             <ResponsiveContainer width="100%" height="100%" minHeight={256}>
               <BarChart data={unitsActivityData} margin={{ left: 40, right: 10, top: 10, bottom: 5 }}>
@@ -638,18 +729,56 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[10px] md:text-xs text-slate-400 mt-2 text-center">Top 10 unidades con mayor cantidad de eventos y requerimientos</p>
-        </div>
-      ) : (
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Unidades con Mayor Actividad</h3>
-          <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos de actividad disponibles para mostrar.</p>
-        </div>
-      )}
-
-      {/* Recent Activity Preview */}
-      <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
-        <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Últimas Actividades Críticas</h3>
+                <p className="text-[10px] md:text-xs text-slate-400 mt-2 text-center">Top 10 unidades con mayor cantidad de eventos y requerimientos</p>
+              </div>
+            ) : (
+              <div
+                key={chartId}
+                draggable
+                onDragStart={(e) => handleChartDragStart(e, chartId)}
+                onDragOver={(e) => handleChartDragOver(e, chartId)}
+                onDragLeave={handleChartDragLeave}
+                onDrop={(e) => handleChartDrop(e, chartId)}
+                onDragEnd={handleChartDragEnd}
+                className={`
+                  bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
+                  transition-all duration-200
+                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
+                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                  hover:shadow-md hover:border-blue-300 cursor-move
+                `}
+              >
+                <div className="flex items-center justify-between mb-3 md:mb-4">
+                  <h3 className="text-base md:text-lg font-semibold text-slate-800">Unidades con Mayor Actividad</h3>
+                  <GripVertical size={16} className="text-slate-400 opacity-50" />
+                </div>
+                <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos de actividad disponibles para mostrar.</p>
+              </div>
+            );
+          }
+          
+          if (chartId === 'recentActivity') {
+            return (
+              <div
+                key={chartId}
+                draggable
+                onDragStart={(e) => handleChartDragStart(e, chartId)}
+                onDragOver={(e) => handleChartDragOver(e, chartId)}
+                onDragLeave={handleChartDragLeave}
+                onDrop={(e) => handleChartDrop(e, chartId)}
+                onDragEnd={handleChartDragEnd}
+                className={`
+                  bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
+                  transition-all duration-200
+                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
+                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                  hover:shadow-md hover:border-blue-300 cursor-move
+                `}
+              >
+                <div className="flex items-center justify-between mb-3 md:mb-4">
+                  <h3 className="text-base md:text-lg font-semibold text-slate-800">Últimas Actividades Críticas</h3>
+                  <GripVertical size={16} className="text-slate-400 opacity-50" />
+                </div>
         <div className="space-y-2 md:space-y-3">
           {units.flatMap(u => u.logs.map(l => ({...l, unitName: u.name}))).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 3).map(log => (
             <div key={log.id} className="flex items-start space-x-2 md:space-x-3 p-2 md:p-3 hover:bg-slate-50 rounded-lg transition-colors">
@@ -663,8 +792,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
                  <p className="text-[10px] md:text-xs text-slate-400 mt-1">{log.date} • {log.author}</p>
                </div>
             </div>
-          ))}
-        </div>
+                ))}
+              </div>
+            </div>
+            );
+          }
+          return null;
+        })}
       </div>
     </div>
   );
