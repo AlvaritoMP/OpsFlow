@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, UnitStatus, ResourceType } from '../types';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
+import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText } from 'lucide-react';
 
 interface DashboardProps {
   units: Unit[];
@@ -14,6 +14,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   const [retenCoverages, setRetenCoverages] = useState(0);
   const [newWorkersThisMonth, setNewWorkersThisMonth] = useState(0);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [retenUtilizationRatio, setRetenUtilizationRatio] = useState<number>(0);
+  const [unitsActivityData, setUnitsActivityData] = useState<Array<{ name: string; eventos: number; requerimientos: number; total: number }>>([]);
 
   // Calculate aggregations
   const totalUnits = units.length;
@@ -115,7 +117,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     setLoadingMetrics(false);
   }, [workersByShiftCount]);
 
-  // Calculate reten coverages (all assignments in the month)
+  // Calculate reten coverages and utilization ratio
   useEffect(() => {
     const loadRetenMetrics = async () => {
       try {
@@ -127,10 +129,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         const startDate = firstDayOfMonth.toISOString().split('T')[0];
         const endDate = lastDayOfMonth.toISOString().split('T')[0];
         
-        // Get all assignments in the month (not just completed ones)
+        // Get all retenes (total available)
+        const allRetenes = await retenesService.getAll();
+        const totalRetenes = allRetenes.length;
+        
+        // Get all assignments in the month
         const assignments = await retenesService.getAssignmentsByDateRange(startDate, endDate);
-        // Count all assignments, regardless of status
         setRetenCoverages(assignments.length);
+        
+        // Calculate daily utilization ratio
+        if (totalRetenes > 0) {
+          // Group assignments by date
+          const assignmentsByDate = new Map<string, Set<string>>(); // date -> Set of reten_ids
+          
+          assignments.forEach(assignment => {
+            const date = assignment.assignment_date;
+            if (!assignmentsByDate.has(date)) {
+              assignmentsByDate.set(date, new Set());
+            }
+            assignmentsByDate.get(date)!.add(assignment.reten_id);
+          });
+          
+          // Calculate average daily utilization
+          const daysInMonth = lastDayOfMonth.getDate();
+          let totalDailyUtilization = 0;
+          let daysWithData = 0;
+          
+          // Iterate through each day of the month
+          for (let day = 1; day <= daysInMonth; day++) {
+            const currentDate = new Date(today.getFullYear(), today.getMonth(), day);
+            const dateStr = currentDate.toISOString().split('T')[0];
+            
+            // Only count days that have passed
+            if (currentDate <= today) {
+              const retenesUsedOnDate = assignmentsByDate.get(dateStr)?.size || 0;
+              totalDailyUtilization += retenesUsedOnDate;
+              daysWithData++;
+            }
+          }
+          
+          // Calculate average daily utilization ratio
+          const avgDailyUtilization = daysWithData > 0 ? totalDailyUtilization / daysWithData : 0;
+          const ratio = totalRetenes > 0 ? (avgDailyUtilization / totalRetenes) * 100 : 0;
+          setRetenUtilizationRatio(ratio);
+        } else {
+          setRetenUtilizationRatio(0);
+        }
       } catch (error) {
         console.error('Error loading reten metrics:', error);
       }
@@ -179,6 +223,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     setNewWorkersThisMonth(newWorkersCount);
   }, [newWorkersCount]);
 
+  // Calculate units activity (events and requests)
+  useEffect(() => {
+    const calculateUnitsActivity = () => {
+      const activityMap = new Map<string, { eventos: number; requerimientos: number }>();
+      
+      units.forEach(unit => {
+        const eventos = unit.logs?.length || 0;
+        const requerimientos = unit.requests?.length || 0;
+        
+        activityMap.set(unit.id, {
+          eventos,
+          requerimientos
+        });
+      });
+      
+      // Convert to array and sort by total activity
+      const activityArray = Array.from(activityMap.entries())
+        .map(([unitId, data]) => {
+          const unit = units.find(u => u.id === unitId);
+          return {
+            name: unit?.name || 'Desconocida',
+            eventos: data.eventos,
+            requerimientos: data.requerimientos,
+            total: data.eventos + data.requerimientos
+          };
+        })
+        .filter(item => item.total > 0) // Only show units with activity
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10); // Top 10 units
+      
+      setUnitsActivityData(activityArray);
+    };
+    
+    calculateUnitsActivity();
+  }, [units]);
+
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 animate-in fade-in duration-500">
       <header className="mb-4 md:mb-6">
@@ -187,7 +267,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       </header>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
         <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
           <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
             <Building2 size={20} className="md:w-6 md:h-6" />
@@ -263,6 +343,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           </div>
         </div>
         <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-cyan-100 text-cyan-600 rounded-lg shrink-0">
+            <Shield size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Utilización Retenes</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">
+              {loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`}
+            </p>
+            <p className="text-[10px] text-slate-400">Promedio diario del mes</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
           <div className="p-2 md:p-3 bg-pink-100 text-pink-600 rounded-lg shrink-0">
             <UserPlus size={20} className="md:w-6 md:h-6" />
           </div>
@@ -301,6 +393,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Cumplimiento del Servicio</h3>
           <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos de cumplimiento disponibles para mostrar.</p>
+        </div>
+      )}
+
+      {/* Units Activity Chart */}
+      {unitsActivityData.length > 0 ? (
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Unidades con Mayor Actividad</h3>
+          <div className="h-64 md:h-80 w-full overflow-x-auto" style={{ minHeight: '256px', minWidth: '100%' }}>
+            <ResponsiveContainer width="100%" height="100%" minHeight={256}>
+              <BarChart data={unitsActivityData} margin={{ left: 40, right: 10, top: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis 
+                  dataKey="name" 
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                  tick={{ fontSize: 11 }}
+                  interval={0}
+                />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip 
+                  cursor={{fill: 'rgba(0, 0, 0, 0.05)'}}
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
+                />
+                <Legend />
+                <Bar dataKey="eventos" fill="#3b82f6" name="Eventos" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="requerimientos" fill="#ef4444" name="Requerimientos" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[10px] md:text-xs text-slate-400 mt-2 text-center">Top 10 unidades con mayor cantidad de eventos y requerimientos</p>
+        </div>
+      ) : (
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4">Unidades con Mayor Actividad</h3>
+          <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos de actividad disponibles para mostrar.</p>
         </div>
       )}
 
