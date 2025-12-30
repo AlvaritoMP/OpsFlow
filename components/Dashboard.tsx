@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, UnitStatus, ResourceType } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
-import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText } from 'lucide-react';
+import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical } from 'lucide-react';
 
 interface DashboardProps {
   units: Unit[];
@@ -16,6 +16,31 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [retenUtilizationRatio, setRetenUtilizationRatio] = useState<number>(0);
   const [unitsActivityData, setUnitsActivityData] = useState<Array<{ name: string; eventos: number; requerimientos: number; total: number }>>([]);
+  const [personnelRotation, setPersonnelRotation] = useState<number>(0);
+  const [personnelEntryRate, setPersonnelEntryRate] = useState<number>(0);
+  const [personnelExitRate, setPersonnelExitRate] = useState<number>(0);
+  
+  // Card order state for drag and drop
+  type CardId = 'totalUnits' | 'activeUnits' | 'totalWorkers' | 'issueUnits' | 'dayShift' | 'afternoonShift' | 'nightShift' | 'retenCoverages' | 'retenUtilization' | 'newWorkers' | 'personnelRotation' | 'entryRate' | 'exitRate';
+  const defaultCardOrder: CardId[] = [
+    'totalUnits', 'activeUnits', 'totalWorkers', 'issueUnits',
+    'dayShift', 'afternoonShift', 'nightShift',
+    'retenCoverages', 'retenUtilization',
+    'newWorkers', 'personnelRotation', 'entryRate', 'exitRate'
+  ];
+  
+  const [cardOrder, setCardOrder] = useState<CardId[]>(() => {
+    const saved = localStorage.getItem('dashboard-card-order');
+    return saved ? JSON.parse(saved) : defaultCardOrder;
+  });
+  
+  const [draggedCard, setDraggedCard] = useState<CardId | null>(null);
+  const [dragOverCard, setDragOverCard] = useState<CardId | null>(null);
+  
+  // Save card order to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('dashboard-card-order', JSON.stringify(cardOrder));
+  }, [cardOrder]);
 
   // Calculate aggregations
   const totalUnits = units.length;
@@ -150,10 +175,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             assignmentsByDate.get(date)!.add(assignment.reten_id);
           });
           
-          // Calculate average daily utilization
+          // Calculate daily percentage for each day, then average
           const daysInMonth = lastDayOfMonth.getDate();
-          let totalDailyUtilization = 0;
-          let daysWithData = 0;
+          const dailyPercentages: number[] = [];
           
           // Iterate through each day of the month
           for (let day = 1; day <= daysInMonth; day++) {
@@ -163,15 +187,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             // Only count days that have passed
             if (currentDate <= today) {
               const retenesUsedOnDate = assignmentsByDate.get(dateStr)?.size || 0;
-              totalDailyUtilization += retenesUsedOnDate;
-              daysWithData++;
+              // Calculate daily percentage: (retenes únicos del día / total retenes) × 100
+              const dailyPercentage = (retenesUsedOnDate / totalRetenes) * 100;
+              dailyPercentages.push(dailyPercentage);
             }
           }
           
-          // Calculate average daily utilization ratio
-          const avgDailyUtilization = daysWithData > 0 ? totalDailyUtilization / daysWithData : 0;
-          const ratio = totalRetenes > 0 ? (avgDailyUtilization / totalRetenes) * 100 : 0;
-          setRetenUtilizationRatio(ratio);
+          // Calculate average of daily percentages
+          const avgDailyPercentage = dailyPercentages.length > 0
+            ? dailyPercentages.reduce((sum, pct) => sum + pct, 0) / dailyPercentages.length
+            : 0;
+          
+          setRetenUtilizationRatio(avgDailyPercentage);
         } else {
           setRetenUtilizationRatio(0);
         }
@@ -223,6 +250,105 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     setNewWorkersThisMonth(newWorkersCount);
   }, [newWorkersCount]);
 
+  // Calculate personnel rotation metrics
+  useEffect(() => {
+    const calculatePersonnelRotation = () => {
+      const today = new Date();
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      
+      // Calculate total workers at the beginning of the month
+      // Workers that were active on the first day of the month (startDate <= firstDayOfMonth AND (endDate is null OR endDate > firstDayOfMonth))
+      const sharedWorkersAtStart = new Set<string>();
+      let uniqueWorkersAtStart = 0;
+      let sharedWorkersAtStartCount = 0;
+      
+      units.forEach(unit => {
+        unit.resources
+          .filter(r => {
+            if (r.type !== ResourceType.PERSONNEL) return false;
+            // Worker was active at the beginning of the month if:
+            // - Has startDate <= firstDayOfMonth (already started)
+            // - AND (no endDate OR endDate > firstDayOfMonth) (hadn't ended yet)
+            const startDate = r.startDate ? new Date(r.startDate) : null;
+            const endDate = r.endDate ? new Date(r.endDate) : null;
+            
+            if (!startDate) return false; // No start date means not active
+            if (startDate > firstDayOfMonth) return false; // Started after the month began
+            
+            // If has endDate, it must be after the first day of the month
+            if (endDate && endDate <= firstDayOfMonth) return false;
+            
+            return true;
+          })
+          .forEach(r => {
+            if (r.isShared) {
+              const identifier = r.dni || r.name;
+              if (!sharedWorkersAtStart.has(identifier)) {
+                sharedWorkersAtStart.add(identifier);
+                sharedWorkersAtStartCount++;
+              }
+            } else {
+              uniqueWorkersAtStart++;
+            }
+          });
+      });
+      
+      const totalWorkersAtStart = uniqueWorkersAtStart + sharedWorkersAtStartCount;
+      
+      // Calculate workers who left during the month (endDate in the current month)
+      const sharedWorkersExited = new Set<string>();
+      let uniqueWorkersExited = 0;
+      let sharedWorkersExitedCount = 0;
+      
+      units.forEach(unit => {
+        unit.resources
+          .filter(r => {
+            if (r.type !== ResourceType.PERSONNEL) return false;
+            if (!r.endDate) return false;
+            
+            const endDate = new Date(r.endDate);
+            // Worker left during the month if endDate is between firstDayOfMonth and lastDayOfMonth
+            return endDate >= firstDayOfMonth && endDate <= lastDayOfMonth;
+          })
+          .forEach(r => {
+            if (r.isShared) {
+              const identifier = r.dni || r.name;
+              if (!sharedWorkersExited.has(identifier)) {
+                sharedWorkersExited.add(identifier);
+                sharedWorkersExitedCount++;
+              }
+            } else {
+              uniqueWorkersExited++;
+            }
+          });
+      });
+      
+      const totalWorkersExited = uniqueWorkersExited + sharedWorkersExitedCount;
+      
+      // Calculate metrics
+      if (totalWorkersAtStart > 0) {
+        // Rotación mensual = (nuevos - salidas) / total a inicio de mes
+        const rotation = ((newWorkersCount - totalWorkersExited) / totalWorkersAtStart) * 100;
+        setPersonnelRotation(rotation);
+        
+        // Tasa de ingreso = nuevos / total a inicio de mes
+        const entryRate = (newWorkersCount / totalWorkersAtStart) * 100;
+        setPersonnelEntryRate(entryRate);
+        
+        // Tasa de salida = ceses / total a inicio de mes
+        const exitRate = (totalWorkersExited / totalWorkersAtStart) * 100;
+        setPersonnelExitRate(exitRate);
+      } else {
+        setPersonnelRotation(0);
+        setPersonnelEntryRate(0);
+        setPersonnelExitRate(0);
+      }
+    };
+    
+    calculatePersonnelRotation();
+  }, [units, newWorkersCount]);
+
   // Calculate units activity (events and requests)
   useEffect(() => {
     const calculateUnitsActivity = () => {
@@ -259,6 +385,149 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     calculateUnitsActivity();
   }, [units]);
 
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, cardId: CardId) => {
+    setDraggedCard(cardId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', cardId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, cardId: CardId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedCard && draggedCard !== cardId) {
+      setDragOverCard(cardId);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverCard(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetCardId: CardId) => {
+    e.preventDefault();
+    if (!draggedCard || draggedCard === targetCardId) {
+      setDraggedCard(null);
+      setDragOverCard(null);
+      return;
+    }
+
+    const newOrder = [...cardOrder];
+    const draggedIndex = newOrder.indexOf(draggedCard);
+    const targetIndex = newOrder.indexOf(targetCardId);
+
+    newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, draggedCard);
+
+    setCardOrder(newOrder);
+    setDraggedCard(null);
+    setDragOverCard(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedCard(null);
+    setDragOverCard(null);
+  };
+
+  // Card definitions with their content
+  const cardDefinitions: Record<CardId, { icon: React.ReactNode; label: string; value: string | number; subtitle?: string; bgColor: string; iconColor: string }> = {
+    totalUnits: {
+      icon: <Building2 size={20} className="md:w-6 md:h-6" />,
+      label: 'Unidades Totales',
+      value: totalUnits,
+      bgColor: 'bg-blue-100',
+      iconColor: 'text-blue-600'
+    },
+    activeUnits: {
+      icon: <CheckCircle size={20} className="md:w-6 md:h-6" />,
+      label: 'Unidades Operativas',
+      value: activeUnits,
+      bgColor: 'bg-green-100',
+      iconColor: 'text-green-600'
+    },
+    totalWorkers: {
+      icon: <Users size={20} className="md:w-6 md:h-6" />,
+      label: 'Total Trabajadores',
+      value: totalWorkers,
+      bgColor: 'bg-purple-100',
+      iconColor: 'text-purple-600'
+    },
+    issueUnits: {
+      icon: <AlertTriangle size={20} className="md:w-6 md:h-6" />,
+      label: 'Con Incidencias',
+      value: issueUnits,
+      bgColor: 'bg-red-100',
+      iconColor: 'text-red-600'
+    },
+    dayShift: {
+      icon: <Sun size={20} className="md:w-6 md:h-6" />,
+      label: 'Turno Día',
+      value: loadingMetrics ? '...' : workersByShift.day,
+      bgColor: 'bg-yellow-100',
+      iconColor: 'text-yellow-600'
+    },
+    afternoonShift: {
+      icon: <Clock size={20} className="md:w-6 md:h-6" />,
+      label: 'Turno Tarde',
+      value: loadingMetrics ? '...' : workersByShift.afternoon,
+      bgColor: 'bg-orange-100',
+      iconColor: 'text-orange-600'
+    },
+    nightShift: {
+      icon: <Moon size={20} className="md:w-6 md:h-6" />,
+      label: 'Turno Noche',
+      value: loadingMetrics ? '...' : workersByShift.night,
+      bgColor: 'bg-indigo-100',
+      iconColor: 'text-indigo-600'
+    },
+    retenCoverages: {
+      icon: <Shield size={20} className="md:w-6 md:h-6" />,
+      label: 'Coberturas Retenes',
+      value: loadingMetrics ? '...' : retenCoverages,
+      bgColor: 'bg-teal-100',
+      iconColor: 'text-teal-600'
+    },
+    retenUtilization: {
+      icon: <Shield size={20} className="md:w-6 md:h-6" />,
+      label: 'Utilización Retenes',
+      value: loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`,
+      subtitle: 'Promedio diario del mes',
+      bgColor: 'bg-cyan-100',
+      iconColor: 'text-cyan-600'
+    },
+    newWorkers: {
+      icon: <UserPlus size={20} className="md:w-6 md:h-6" />,
+      label: 'Nuevos este Mes',
+      value: newWorkersThisMonth,
+      bgColor: 'bg-pink-100',
+      iconColor: 'text-pink-600'
+    },
+    personnelRotation: {
+      icon: <TrendingUp size={20} className="md:w-6 md:h-6" />,
+      label: 'Rotación Mensual',
+      value: `${personnelRotation.toFixed(1)}%`,
+      subtitle: '(Nuevos - Salidas) / Inicio',
+      bgColor: 'bg-emerald-100',
+      iconColor: 'text-emerald-600'
+    },
+    entryRate: {
+      icon: <UserPlus size={20} className="md:w-6 md:h-6" />,
+      label: 'Tasa de Ingreso',
+      value: `${personnelEntryRate.toFixed(1)}%`,
+      subtitle: 'Nuevos / Inicio',
+      bgColor: 'bg-blue-100',
+      iconColor: 'text-blue-600'
+    },
+    exitRate: {
+      icon: <UserMinus size={20} className="md:w-6 md:h-6" />,
+      label: 'Tasa de Salida',
+      value: `${personnelExitRate.toFixed(1)}%`,
+      subtitle: 'Ceses / Inicio',
+      bgColor: 'bg-red-100',
+      iconColor: 'text-red-600'
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 animate-in fade-in duration-500">
       <header className="mb-4 md:mb-6">
@@ -266,103 +535,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         <p className="text-sm md:text-base text-slate-500">Visión global del cumplimiento y estado de unidades.</p>
       </header>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
-            <Building2 size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Unidades Totales</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{totalUnits}</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-green-100 text-green-600 rounded-lg shrink-0">
-            <CheckCircle size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Unidades Operativas</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{activeUnits}</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-purple-100 text-purple-600 rounded-lg shrink-0">
-            <Users size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Total Trabajadores</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{totalWorkers}</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
-            <AlertTriangle size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Con Incidencias</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{issueUnits}</p>
-          </div>
-        </div>
-        
-        {/* New Cards */}
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-yellow-100 text-yellow-600 rounded-lg shrink-0">
-            <Sun size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Día</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.day}</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-orange-100 text-orange-600 rounded-lg shrink-0">
-            <Clock size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Tarde</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.afternoon}</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-indigo-100 text-indigo-600 rounded-lg shrink-0">
-            <Moon size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Turno Noche</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.night}</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-teal-100 text-teal-600 rounded-lg shrink-0">
-            <Shield size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Coberturas Retenes</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : retenCoverages}</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-cyan-100 text-cyan-600 rounded-lg shrink-0">
-            <Shield size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Utilización Retenes</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">
-              {loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`}
-            </p>
-            <p className="text-[10px] text-slate-400">Promedio diario del mes</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-pink-100 text-pink-600 rounded-lg shrink-0">
-            <UserPlus size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Nuevos este Mes</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{newWorkersThisMonth}</p>
-          </div>
-        </div>
+      {/* KPI Cards - Draggable */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
+        {cardOrder.map((cardId) => {
+          const card = cardDefinitions[cardId];
+          if (!card) return null;
+          
+          const isDragging = draggedCard === cardId;
+          const isDragOver = dragOverCard === cardId;
+          
+          return (
+            <div
+              key={cardId}
+              draggable
+              onDragStart={(e) => handleDragStart(e, cardId)}
+              onDragOver={(e) => handleDragOver(e, cardId)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, cardId)}
+              onDragEnd={handleDragEnd}
+              className={`
+                bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 
+                flex items-center space-x-3 md:space-x-4
+                cursor-move transition-all duration-200
+                ${isDragging ? 'opacity-50 scale-95' : ''}
+                ${isDragOver ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                hover:shadow-md hover:border-blue-300
+              `}
+            >
+              <div className={`p-2 md:p-3 ${card.bgColor} ${card.iconColor} rounded-lg shrink-0 relative`}>
+                {card.icon}
+                <div className="absolute -top-1 -right-1 opacity-30">
+                  <GripVertical size={12} className={card.iconColor} />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs md:text-sm font-medium text-slate-500">{card.label}</p>
+                <p className="text-xl md:text-2xl font-bold text-slate-800">{card.value}</p>
+                {card.subtitle && (
+                  <p className="text-[10px] text-slate-400">{card.subtitle}</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Charts Area */}
