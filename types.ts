@@ -333,6 +333,10 @@ export interface Unit {
   requests: ClientRequest[]; // New field for Client Requests
   complianceHistory: { month: string; score: number }[];
   
+  // Location coordinates
+  latitude?: number; // Latitud de la ubicación de la unidad
+  longitude?: number; // Longitud de la ubicación de la unidad
+  
   // Management Team
   coordinator?: UnitContact;
   rovingSupervisor?: UnitContact; // Supervisor de Ronda

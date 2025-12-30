@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, UnitStatus, ResourceType } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical } from 'lucide-react';
+import { UnitsMap } from './UnitsMap';
 
 interface DashboardProps {
   units: Unit[];
@@ -435,8 +436,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   }, [units]);
 
   // Chart/Table order state for drag and drop
-  type ChartId = 'complianceChart' | 'activityChart' | 'recentActivity';
-  const defaultChartOrder: ChartId[] = ['complianceChart', 'activityChart', 'recentActivity'];
+  type ChartId = 'complianceChart' | 'activityChart' | 'recentActivity' | 'unitsMap';
+  const defaultChartOrder: ChartId[] = ['unitsMap', 'complianceChart', 'activityChart', 'recentActivity'];
   
   const [chartOrder, setChartOrder] = useState<ChartId[]>(() => {
     const saved = localStorage.getItem('dashboard-chart-order');
@@ -776,6 +777,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
                   <GripVertical size={16} className="text-slate-400 opacity-50" />
                 </div>
                 <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos de actividad disponibles para mostrar.</p>
+              </div>
+            );
+          }
+          
+          if (chartId === 'unitsMap') {
+            return (
+              <div
+                key={chartId}
+                draggable
+                onDragStart={(e) => handleChartDragStart(e, chartId)}
+                onDragOver={(e) => handleChartDragOver(e, chartId)}
+                onDragLeave={handleChartDragLeave}
+                onDrop={(e) => handleChartDrop(e, chartId)}
+                onDragEnd={handleChartDragEnd}
+                className={`
+                  transition-all duration-200
+                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
+                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                  hover:shadow-md cursor-move
+                `}
+              >
+                <div className="relative">
+                  <GripVertical 
+                    size={16} 
+                    className="absolute top-4 right-4 z-10 text-slate-400 opacity-50 pointer-events-none" 
+                  />
+                  <UnitsMap units={units} onSelectUnit={onSelectUnit} />
+                </div>
               </div>
             );
           }

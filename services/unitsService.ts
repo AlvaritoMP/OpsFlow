@@ -17,6 +17,8 @@ interface UnitRow {
   coordinator_id?: string;
   roving_supervisor_id?: string;
   resident_supervisor_id?: string;
+  latitude?: number;
+  longitude?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -520,6 +522,8 @@ function transformUnitFromDB(
     address: data.address,
     status: data.status as UnitStatus,
     description: data.description,
+    latitude: data.latitude ? Number(data.latitude) : undefined,
+    longitude: data.longitude ? Number(data.longitude) : undefined,
     // Filtrar blob URLs (no deberían estar en la BD, pero por si acaso) y ordenar por display_order
     images: (data.unit_images
       ?.filter((img: any) => {
@@ -581,6 +585,8 @@ function transformUnitToDB(unit: Partial<Unit>): any {
     coordinator_id: unit.coordinator?.id,
     roving_supervisor_id: unit.rovingSupervisor?.id,
     resident_supervisor_id: unit.residentSupervisor?.id,
+    latitude: unit.latitude,
+    longitude: unit.longitude,
   };
   
   // Incluir required_positions si está definido
