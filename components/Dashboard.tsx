@@ -1,7 +1,8 @@
 import React from 'react';
 import { Unit, UnitStatus } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Building2, Users, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Building2, Users, AlertTriangle, CheckCircle, MapPin } from 'lucide-react';
+import { UnitsMap } from './UnitsMap';
 
 interface DashboardProps {
   units: Unit[];
@@ -59,6 +60,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           </div>
         </div>
       </div>
+
+      {/* Map Section */}
+      {units.length > 0 && (
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4 flex items-center gap-2">
+            <MapPin size={20} className="text-blue-600" />
+            Ubicación de Unidades
+          </h3>
+          <UnitsMap
+            units={units}
+            apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''}
+            onUnitClick={onSelectUnit}
+            height="400px"
+          />
+        </div>
+      )}
 
       {/* Charts Area */}
       {chartData.length > 0 ? (

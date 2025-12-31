@@ -26,6 +26,12 @@ Esta aplicación requiere las siguientes variables de entorno para funcionar cor
 - **Descripción**: URL base de la API (opcional)
 - **Ejemplo**: `https://opalo-opsflow.bouasv.easypanel.host/`
 
+### `VITE_GOOGLE_MAPS_API_KEY`
+- **Descripción**: Clave API de Google Maps (requerida para mostrar mapas)
+- **Ejemplo**: `AIzaSy...`
+- **Dónde obtenerla**: En Google Cloud Console, ve a APIs & Services > Credentials > Create Credentials > API Key
+- **APIs necesarias**: Habilita "Maps JavaScript API" y "Geocoding API" en Google Cloud Console
+
 ## Cómo Configurar en EasyPanel
 
 1. Ve a tu proyecto en EasyPanel
@@ -42,6 +48,9 @@ Esta aplicación requiere las siguientes variables de entorno para funcionar cor
    
    - **Key**: `VITE_API_URL` (opcional)
    - **Value**: `https://opalo-opsflow.bouasv.easypanel.host/`
+   
+   - **Key**: `VITE_GOOGLE_MAPS_API_KEY` (requerida para mapas)
+   - **Value**: `AIzaSy...` (tu API key de Google Maps)
 
 4. Guarda los cambios
 5. Redespliega la aplicación para que las variables de entorno surtan efecto
