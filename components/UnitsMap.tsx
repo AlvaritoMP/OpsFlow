@@ -393,10 +393,23 @@ export const UnitsMap: React.FC<UnitsMapProps> = ({ units, onSelectUnit }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Obtener la API key de Google Maps desde localStorage
-    const key = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
-    setApiKey(key);
-    setIsLoading(false);
+    // Obtener la API key de Google Maps desde Supabase (compartida para todos los usuarios)
+    const loadApiKey = async () => {
+      try {
+        const { getGoogleMapsApiKey } = await import('../services/googleMapsService');
+        const key = await getGoogleMapsApiKey();
+        setApiKey(key || '');
+      } catch (error) {
+        console.error('Error al cargar API key de Google Maps:', error);
+        // Fallback a localStorage si hay error
+        const localKey = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
+        setApiKey(localKey);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadApiKey();
   }, []);
 
   console.log('🗺️ UnitsMap - Recibidas', units.length, 'unidades');

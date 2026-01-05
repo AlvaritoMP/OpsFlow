@@ -130,11 +130,29 @@ const App: React.FC = () => {
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
 
   // Google Maps Geocoding API Config State
-  const [googleMapsKey, setGoogleMapsKey] = useState<string>(() => {
-    const key = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
-    return key;
-  });
+  const [googleMapsKey, setGoogleMapsKey] = useState<string>('');
   const [isGoogleMapsSaved, setIsGoogleMapsSaved] = useState(false);
+  const [isLoadingGoogleMapsKey, setIsLoadingGoogleMapsKey] = useState(true);
+
+  // Cargar API key de Google Maps desde Supabase al iniciar
+  useEffect(() => {
+    const loadGoogleMapsKey = async () => {
+      try {
+        const { getGoogleMapsApiKey } = await import('./services/googleMapsService');
+        const key = await getGoogleMapsApiKey();
+        setGoogleMapsKey(key || '');
+      } catch (error) {
+        console.error('Error al cargar API key de Google Maps:', error);
+        // Fallback a localStorage
+        const localKey = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
+        setGoogleMapsKey(localKey);
+      } finally {
+        setIsLoadingGoogleMapsKey(false);
+      }
+    };
+
+    loadGoogleMapsKey();
+  }, []);
 
 
   // Branding State
@@ -2089,10 +2107,16 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-center mt-4">
                        <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline">Obtener API Key</a>
-                       <button onClick={() => {
-                         localStorage.setItem('GOOGLE_MAPS_API_KEY', googleMapsKey);
-                         setIsGoogleMapsSaved(true);
-                         setTimeout(() => setIsGoogleMapsSaved(false), 3000);
+                       <button onClick={async () => {
+                         try {
+                           const { saveGoogleMapsApiKey } = await import('./services/googleMapsService');
+                           await saveGoogleMapsApiKey(googleMapsKey);
+                           setIsGoogleMapsSaved(true);
+                           setTimeout(() => setIsGoogleMapsSaved(false), 3000);
+                         } catch (error) {
+                           console.error('Error al guardar API key:', error);
+                           alert('Error al guardar la API Key. Por favor, intente nuevamente.');
+                         }
                        }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center">
                           <Save size={16} className="mr-2"/> Guardar API Key
                        </button>
