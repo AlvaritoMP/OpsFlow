@@ -1,212 +1,197 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Unit, UnitStatus } from '../types';
 import { Building2 } from 'lucide-react';
+import { GoogleMap, LoadScript, Marker, InfoWindow } from '@react-google-maps/api';
 
 interface UnitsMapProps {
   units: Unit[];
   onSelectUnit?: (unitId: string) => void;
 }
 
+// Configuración del mapa
+const mapContainerStyle = {
+  width: '100%',
+  height: '100%',
+};
+
+const defaultCenter = {
+  lat: -12.0464,
+  lng: -77.0428,
+};
+
+// Opciones del mapa
+const mapOptions = {
+  disableDefaultUI: false,
+  zoomControl: true,
+  streetViewControl: false,
+  mapTypeControl: false,
+  fullscreenControl: true,
+  styles: [
+    {
+      featureType: 'poi',
+      elementType: 'labels',
+      stylers: [{ visibility: 'off' }],
+    },
+  ],
+};
+
 // Componente del mapa que se carga dinámicamente solo en el cliente
-const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) => void }> = ({ units, onSelectUnit }) => {
-  const [MapContainer, setMapContainer] = useState<any>(null);
-  const [TileLayer, setTileLayer] = useState<any>(null);
-  const [Marker, setMarker] = useState<any>(null);
-  const [Popup, setPopup] = useState<any>(null);
-  const [Tooltip, setTooltip] = useState<any>(null);
-  const [useMap, setUseMap] = useState<any>(null);
-  const [L, setL] = useState<any>(null);
+const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) => void; apiKey: string }> = ({ 
+  units, 
+  onSelectUnit,
+  apiKey 
+}) => {
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  useEffect(() => {
-    // Cargar Leaflet solo en el cliente
-    if (typeof window !== 'undefined') {
-      Promise.all([
-        import('react-leaflet'),
-        import('leaflet'),
-        import('leaflet/dist/leaflet.css')
-      ]).then(([leaflet, leafletLib]) => {
-        // Fix para los iconos de Leaflet en React
-        delete (leafletLib.default.Icon.Default.prototype as any)._getIconUrl;
-        leafletLib.default.Icon.Default.mergeOptions({
-          iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-        });
+  const unitsWithCoords = useMemo(() => 
+    units.filter(u => u.latitude && u.longitude),
+    [units]
+  );
 
-        setMapContainer(() => leaflet.MapContainer);
-        setTileLayer(() => leaflet.TileLayer);
-        setMarker(() => leaflet.Marker);
-        setPopup(() => leaflet.Popup);
-        setTooltip(() => leaflet.Tooltip);
-        setUseMap(() => leaflet.useMap);
-        setL(leafletLib.default);
-        setIsLoaded(true);
-      }).catch((error) => {
-        console.error('Error al cargar Leaflet:', error);
+  // Ajustar el mapa a las unidades cuando se cargan
+  useEffect(() => {
+    if (!map || !isLoaded || unitsWithCoords.length === 0) return;
+    
+    if (unitsWithCoords.length === 1) {
+      // Si hay una sola unidad, centrar en ella con zoom apropiado
+      map.setCenter({
+        lat: unitsWithCoords[0].latitude!,
+        lng: unitsWithCoords[0].longitude!,
       });
+      map.setZoom(15);
+    } else if (unitsWithCoords.length > 1) {
+      // Si hay múltiples unidades, ajustar el bounds
+      const bounds = new google.maps.LatLngBounds();
+      unitsWithCoords.forEach(unit => {
+        bounds.extend({
+          lat: unit.latitude!,
+          lng: unit.longitude!,
+        });
+      });
+      map.fitBounds(bounds, { padding: 50 });
     }
+  }, [map, isLoaded, unitsWithCoords]);
+
+  const onLoad = useCallback((mapInstance: google.maps.Map) => {
+    setMap(mapInstance);
+    setIsLoaded(true);
   }, []);
 
-  if (!isLoaded || !MapContainer || !L || !Tooltip) {
-    return (
-      <div className="h-96 w-full rounded-lg border border-slate-200 flex items-center justify-center bg-slate-50" style={{ minHeight: '384px' }}>
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <p className="text-sm text-slate-500">Cargando mapa...</p>
-        </div>
-      </div>
-    );
-  }
+  const onUnmount = useCallback(() => {
+    setMap(null);
+  }, []);
 
-  const unitsWithCoords = units.filter(u => u.latitude && u.longitude);
-
-  // Iconos personalizados según el estado de la unidad
-  const createCustomIcon = (status: UnitStatus) => {
-    let color = '#3b82f6'; // Azul por defecto (Activo)
-    if (status === UnitStatus.ISSUE) {
-      color = '#ef4444'; // Rojo (Con Incidencias)
-    } else if (status === UnitStatus.PENDING) {
-      color = '#f59e0b'; // Amarillo (Pendiente)
+  // Función para obtener el color del marcador según el estado
+  const getMarkerColor = (status: UnitStatus): string => {
+    switch (status) {
+      case UnitStatus.ACTIVE:
+        return '#3b82f6'; // Azul
+      case UnitStatus.ISSUE:
+        return '#ef4444'; // Rojo
+      case UnitStatus.PENDING:
+        return '#f59e0b'; // Amarillo
+      default:
+        return '#3b82f6';
     }
-
-    return L.divIcon({
-      className: 'custom-marker',
-      html: `
-        <div style="
-          background-color: ${color};
-          width: 24px;
-          height: 24px;
-          border-radius: 50% 50% 50% 0;
-          transform: rotate(-45deg);
-          border: 2px solid white;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        ">
-          <div style="
-            transform: rotate(45deg);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            height: 100%;
-            color: white;
-            font-size: 12px;
-          ">📍</div>
-        </div>
-      `,
-      iconSize: [24, 24],
-      iconAnchor: [12, 24],
-      popupAnchor: [0, -24],
-    });
   };
 
-  // Componente para ajustar el mapa al mostrar todas las unidades
-  const MapBounds = ({ units }: { units: Unit[] }) => {
-    const map = useMap();
-    const unitsWithCoords = units.filter(u => u.latitude && u.longitude);
-
-    useEffect(() => {
-      if (!map || !L) return;
-      
-      if (unitsWithCoords.length > 0) {
-        const bounds = L.latLngBounds(
-          unitsWithCoords.map(u => [u.latitude!, u.longitude!] as [number, number])
-        );
-        map.fitBounds(bounds, { padding: [50, 50] });
-      } else if (unitsWithCoords.length === 1) {
-        map.setView([unitsWithCoords[0].latitude!, unitsWithCoords[0].longitude!], 13);
-      } else {
-        map.setView([-12.0464, -77.0428], 12);
-      }
-    }, [map, unitsWithCoords, L]);
-
-    return null;
+  // Crear icono personalizado SVG para el marcador
+  const createCustomIcon = (status: UnitStatus): google.maps.Icon => {
+    const color = getMarkerColor(status);
+    const svgIcon = `
+      <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="12" fill="${color}" stroke="white" stroke-width="2"/>
+        <text x="16" y="20" font-size="16" text-anchor="middle" fill="white">📍</text>
+      </svg>
+    `;
+    
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgIcon)}`,
+      scaledSize: new google.maps.Size(32, 32),
+      anchor: new google.maps.Point(16, 32),
+    };
   };
 
   return (
-    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
-      <style>{`
-        .leaflet-container {
-          height: 100% !important;
-          width: 100% !important;
-          z-index: 0;
-        }
-        .unit-label-tooltip {
-          background: rgba(255, 255, 255, 0.95) !important;
-          border: 1px solid #cbd5e1 !important;
-          border-radius: 6px !important;
-          padding: 4px 8px !important;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-          font-weight: 600 !important;
-          color: #1e293b !important;
-          pointer-events: none !important;
-        }
-        .unit-label-tooltip .leaflet-tooltip-arrow {
-          border-top-color: #cbd5e1 !important;
-        }
-      `}</style>
-      <MapContainer
-        center={[-12.0464, -77.0428]}
+    <LoadScript googleMapsApiKey={apiKey}>
+      <GoogleMap
+        mapContainerStyle={mapContainerStyle}
+        center={defaultCenter}
         zoom={11}
-        style={{ height: '100%', width: '100%', zIndex: 0 }}
-        scrollWheelZoom={true}
-        key={`map-${unitsWithCoords.length}`}
+        options={mapOptions}
+        onLoad={onLoad}
+        onUnmount={onUnmount}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <MapBounds units={units} />
         {unitsWithCoords.map((unit) => (
-          <Marker
-            key={unit.id}
-            position={[unit.latitude!, unit.longitude!]}
-            icon={createCustomIcon(unit.status)}
-          >
-            <Tooltip 
-              permanent 
-              direction="top" 
-              offset={[0, -10]}
-              className="unit-label-tooltip"
-            >
-              <span className="font-semibold text-slate-800 text-xs whitespace-nowrap">{unit.name}</span>
-            </Tooltip>
-            <Popup>
-              <div className="p-2">
-                <h4 className="font-semibold text-slate-800 mb-1">{unit.name}</h4>
-                <p className="text-sm text-slate-600 mb-2">{unit.clientName}</p>
-                <p className="text-xs text-slate-500 mb-2">{unit.address}</p>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`text-xs px-2 py-1 rounded ${
-                      unit.status === UnitStatus.ACTIVE
-                        ? 'bg-green-100 text-green-700'
-                        : unit.status === UnitStatus.ISSUE
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-yellow-100 text-yellow-700'
-                    }`}
-                  >
-                    {unit.status}
-                  </span>
+          <React.Fragment key={unit.id}>
+            <Marker
+              position={{
+                lat: unit.latitude!,
+                lng: unit.longitude!,
+              }}
+              icon={createCustomIcon(unit.status)}
+              onClick={() => setSelectedUnit(unit)}
+              title={unit.name}
+            />
+            {selectedUnit?.id === unit.id && (
+              <InfoWindow
+                position={{
+                  lat: unit.latitude!,
+                  lng: unit.longitude!,
+                }}
+                onCloseClick={() => setSelectedUnit(null)}
+              >
+                <div className="p-2 min-w-[200px]">
+                  <h4 className="font-semibold text-slate-800 mb-1">{unit.name}</h4>
+                  <p className="text-sm text-slate-600 mb-2">{unit.clientName}</p>
+                  <p className="text-xs text-slate-500 mb-2">{unit.address}</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span
+                      className={`text-xs px-2 py-1 rounded ${
+                        unit.status === UnitStatus.ACTIVE
+                          ? 'bg-green-100 text-green-700'
+                          : unit.status === UnitStatus.ISSUE
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}
+                    >
+                      {unit.status}
+                    </span>
+                  </div>
+                  {onSelectUnit && (
+                    <button
+                      onClick={() => {
+                        onSelectUnit(unit.id);
+                        setSelectedUnit(null);
+                      }}
+                      className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
+                    >
+                      Ver detalles
+                    </button>
+                  )}
                 </div>
-                {onSelectUnit && (
-                  <button
-                    onClick={() => onSelectUnit(unit.id)}
-                    className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
-                  >
-                    Ver detalles
-                  </button>
-                )}
-              </div>
-            </Popup>
-          </Marker>
+              </InfoWindow>
+            )}
+          </React.Fragment>
         ))}
-      </MapContainer>
-    </div>
+      </GoogleMap>
+    </LoadScript>
   );
 };
 
 export const UnitsMap: React.FC<UnitsMapProps> = ({ units, onSelectUnit }) => {
+  const [apiKey, setApiKey] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Obtener la API key de Google Maps desde localStorage
+    const key = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
+    setApiKey(key);
+    setIsLoading(false);
+  }, []);
+
   console.log('🗺️ UnitsMap - Recibidas', units.length, 'unidades');
   const unitsWithCoords = units.filter(u => u.latitude && u.longitude);
   console.log('🗺️ UnitsMap - Unidades con coordenadas:', unitsWithCoords.length);
@@ -231,6 +216,24 @@ export const UnitsMap: React.FC<UnitsMapProps> = ({ units, onSelectUnit }) => {
     );
   }
 
+  // Si no hay API key, mostrar mensaje
+  if (!isLoading && !apiKey) {
+    return (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-3 mb-4">
+          <Building2 className="text-slate-600" size={20} />
+          <h3 className="text-lg font-semibold text-slate-800">Mapa de Unidades</h3>
+        </div>
+        <div className="text-center py-8">
+          <p className="text-slate-500 mb-2">Se requiere una API Key de Google Maps para mostrar el mapa.</p>
+          <p className="text-sm text-slate-400">
+            Por favor, configura tu API Key de Google Maps en la sección de Configuración.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
       <div className="flex items-center gap-3 mb-4">
@@ -241,7 +244,16 @@ export const UnitsMap: React.FC<UnitsMapProps> = ({ units, onSelectUnit }) => {
         </span>
       </div>
       <div className="h-96 w-full rounded-lg overflow-hidden border border-slate-200 relative" style={{ minHeight: '384px' }}>
-        <MapComponent units={units} onSelectUnit={onSelectUnit} />
+        {isLoading ? (
+          <div className="h-full w-full flex items-center justify-center bg-slate-50">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+              <p className="text-sm text-slate-500">Cargando mapa...</p>
+            </div>
+          </div>
+        ) : (
+          <MapComponent units={units} onSelectUnit={onSelectUnit} apiKey={apiKey} />
+        )}
       </div>
       <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
         <div className="flex items-center gap-2">
