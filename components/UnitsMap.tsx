@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Unit, UnitStatus } from '../types';
 import { Building2 } from 'lucide-react';
-import { GoogleMap, LoadScript, Marker, InfoWindow } from '@react-google-maps/api';
+import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api';
 
 interface UnitsMapProps {
   units: Unit[];
@@ -41,9 +41,13 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
   onSelectUnit,
   apiKey 
 }) => {
-  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const [map, setMap] = useState<any>(null);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Cargar Google Maps API
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: apiKey,
+  });
 
   const unitsWithCoords = useMemo(() => 
     units.filter(u => u.latitude && u.longitude),
@@ -54,6 +58,9 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
   useEffect(() => {
     if (!map || !isLoaded || unitsWithCoords.length === 0) return;
     
+    // Verificar que google.maps esté disponible
+    if (typeof google === 'undefined' || !google.maps) return;
+    
     if (unitsWithCoords.length === 1) {
       // Si hay una sola unidad, centrar en ella con zoom apropiado
       map.setCenter({
@@ -63,20 +70,23 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
       map.setZoom(15);
     } else if (unitsWithCoords.length > 1) {
       // Si hay múltiples unidades, ajustar el bounds
-      const bounds = new google.maps.LatLngBounds();
-      unitsWithCoords.forEach(unit => {
-        bounds.extend({
-          lat: unit.latitude!,
-          lng: unit.longitude!,
+      try {
+        const bounds = new google.maps.LatLngBounds();
+        unitsWithCoords.forEach(unit => {
+          bounds.extend({
+            lat: unit.latitude!,
+            lng: unit.longitude!,
+          });
         });
-      });
-      map.fitBounds(bounds, { padding: 50 });
+        map.fitBounds(bounds, { padding: 50 });
+      } catch (error) {
+        console.error('Error al ajustar bounds del mapa:', error);
+      }
     }
   }, [map, isLoaded, unitsWithCoords]);
 
-  const onLoad = useCallback((mapInstance: google.maps.Map) => {
+  const onLoad = useCallback((mapInstance: any) => {
     setMap(mapInstance);
-    setIsLoaded(true);
   }, []);
 
   const onUnmount = useCallback(() => {
@@ -97,41 +107,85 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
     }
   };
 
-  // Crear icono personalizado SVG para el marcador
-  const createCustomIcon = (status: UnitStatus): google.maps.Icon => {
-    const color = getMarkerColor(status);
-    const svgIcon = `
-      <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="16" cy="16" r="12" fill="${color}" stroke="white" stroke-width="2"/>
-        <text x="16" y="20" font-size="16" text-anchor="middle" fill="white">📍</text>
-      </svg>
-    `;
+  // Crear icono personalizado SVG para el marcador (solo cuando Google Maps está cargado)
+  const createCustomIcon = useCallback((status: UnitStatus): google.maps.Icon | undefined => {
+    if (!isLoaded || typeof google === 'undefined' || !google.maps) return undefined;
     
-    return {
-      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgIcon)}`,
-      scaledSize: new google.maps.Size(32, 32),
-      anchor: new google.maps.Point(16, 32),
-    };
-  };
+    try {
+      const color = getMarkerColor(status);
+      const svgIcon = `
+        <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="12" fill="${color}" stroke="white" stroke-width="2"/>
+          <text x="16" y="20" font-size="16" text-anchor="middle" fill="white">📍</text>
+        </svg>
+      `;
+      
+      return {
+        url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgIcon)}`,
+        scaledSize: new google.maps.Size(32, 32),
+        anchor: new google.maps.Point(16, 32),
+      };
+    } catch (error) {
+      console.error('Error al crear icono personalizado:', error);
+      return undefined;
+    }
+  }, [isLoaded]);
+
+  // Mostrar error si hay problema al cargar
+  if (loadError) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <p className="text-sm text-red-600 mb-2">Error al cargar Google Maps</p>
+          <p className="text-xs text-slate-500">{loadError.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Mostrar loading mientras se carga
+  if (!isLoaded) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+          <p className="text-sm text-slate-500">Cargando Google Maps...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Verificación adicional: asegurarse de que google.maps esté disponible antes de renderizar
+  if (typeof google === 'undefined' || !google.maps) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+          <p className="text-sm text-slate-500">Inicializando Google Maps...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <LoadScript googleMapsApiKey={apiKey}>
-      <GoogleMap
-        mapContainerStyle={mapContainerStyle}
-        center={defaultCenter}
-        zoom={11}
-        options={mapOptions}
-        onLoad={onLoad}
-        onUnmount={onUnmount}
-      >
-        {unitsWithCoords.map((unit) => (
+    <GoogleMap
+      mapContainerStyle={mapContainerStyle}
+      center={defaultCenter}
+      zoom={11}
+      options={mapOptions}
+      onLoad={onLoad}
+      onUnmount={onUnmount}
+    >
+      {unitsWithCoords.map((unit) => {
+        const icon = createCustomIcon(unit.status);
+        return (
           <React.Fragment key={unit.id}>
             <Marker
               position={{
                 lat: unit.latitude!,
                 lng: unit.longitude!,
               }}
-              icon={createCustomIcon(unit.status)}
+              icon={icon}
               onClick={() => setSelectedUnit(unit)}
               title={unit.name}
             />
@@ -175,9 +229,9 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
               </InfoWindow>
             )}
           </React.Fragment>
-        ))}
-      </GoogleMap>
-    </LoadScript>
+        );
+      })}
+    </GoogleMap>
   );
 };
 
