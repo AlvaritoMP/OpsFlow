@@ -43,11 +43,80 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
 }) => {
   const [map, setMap] = useState<any>(null);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   // Cargar Google Maps API
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: apiKey,
   });
+
+  // Listener para errores de Google Maps
+  useEffect(() => {
+    const handleError = (error: ErrorEvent) => {
+      const errorMessage = error.message || error.error?.message || '';
+      console.error('Error de Google Maps:', errorMessage);
+      
+      if (errorMessage.includes('ApiNotActivatedMapError') || errorMessage.includes('ApiNotActivated')) {
+        setMapError('API_NOT_ACTIVATED');
+      } else if (errorMessage.includes('RefererNotAllowedMapError') || errorMessage.includes('RefererNotAllowed')) {
+        setMapError('REFERER_NOT_ALLOWED');
+      } else if (errorMessage.includes('InvalidKeyMapError') || errorMessage.includes('InvalidKey')) {
+        setMapError('INVALID_KEY');
+      } else if (errorMessage.includes('Google Maps')) {
+        // Cualquier otro error relacionado con Google Maps
+        setMapError('UNKNOWN_ERROR');
+      }
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const errorMessage = event.reason?.message || event.reason || '';
+      if (typeof errorMessage === 'string' && errorMessage.includes('Google Maps')) {
+        console.error('Promise rejection de Google Maps:', errorMessage);
+        if (errorMessage.includes('ApiNotActivated')) {
+          setMapError('API_NOT_ACTIVATED');
+        }
+      }
+    };
+
+    // Interceptar errores de consola de Google Maps
+    const originalConsoleError = console.error;
+    console.error = (...args: any[]) => {
+      const message = args.join(' ');
+      if (message.includes('ApiNotActivatedMapError') || message.includes('ApiNotActivated')) {
+        setMapError('API_NOT_ACTIVATED');
+      } else if (message.includes('RefererNotAllowedMapError')) {
+        setMapError('REFERER_NOT_ALLOWED');
+      } else if (message.includes('InvalidKeyMapError')) {
+        setMapError('INVALID_KEY');
+      }
+      originalConsoleError.apply(console, args);
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      console.error = originalConsoleError;
+    };
+  }, []);
+
+  // Verificar si el mapa se carga correctamente después de un tiempo
+  useEffect(() => {
+    if (!isLoaded) return;
+    
+    const timeout = setTimeout(() => {
+      // Si después de 5 segundos el mapa no se ha cargado y no hay error explícito,
+      // verificar si hay errores en la consola o en el estado
+      if (typeof google === 'undefined' || !google.maps) {
+        // Esto no debería pasar si isLoaded es true, pero por si acaso
+        console.warn('Google Maps no está disponible después de la carga');
+      }
+    }, 5000);
+
+    return () => clearTimeout(timeout);
+  }, [isLoaded]);
 
   const unitsWithCoords = useMemo(() => 
     units.filter(u => u.latitude && u.longitude),
@@ -131,13 +200,97 @@ const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) =>
     }
   }, [isLoaded]);
 
+  // Detectar errores específicos de Google Maps en loadError
+  useEffect(() => {
+    if (loadError) {
+      const errorMessage = loadError.message || '';
+      if (errorMessage.includes('ApiNotActivatedMapError') || errorMessage.includes('ApiNotActivated')) {
+        setMapError('API_NOT_ACTIVATED');
+      } else if (errorMessage.includes('RefererNotAllowedMapError')) {
+        setMapError('REFERER_NOT_ALLOWED');
+      } else if (errorMessage.includes('InvalidKeyMapError')) {
+        setMapError('INVALID_KEY');
+      }
+    }
+  }, [loadError]);
+
+  // Función para obtener mensaje de error amigable
+  const getErrorMessage = (error: string | null, loadError: Error | null) => {
+    if (error === 'API_NOT_ACTIVATED') {
+      return {
+        title: 'API de Google Maps no activada',
+        message: 'La API Key está configurada, pero la API de Google Maps JavaScript no está activada en tu proyecto de Google Cloud.',
+        instructions: 'Por favor, activa la API "Maps JavaScript API" en Google Cloud Console. Ve a APIs y servicios > Biblioteca y busca "Maps JavaScript API".'
+      };
+    }
+    if (error === 'REFERER_NOT_ALLOWED') {
+      return {
+        title: 'Dominio no permitido',
+        message: 'El dominio actual no está permitido para usar esta API Key.',
+        instructions: 'Agrega este dominio a las restricciones de aplicación web en Google Cloud Console.'
+      };
+    }
+    if (error === 'INVALID_KEY') {
+      return {
+        title: 'API Key inválida',
+        message: 'La API Key proporcionada no es válida.',
+        instructions: 'Verifica que la API Key sea correcta y esté configurada en Configuración.'
+      };
+    }
+    if (loadError) {
+      const errorMessage = loadError.message || '';
+      // Verificar si el mensaje contiene indicios de errores específicos
+      if (errorMessage.includes('ApiNotActivated') || errorMessage.includes('ApiNotActivatedMapError')) {
+        return {
+          title: 'API de Google Maps no activada',
+          message: 'La API de Google Maps JavaScript no está activada en tu proyecto de Google Cloud.',
+          instructions: 'Por favor, activa la API "Maps JavaScript API" en Google Cloud Console.'
+        };
+      }
+      return {
+        title: 'Error al cargar Google Maps',
+        message: errorMessage || 'Error desconocido al cargar la API de Google Maps.',
+        instructions: 'Verifica tu conexión a internet y que la API Key sea válida.'
+      };
+    }
+    return {
+      title: 'Error al cargar el mapa',
+      message: 'Ocurrió un error al intentar cargar Google Maps.',
+      instructions: 'Por favor, verifica la configuración de tu API Key.'
+    };
+  };
+
   // Mostrar error si hay problema al cargar
-  if (loadError) {
+  if (loadError || mapError) {
+    const errorInfo = getErrorMessage(mapError, loadError);
     return (
       <div className="h-full w-full flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <p className="text-sm text-red-600 mb-2">Error al cargar Google Maps</p>
-          <p className="text-xs text-slate-500">{loadError.message}</p>
+        <div className="text-center max-w-md px-4">
+          <p className="text-sm font-semibold text-red-600 mb-2">{errorInfo.title}</p>
+          <p className="text-xs text-slate-600 mb-3">{errorInfo.message}</p>
+          <p className="text-xs text-slate-500 bg-slate-100 p-3 rounded border border-slate-200">
+            {errorInfo.instructions}
+          </p>
+          {(mapError === 'API_NOT_ACTIVATED' || (loadError && loadError.message?.includes('ApiNotActivated'))) && (
+            <div className="mt-3 space-y-2">
+              <a 
+                href="https://console.cloud.google.com/apis/library/maps-backend.googleapis.com" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:text-blue-800 underline block"
+              >
+                Activar Maps JavaScript API
+              </a>
+              <a 
+                href="https://console.cloud.google.com/google/maps-apis/credentials" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:text-blue-800 underline block"
+              >
+                Ver configuración de API Keys
+              </a>
+            </div>
+          )}
         </div>
       </div>
     );
