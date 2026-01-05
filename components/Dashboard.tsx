@@ -678,8 +678,63 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           console.log('🗺️ Dashboard - units con coordenadas:', units.filter(u => u.latitude && u.longitude).length);
           return null;
         })()}
+        
+        {/* Layout especial para mapa y actividades recientes lado a lado */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+          {/* Mapa - siempre en la columna izquierda */}
+          <div className="transition-all duration-200">
+            <UnitsMap units={units} onSelectUnit={onSelectUnit} />
+          </div>
+          
+          {/* Actividades recientes - siempre en la columna derecha */}
+          <div
+            draggable
+            onDragStart={(e) => handleChartDragStart(e, 'recentActivity')}
+            onDragOver={(e) => handleChartDragOver(e, 'recentActivity')}
+            onDragLeave={handleChartDragLeave}
+            onDrop={(e) => handleChartDrop(e, 'recentActivity')}
+            onDragEnd={handleChartDragEnd}
+            className={`
+              bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
+              transition-all duration-200
+              ${draggedChart === 'recentActivity' ? 'opacity-50 scale-95' : ''}
+              ${dragOverChart === 'recentActivity' ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+              hover:shadow-md hover:border-blue-300 cursor-move
+            `}
+          >
+            <div className="flex items-center justify-between mb-3 md:mb-4">
+              <h3 className="text-base md:text-lg font-semibold text-slate-800">Últimas Actividades Críticas</h3>
+              <GripVertical size={16} className="text-slate-400 opacity-50" />
+            </div>
+            <div className="space-y-2 md:space-y-3 max-h-[600px] overflow-y-auto">
+              {units.flatMap(u => u.logs.map(l => ({...l, unitName: u.name}))).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10).map(log => (
+                <div key={log.id} className="flex items-start space-x-2 md:space-x-3 p-2 md:p-3 hover:bg-slate-50 rounded-lg transition-colors">
+                   <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
+                     log.type === 'Incidencia' ? 'bg-red-500' : 
+                     log.type === 'Supervision' ? 'bg-blue-500' : 'bg-slate-400'
+                   }`} />
+                   <div className="min-w-0 flex-1">
+                     <p className="text-xs md:text-sm font-medium text-slate-800 truncate">{log.type} en <span className="font-bold">{log.unitName}</span></p>
+                     <p className="text-xs md:text-sm text-slate-600 line-clamp-2">{log.description}</p>
+                     <p className="text-[10px] md:text-xs text-slate-400 mt-1">{log.date} • {log.author}</p>
+                   </div>
+                </div>
+              ))}
+              {units.flatMap(u => u.logs.map(l => ({...l, unitName: u.name}))).length === 0 && (
+                <p className="text-sm text-slate-500 text-center py-8">No hay actividades recientes para mostrar.</p>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        {/* Resto de los gráficos en layout vertical */}
         {chartOrder.map((chartId) => {
           console.log('🗺️ Dashboard - Renderizando chartId:', chartId);
+          
+          // Saltar mapa y actividades recientes ya que se renderizaron arriba
+          if (chartId === 'unitsMap' || chartId === 'recentActivity') {
+            return null;
+          }
           if (chartId === 'complianceChart') {
             return chartData.length > 0 ? (
               <div
@@ -821,58 +876,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             );
           }
           
-          if (chartId === 'unitsMap') {
-            console.log('🗺️ Dashboard - Renderizando unitsMap con', units.length, 'unidades');
-            return (
-              <div
-                key={chartId}
-                className="transition-all duration-200"
-              >
-                <UnitsMap units={units} onSelectUnit={onSelectUnit} />
-              </div>
-            );
-          }
-          
-          if (chartId === 'recentActivity') {
-            return (
-              <div
-                key={chartId}
-                draggable
-                onDragStart={(e) => handleChartDragStart(e, chartId)}
-                onDragOver={(e) => handleChartDragOver(e, chartId)}
-                onDragLeave={handleChartDragLeave}
-                onDrop={(e) => handleChartDrop(e, chartId)}
-                onDragEnd={handleChartDragEnd}
-                className={`
-                  bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
-                  transition-all duration-200
-                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
-                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
-                  hover:shadow-md hover:border-blue-300 cursor-move
-                `}
-              >
-                <div className="flex items-center justify-between mb-3 md:mb-4">
-                  <h3 className="text-base md:text-lg font-semibold text-slate-800">Últimas Actividades Críticas</h3>
-                  <GripVertical size={16} className="text-slate-400 opacity-50" />
-                </div>
-        <div className="space-y-2 md:space-y-3">
-          {units.flatMap(u => u.logs.map(l => ({...l, unitName: u.name}))).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 3).map(log => (
-            <div key={log.id} className="flex items-start space-x-2 md:space-x-3 p-2 md:p-3 hover:bg-slate-50 rounded-lg transition-colors">
-               <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
-                 log.type === 'Incidencia' ? 'bg-red-500' : 
-                 log.type === 'Supervision' ? 'bg-blue-500' : 'bg-slate-400'
-               }`} />
-               <div className="min-w-0 flex-1">
-                 <p className="text-xs md:text-sm font-medium text-slate-800 truncate">{log.type} en <span className="font-bold">{log.unitName}</span></p>
-                 <p className="text-xs md:text-sm text-slate-600 line-clamp-2">{log.description}</p>
-                 <p className="text-[10px] md:text-xs text-slate-400 mt-1">{log.date} • {log.author}</p>
-               </div>
-            </div>
-                ))}
-              </div>
-            </div>
-            );
-          }
           return null;
         })}
       </div>

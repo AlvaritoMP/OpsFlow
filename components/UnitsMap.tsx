@@ -450,7 +450,7 @@ export const UnitsMap: React.FC<UnitsMapProps> = ({ units, onSelectUnit }) => {
           {unitsWithCoords.length} {unitsWithCoords.length === 1 ? 'unidad' : 'unidades'}
         </span>
       </div>
-      <div className="h-96 w-full rounded-lg overflow-hidden border border-slate-200 relative" style={{ minHeight: '384px' }}>
+      <div className="h-[600px] md:h-[700px] w-full rounded-lg overflow-hidden border border-slate-200 relative" style={{ minHeight: '600px' }}>
         {isLoading ? (
           <div className="h-full w-full flex items-center justify-center bg-slate-50">
             <div className="text-center">
