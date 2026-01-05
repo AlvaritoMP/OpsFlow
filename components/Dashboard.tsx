@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, UnitStatus, ResourceType } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
-import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical } from 'lucide-react';
+import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical, Star, UserX } from 'lucide-react';
 import { UnitsMap } from './UnitsMap';
 
 interface DashboardProps {
@@ -20,6 +20,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   const [personnelRotation, setPersonnelRotation] = useState<number>(0);
   const [personnelEntryRate, setPersonnelEntryRate] = useState<number>(0);
   const [personnelExitRate, setPersonnelExitRate] = useState<number>(0);
+  const [mostUsedReten, setMostUsedReten] = useState<{ name: string; count: number } | null>(null);
+  const [workersExitedThisMonth, setWorkersExitedThisMonth] = useState<number>(0);
   
 
   // Calculate aggregations
@@ -141,6 +143,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         if (allAssignments.length === 0) {
           setRetenCoverages(0);
           setRetenUtilizationRatio(0);
+          setMostUsedReten(null);
           return;
         }
         
@@ -162,6 +165,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         });
         
         setRetenCoverages(assignments.length);
+        
+        // Calculate most used reten in the current month
+        const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        const currentMonthStartStr = currentMonthStart.toISOString().split('T')[0];
+        const currentMonthEndStr = currentMonthEnd.toISOString().split('T')[0];
+        
+        const currentMonthAssignments = await retenesService.getAssignmentsByDateRange(currentMonthStartStr, currentMonthEndStr);
+        
+        if (currentMonthAssignments.length > 0) {
+          // Count assignments by reten
+          const retenCounts = new Map<string, { name: string; count: number }>();
+          
+          currentMonthAssignments.forEach(assignment => {
+            const retenId = assignment.reten_id;
+            const retenName = assignment.reten_name || 'Desconocido';
+            
+            if (!retenCounts.has(retenId)) {
+              retenCounts.set(retenId, { name: retenName, count: 0 });
+            }
+            const current = retenCounts.get(retenId)!;
+            retenCounts.set(retenId, { name: current.name, count: current.count + 1 });
+          });
+          
+          // Find the most used reten
+          let mostUsed: { name: string; count: number } | null = null;
+          retenCounts.forEach((value) => {
+            if (!mostUsed || value.count > mostUsed.count) {
+              mostUsed = value;
+            }
+          });
+          
+          setMostUsedReten(mostUsed);
+        } else {
+          setMostUsedReten(null);
+        }
         
         // Calculate daily utilization ratio
         if (totalRetenes > 0) {
@@ -375,6 +414,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       });
       
       const totalWorkersExited = uniqueWorkersExited + sharedWorkersExitedCount;
+      
+      // Set workers exited this month
+      setWorkersExitedThisMonth(totalWorkersExited);
       
       // Calculate metrics
       if (totalWorkersAtStart > 0) {
@@ -667,6 +709,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
               {personnelExitRate.toFixed(1)}%
             </p>
             <p className="text-[10px] text-slate-400">Ceses / Inicio</p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-amber-100 text-amber-600 rounded-lg shrink-0">
+            <Star size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Retén Más Usado</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800 truncate">
+              {loadingMetrics ? '...' : mostUsedReten ? mostUsedReten.name : 'N/A'}
+            </p>
+            <p className="text-[10px] text-slate-400">
+              {mostUsedReten ? `${mostUsedReten.count} ${mostUsedReten.count === 1 ? 'vez' : 'veces'}` : 'Sin datos'}
+            </p>
+          </div>
+        </div>
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div className="p-2 md:p-3 bg-rose-100 text-rose-600 rounded-lg shrink-0">
+            <UserX size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Trabajadores Salientes</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">
+              {workersExitedThisMonth}
+            </p>
+            <p className="text-[10px] text-slate-400">Este mes</p>
           </div>
         </div>
       </div>
