@@ -950,7 +950,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
       
       setIsSavingRequest(true);
-      setNotification({ type: 'info', message: 'Guardando requerimiento...' });
+      setNotification({ type: 'info', message: 'Subiendo evidencias y guardando requerimiento...' });
       
       try {
         // Obtener el nombre real del usuario
@@ -965,7 +965,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           authorName
         });
         
-        // Crear el request en la base de datos
+        // Subir imágenes blob a storage ANTES de guardar el requerimiento
+        const { storageService } = await import('../services/storageService');
+        let processedAttachments: string[] = [];
+        
+        if (newRequestImages.length > 0) {
+          setNotification({ type: 'info', message: `Subiendo ${newRequestImages.length} evidencia(s)...` });
+          
+          const imageUploadPromises = newRequestImages.map(async (imgUrl) => {
+            if (imgUrl.startsWith('blob:')) {
+              try {
+                // Convertir blob URL a File
+                const response = await fetch(imgUrl);
+                const blob = await response.blob();
+                const file = new File([blob], `request-evidence-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`, { type: blob.type || 'image/jpeg' });
+                
+                // Subir a storage
+                const uploadedUrl = await storageService.uploadImage(file, 'unit-images');
+                return uploadedUrl;
+              } catch (error) {
+                console.error('Error al subir evidencia:', error);
+                // Si falla la subida, intentar mantener la URL original (puede ser una URL permanente)
+                return imgUrl;
+              }
+            }
+            // Ya es una URL permanente
+            return imgUrl;
+          });
+          
+          processedAttachments = await Promise.all(imageUploadPromises);
+        }
+        
+        // Crear el request en la base de datos con las URLs procesadas
         const savedRequest = await requestsService.create({
           date: new Date().toISOString().split('T')[0],
           title: newRequestForm.title.trim(),
@@ -975,7 +1006,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           description: newRequestForm.description,
           author: authorName,
           relatedResourceId: newRequestForm.relatedResourceId || undefined,
-          attachments: newRequestImages,
+          attachments: processedAttachments,
           comments: []
         }, unit.id);
 
@@ -1005,7 +1036,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       if(!onUpdate || !editingRequest) return;
       
       setIsSavingRequest(true);
-      setNotification({ type: 'info', message: 'Guardando cambios...' });
+      setNotification({ type: 'info', message: 'Subiendo evidencias y guardando cambios...' });
       
       try {
         // Obtener el nombre real del usuario para la respuesta si se proporciona
@@ -1017,12 +1048,42 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           responseAuthor = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
         }
         
+        // Subir imágenes blob a storage ANTES de guardar (si hay attachments nuevos)
+        let processedAttachments: string[] = attachments || editingRequest.responseAttachments || [];
+        
+        if (attachments && attachments.length > 0) {
+          const { storageService } = await import('../services/storageService');
+          
+          const imageUploadPromises = attachments.map(async (imgUrl) => {
+            if (imgUrl.startsWith('blob:')) {
+              try {
+                // Convertir blob URL a File
+                const response = await fetch(imgUrl);
+                const blob = await response.blob();
+                const file = new File([blob], `response-evidence-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`, { type: blob.type || 'image/jpeg' });
+                
+                // Subir a storage
+                const uploadedUrl = await storageService.uploadImage(file, 'unit-images');
+                return uploadedUrl;
+              } catch (error) {
+                console.error('Error al subir evidencia de respuesta:', error);
+                // Si falla la subida, intentar mantener la URL original
+                return imgUrl;
+              }
+            }
+            // Ya es una URL permanente
+            return imgUrl;
+          });
+          
+          processedAttachments = await Promise.all(imageUploadPromises);
+        }
+        
         // Actualizar el request en la base de datos
         await requestsService.update(editingRequest.id, {
           status,
           title: title !== undefined ? (title.trim() || undefined) : editingRequest.title,
           response: response || editingRequest.response,
-          responseAttachments: attachments || editingRequest.responseAttachments,
+          responseAttachments: processedAttachments,
           resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : editingRequest.resolvedDate
         });
 
@@ -2900,20 +2961,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                                      {hasAttachments && (
                                          <div className="mb-4">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 flex items-center"><Paperclip size={10} className="mr-1"/> Evidencias Cliente</p>
-                                            <div className="flex gap-2 overflow-x-auto pb-1">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias Cliente ({req.attachments!.length})</p>
+                                            <div className="flex gap-2 overflow-x-auto pb-2">
                                                 {req.attachments!.map((img, i) => (
-                                                    <div key={i} className="w-16 h-16 shrink-0 rounded border border-slate-200 overflow-hidden bg-slate-100">
+                                                    <div key={i} className="w-24 h-24 shrink-0 rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer group relative">
                                                         <SafeImage 
                                                           src={img} 
-                                                          className="w-full h-full object-cover" 
-                                                          alt="client attachment"
+                                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                                          alt={`Evidencia ${i + 1}`}
                                                           bucket="unit-images"
                                                           onClick={() => {
                                                             setImageModalUrl(img);
                                                             setShowImageModal(true);
                                                           }}
                                                         />
+                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                            <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -5237,22 +5301,37 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                <button onClick={handleAddImageToRequest} disabled={!newRequestImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20}/></button>
                            </div>
                            {newRequestImages.length > 0 && (
-                               <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
-                                   {newRequestImages.map((img, i) => (
-                                       <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                           <SafeImage 
-                              src={img} 
-                              className="w-full h-full object-cover rounded border border-slate-200" 
-                              alt="ev"
-                              bucket="unit-images"
-                              onClick={() => {
-                                setImageModalUrl(img);
-                                setShowImageModal(true);
-                              }}
-                            />
-                                           <button onClick={() => setNewRequestImages(newRequestImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
-                                       </div>
-                                   ))}
+                               <div className="mt-3">
+                                   <p className="text-xs text-slate-500 mb-2">Evidencias agregadas ({newRequestImages.length}):</p>
+                                   <div className="flex gap-2 overflow-x-auto pb-2">
+                                       {newRequestImages.map((img, i) => (
+                                           <div key={i} className="w-24 h-24 shrink-0 relative group rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer">
+                                               <SafeImage 
+                                                  src={img} 
+                                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                                  alt={`Evidencia ${i + 1}`}
+                                                  bucket="unit-images"
+                                                  onClick={() => {
+                                                    setImageModalUrl(img);
+                                                    setShowImageModal(true);
+                                                  }}
+                                                />
+                                               <button 
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setNewRequestImages(newRequestImages.filter((_, idx) => idx !== i));
+                                                  }} 
+                                                  className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 z-10"
+                                                  title="Eliminar evidencia"
+                                                >
+                                                  <X size={12} />
+                                                </button>
+                                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                   <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                               </div>
+                                           </div>
+                                       ))}
+                                   </div>
                                </div>
                            )}
                       </div>
@@ -5302,21 +5381,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           
                           {/* Client Attachments Display */}
                           {editingRequest.attachments && editingRequest.attachments.length > 0 && (
-                             <div className="mb-3">
-                                 <p className="text-xs font-bold text-slate-400 uppercase mb-1 flex items-center"><Paperclip size={12} className="mr-1"/> Adjuntos del Cliente</p>
-                                 <div className="flex gap-2 overflow-x-auto pb-1">
+                             <div className="mb-4">
+                                 <p className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Adjuntos del Cliente ({editingRequest.attachments.length})</p>
+                                 <div className="flex gap-2 overflow-x-auto pb-2">
                                      {editingRequest.attachments.map((img, i) => (
-                                         <div key={i} className="w-20 h-20 shrink-0 rounded border border-slate-200 overflow-hidden">
+                                         <div key={i} className="w-24 h-24 shrink-0 rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer group relative">
                                              <SafeImage 
                                                src={img} 
-                                               className="w-full h-full object-cover" 
-                                               alt="client attachment"
+                                               className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                               alt={`Evidencia cliente ${i + 1}`}
                                                bucket="unit-images"
                                                onClick={() => {
                                                  setImageModalUrl(img);
                                                  setShowImageModal(true);
                                                }}
                                              />
+                                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                 <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                             </div>
                                          </div>
                                      ))}
                                  </div>
@@ -5396,22 +5478,37 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                <button onClick={handleAddResolveImage} disabled={!resolveImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20}/></button>
                                            </div>
                                            {resolveAttachments.length > 0 && (
-                                               <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
-                                                   {resolveAttachments.map((img, i) => (
-                                                       <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                                           <SafeImage 
-                                                             src={img} 
-                                                             className="w-full h-full object-cover rounded border border-slate-200" 
-                                                             alt="admin ev"
-                                                             bucket="unit-images"
-                                                             onClick={() => {
-                                                               setImageModalUrl(img);
-                                                               setShowImageModal(true);
-                                                             }}
-                                                           />
-                                                           <button onClick={() => handleRemoveResolveImage(i)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
-                                                       </div>
-                                                   ))}
+                                               <div className="mt-3">
+                                                   <p className="text-xs text-slate-500 mb-2">Evidencias de respuesta ({resolveAttachments.length}):</p>
+                                                   <div className="flex gap-2 overflow-x-auto pb-2">
+                                                       {resolveAttachments.map((img, i) => (
+                                                           <div key={i} className="w-24 h-24 shrink-0 relative group rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer">
+                                                               <SafeImage 
+                                                                  src={img} 
+                                                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                                                  alt={`Evidencia respuesta ${i + 1}`}
+                                                                  bucket="unit-images"
+                                                                  onClick={() => {
+                                                                    setImageModalUrl(img);
+                                                                    setShowImageModal(true);
+                                                                  }}
+                                                                />
+                                                               <button 
+                                                                  onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleRemoveResolveImage(i);
+                                                                  }} 
+                                                                  className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 z-10"
+                                                                  title="Eliminar evidencia"
+                                                                >
+                                                                  <X size={12} />
+                                                                </button>
+                                                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                                   <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                               </div>
+                                                           </div>
+                                                       ))}
+                                                   </div>
                                                </div>
                                            )}
                                       </div>
@@ -5439,21 +5536,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       <p className="text-sm text-green-700">{editingRequest.response || "Sin respuesta final registrada."}</p>
                                       {/* Show attachments preview in read-only mode */}
                                       {editingRequest.responseAttachments && editingRequest.responseAttachments.length > 0 && (
-                                         <div className="flex gap-2 mt-2 pt-2 border-t border-green-200/50">
-                                            {editingRequest.responseAttachments.map((att, i) => (
-                                                <div key={i} className="w-12 h-12 rounded border border-green-200 overflow-hidden">
-                                                  <SafeImage 
-                                                    src={att} 
-                                                    className="w-full h-full object-cover"
-                                                    alt="attachment"
-                                                    bucket="unit-images"
-                                                    onClick={() => {
-                                                      setImageModalUrl(att);
-                                                      setShowImageModal(true);
-                                                    }}
-                                                  />
-                                                </div>
-                                            ))}
+                                         <div className="mt-3 pt-3 border-t border-green-200/50">
+                                            <p className="text-xs font-bold text-green-700 mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias de Respuesta ({editingRequest.responseAttachments.length})</p>
+                                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                                {editingRequest.responseAttachments.map((att, i) => (
+                                                    <div key={i} className="w-24 h-24 shrink-0 rounded-lg border-2 border-green-200 overflow-hidden bg-slate-100 hover:border-green-400 transition-colors cursor-pointer group relative">
+                                                      <SafeImage 
+                                                        src={att} 
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                                        alt={`Evidencia respuesta ${i + 1}`}
+                                                        bucket="unit-images"
+                                                        onClick={() => {
+                                                          setImageModalUrl(att);
+                                                          setShowImageModal(true);
+                                                        }}
+                                                      />
+                                                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                          <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                      </div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                          </div>
                                      )}
                                   </div>
