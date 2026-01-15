@@ -1049,33 +1049,51 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         }
         
         // Subir imágenes blob a storage ANTES de guardar (si hay attachments nuevos)
-        let processedAttachments: string[] = attachments || editingRequest.responseAttachments || [];
+        let processedAttachments: string[] = [];
         
+        // Si se pasan attachments, procesarlos (pueden ser nuevos o existentes)
         if (attachments && attachments.length > 0) {
           const { storageService } = await import('../services/storageService');
           
-          const imageUploadPromises = attachments.map(async (imgUrl) => {
+          setNotification({ type: 'info', message: `Subiendo ${attachments.length} evidencia(s) de respuesta...` });
+          
+          const imageUploadPromises = attachments.map(async (imgUrl, index) => {
             if (imgUrl.startsWith('blob:')) {
               try {
+                console.log(`📤 Subiendo evidencia de respuesta ${index + 1}/${attachments.length}...`);
                 // Convertir blob URL a File
                 const response = await fetch(imgUrl);
+                if (!response.ok) {
+                  throw new Error(`Error al obtener blob: ${response.statusText}`);
+                }
                 const blob = await response.blob();
                 const file = new File([blob], `response-evidence-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`, { type: blob.type || 'image/jpeg' });
                 
                 // Subir a storage
                 const uploadedUrl = await storageService.uploadImage(file, 'unit-images');
+                console.log(`✅ Evidencia ${index + 1} subida correctamente:`, uploadedUrl);
                 return uploadedUrl;
               } catch (error) {
-                console.error('Error al subir evidencia de respuesta:', error);
-                // Si falla la subida, intentar mantener la URL original
-                return imgUrl;
+                console.error(`❌ Error al subir evidencia de respuesta ${index + 1}:`, error);
+                // Si falla la subida, mostrar error pero continuar
+                setNotification({ type: 'error', message: `Error al subir evidencia ${index + 1}. Se omitirá.` });
+                setTimeout(() => setNotification(null), 3000);
+                return null; // Retornar null para filtrarlo después
               }
             }
-            // Ya es una URL permanente
+            // Ya es una URL permanente (puede ser una URL existente de Supabase)
+            console.log(`✓ Evidencia ${index + 1} ya es URL permanente:`, imgUrl);
             return imgUrl;
           });
           
-          processedAttachments = await Promise.all(imageUploadPromises);
+          const uploadedUrls = await Promise.all(imageUploadPromises);
+          // Filtrar nulls (errores de subida)
+          processedAttachments = uploadedUrls.filter((url): url is string => url !== null);
+          
+          console.log(`📦 Evidencias procesadas: ${processedAttachments.length}/${attachments.length}`);
+        } else {
+          // Si no se pasan attachments nuevos, mantener los existentes
+          processedAttachments = editingRequest.responseAttachments || [];
         }
         
         // Actualizar el request en la base de datos
@@ -1097,10 +1115,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const updatedRequest = allRequests.find(r => r.id === editingRequest.id);
         if (updatedRequest) {
           setEditingRequest(updatedRequest);
+          // Actualizar también los attachments en el estado local para que se muestren inmediatamente
+          setResolveAttachments(updatedRequest.responseAttachments || []);
         } else {
           setEditingRequest(null);
         }
-        setResolveAttachments([]);
+        // NO limpiar resolveAttachments aquí, mantenerlos para que se vean en el modal
+        // setResolveAttachments([]);
         setResolveResponse('');
         setResolveTitle('');
         
@@ -2994,6 +3015,32 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                          <div className="mt-2 pt-2 border-t border-slate-100">
                                              <p className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center"><UserCheck size={12} className="mr-1"/> Solución Final:</p>
                                              <p className="text-sm text-slate-600 line-clamp-2">{req.response}</p>
+                                         </div>
+                                     )}
+
+                                     {/* Response Attachments Display (Admin Evidence) */}
+                                     {req.responseAttachments && req.responseAttachments.length > 0 && (
+                                         <div className="mt-3 pt-3 border-t border-slate-100">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias de Respuesta ({req.responseAttachments.length})</p>
+                                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                                {req.responseAttachments.map((img, i) => (
+                                                    <div key={i} className="w-24 h-24 shrink-0 rounded-lg border-2 border-green-200 overflow-hidden bg-slate-100 hover:border-green-400 transition-colors cursor-pointer group relative">
+                                                        <SafeImage 
+                                                          src={img} 
+                                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                                          alt={`Evidencia respuesta ${i + 1}`}
+                                                          bucket="unit-images"
+                                                          onClick={() => {
+                                                            setImageModalUrl(img);
+                                                            setShowImageModal(true);
+                                                          }}
+                                                        />
+                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                            <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                          </div>
                                      )}
                                  </div>
