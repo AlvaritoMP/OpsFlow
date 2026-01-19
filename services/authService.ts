@@ -119,22 +119,65 @@ export const authService = {
 
   // Iniciar sesión con email y contraseña
   async signIn(email: string, password: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    console.log('🔐 Intentando iniciar sesión para:', normalizedEmail);
+    
     try {
       // PRIMERO: Intentar buscar usuario en la tabla users y verificar password_hash
       // Esto es para usuarios creados directamente en la BD sin Supabase Auth
       try {
+        console.log('🔍 Buscando usuario en tabla users...');
         const { data: dbUsers, error: dbError } = await supabase
           .from('users')
           .select('*')
-          .eq('email', email.toLowerCase())
+          .eq('email', normalizedEmail)
           .limit(1);
+
+        if (dbError) {
+          console.error('❌ Error al buscar usuario en BD:', dbError);
+        }
 
         if (!dbError && dbUsers && dbUsers.length > 0) {
           const dbUser = dbUsers[0];
+          console.log('✅ Usuario encontrado en BD:', {
+            id: dbUser.id,
+            email: dbUser.email,
+            name: dbUser.name,
+            role: dbUser.role,
+            hasPasswordHash: !!dbUser.password_hash,
+          });
           
           // Verificar contraseña si existe password_hash
           if (dbUser.password_hash) {
-            const isValidPassword = await verifyPassword(password, dbUser.password_hash);
+            console.log('🔐 Verificando contraseña con password_hash...');
+            
+            // Limpiar el hash de espacios y caracteres extra (por si acaso)
+            const cleanHash = dbUser.password_hash.trim();
+            if (cleanHash !== dbUser.password_hash) {
+              console.warn('⚠️ El hash en BD tiene espacios extra, limpiando...');
+            }
+            
+            const isValidPassword = await verifyPassword(password, cleanHash);
+            console.log('🔐 Resultado de verificación:', isValidPassword ? '✅ Válida' : '❌ Inválida');
+            
+            // Si falla con el hash limpio, intentar con el original también
+            if (!isValidPassword && cleanHash !== dbUser.password_hash) {
+              console.log('🔐 Intentando con hash original (sin limpiar)...');
+              const isValidOriginal = await verifyPassword(password, dbUser.password_hash);
+              if (isValidOriginal) {
+                console.warn('⚠️ El hash original funciona, pero tiene espacios. Se recomienda limpiarlo en la BD.');
+                // Actualizar el hash en la BD para limpiarlo
+                try {
+                  await supabase
+                    .from('users')
+                    .update({ password_hash: cleanHash })
+                    .eq('id', dbUser.id);
+                  console.log('✅ Hash limpiado en la base de datos');
+                } catch (cleanErr) {
+                  console.warn('⚠️ No se pudo limpiar el hash:', cleanErr);
+                }
+              }
+            }
             
             if (isValidPassword) {
               // Contraseña válida, crear sesión
@@ -211,30 +254,50 @@ export const authService = {
               }
 
               return { user: dbUser, dbUser };
+            } else {
+              console.error('❌ Contraseña inválida para usuario:', normalizedEmail);
+              throw new Error('Contraseña incorrecta. Por favor, verifique sus credenciales.');
             }
+          } else {
+            console.warn('⚠️ Usuario encontrado pero no tiene password_hash. Intentando Supabase Auth...');
+            // Si el usuario no tiene password_hash, continuar al flujo de Supabase Auth
           }
+        } else {
+          console.warn('⚠️ Usuario no encontrado en tabla users. Intentando Supabase Auth...');
         }
       } catch (dbErr) {
-        console.warn('Error al buscar usuario en BD:', dbErr);
+        console.error('❌ Error al buscar usuario en BD:', dbErr);
       }
 
       // SEGUNDO: Intentar Supabase Auth (para usuarios existentes en Auth)
+      console.log('🔍 Intentando autenticación con Supabase Auth...');
       let authData: any = null;
       let authError: any = null;
       
       try {
         const authResult = await supabase.auth.signInWithPassword({
-          email: email.toLowerCase(),
+          email: normalizedEmail,
           password: password,
         });
         authData = authResult.data;
         authError = authResult.error;
+        
+        if (authError) {
+          console.error('❌ Supabase Auth falló:', {
+            message: authError.message,
+            status: authError.status,
+          });
+        } else {
+          console.log('✅ Supabase Auth exitoso');
+        }
       } catch (err) {
         authError = err;
+        console.error('❌ Error en Supabase Auth:', err);
       }
 
       // Si Supabase Auth funciona, usar ese usuario
       if (!authError && authData?.user) {
+        console.log('✅ Usuario autenticado con Supabase Auth:', authData.user.id);
         const authUserId = authData.user.id;
         const hashedPassword = await hashPassword(password);
         
@@ -341,10 +404,23 @@ export const authService = {
         return { user: dbUser, dbUser };
       }
 
-      // Si Supabase Auth no funciona, lanzar error
-      // No intentar buscar en users sin autenticación (RLS bloqueará con 406)
-      console.error('Supabase Auth falló:', authError);
-      throw new Error('Credenciales inválidas');
+      // Si Supabase Auth no funciona, lanzar error con más detalles
+      console.error('❌ Autenticación falló completamente');
+      console.error('Supabase Auth error:', authError);
+      
+      // Proporcionar un mensaje de error más útil
+      let errorMessage = 'Credenciales inválidas';
+      if (authError?.message) {
+        if (authError.message.includes('Invalid login credentials')) {
+          errorMessage = 'Email o contraseña incorrectos. Por favor, verifique sus credenciales.';
+        } else if (authError.message.includes('Email not confirmed')) {
+          errorMessage = 'Su email no ha sido confirmado. Por favor, revise su correo electrónico.';
+        } else {
+          errorMessage = `Error de autenticación: ${authError.message}`;
+        }
+      }
+      
+      throw new Error(errorMessage);
     } catch (error: any) {
       console.error('Error al iniciar sesión:', error);
       throw new Error(error.message || 'Error al iniciar sesión');

@@ -27,7 +27,15 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         throw new Error('Error al obtener datos del usuario después del login');
       }
     } catch (err: any) {
-      setError(err.message || 'Error al iniciar sesión. Verifica tus credenciales.');
+      console.error('Error completo en login:', err);
+      const errorMessage = err.message || 'Error al iniciar sesión. Verifica tus credenciales.';
+      
+      // Mostrar mensaje más detallado si es un error de credenciales
+      if (errorMessage.includes('Credenciales inválidas') || errorMessage.includes('incorrectos')) {
+        setError('Email o contraseña incorrectos. Si el problema persiste, contacte al administrador para verificar su cuenta.');
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
