@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { LogIn, Mail, Lock, AlertCircle, Loader2 } from 'lucide-react';
+import { LogIn, Mail, Lock, AlertCircle, Loader2, Shield } from 'lucide-react';
 import { authService } from '../services/authService';
 import { User } from '../types';
+import { SuperAdminPasswordReset } from './SuperAdminPasswordReset';
 
 interface LoginProps {
   onLoginSuccess: (user: User) => void;
@@ -12,6 +13,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSuperAdminReset, setShowSuperAdminReset] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +43,19 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
+
+  // Mostrar pantalla de recuperación de superadmin si está activa
+  if (showSuperAdminReset) {
+    return (
+      <SuperAdminPasswordReset
+        onSuccess={() => {
+          setShowSuperAdminReset(false);
+          setError(null);
+        }}
+        onCancel={() => setShowSuperAdminReset(false)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-4">
@@ -122,6 +137,19 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               )}
             </button>
           </form>
+
+          {/* Enlace de recuperación para Super Admin */}
+          <div className="mt-4 pt-4 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setShowSuperAdminReset(true)}
+              className="w-full text-xs text-slate-500 hover:text-red-600 flex items-center justify-center gap-1 transition-colors"
+              title="Solo para Super Administrador"
+            >
+              <Shield size={12} />
+              <span>Recuperación de Super Admin</span>
+            </button>
+          </div>
         </div>
 
         {/* Footer */}
