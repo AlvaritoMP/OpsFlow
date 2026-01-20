@@ -181,6 +181,21 @@ export const requestsService = {
     }
   },
 
+  // Eliminar todas las solicitudes de una unidad
+  async deleteByUnitId(unitId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('client_requests')
+        .delete()
+        .eq('unit_id', unitId);
+
+      if (error) throw error;
+    } catch (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+
   // Agregar un comentario a una solicitud
   async addComment(requestId: string, comment: RequestComment): Promise<void> {
     try {

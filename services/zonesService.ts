@@ -121,6 +121,21 @@ export const zonesService = {
       throw error;
     }
   },
+
+  // Eliminar todas las zonas de una unidad
+  async deleteByUnitId(unitId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('zones')
+        .delete()
+        .eq('unit_id', unitId);
+
+      if (error) throw error;
+    } catch (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
 };
 
 // ============================================

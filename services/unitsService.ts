@@ -469,7 +469,128 @@ export const unitsService = {
     try {
       // Obtener la unidad antes de eliminar para el log
       const unit = await this.getById(id);
+      if (!unit) {
+        throw new Error('Unidad no encontrada');
+      }
+
+      // Obtener todos los recursos de la unidad
+      const resources = await resourcesService.getByUnitId(id, true); // Incluir archivados
       
+      // Eliminar registros relacionados en maintenance_responsible y maintenance_records para cada recurso
+      for (const resource of resources) {
+        try {
+          // Eliminar registros de maintenance_responsible que referencian este recurso
+          const { error: maintenanceError } = await supabase
+            .from('maintenance_responsible')
+            .delete()
+            .eq('resource_id', resource.id);
+          
+          if (maintenanceError && maintenanceError.code !== '42P01') {
+            // Si la tabla no existe (42P01), continuar; de lo contrario, lanzar error
+            console.warn(`⚠️ Error al eliminar maintenance_responsible para recurso ${resource.id}:`, maintenanceError);
+          }
+        } catch (err) {
+          console.warn(`⚠️ Error al eliminar maintenance_responsible para recurso ${resource.id}:`, err);
+          // Continuar con la eliminación aunque falle esto
+        }
+
+        try {
+          // Obtener maintenance_records para este recurso
+          const { data: maintenanceRecords } = await supabase
+            .from('maintenance_records')
+            .select('id')
+            .eq('resource_id', resource.id);
+
+          if (maintenanceRecords && maintenanceRecords.length > 0) {
+            const recordIds = maintenanceRecords.map(r => r.id);
+            
+            // Eliminar maintenance_images asociadas
+            await supabase
+              .from('maintenance_images')
+              .delete()
+              .in('maintenance_record_id', recordIds);
+            
+            // Eliminar maintenance_records
+            await supabase
+              .from('maintenance_records')
+              .delete()
+              .eq('resource_id', resource.id);
+          }
+        } catch (err) {
+          console.warn(`⚠️ Error al eliminar maintenance_records para recurso ${resource.id}:`, err);
+          // Continuar con la eliminación aunque falle esto
+        }
+      }
+
+      // Eliminar recursos de la unidad
+      for (const resource of resources) {
+        try {
+          await resourcesService.delete(resource.id);
+        } catch (err) {
+          console.warn(`⚠️ Error al eliminar recurso ${resource.id}:`, err);
+          // Continuar con la eliminación aunque falle algún recurso
+        }
+      }
+
+      // Eliminar otros datos relacionados
+      try {
+        // Eliminar logs
+        await logsService.deleteByUnitId(id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar logs de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar requests
+        await requestsService.deleteByUnitId(id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar requests de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar zones
+        await zonesService.deleteByUnitId(id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar zones de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar imágenes de la unidad
+        await supabase.from('unit_images').delete().eq('unit_id', id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar imágenes de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar blueprint layers
+        await supabase.from('blueprint_layers').delete().eq('unit_id', id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar blueprint layers de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar compliance history
+        await supabase.from('compliance_history').delete().eq('unit_id', id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar compliance history de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar unit_management_staff
+        await supabase.from('unit_management_staff').delete().eq('unit_id', id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar unit_management_staff de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar documentos de la unidad
+        const { documentsService } = await import('./documentsService');
+        await documentsService.deleteByUnitId(id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar documentos de unidad ${id}:`, err);
+      }
+
+      // Finalmente, eliminar la unidad
       const { error } = await supabase
         .from('units')
         .delete()
@@ -478,23 +599,21 @@ export const unitsService = {
       if (error) throw error;
 
       // Registrar en auditoría
-      if (unit) {
-        await auditService.log({
-          actionType: 'DELETE',
-          entityType: 'UNIT',
-          entityId: unit.id,
-          entityName: unit.name,
-          description: `Unidad "${unit.name}" eliminada`,
-          changes: {
-            before: {
-              name: unit.name,
-              clientName: unit.clientName,
-              address: unit.address,
-              status: unit.status,
-            },
+      await auditService.log({
+        actionType: 'DELETE',
+        entityType: 'UNIT',
+        entityId: unit.id,
+        entityName: unit.name,
+        description: `Unidad "${unit.name}" eliminada`,
+        changes: {
+          before: {
+            name: unit.name,
+            clientName: unit.clientName,
+            address: unit.address,
+            status: unit.status,
           },
-        });
-      }
+        },
+      });
     } catch (error) {
       handleSupabaseError(error);
       throw error;
