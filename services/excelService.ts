@@ -14,6 +14,7 @@ export interface PersonnelImportRow {
   turno?: string; // Diurno, Nocturno, Mixto
   fechaInicio?: string; // YYYY-MM-DD o DD/MM/YYYY
   fechaFin?: string; // YYYY-MM-DD o DD/MM/YYYY
+  compartido?: boolean | string; // Si el trabajador es compartido (true, 'true', 'Sí', etc.)
 }
 
 export interface ImportResult {

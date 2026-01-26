@@ -543,6 +543,9 @@ function transformResourceFromDB(
     inTraining: data.in_training || false,
     trainingStartDate: normalizeDateFromDB(data.training_start_date),
     contractGenerated: data.contract_generated || false,
+    // Campos de salario
+    monthlySalary: data.monthly_salary ? Number(data.monthly_salary) : undefined,
+    workConditionAmount: data.work_condition_amount ? Number(data.work_condition_amount) : undefined,
   };
 }
 
@@ -613,6 +616,9 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     if (resource.inTraining !== undefined) result.in_training = resource.inTraining;
     if (resource.trainingStartDate !== undefined) result.training_start_date = normalizeDateToDB(resource.trainingStartDate);
     if (resource.contractGenerated !== undefined) result.contract_generated = resource.contractGenerated;
+    // Campos de salario
+    if (resource.monthlySalary !== undefined) result.monthly_salary = resource.monthlySalary;
+    if (resource.workConditionAmount !== undefined) result.work_condition_amount = resource.workConditionAmount;
   }
 
   return result;

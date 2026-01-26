@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet } from 'lucide-react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
@@ -16,6 +16,7 @@ interface UnitDetailProps {
   availableClients?: { id: string; name: string }[]; // Lista de clientes disponibles
   onBack: () => void;
   onUpdate?: (updatedUnit: Unit) => void | Promise<void>;
+  googleMapsApiKey?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -176,6 +177,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
   const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado
   
+  // Salary increments states
+  const [showSalaryIncrementModal, setShowSalaryIncrementModal] = useState(false);
+  const [selectedWorkerForIncrement, setSelectedWorkerForIncrement] = useState<Resource | null>(null);
+  const [salaryIncrements, setSalaryIncrements] = useState<Record<string, SalaryIncrement[]>>({});
+  const [newIncrementForm, setNewIncrementForm] = useState<{
+    previousSalary: number;
+    newSalary: number;
+    incrementDate: string;
+    effectiveDate: string;
+    notes?: string;
+  }>({
+    previousSalary: 0,
+    newSalary: 0,
+    incrementDate: new Date().toISOString().split('T')[0],
+    effectiveDate: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
+  const [isSavingIncrement, setIsSavingIncrement] = useState(false);
+  
   // Loading and notification states
   const [isSavingWorker, setIsSavingWorker] = useState(false);
   const [isUpdatingResource, setIsUpdatingResource] = useState(false);
@@ -219,7 +239,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1 });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string; isShared?: boolean }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '', isShared: false });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -1716,6 +1736,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         endDate: newWorkerForm.endDate || undefined,
         personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
         archived: newWorkerForm.endDate ? true : false, // Archivar automáticamente si tiene fecha de fin
+        monthlySalary: newWorkerForm.monthlySalary ? Number(newWorkerForm.monthlySalary) : undefined,
+        workConditionAmount: newWorkerForm.workConditionAmount ? Number(newWorkerForm.workConditionAmount) : undefined,
       trainings: [],
       assignedAssets: []
       }, unit.id);
@@ -1734,7 +1756,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
+      setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -1982,12 +2004,102 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
 
-  const togglePersonnelExpand = (id: string) => {
-    setExpandedPersonnel(expandedPersonnel === id ? null : id);
+  const togglePersonnelExpand = async (id: string) => {
+    const newExpandedId = expandedPersonnel === id ? null : id;
+    setExpandedPersonnel(newExpandedId);
+    
+    // Cargar incrementos salariales cuando se expande
+    if (newExpandedId && !salaryIncrements[newExpandedId]) {
+      try {
+        const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
+        const increments = await salaryIncrementsService.getByResourceId(newExpandedId);
+        setSalaryIncrements(prev => ({ ...prev, [newExpandedId]: increments }));
+      } catch (error) {
+        console.error('Error al cargar incrementos salariales:', error);
+      }
+    }
   };
   
   const toggleEquipmentExpand = (id: string) => {
     setExpandedEquipment(expandedEquipment === id ? null : id);
+  };
+
+  // Funciones para gestionar incrementos salariales
+  const handleOpenSalaryIncrementModal = async (worker: Resource) => {
+    setSelectedWorkerForIncrement(worker);
+    setNewIncrementForm({
+      previousSalary: worker.monthlySalary || 0,
+      newSalary: worker.monthlySalary || 0,
+      incrementDate: new Date().toISOString().split('T')[0],
+      effectiveDate: new Date().toISOString().split('T')[0],
+      notes: ''
+    });
+    setShowSalaryIncrementModal(true);
+    
+    // Cargar incrementos si no están cargados
+    if (!salaryIncrements[worker.id]) {
+      try {
+        const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
+        const increments = await salaryIncrementsService.getByResourceId(worker.id);
+        setSalaryIncrements(prev => ({ ...prev, [worker.id]: increments }));
+      } catch (error) {
+        console.error('Error al cargar incrementos salariales:', error);
+      }
+    }
+  };
+
+  const handleSaveSalaryIncrement = async () => {
+    if (!selectedWorkerForIncrement || !onUpdate) return;
+    
+    if (newIncrementForm.newSalary <= newIncrementForm.previousSalary) {
+      setNotification({ type: 'error', message: 'El nuevo salario debe ser mayor al salario anterior' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    setIsSavingIncrement(true);
+    try {
+      const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
+      const increment = await salaryIncrementsService.create({
+        resourceId: selectedWorkerForIncrement.id,
+        previousSalary: newIncrementForm.previousSalary,
+        newSalary: newIncrementForm.newSalary,
+        incrementDate: newIncrementForm.incrementDate,
+        effectiveDate: newIncrementForm.effectiveDate,
+        notes: newIncrementForm.notes || undefined
+      });
+      
+      // Actualizar la lista de incrementos
+      setSalaryIncrements(prev => ({
+        ...prev,
+        [selectedWorkerForIncrement.id]: [
+          increment,
+          ...(prev[selectedWorkerForIncrement.id] || [])
+        ]
+      }));
+      
+      // Actualizar el trabajador con el nuevo salario
+      const updatedWorker = {
+        ...selectedWorkerForIncrement,
+        monthlySalary: newIncrementForm.newSalary
+      };
+      
+      // Actualizar en la unidad
+      const updatedResources = unit.resources.map(r => 
+        r.id === selectedWorkerForIncrement.id ? updatedWorker : r
+      );
+      onUpdate({ ...unit, resources: updatedResources });
+      
+      setShowSalaryIncrementModal(false);
+      setNotification({ type: 'success', message: 'Incremento salarial registrado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar incremento salarial:', error);
+      setNotification({ type: 'error', message: 'Error al guardar el incremento salarial' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingIncrement(false);
+    }
   };
 
   // --- ROSTERING LOGIC ---
@@ -2509,8 +2621,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       description: newEventForm.description,
         author: authorName,
         images: processedImages,
-        responsibleIds: newEventResponsibles,
-        responsibleData: responsibleData // Pasar información adicional sobre el tipo
+        responsibleIds: newEventResponsibles
       }, unit.id);
       
       // Actualizar estado local directamente (sin recargar toda la unidad)
@@ -2712,7 +2823,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         ...editingLog,
         date: eventDate,
         author: authorName,
-        responsibleData: responsibleData
+        responsibleIds: editingLog.responsibleIds,
+        ...({ responsibleData } as any) // Pasar información adicional sobre el tipo
       });
       
       // Actualizar estado local con el log guardado
@@ -4673,6 +4785,54 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 }) : <p className="text-xs text-slate-400 italic">Sin activos asignados.</p>}
                             </div>
                         </div>
+
+                        {/* Salary Information */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm md:col-span-2">
+                            <div className="flex justify-between items-center mb-3">
+                                <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center"><DollarSign size={14} className="mr-1.5"/> Información Salarial</h5>
+                                {canEditPersonnel && <button onClick={() => handleOpenSalaryIncrementModal(worker)} className="text-xs text-green-600 hover:underline flex items-center"><TrendingUp size={12} className="mr-1"/> Registrar Incremento</button>}
+                            </div>
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">Salario Bruto Mensual</p>
+                                    <p className="text-sm font-semibold text-slate-700">
+                                        {worker.monthlySalary ? `S/ ${worker.monthlySalary.toFixed(2)}` : 'No registrado'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">Condición de Trabajo</p>
+                                    <p className="text-sm font-semibold text-slate-700">
+                                        {worker.workConditionAmount ? `S/ ${worker.workConditionAmount.toFixed(2)}` : 'No registrado'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div>
+                                <p className="text-xs font-semibold text-slate-500 mb-2">Historial de Incrementos</p>
+                                <div className="space-y-2 max-h-48 overflow-y-auto">
+                                    {(salaryIncrements[worker.id] || []).length > 0 ? (salaryIncrements[worker.id] || []).map(increment => (
+                                        <div key={increment.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 bg-green-50/50 p-2 rounded">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <TrendingUp size={12} className="text-green-600" />
+                                                    <p className="font-medium text-slate-700">
+                                                        S/ {increment.previousSalary.toFixed(2)} → S/ {increment.newSalary.toFixed(2)}
+                                                    </p>
+                                                    <span className="text-xs font-bold text-green-600">
+                                                        (+S/ {(increment.newSalary - increment.previousSalary).toFixed(2)})
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-500">
+                                                    Registrado: {increment.incrementDate} • Aplicado: {increment.effectiveDate}
+                                                </p>
+                                                {increment.notes && (
+                                                    <p className="text-xs text-slate-400 italic mt-1">{increment.notes}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )) : <p className="text-xs text-slate-400 italic">Sin incrementos registrados.</p>}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                  )}
                 </div>
@@ -5953,6 +6113,36 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
                 </div>
 
+                <div className="border-t border-slate-200 pt-4">
+                  <h4 className="text-sm font-semibold text-slate-700 mb-3">Información Salarial</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Salario Bruto Mensual</label>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min="0"
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                        value={newWorkerForm.monthlySalary || ''} 
+                        onChange={e => setNewWorkerForm({...newWorkerForm, monthlySalary: e.target.value ? parseFloat(e.target.value) : undefined})} 
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (Monto)</label>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min="0"
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                        value={newWorkerForm.workConditionAmount || ''} 
+                        onChange={e => setNewWorkerForm({...newWorkerForm, workConditionAmount: e.target.value ? parseFloat(e.target.value) : undefined})} 
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <button 
                   onClick={handleAddWorker} 
                   disabled={isSavingWorker}
@@ -5972,7 +6162,115 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 6. Mass Training Modal */}
+      {/* 6. Salary Increment Modal */}
+      {showSalaryIncrementModal && selectedWorkerForIncrement && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><TrendingUp className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Incremento Salarial</span></h3>
+                <button onClick={() => setShowSalaryIncrementModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
+             </div>
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-slate-700">Trabajador:</p>
+                  <p className="text-base font-semibold text-slate-900">{selectedWorkerForIncrement.name}</p>
+                  <p className="text-xs text-slate-500 mt-1">Salario actual: {selectedWorkerForIncrement.monthlySalary ? `S/ ${selectedWorkerForIncrement.monthlySalary.toFixed(2)}` : 'No registrado'}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Salario Anterior</label>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      min="0"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                      value={newIncrementForm.previousSalary || ''} 
+                      onChange={e => setNewIncrementForm({...newIncrementForm, previousSalary: e.target.value ? parseFloat(e.target.value) : 0})} 
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nuevo Salario *</label>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      min="0"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                      value={newIncrementForm.newSalary || ''} 
+                      onChange={e => setNewIncrementForm({...newIncrementForm, newSalary: e.target.value ? parseFloat(e.target.value) : 0})} 
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Registro *</label>
+                    <input 
+                      type="date" 
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                      value={newIncrementForm.incrementDate} 
+                      onChange={e => setNewIncrementForm({...newIncrementForm, incrementDate: e.target.value})} 
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Aplicación *</label>
+                    <input 
+                      type="date" 
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                      value={newIncrementForm.effectiveDate} 
+                      onChange={e => setNewIncrementForm({...newIncrementForm, effectiveDate: e.target.value})} 
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Notas (opcional)</label>
+                  <textarea 
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                    rows={3}
+                    value={newIncrementForm.notes || ''} 
+                    onChange={e => setNewIncrementForm({...newIncrementForm, notes: e.target.value})} 
+                    placeholder="Observaciones sobre el incremento..."
+                  />
+                </div>
+
+                {newIncrementForm.newSalary > newIncrementForm.previousSalary && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-sm font-medium text-green-800">Incremento:</p>
+                    <p className="text-lg font-bold text-green-900">
+                      +S/ {(newIncrementForm.newSalary - newIncrementForm.previousSalary).toFixed(2)}
+                    </p>
+                  </div>
+                )}
+
+                <button 
+                  onClick={handleSaveSalaryIncrement} 
+                  disabled={isSavingIncrement || newIncrementForm.newSalary <= newIncrementForm.previousSalary}
+                  className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isSavingIncrement ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <TrendingUp size={16} className="mr-2" />
+                      Registrar Incremento
+                    </>
+                  )}
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Mass Training Modal */}
       {showMassTrainingModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
@@ -6280,6 +6578,40 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           <p className="text-xs text-slate-500 mt-1">Después de 3 días se generará una alerta para crear el contrato de trabajo</p>
                                       </div>
                                   )}
+                              </div>
+                              
+                              {/* Información Salarial */}
+                              <div className="border-t border-slate-200 pt-4 mt-4">
+                                  <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center">
+                                      <DollarSign size={14} className="mr-1.5" />
+                                      Información Salarial
+                                  </h4>
+                                  <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Salario Bruto Mensual</label>
+                                          <input 
+                                              type="number" 
+                                              step="0.01" 
+                                              min="0"
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                                              value={editingResource.monthlySalary || ''} 
+                                              onChange={e => setEditingResource({...editingResource, monthlySalary: e.target.value ? parseFloat(e.target.value) : undefined})} 
+                                              placeholder="0.00"
+                                          />
+                                      </div>
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (Monto)</label>
+                                          <input 
+                                              type="number" 
+                                              step="0.01" 
+                                              min="0"
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                                              value={editingResource.workConditionAmount || ''} 
+                                              onChange={e => setEditingResource({...editingResource, workConditionAmount: e.target.value ? parseFloat(e.target.value) : undefined})} 
+                                              placeholder="0.00"
+                                          />
+                                      </div>
+                                  </div>
                               </div>
                           </>
                       )}

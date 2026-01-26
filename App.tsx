@@ -24,7 +24,7 @@ import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
 import { Login } from './components/Login';
 import { authService } from './services/authService';
-import { LogOut, FileText, RefreshCw } from 'lucide-react';
+import { LogOut, FileText, RefreshCw, Eye } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
 import { PositionsManagementSection } from './components/PositionsManagement';
@@ -39,6 +39,13 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
+  
+  // Estado para gestión de unidades visibles por usuario CLIENT
+  const [showVisibleUnitsModal, setShowVisibleUnitsModal] = useState(false);
+  const [selectedUserForUnits, setSelectedUserForUnits] = useState<User | null>(null);
+  const [selectedVisibleUnitIds, setSelectedVisibleUnitIds] = useState<string[]>([]);
+  const [loadingVisibleUnits, setLoadingVisibleUnits] = useState(false);
+  const [availableClientNames, setAvailableClientNames] = useState<string[]>([]); // Nombres de clientes para el usuario seleccionado
   
   // Settings accordion state
   const [settingsSections, setSettingsSections] = useState<Record<string, boolean>>({
@@ -55,8 +62,11 @@ const App: React.FC = () => {
     setSettingsSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
   
+  // Estado del usuario actual
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  
   // Usar hooks de Supabase (solo cargar si está autenticado)
-  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits } = useUnits(isAuthenticated);
+  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits } = useUnits(isAuthenticated, currentUser);
   const { users, loading: usersLoading, createUser, updateUser, deleteUser, loadUsers } = useUsers(isAuthenticated);
   const { staff: managementStaff, loading: staffLoading, createStaff, updateStaff, deleteStaff, archiveStaff, loadStaff } = useManagementStaff(isAuthenticated);
   const { clients, loading: clientsLoading, createClient, updateClient, deleteClient, loadClients } = useClients(isAuthenticated);
@@ -166,6 +176,48 @@ const App: React.FC = () => {
   });
   const [isLogoSaved, setIsLogoSaved] = useState(false);
 
+  // Cargar logo desde la base de datos al iniciar (si está autenticado)
+  useEffect(() => {
+    const loadLogoFromDatabase = async () => {
+      if (!isAuthenticated) return;
+      
+      try {
+        const { supabase } = await import('./services/supabase');
+        const { data, error } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'company_logo')
+          .single();
+        
+        if (error) {
+          // Si no existe en BD, usar localStorage como fallback
+          const saved = localStorage.getItem('OPSFLOW_LOGO');
+          if (saved && !saved.startsWith('blob:')) {
+            setCompanyLogo(saved);
+          }
+          return;
+        }
+        
+        if (data && data.value) {
+          // Cargar desde la base de datos
+          setCompanyLogo(data.value);
+          // Sincronizar con localStorage para caché
+          localStorage.setItem('OPSFLOW_LOGO', data.value);
+          console.log('✅ Logo cargado desde base de datos');
+        }
+      } catch (error) {
+        console.error('Error al cargar logo desde BD:', error);
+        // Fallback a localStorage
+        const saved = localStorage.getItem('OPSFLOW_LOGO');
+        if (saved && !saved.startsWith('blob:')) {
+          setCompanyLogo(saved);
+        }
+      }
+    };
+    
+    loadLogoFromDatabase();
+  }, [isAuthenticated]);
+
   // Recargar logo cuando cambie en localStorage (para persistencia entre navegaciones)
   useEffect(() => {
     // Limpiar blob URLs guardados (no persisten) - solo al iniciar
@@ -184,6 +236,10 @@ const App: React.FC = () => {
         } else {
           console.warn('⚠️ Intento de guardar blob URL, ignorando...');
         }
+      } else if (e.key === 'OPSFLOW_LOGO' && !e.newValue) {
+        // Si se elimina el logo, usar el por defecto
+        const defaultLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=';
+        setCompanyLogo(defaultLogo);
       }
     };
     
@@ -207,7 +263,6 @@ const App: React.FC = () => {
   const [isPermsSaved, setIsPermsSaved] = useState(false);
 
   // User / Role Context
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Verificar autenticación al cargar
@@ -454,6 +509,114 @@ const App: React.FC = () => {
     } catch (error: any) {
       console.error('Error al eliminar cliente:', error);
       alert(error.message || 'Error al eliminar el cliente.');
+    }
+  };
+
+  // Funciones para gestionar unidades visibles por usuario CLIENT
+  const handleOpenVisibleUnitsModal = async (user: User) => {
+    if (user.role !== 'CLIENT') {
+      alert('Solo se pueden gestionar unidades visibles para usuarios con rol CLIENT.');
+      return;
+    }
+    
+    // Verificar que el usuario tenga clientes asignados
+    if ((!user.linkedClientNames || user.linkedClientNames.length === 0) && 
+        (!user.linkedClientIds || user.linkedClientIds.length === 0)) {
+      alert('Este usuario CLIENT no tiene clientes asignados. Asigna clientes al usuario primero.');
+      return;
+    }
+    
+    setSelectedUserForUnits(user);
+    setShowVisibleUnitsModal(true);
+    setLoadingVisibleUnits(true);
+    setSelectedVisibleUnitIds([]);
+
+    try {
+      // Import dinámico para evitar problemas de inicialización
+      const { userVisibleUnitsService } = await import('./services/userVisibleUnitsService');
+      const { supabase } = await import('./services/supabase');
+      
+      // Obtener nombres de clientes desde IDs si es necesario
+      let clientNames = user.linkedClientNames || [];
+      if ((!clientNames || clientNames.length === 0) && user.linkedClientIds && user.linkedClientIds.length > 0) {
+        const { data: clientData } = await supabase
+          .from('clients')
+          .select('name')
+          .in('id', user.linkedClientIds);
+        
+        if (clientData) {
+          clientNames = clientData.map(c => c.name);
+        }
+      }
+      
+      // Cargar las unidades visibles para este usuario CLIENT
+      const visibleUnitIds = await userVisibleUnitsService.getVisibleUnitsByUserId(user.id);
+      setSelectedVisibleUnitIds(visibleUnitIds);
+      
+      // Guardar los nombres de clientes para usar en el modal
+      setAvailableClientNames(clientNames);
+      
+      // Actualizar el usuario con los nombres de clientes obtenidos si fue necesario
+      if (clientNames.length > 0 && (!user.linkedClientNames || user.linkedClientNames.length === 0)) {
+        setSelectedUserForUnits({ ...user, linkedClientNames: clientNames });
+      } else {
+        // Si ya tenía nombres, usarlos
+        setAvailableClientNames(user.linkedClientNames || clientNames);
+      }
+    } catch (error) {
+      console.error('Error al cargar unidades visibles:', error);
+      alert('Error al cargar las unidades visibles para este usuario.');
+    } finally {
+      setLoadingVisibleUnits(false);
+    }
+  };
+
+  const handleToggleVisibleUnit = (unitId: string) => {
+    setSelectedVisibleUnitIds(prev => {
+      if (prev.includes(unitId)) {
+        return prev.filter(id => id !== unitId);
+      } else {
+        return [...prev, unitId];
+      }
+    });
+  };
+
+  const handleSaveVisibleUnits = async () => {
+    if (!selectedUserForUnits) return;
+
+    setLoadingVisibleUnits(true);
+    try {
+      // Import dinámico para evitar problemas de inicialización
+      const { userVisibleUnitsService } = await import('./services/userVisibleUnitsService');
+      
+      // Guardar las unidades visibles para este usuario CLIENT
+      await userVisibleUnitsService.setVisibleUnitsForUser(
+        selectedUserForUnits.id,
+        selectedVisibleUnitIds
+      );
+
+      alert(`Unidades visibles guardadas correctamente para ${selectedUserForUnits.name}`);
+      setShowVisibleUnitsModal(false);
+      
+      // Recargar unidades para reflejar los cambios
+      // Si el usuario modificado es el usuario actual, recargar sus unidades
+      if (currentUser && selectedUserForUnits.id === currentUser.id) {
+        // Forzar recarga del hook useUnits
+        if (loadUnits) {
+          await loadUnits();
+        }
+      } else {
+        // Si es otro usuario, solo recargar si el currentUser también es CLIENT
+        // para que useUnits recalcule el filtrado
+        if (currentUser && currentUser.role === 'CLIENT' && loadUnits) {
+          await loadUnits();
+        }
+      }
+    } catch (error: any) {
+      console.error('Error al guardar unidades visibles:', error);
+      alert(error.message || 'Error al guardar las unidades visibles.');
+    } finally {
+      setLoadingVisibleUnits(false);
     }
   };
 
@@ -952,7 +1115,30 @@ const App: React.FC = () => {
           return;
         }
         
-        // Guardar en localStorage
+        // Guardar en la base de datos (system_settings)
+        const { supabase } = await import('./services/supabase');
+        const { error: dbError } = await supabase
+          .from('system_settings')
+          .upsert(
+            {
+              key: 'company_logo',
+              value: companyLogo,
+              description: 'Logo de la empresa que aparece en el sidebar y reportes',
+              updated_at: new Date().toISOString(),
+            },
+            {
+              onConflict: 'key',
+            }
+          );
+        
+        if (dbError) {
+          console.error('Error al guardar logo en BD:', dbError);
+          // Continuar guardando en localStorage como fallback
+        } else {
+          console.log('✅ Logo guardado en base de datos');
+        }
+        
+        // Guardar en localStorage también (para compatibilidad y caché)
         localStorage.setItem('OPSFLOW_LOGO', companyLogo);
         
         // Forzar actualización del estado para que se refleje inmediatamente
@@ -1820,6 +2006,16 @@ const App: React.FC = () => {
                                      </button>
                                    );
                                  })()}
+                                 {/* Botón para gestionar unidades visibles: solo para usuarios CLIENT */}
+                                 {u.role === 'CLIENT' && (
+                                   <button 
+                                     onClick={(e) => { e.stopPropagation(); handleOpenVisibleUnitsModal(u); }} 
+                                     disabled={isProcessing}
+                                     className="text-green-400 hover:text-green-600 p-1 rounded hover:bg-green-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                     title="Gestionar unidades visibles">
+                                     <Eye size={16}/>
+                                   </button>
+                                 )}
                                  <button 
                                    onClick={() => handleDeleteUser(u.id)} 
                                    disabled={isProcessing}
@@ -1969,21 +2165,23 @@ const App: React.FC = () => {
            {/* --- Clients Management (admin y superadmin) --- */}
            {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-               <button
-                 onClick={() => toggleSettingsSection('clients')}
-                 className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
-               >
-                 <h3 className="font-bold text-slate-700 flex items-center"><Building className="mr-2" size={18} /> Gestión de Clientes</h3>
-                 <div className="flex items-center gap-2">
+               <div className="w-full border-b border-slate-100 bg-slate-50">
+                 <div className="px-6 py-4 flex justify-between items-center hover:bg-slate-100 transition-colors">
+                   <div
+                     onClick={() => toggleSettingsSection('clients')}
+                     className="flex-1 flex justify-between items-center cursor-pointer"
+                   >
+                     <h3 className="font-bold text-slate-700 flex items-center"><Building className="mr-2" size={18} /> Gestión de Clientes</h3>
+                     <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.clients ? 'rotate-180' : ''}`} />
+                   </div>
                    <button 
                      onClick={(e) => { e.stopPropagation(); openAddClientModal(); }} 
-                     className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center"
+                     className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center ml-2"
                    >
                      <Plus size={14} className="mr-1.5" /> Nuevo Cliente
                    </button>
-                   <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.clients ? 'rotate-180' : ''}`} />
                  </div>
-               </button>
+               </div>
                {settingsSections.clients && (
                <div className="p-6">
                  {clientsLoading ? (
@@ -2850,7 +3048,7 @@ const App: React.FC = () => {
         {/* Powered By Logo Section - DYNAMIC */}
         <div className="px-4 md:px-6 pb-4 md:pb-6 pt-2 flex flex-col items-center justify-center shrink-0 min-w-0">
             <span className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 md:mb-2">Powered By</span>
-            {companyLogo ? (
+            {companyLogo && companyLogo.trim() !== '' ? (
               <img 
                 src={companyLogo} 
                 alt="Company Logo" 
@@ -2885,6 +3083,107 @@ const App: React.FC = () => {
            {renderContent()}
         </div>
       </main>
+
+      {/* Modal para gestionar unidades visibles por usuario CLIENT */}
+      {showVisibleUnitsModal && selectedUserForUnits && (currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center shrink-0">
+              <h3 className="font-bold text-lg flex items-center">
+                <Eye className="mr-2" size={20}/> Unidades Visibles para {selectedUserForUnits.name}
+              </h3>
+              <button onClick={() => setShowVisibleUnitsModal(false)} className="text-white/80 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {loadingVisibleUnits ? (
+                <div className="text-center py-8 text-slate-500">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto mb-3"></div>
+                  Cargando unidades...
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(() => {
+                    // Filtrar unidades solo de los clientes vinculados al usuario CLIENT
+                    // Usar availableClientNames que ya incluye los nombres obtenidos de los IDs
+                    const clientNamesToFilter = availableClientNames.length > 0 
+                      ? availableClientNames 
+                      : (selectedUserForUnits.linkedClientNames || []);
+                    
+                    const allowedClientNames = new Set<string>(clientNamesToFilter);
+                    
+                    // Filtrar unidades solo de los clientes asignados al usuario
+                    const filteredUnits = units.filter(unit => {
+                      if (allowedClientNames.size === 0) {
+                        // Si no hay clientes asignados, no mostrar ninguna unidad
+                        return false;
+                      }
+                      // Solo mostrar unidades de los clientes asignados
+                      return allowedClientNames.has(unit.clientName);
+                    });
+                    
+                    return filteredUnits.length === 0 ? (
+                      <div>
+                        <p className="text-sm text-slate-500 mb-2">
+                          {clientNamesToFilter.length === 0 
+                            ? 'Este usuario no tiene clientes asignados. Asigna clientes al usuario primero.'
+                            : 'No hay unidades disponibles para los clientes asignados a este usuario.'}
+                        </p>
+                        {clientNamesToFilter.length > 0 && (
+                          <p className="text-xs text-slate-400">
+                            Clientes asignados: {clientNamesToFilter.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-xs text-slate-500 mb-3">
+                          Selecciona las unidades que {selectedUserForUnits.name} podrá ver. 
+                          Solo se muestran unidades de los clientes asignados a este usuario.
+                          {clientNamesToFilter.length > 0 && (
+                            <span className="block mt-1 font-medium">Clientes: {clientNamesToFilter.join(', ')}</span>
+                          )}
+                          {!selectedVisibleUnitIds.length && (
+                            <span className="block mt-2 text-amber-600">Si no seleccionas ninguna, verá todas las unidades de los clientes asignados.</span>
+                          )}
+                        </p>
+                        {filteredUnits.map(unit => (
+                          <label key={unit.id} className="flex items-center p-2 hover:bg-slate-100 rounded-lg cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 mr-3"
+                              checked={selectedVisibleUnitIds.includes(unit.id)}
+                              onChange={() => handleToggleVisibleUnit(unit.id)}
+                            />
+                            <div className="flex-1">
+                              <span className="text-sm text-slate-700 font-medium">{unit.name}</span>
+                              <span className="text-xs text-slate-500 ml-2">({unit.clientName})</span>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
+              <button
+                onClick={handleSaveVisibleUnits}
+                disabled={loadingVisibleUnits}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingVisibleUnits ? (
+                  <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div> Guardando...</>
+                ) : (
+                  <><Save size={16} className="mr-2"/> Guardar Cambios</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

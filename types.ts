@@ -238,6 +238,21 @@ export interface Resource {
   trainingStartDate?: string; // Fecha de inicio de capacitación (YYYY-MM-DD)
   contractGenerated?: boolean; // Si ya se generó el contrato de trabajo (resuelve la alerta)
   isShared?: boolean; // Si el trabajador es compartido entre múltiples unidades (true) o único (false). Por defecto false (único)
+  monthlySalary?: number; // Salario bruto mensual del trabajador
+  workConditionAmount?: number; // Monto adicional por condición de trabajo
+  salaryIncrements?: SalaryIncrement[]; // Historial de incrementos salariales
+}
+
+export interface SalaryIncrement {
+  id: string;
+  resourceId: string;
+  previousSalary: number;
+  newSalary: number;
+  incrementDate: string; // Fecha en que se registró el incremento (YYYY-MM-DD)
+  effectiveDate: string; // Fecha de aplicación del incremento (YYYY-MM-DD)
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ZoneLayout {

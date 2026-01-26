@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
     return {
       root: '.',
       server: {
-        port: 3000,
+        port: 3001,
         host: true, // Permite acceso desde cualquier IP (incluye localhost)
         strictPort: false, // Si el puerto está ocupado, usa el siguiente disponible
       },

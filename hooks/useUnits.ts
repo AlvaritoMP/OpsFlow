@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { unitsService } from '../services/unitsService';
-import { Unit } from '../types';
+import { Unit, User } from '../types';
 
-export const useUnits = (isAuthenticated: boolean) => {
+export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) => {
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -13,9 +13,125 @@ export const useUnits = (isAuthenticated: boolean) => {
       setError(null);
       // Log reducido - solo en desarrollo
       if (process.env.NODE_ENV === 'development') {
-        console.log('🔄 useUnits: Iniciando carga de unidades...');
+        console.log('🔄 useUnits: Iniciando carga de unidades...', {
+          isAuthenticated,
+          currentUser: currentUser ? {
+            id: currentUser.id,
+            name: currentUser.name,
+            role: currentUser.role,
+            linkedClientIds: currentUser.linkedClientIds
+          } : null
+        });
       }
-      const data = await unitsService.getAll();
+      
+      // Cargar todas las unidades primero
+      let data = await unitsService.getAll();
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`📊 useUnits: Cargadas ${data.length} unidades antes del filtrado`);
+      }
+      
+      // Filtrar unidades según permisos del usuario CLIENT
+      // Esto se hace DESPUÉS de cargar para evitar problemas de inicialización
+      if (currentUser && currentUser.role === 'CLIENT') {
+        try {
+          // Import dinámico solo cuando sea necesario para evitar dependencias circulares
+          const { userVisibleUnitsService } = await import('../services/userVisibleUnitsService');
+          
+          const allowedUnitIds = new Set<string>();
+          
+          // Verificar si el usuario tiene restricciones explícitas de unidades
+          // Esto verifica si hay registros en user_visible_units para este usuario
+          const hasRestrictions = await userVisibleUnitsService.hasRestrictions(currentUser.id);
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🔍 useUnits: Usuario CLIENT ${currentUser.name} (ID: ${currentUser.id}) - hasRestrictions: ${hasRestrictions}`);
+          }
+          
+          if (hasRestrictions) {
+            // Si tiene restricciones explícitas, solo mostrar las unidades permitidas
+            const visibleUnitIds = await userVisibleUnitsService.getVisibleUnitsByUserId(currentUser.id);
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`🔒 Usuario CLIENT tiene restricciones: ${visibleUnitIds.length} unidades visibles permitidas`, visibleUnitIds);
+            }
+            visibleUnitIds.forEach(unitId => allowedUnitIds.add(unitId));
+            
+            // Filtrar estrictamente por las unidades permitidas
+            if (allowedUnitIds.size > 0) {
+              data = data.filter(unit => allowedUnitIds.has(unit.id));
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ Filtrado estricto aplicado: ${data.length} unidades visibles de ${visibleUnitIds.length} permitidas`);
+              }
+            } else {
+              // Si hay restricciones pero no hay unidades permitidas, mostrar nada
+              data = [];
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`⚠️ Usuario CLIENT tiene restricciones pero no hay unidades permitidas, mostrando 0 unidades`);
+              }
+            }
+          } else if (currentUser.linkedClientIds && Array.isArray(currentUser.linkedClientIds) && currentUser.linkedClientIds.length > 0) {
+            // Si NO tiene restricciones explícitas, mostrar todas las unidades de los clientes vinculados
+            const { supabase } = await import('../services/supabase');
+            
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`🔓 Usuario CLIENT NO tiene restricciones, mostrando todas las unidades de clientes vinculados`);
+            }
+            
+            for (const clientId of currentUser.linkedClientIds) {
+              if (!clientId) continue;
+              
+              try {
+                // Obtener el nombre del cliente
+                const { data: clientData } = await supabase
+                  .from('clients')
+                  .select('name')
+                  .eq('id', clientId)
+                  .single();
+                
+                if (clientData?.name) {
+                  // Agregar todas las unidades que pertenecen a este cliente
+                  data.forEach(unit => {
+                    if (unit.clientName === clientData.name) {
+                      allowedUnitIds.add(unit.id);
+                    }
+                  });
+                }
+              } catch (err) {
+                console.warn(`⚠️ Error al procesar cliente ${clientId}:`, err);
+              }
+            }
+            
+            // Filtrar por las unidades de los clientes vinculados
+            if (allowedUnitIds.size > 0) {
+              data = data.filter(unit => allowedUnitIds.has(unit.id));
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ Filtrado por clientes vinculados: ${data.length} unidades visibles`);
+              }
+            } else {
+              // Si no hay clientes vinculados o no hay unidades, retornar array vacío
+              data = [];
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`⚠️ Usuario CLIENT no tiene unidades de clientes vinculados`);
+              }
+            }
+          } else {
+            // Si no tiene restricciones ni clientes vinculados, no mostrar nada
+            data = [];
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`⚠️ Usuario CLIENT no tiene restricciones ni clientes vinculados, mostrando 0 unidades`);
+            }
+          }
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🔒 Filtrado de unidades para usuario CLIENT "${currentUser.name}": ${data.length} unidades visibles`);
+          }
+        } catch (filterError) {
+          console.error('❌ Error al filtrar unidades por usuario CLIENT:', filterError);
+          // En caso de error en el filtrado, retornar todas las unidades para evitar un bloqueo total
+          // Esto es más seguro que bloquear al usuario completamente
+        }
+      }
+      
       if (process.env.NODE_ENV === 'development') {
         console.log(`✅ useUnits: ${data.length} unidades cargadas`);
       }
@@ -53,7 +169,7 @@ export const useUnits = (isAuthenticated: boolean) => {
 
   useEffect(() => {
     checkAndLoad();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentUser?.id, currentUser?.linkedClientIds?.join(','), currentUser?.role]);
 
   const createUnit = async (unit: Partial<Unit>) => {
     try {
