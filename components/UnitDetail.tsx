@@ -2318,15 +2318,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const isCesado = editingResource.type === ResourceType.PERSONNEL && editingResource.personnelStatus === 'cesado';
       const shouldArchive = hasEndDate || isCesado;
       
+      // Excluir assignedAssets, trainings y workSchedule del objeto de actualización
+      // Estos campos se manejan por separado y solo se actualizan si se modifican explícitamente
+      const { assignedAssets, trainings, workSchedule, ...resourceData } = editingResource;
+      
       const resourceToUpdate = shouldArchive 
         ? { 
-            ...editingResource, 
+            ...resourceData, 
             archived: true, 
             personnelStatus: hasEndDate ? 'cesado' as const : editingResource.personnelStatus 
           }
-        : editingResource;
+        : resourceData;
       
-      // Guardar en la BD
+      // Guardar en la BD (sin assignedAssets, trainings, workSchedule)
       await resourcesService.update(editingResource.id, resourceToUpdate);
       
       // Recargar el recurso desde la BD para asegurar sincronización completa
