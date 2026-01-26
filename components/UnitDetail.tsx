@@ -4470,7 +4470,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {personnelViewMode === 'list' ? (
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
          {/* Table Header */}
-         <div className={`grid grid-cols-12 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[800px] ${
+         <div className={`grid grid-cols-12 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[1000px] ${
            showArchivedPersonnel ? 'bg-amber-50' : 'bg-slate-50'
          }`}>
             <div className="col-span-1 flex items-center justify-center">
@@ -4478,13 +4478,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                )}
             </div>
-            <div className="col-span-3 md:col-span-2 whitespace-nowrap">Colaborador</div>
-            <div className="col-span-2 hidden md:block text-center whitespace-nowrap">DNI</div>
-            <div className="col-span-2 text-center whitespace-nowrap">Estado</div>
-            <div className="col-span-2 hidden md:block text-center whitespace-nowrap">Fechas</div>
-            <div className="col-span-1 hidden md:block text-center whitespace-nowrap">Turno</div>
-            <div className="col-span-1 hidden md:block text-center whitespace-nowrap">Cumpl.</div>
-            <div className="col-span-3 md:col-span-2 text-right whitespace-nowrap">Acciones</div>
+            <div className="col-span-3 md:col-span-2 lg:col-span-2 whitespace-nowrap">Colaborador</div>
+            <div className="col-span-2 hidden md:block lg:col-span-1 text-center whitespace-nowrap">DNI</div>
+            <div className="col-span-2 md:col-span-1 lg:col-span-1 text-center whitespace-nowrap">Estado</div>
+            <div className="col-span-2 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Fechas</div>
+            <div className="col-span-1 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Turno</div>
+            <div className="col-span-1 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Cumpl.</div>
+            <div className="col-span-1 hidden lg:block text-center whitespace-nowrap">Salario</div>
+            <div className="col-span-1 hidden lg:block text-center whitespace-nowrap">Cond. Trab.</div>
+            <div className="col-span-3 md:col-span-2 lg:col-span-2 text-right whitespace-nowrap">Acciones</div>
          </div>
 
          <div className="divide-y divide-slate-100">
@@ -4499,13 +4501,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               personnel.map(worker => (
                 <div key={worker.id} className={`group transition-colors hover:bg-slate-50 ${showArchivedPersonnel ? 'bg-amber-50/30' : ''}`}>
                  {/* Main Row */}
-                 <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[800px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
+                 <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[1000px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
                     <div className="col-span-1 flex items-center justify-center">
                        {!showArchivedPersonnel && (
                          <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
                        )}
                     </div>
-                    <div className="col-span-3 md:col-span-2 flex items-center min-w-0">
+                    <div className="col-span-3 md:col-span-2 lg:col-span-2 flex items-center min-w-0">
                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
                           {worker.name.charAt(0)}
                        </div>
@@ -4523,10 +4525,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           </p>
                     </div>
                     </div>
-                    <div className="col-span-2 hidden md:flex items-center justify-center text-sm text-slate-500 font-mono">
+                    <div className="col-span-2 hidden md:flex lg:col-span-1 items-center justify-center text-sm text-slate-500 font-mono">
                        {worker.dni || <span className="text-slate-300 italic">-</span>}
                     </div>
-                    <div className="col-span-2 flex items-center justify-center">
+                    <div className="col-span-2 md:col-span-1 lg:col-span-1 flex items-center justify-center">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                           worker.personnelStatus === 'cesado' 
                             ? 'bg-red-100 text-red-700' 
@@ -4535,7 +4537,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                            {worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo')}
                         </span>
                     </div>
-                    <div className="col-span-2 hidden md:flex flex-col items-center justify-center text-xs text-slate-500">
+                    <div className="col-span-2 hidden md:flex lg:col-span-1 flex-col items-center justify-center text-xs text-slate-500">
                        {worker.startDate && (
                          <div className="whitespace-nowrap">Inicio: {formatDateFromString(worker.startDate)}</div>
                        )}
@@ -4544,8 +4546,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                        )}
                        {!worker.startDate && !worker.endDate && <span className="text-slate-300 italic">-</span>}
                             </div>
-                    <div className="col-span-1 hidden md:flex items-center justify-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
-                    <div className="col-span-1 hidden md:flex items-center justify-center">
+                    <div className="col-span-1 hidden md:flex lg:col-span-1 items-center justify-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
+                    <div className="col-span-1 hidden md:flex lg:col-span-1 items-center justify-center">
                         <div className="flex items-center">
                             <div className="w-12 bg-slate-200 rounded-full h-1.5 mr-1">
                                 <div className={`h-1.5 rounded-full ${worker.compliancePercentage && worker.compliancePercentage >= 90 ? 'bg-green-500' : 'bg-yellow-500'}`} style={{ width: `${worker.compliancePercentage || 0}%` }}></div>
@@ -4553,7 +4555,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             <span className="text-xs font-medium">{worker.compliancePercentage || 0}%</span>
                     </div>
                     </div>
-                    <div className="col-span-3 md:col-span-2 flex justify-end items-center gap-2">
+                    <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-700 font-medium">
+                       {worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-300 italic">-</span>}
+                    </div>
+                    <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-700 font-medium">
+                       {worker.workConditionAmount ? `S/ ${worker.workConditionAmount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-300 italic">-</span>}
+                    </div>
+                    <div className="col-span-3 md:col-span-2 lg:col-span-2 flex justify-end items-center gap-2">
                         <button onClick={() => togglePersonnelExpand(worker.id)} className="text-slate-400 hover:text-blue-600 p-1" disabled={isArchivingPersonnel === worker.id}>
                             {expandedPersonnel === worker.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                         </button>
