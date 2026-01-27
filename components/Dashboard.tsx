@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, UnitStatus, ResourceType } from '../types';
+import { Unit, UnitStatus, ResourceType, UserRole } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical, Star, UserX } from 'lucide-react';
 import { UnitsMap } from './UnitsMap';
@@ -7,9 +7,11 @@ import { UnitsMap } from './UnitsMap';
 interface DashboardProps {
   units: Unit[];
   onSelectUnit: (unitId: string) => void;
+  currentUserRole?: UserRole;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, currentUserRole }) => {
+  const isClient = currentUserRole === 'CLIENT';
   // States for new metrics
   const [workersByShift, setWorkersByShift] = useState({ day: 0, afternoon: 0, night: 0 });
   const [retenCoverages, setRetenCoverages] = useState(0);
@@ -645,27 +647,31 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.night}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-teal-100 text-teal-600 rounded-lg shrink-0">
-            <Shield size={20} className="md:w-6 md:h-6" />
+        {!isClient && (
+          <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+            <div className="p-2 md:p-3 bg-teal-100 text-teal-600 rounded-lg shrink-0">
+              <Shield size={20} className="md:w-6 md:h-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-slate-500">Coberturas Retenes</p>
+              <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : retenCoverages}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Coberturas Retenes</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : retenCoverages}</p>
+        )}
+        {!isClient && (
+          <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+            <div className="p-2 md:p-3 bg-cyan-100 text-cyan-600 rounded-lg shrink-0">
+              <Shield size={20} className="md:w-6 md:h-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-slate-500">Utilización Retenes</p>
+              <p className="text-xl md:text-2xl font-bold text-slate-800">
+                {loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`}
+              </p>
+              <p className="text-[10px] text-slate-400">Promedio diario del mes anterior</p>
+            </div>
           </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-cyan-100 text-cyan-600 rounded-lg shrink-0">
-            <Shield size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Utilización Retenes</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">
-              {loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`}
-            </p>
-            <p className="text-[10px] text-slate-400">Promedio diario del mes anterior</p>
-          </div>
-        </div>
+        )}
         <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
           <div className="p-2 md:p-3 bg-pink-100 text-pink-600 rounded-lg shrink-0">
             <UserPlus size={20} className="md:w-6 md:h-6" />
@@ -711,20 +717,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-[10px] text-slate-400">Ceses / Inicio</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-amber-100 text-amber-600 rounded-lg shrink-0">
-            <Star size={20} className="md:w-6 md:h-6" />
+        {!isClient && (
+          <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+            <div className="p-2 md:p-3 bg-amber-100 text-amber-600 rounded-lg shrink-0">
+              <Star size={20} className="md:w-6 md:h-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-slate-500">Retén Más Usado</p>
+              <p className="text-xl md:text-2xl font-bold text-slate-800 truncate">
+                {loadingMetrics ? '...' : mostUsedReten ? mostUsedReten.name : 'N/A'}
+              </p>
+              <p className="text-[10px] text-slate-400">
+                {mostUsedReten ? `${mostUsedReten.count} ${mostUsedReten.count === 1 ? 'vez' : 'veces'}` : 'Sin datos'}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Retén Más Usado</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800 truncate">
-              {loadingMetrics ? '...' : mostUsedReten ? mostUsedReten.name : 'N/A'}
-            </p>
-            <p className="text-[10px] text-slate-400">
-              {mostUsedReten ? `${mostUsedReten.count} ${mostUsedReten.count === 1 ? 'vez' : 'veces'}` : 'Sin datos'}
-            </p>
-          </div>
-        </div>
+        )}
         <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
           <div className="p-2 md:p-3 bg-rose-100 text-rose-600 rounded-lg shrink-0">
             <UserX size={20} className="md:w-6 md:h-6" />

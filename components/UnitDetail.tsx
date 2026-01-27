@@ -240,7 +240,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1 });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', dni: '', puesto: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -1786,6 +1786,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       compliancePercentage: 100,
         dni: newWorkerForm.dni || undefined,
         puesto: newWorkerForm.puesto || undefined,
+        birthDate: newWorkerForm.birthDate || undefined,
         isShared: newWorkerForm.isShared || false,
         startDate: newWorkerForm.startDate || undefined,
         endDate: newWorkerForm.endDate || undefined,
@@ -1811,7 +1812,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
+      setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', puesto: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -6306,6 +6307,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
                 
                 <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Nacimiento</label>
+                  <input 
+                    type="date" 
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                    value={newWorkerForm.birthDate || ''} 
+                    onChange={e => setNewWorkerForm({...newWorkerForm, birthDate: e.target.value})} 
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Se usará para generar alertas de cumpleaños</p>
+                </div>
+                
+                <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Zona(s) Asignada(s)</label>
                     <ZoneMultiSelect 
                         selectedZones={newWorkerForm.zones}
@@ -6717,6 +6729,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
                                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.dni || ''} onChange={e => setEditingResource({...editingResource, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Nacimiento</label>
+                                  <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.birthDate || ''} onChange={e => setEditingResource({...editingResource, birthDate: e.target.value})} />
                               </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>

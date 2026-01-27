@@ -626,6 +626,7 @@ function transformResourceFromDB(
     // Nuevos campos para personal
     dni: data.dni,
     puesto: data.puesto,
+    birthDate: normalizeDateFromDB(data.birth_date),
     isShared: data.is_shared ?? false, // Por defecto false (único)
     // Normalizar fechas para evitar problemas de timezone
     startDate: normalizeDateFromDB(data.start_date),
@@ -715,6 +716,7 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
   if (resource.type === ResourceType.PERSONNEL) {
     if (resource.dni !== undefined) result.dni = resource.dni;
     if (resource.puesto !== undefined) result.puesto = resource.puesto;
+    if (resource.birthDate !== undefined) result.birth_date = normalizeDateToDB(resource.birthDate);
     if (resource.isShared !== undefined) result.is_shared = resource.isShared;
     // Normalizar fechas antes de guardar para evitar problemas de timezone
     if (resource.startDate !== undefined) result.start_date = normalizeDateToDB(resource.startDate);

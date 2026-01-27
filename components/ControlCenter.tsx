@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff, UserRole } from '../types';
-import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2, Cake } from 'lucide-react';
 import { checkPermission } from '../services/permissionService';
 import { SafeImage } from './SafeImage';
 
@@ -18,7 +18,7 @@ interface GlobalEvent {
   unitId: string;
   unitName: string;
   date: string; // YYYY-MM-DD
-  category: 'Log' | 'Maintenance' | 'Training' | 'ContractAlert';
+  category: 'Log' | 'Maintenance' | 'Training' | 'ContractAlert' | 'Birthday';
   type: string; // Subtype (e.g., 'Incidencia', 'Preventivo')
   description: string;
   status?: string;
@@ -154,6 +154,54 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
               resourceName: res.name,
               originalRef: train
             });
+          });
+        }
+      });
+    });
+
+    // Add birthday events
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const currentYear = today.getFullYear();
+    
+    units.forEach(unit => {
+      unit.resources.forEach(resource => {
+        if (resource.type === ResourceType.PERSONNEL && resource.birthDate && !resource.archived && resource.personnelStatus !== 'cesado') {
+          const birthDate = new Date(resource.birthDate);
+          const birthdayThisYear = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
+          const birthdayNextYear = new Date(currentYear + 1, birthDate.getMonth(), birthDate.getDate());
+          
+          // Check if birthday is today or in the next 30 days
+          const daysUntilBirthday = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          const daysUntilNextYearBirthday = Math.floor((birthdayNextYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          let birthdayDate: Date;
+          let daysUntil: number;
+          
+          if (daysUntilBirthday >= 0 && daysUntilBirthday <= 30) {
+            birthdayDate = birthdayThisYear;
+            daysUntil = daysUntilBirthday;
+          } else if (daysUntilBirthday < 0 && daysUntilNextYearBirthday <= 30) {
+            birthdayDate = birthdayNextYear;
+            daysUntil = daysUntilNextYearBirthday;
+          } else {
+            return; // Skip if birthday is more than 30 days away
+          }
+          
+          const birthdayDateStr = birthdayDate.toISOString().split('T')[0];
+          const age = currentYear - birthDate.getFullYear();
+          
+          events.push({
+            id: `birthday-${resource.id}-${birthdayDateStr}`,
+            unitId: unit.id,
+            unitName: unit.name,
+            date: birthdayDateStr,
+            category: 'Birthday',
+            type: daysUntil === 0 ? 'Cumpleaños Hoy' : `Cumpleaños en ${daysUntil} día${daysUntil !== 1 ? 's' : ''}`,
+            description: `${resource.name} cumple ${age} año${age !== 1 ? 's' : ''}`,
+            status: daysUntil === 0 ? 'Hoy' : 'Próximo',
+            resourceName: resource.name,
+            originalRef: resource
           });
         }
       });
@@ -538,14 +586,16 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                   setHoveredEvent(null);
                                 }
                               }}
-                              className={`${isClientUser ? 'text-[10px] md:text-xs px-1 md:px-1.5 py-1 md:py-1.5' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${isClientUser ? '' : 'truncate'} shadow-sm hover:opacity-80 transition-opacity
-                                ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-100 text-red-700 border-red-200' : 
+                              className={`${isClientUser ? 'text-[10px] md:text-xs px-1 md:px-1.5 py-1 md:py-1.5' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} rounded border ${canEdit && ev.category !== 'Birthday' ? 'cursor-pointer' : 'cursor-default'} ${isClientUser ? '' : 'truncate'} shadow-sm hover:opacity-80 transition-opacity
+                                ${ev.category === 'Birthday' ? 'bg-pink-100 text-pink-700 border-pink-200' :
+                                  ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-100 text-red-700 border-red-200' : 
                                   ev.category === 'Log' ? getAuthorColor(ev.author || ev.originalRef?.author) :
                                   ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-700 border-orange-200' :
                                   'bg-blue-100 text-blue-700 border-blue-200'
                                 }`}
                               title={!isClientUser ? `${ev.unitName}: ${ev.description}` : undefined}
                            >
+                              {ev.category === 'Birthday' && <Cake size={isClientUser ? 10 : 6} className={`inline mr-0.5 ${isClientUser ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
                               {ev.type === 'Incidencia' && <AlertTriangle size={isClientUser ? 10 : 6} className={`inline mr-0.5 ${isClientUser ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
                               {isClientUser ? (
                                 <>

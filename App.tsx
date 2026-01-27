@@ -24,7 +24,7 @@ import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
 import { Login } from './components/Login';
 import { authService } from './services/authService';
-import { LogOut, FileText, RefreshCw, Eye } from 'lucide-react';
+import { LogOut, FileText, RefreshCw, Eye, Cake, X } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
 import { PositionsManagementSection } from './components/PositionsManagement';
@@ -1320,6 +1320,76 @@ const App: React.FC = () => {
       return <Login onLoginSuccess={handleLoginSuccess} />;
     }
 
+    // Modal de alertas de cumpleaños
+    const BirthdayAlertsModal = () => {
+      if (!showBirthdayAlerts || birthdayAlerts.length === 0) return null;
+      
+      const todayBirthdays = birthdayAlerts.filter(a => a.daysUntil === 0);
+      const upcomingBirthdays = birthdayAlerts.filter(a => a.daysUntil > 0);
+      
+      return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-pink-600 text-white px-6 py-4 flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center">
+                <Cake className="mr-2" size={20} />
+                Alertas de Cumpleaños
+              </h3>
+              <button 
+                onClick={() => setShowBirthdayAlerts(false)}
+                className="text-white/80 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {todayBirthdays.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="font-semibold text-slate-800 mb-3 flex items-center">
+                    <Cake className="mr-2 text-pink-600" size={16} />
+                    Cumpleaños Hoy
+                  </h4>
+                  <div className="space-y-2">
+                    {todayBirthdays.map((alert, idx) => (
+                      <div key={idx} className="bg-pink-50 border border-pink-200 rounded-lg p-3">
+                        <p className="font-medium text-slate-800">
+                          🎉 {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} hoy
+                        </p>
+                        <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {upcomingBirthdays.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-slate-800 mb-3">Próximos Cumpleaños</h4>
+                  <div className="space-y-2">
+                    {upcomingBirthdays.map((alert, idx) => (
+                      <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                        <p className="font-medium text-slate-800">
+                          {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} en {alert.daysUntil} día{alert.daysUntil !== 1 ? 's' : ''}
+                        </p>
+                        <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
+              <button
+                onClick={() => setShowBirthdayAlerts(false)}
+                className="w-full bg-pink-600 text-white py-2.5 rounded-lg font-medium hover:bg-pink-700 transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     // Mostrar loading mientras se cargan los datos
     if (unitsLoading || usersLoading || staffLoading) {
       return (
@@ -1364,7 +1434,7 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'dashboard') {
-      return <Dashboard units={visibleUnits} onSelectUnit={handleSelectUnit} />;
+      return <Dashboard units={visibleUnits} onSelectUnit={handleSelectUnit} currentUserRole={currentUser?.role} />;
     }
 
     if (currentView === 'operations-dashboard') {
@@ -2807,8 +2877,80 @@ const App: React.FC = () => {
     return renderContent();
   }
 
+  // Modal de alertas de cumpleaños
+  const BirthdayAlertsModal = () => {
+    if (!showBirthdayAlerts || birthdayAlerts.length === 0) return null;
+    
+    const todayBirthdays = birthdayAlerts.filter(a => a.daysUntil === 0);
+    const upcomingBirthdays = birthdayAlerts.filter(a => a.daysUntil > 0);
+    
+    return (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-pink-600 text-white px-6 py-4 flex justify-between items-center">
+            <h3 className="font-bold text-lg flex items-center">
+              <Cake className="mr-2" size={20} />
+              Alertas de Cumpleaños
+            </h3>
+            <button 
+              onClick={() => setShowBirthdayAlerts(false)}
+              className="text-white/80 hover:text-white"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="p-6 overflow-y-auto flex-1">
+            {todayBirthdays.length > 0 && (
+              <div className="mb-6">
+                <h4 className="font-semibold text-slate-800 mb-3 flex items-center">
+                  <Cake className="mr-2 text-pink-600" size={16} />
+                  Cumpleaños Hoy
+                </h4>
+                <div className="space-y-2">
+                  {todayBirthdays.map((alert, idx) => (
+                    <div key={idx} className="bg-pink-50 border border-pink-200 rounded-lg p-3">
+                      <p className="font-medium text-slate-800">
+                        🎉 {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} hoy
+                      </p>
+                      <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {upcomingBirthdays.length > 0 && (
+              <div>
+                <h4 className="font-semibold text-slate-800 mb-3">Próximos Cumpleaños</h4>
+                <div className="space-y-2">
+                  {upcomingBirthdays.map((alert, idx) => (
+                    <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                      <p className="font-medium text-slate-800">
+                        {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} en {alert.daysUntil} día{alert.daysUntil !== 1 ? 's' : ''}
+                      </p>
+                      <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
+            <button
+              onClick={() => setShowBirthdayAlerts(false)}
+              className="w-full bg-pink-600 text-white py-2.5 rounded-lg font-medium hover:bg-pink-700 transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <>
+      <BirthdayAlertsModal />
+      <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Mobile Overlay */}
       {sidebarOpen && (
         <div 
@@ -3185,6 +3327,7 @@ const App: React.FC = () => {
         </div>
       )}
     </div>
+    </>
   );
 };
 
