@@ -29,6 +29,7 @@ import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
 import { PositionsManagementSection } from './components/PositionsManagement';
 import { Headcount } from './components/Headcount';
+import { Archive } from './components/Archive';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -36,7 +37,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'archive'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
   
@@ -1446,6 +1447,10 @@ const App: React.FC = () => {
 
     if (currentView === 'headcount') {
       return <Headcount units={visibleUnits} />;
+    }
+
+    if (currentView === 'archive') {
+      return <Archive currentUserRole={currentUser?.role} />;
     }
 
     if (currentView === 'units') {
@@ -3074,6 +3079,20 @@ const App: React.FC = () => {
                   >
                     <Users size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Headcount</span>
+                  </button>
+              )}
+
+              {/* Archivo - Visible for users with ARCHIVE permission */}
+              {(() => {
+                const hasPermission = checkPermission(currentUser.role, 'ARCHIVE', 'view');
+                return hasPermission;
+              })() && (
+                  <button 
+                    onClick={() => { setCurrentView('archive'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'archive' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <ArchiveIcon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Archivo</span>
                   </button>
               )}
 

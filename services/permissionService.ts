@@ -20,6 +20,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     RETENES: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
+    ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
   },
   ADMIN: {
@@ -38,6 +39,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     RETENES: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
+    ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
   },
   OPERATIONS: {
@@ -56,6 +58,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     RETENES: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
+    ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
   },
   OPERATIONS_SUPERVISOR: {
@@ -74,6 +77,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     RETENES: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
+    ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
   },
   CLIENT: {
@@ -92,6 +96,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     RETENES: { view: false, edit: false },
     ASSETS_CATALOG: { view: false, edit: false },
     DOCUMENTS: { view: true, edit: false },
+    ARCHIVE: { view: false, edit: false },
     SETTINGS: { view: false, edit: false },
   }
 };
@@ -189,5 +194,6 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   RETENES: 'Retenes',
   ASSETS_CATALOG: 'Catálogo de Activos',
   DOCUMENTS: 'Documentos',
+  ARCHIVE: 'Archivo de Personal',
   SETTINGS: 'Configuración Sistema'
 };

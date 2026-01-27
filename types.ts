@@ -37,6 +37,7 @@ export type AppFeature =
   | 'RETENES'
   | 'ASSETS_CATALOG'
   | 'DOCUMENTS'
+  | 'ARCHIVE'
   | 'SETTINGS';
 
 export interface PermissionRule {

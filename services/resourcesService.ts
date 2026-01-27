@@ -80,6 +80,47 @@ export const resourcesService = {
     }
   },
 
+  // Obtener todos los trabajadores archivados/cesados de todas las unidades
+  async getAllArchivedPersonnel(): Promise<Array<Resource & { originalUnitId: string; originalUnitName: string }>> {
+    try {
+      const { data, error } = await supabase
+        .from('resources')
+        .select(`
+          *,
+          unit:units!resources_unit_id_fkey(id, name)
+        `)
+        .eq('type', 'Personal')
+        .or('archived.eq.true,personnel_status.eq.cesado')
+        .order('end_date', { ascending: false });
+
+      if (error) throw error;
+
+      const resources = await Promise.all(
+        data.map(async (resource: any) => {
+          const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
+            this.getTrainings(resource.id),
+            this.getAssignedAssets(resource.id),
+            this.getDailyShifts(resource.id),
+            this.getMaintenanceRecords(resource.id),
+            this.getZoneAssignments(resource.id),
+          ]);
+
+          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
+          return {
+            ...transformed,
+            originalUnitId: resource.unit_id,
+            originalUnitName: resource.unit?.name || 'Unidad desconocida',
+          };
+        })
+      );
+
+      return resources;
+    } catch (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+  },
+
   // Obtener un recurso por ID
   async getById(id: string): Promise<Resource | null> {
     try {
@@ -144,9 +185,9 @@ export const resourcesService = {
   },
 
   // Actualizar un recurso
-  async update(id: string, resource: Partial<Resource>): Promise<Resource> {
+  async update(id: string, resource: Partial<Resource>, newUnitId?: string): Promise<Resource> {
     try {
-      const resourceData = transformResourceToDB(resource);
+      const resourceData = transformResourceToDB(resource, newUnitId);
 
       const { error } = await supabase
         .from('resources')
@@ -697,7 +738,6 @@ function normalizeDateToDB(dateValue: any): string | undefined {
 
 function transformResourceToDB(resource: Partial<Resource>, unitId?: string): any {
   const result: any = {
-    unit_id: unitId,
     name: resource.name,
     type: resource.type,
     quantity: resource.quantity,
@@ -711,6 +751,11 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     external_id: resource.externalId,
     last_sync: resource.lastSync,
   };
+
+  // Solo incluir unit_id si se proporciona (para actualizaciones que cambian de unidad)
+  if (unitId !== undefined) {
+    result.unit_id = unitId;
+  }
 
   // Incluir nuevos campos solo si el recurso es de tipo Personal
   if (resource.type === ResourceType.PERSONNEL) {
