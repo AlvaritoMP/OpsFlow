@@ -167,9 +167,14 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     units.forEach(unit => {
       unit.resources.forEach(resource => {
         if (resource.type === ResourceType.PERSONNEL && resource.birthDate && !resource.archived && resource.personnelStatus !== 'cesado') {
-          const birthDate = new Date(resource.birthDate);
-          const birthdayThisYear = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
-          const birthdayNextYear = new Date(currentYear + 1, birthDate.getMonth(), birthDate.getDate());
+          // Parse birthDate manually to avoid timezone issues
+          // birthDate comes as "YYYY-MM-DD" string
+          const [birthYear, birthMonth, birthDay] = resource.birthDate.split('-').map(Number);
+          const birthDate = new Date(birthYear, birthMonth - 1, birthDay);
+          
+          // Create birthday dates in local timezone
+          const birthdayThisYear = new Date(currentYear, birthMonth - 1, birthDay);
+          const birthdayNextYear = new Date(currentYear + 1, birthMonth - 1, birthDay);
           
           // Check if birthday is today or in the next 30 days
           const daysUntilBirthday = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -193,7 +198,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
           const month = String(birthdayDate.getMonth() + 1).padStart(2, '0');
           const day = String(birthdayDate.getDate()).padStart(2, '0');
           const birthdayDateStr = `${year}-${month}-${day}`;
-          const age = currentYear - birthDate.getFullYear();
+          const age = currentYear - birthYear;
           
           events.push({
             id: `birthday-${resource.id}-${birthdayDateStr}`,
@@ -890,10 +895,12 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                         ${ev.category === 'Log' ? 'bg-gray-100 text-gray-800' : 
                                             ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-800' : 
                                             ev.category === 'ContractAlert' ? 'bg-red-100 text-red-800' :
+                                            ev.category === 'Birthday' ? 'bg-pink-100 text-pink-800' :
                                             'bg-blue-100 text-blue-800'}`}>
                                         {ev.category === 'Maintenance' && <Wrench size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         {ev.category === 'Training' && <GraduationCap size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         {ev.category === 'ContractAlert' && <AlertTriangle size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
+                                        {ev.category === 'Birthday' && <Cake size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         <span className="truncate max-w-[60px] md:max-w-none">{ev.type}</span>
                                     </span>
                                     {ev.category === 'Log' && (ev.author || ev.originalRef?.author) && (
