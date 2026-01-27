@@ -481,29 +481,36 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     
     console.log('💾 Iniciando guardado de unidad:', unit.id);
     console.log('📸 Imágenes en editForm:', editForm.images);
-    
-    // Verificar sesión de Supabase Auth antes de guardar
-    try {
-      const { supabase } = await import('../services/supabase');
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        console.warn('⚠️ No hay sesión de Supabase Auth activa. Las imágenes pueden no guardarse correctamente.');
-        const { authService } = await import('../services/authService');
-        const localSession = authService.getSession();
-        if (localSession) {
-          setNotification({ 
-            type: 'error', 
-            message: 'No hay sesión de Supabase Auth activa. Por favor, cierra sesión y vuelve a iniciar sesión antes de guardar imágenes.' 
-          });
-          setTimeout(() => setNotification(null), 8000);
-          return; // No guardar si no hay sesión de Auth
+
+    // Detectar si hay imágenes locales (blob URLs) que requieren sesión activa para subir
+    const hasBlobImages = editForm.images.some(img => img.startsWith('blob:'));
+
+    if (hasBlobImages) {
+      // Solo en este caso exigimos sesión de Supabase Auth, porque habrá subida de nuevas imágenes
+      try {
+        const { supabase } = await import('../services/supabase');
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session) {
+          console.warn('⚠️ No hay sesión de Supabase Auth activa. Las nuevas imágenes no pueden guardarse.');
+          const { authService } = await import('../services/authService');
+          const localSession = authService.getSession();
+          if (localSession) {
+            setNotification({ 
+              type: 'error', 
+              message: 'No hay sesión de Supabase Auth activa. Inicia sesión nuevamente para poder subir nuevas imágenes.' 
+            });
+            setTimeout(() => setNotification(null), 8000);
+            return; // No guardar si necesitamos subir blobs y no hay sesión
+          }
+        } else {
+          console.log('✅ Sesión de Supabase Auth activa para manejo de imágenes:', session.user.id);
         }
-      } else {
-        console.log('✅ Sesión de Supabase Auth activa:', session.user.id);
+      } catch (authCheckError) {
+        console.warn('⚠️ Error al verificar sesión de Auth:', authCheckError);
       }
-    } catch (authCheckError) {
-      console.warn('⚠️ Error al verificar sesión de Auth:', authCheckError);
+    } else {
+      console.log('ℹ️ No hay nuevas imágenes locales (blob). Se puede guardar aunque no haya sesión de Auth.');
     }
     
     // Filtrar y limpiar cualquier blob URL que pueda quedar (por si acaso)
