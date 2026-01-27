@@ -341,9 +341,17 @@ export const unitsService = {
         const { resourcesService } = await import('./resourcesService');
         
         // Actualizar cada recurso
+        // IMPORTANTE: Excluir assignedAssets, trainings y workSchedule del objeto de actualización
+        // cuando se actualiza la unidad completa, para evitar duplicaciones.
+        // Estos campos se manejan explícitamente cuando se modifican individualmente.
         for (const resource of unit.resources) {
           if (resource.id) {
-            await resourcesService.update(resource.id, resource);
+            // Separar los campos relacionados que se manejan por separado
+            const { assignedAssets, trainings, workSchedule, ...resourceData } = resource;
+            
+            // Solo actualizar el recurso base (sin campos relacionados)
+            // Esto evita que se actualicen innecesariamente los activos cuando solo se cambian otros campos
+            await resourcesService.update(resource.id, resourceData);
           }
         }
       }

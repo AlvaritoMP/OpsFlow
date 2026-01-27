@@ -1659,14 +1659,37 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return res;
     });
 
+        // Guardar IDs antes de limpiarlos
+        const workerIdsToUpdate = [...selectedPersonnelIds];
+        
         // Cerrar modal ANTES de actualizar para evitar que se recargue y cierre
     setShowAssetAssignmentModal(false);
     setSelectedPersonnelIds([]);
     setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
         setGenerateConstancy(true);
         
-        // Actualizar unidad (esto guardará los activos con códigos de constancia)
-        onUpdate({ ...unit, resources: updatedResources });
+        // Guardar activos explícitamente en la BD para cada trabajador
+        const { resourcesService } = await import('../services/resourcesService');
+        for (const res of updatedResources) {
+          if (res.type === ResourceType.PERSONNEL && workerIdsToUpdate.includes(res.id)) {
+            // Guardar activos explícitamente
+            await resourcesService.update(res.id, { assignedAssets: res.assignedAssets });
+          }
+        }
+        
+        // Recargar recursos desde BD para sincronizar
+        const syncedResources = await Promise.all(
+          updatedResources.map(async (res) => {
+            if (res.type === ResourceType.PERSONNEL && workerIdsToUpdate.includes(res.id)) {
+              const synced = await resourcesService.getById(res.id);
+              return synced || res;
+            }
+            return res;
+          })
+        );
+        
+        // Actualizar unidad con recursos sincronizados
+        onUpdate({ ...unit, resources: syncedResources });
         
         setNotification({ 
           type: 'success', 
@@ -1702,6 +1725,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return res;
       });
 
+      // Guardar IDs antes de limpiarlos
+      const workerIdsToUpdate = [...selectedPersonnelIds];
+      
       // Cerrar modal ANTES de actualizar
       setShowAssetAssignmentModal(false);
       setSelectedPersonnelIds([]);
@@ -1709,7 +1735,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setGenerateConstancy(true);
       setUseStandardAsset(true);
       
-      onUpdate({ ...unit, resources: updatedResources });
+      // Guardar activos explícitamente en la BD para cada trabajador
+      const { resourcesService } = await import('../services/resourcesService');
+      for (const res of updatedResources) {
+        if (res.type === ResourceType.PERSONNEL && workerIdsToUpdate.includes(res.id)) {
+          // Guardar activos explícitamente
+          await resourcesService.update(res.id, { assignedAssets: res.assignedAssets });
+        }
+      }
+      
+      // Recargar recursos desde BD para sincronizar
+      const syncedResources = await Promise.all(
+        updatedResources.map(async (res) => {
+          if (res.type === ResourceType.PERSONNEL && workerIdsToUpdate.includes(res.id)) {
+            const synced = await resourcesService.getById(res.id);
+            return synced || res;
+          }
+          return res;
+        })
+      );
+      
+      // Actualizar unidad con recursos sincronizados
+      onUpdate({ ...unit, resources: syncedResources });
       
       setNotification({ 
         type: 'success', 
@@ -1937,15 +1984,47 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
   };
 
-  const handleDeleteAsset = (resourceId: string, assetId: string) => {
+  const handleDeleteAsset = async (resourceId: string, assetId: string) => {
       if(!onUpdate) return;
-      const updatedResources = unit.resources.map(r => {
-          if (r.id === resourceId) {
-              return { ...r, assignedAssets: r.assignedAssets?.filter(a => a.id !== assetId) };
-          }
-          return r;
-      });
-      onUpdate({ ...unit, resources: updatedResources });
+      
+      try {
+        const { resourcesService } = await import('../services/resourcesService');
+        const resource = unit.resources.find(r => r.id === resourceId);
+        
+        if (!resource) {
+          setNotification({ type: 'error', message: 'Recurso no encontrado' });
+          setTimeout(() => setNotification(null), 3000);
+          return;
+        }
+        
+        // Filtrar el activo a eliminar del array
+        const updatedAssets = (resource.assignedAssets || []).filter(a => a.id !== assetId);
+        
+        // Eliminar directamente de la BD actualizando solo los activos
+        await resourcesService.update(resourceId, { assignedAssets: updatedAssets });
+        
+        // Recargar el recurso desde la BD para sincronizar
+        const updatedResource = await resourcesService.getById(resourceId);
+        
+        if (!updatedResource) {
+          throw new Error('No se pudo recargar el recurso actualizado');
+        }
+        
+        // Actualizar solo el recurso específico en el estado local
+        const updatedResources = unit.resources.map(r => 
+          r.id === resourceId ? updatedResource : r
+        );
+        
+        // Actualizar unidad solo con el recurso modificado (sin disparar actualización completa)
+        onUpdate({ ...unit, resources: updatedResources });
+        
+        setNotification({ type: 'success', message: 'Activo eliminado correctamente' });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (error) {
+        console.error('Error al eliminar activo:', error);
+        setNotification({ type: 'error', message: 'Error al eliminar activo. Por favor, intente nuevamente.' });
+        setTimeout(() => setNotification(null), 5000);
+      }
   };
 
   // Función para generar y descargar PDF de constancia a demanda
