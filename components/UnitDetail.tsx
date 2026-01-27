@@ -4711,6 +4711,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             </div>
             <div className="col-span-3 md:col-span-2 lg:col-span-2 whitespace-nowrap">Colaborador</div>
             <div className="col-span-2 hidden md:block lg:col-span-1 text-center whitespace-nowrap">DNI</div>
+            <div className="col-span-2 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Cumpleaños</div>
             <div className="col-span-2 md:col-span-1 lg:col-span-1 text-center whitespace-nowrap">Estado</div>
             <div className="col-span-2 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Fechas</div>
             <div className="col-span-1 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Turno</div>
@@ -4765,6 +4766,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </div>
                     <div className="col-span-2 hidden md:flex lg:col-span-1 items-center justify-center text-sm text-slate-500 font-mono">
                        {worker.dni || <span className="text-slate-300 italic">-</span>}
+                    </div>
+                    <div className="col-span-2 hidden md:flex lg:col-span-1 items-center justify-center text-xs text-slate-600">
+                       {worker.birthDate ? (
+                         <div className="text-center">
+                           <div className="whitespace-nowrap">{formatDateFromString(worker.birthDate)}</div>
+                           {(() => {
+                             const today = new Date();
+                             today.setHours(0, 0, 0, 0);
+                             const birthDate = new Date(worker.birthDate);
+                             const birthdayThisYear = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+                             const daysUntil = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                             if (daysUntil === 0) {
+                               return <div className="text-pink-600 font-bold text-[10px] mt-0.5">🎉 Hoy</div>;
+                             } else if (daysUntil > 0 && daysUntil <= 7) {
+                               return <div className="text-pink-500 text-[10px] mt-0.5">En {daysUntil} día{daysUntil !== 1 ? 's' : ''}</div>;
+                             }
+                             return null;
+                           })()}
+                         </div>
+                       ) : (
+                         <span className="text-slate-300 italic">-</span>
+                       )}
                     </div>
                     <div className="col-span-2 md:col-span-1 lg:col-span-1 flex items-center justify-center">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${

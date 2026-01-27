@@ -86,7 +86,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     CONTROL_CENTER: { view: false, edit: false },
     REPORTS: { view: true, edit: false }, 
     CLIENT_REQUESTS: { view: true, edit: true },
-    HEADCOUNT: { view: false, edit: false },
+    HEADCOUNT: { view: true, edit: false },
     POSITIONS_MANAGEMENT: { view: false, edit: false },
     NIGHT_SUPERVISION: { view: false, edit: false },
     RETENES: { view: false, edit: false },

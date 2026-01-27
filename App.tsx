@@ -329,7 +329,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, [isAuthenticated]);
 
-  // Calcular alertas de cumpleaños cuando se carguen las unidades
+  // Calcular alertas de cumpleaños cuando se carguen las unidades (solo cumpleaños de hoy)
   useEffect(() => {
     if (!isAuthenticated || !units.length) {
       setBirthdayAlerts([]);
@@ -351,34 +351,22 @@ const App: React.FC = () => {
           
           const birthDate = new Date(resource.birthDate);
           const birthdayThisYear = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
-          const birthdayNextYear = new Date(currentYear + 1, birthDate.getMonth(), birthDate.getDate());
           
+          // Solo incluir si el cumpleaños es hoy
           const daysUntilBirthday = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-          const daysUntilNextYearBirthday = Math.floor((birthdayNextYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           
-          let daysUntil: number;
-          
-          if (daysUntilBirthday >= 0 && daysUntilBirthday <= 7) {
-            daysUntil = daysUntilBirthday;
-          } else if (daysUntilBirthday < 0 && daysUntilNextYearBirthday <= 7) {
-            daysUntil = daysUntilNextYearBirthday;
-          } else {
-            return; // Skip if birthday is more than 7 days away
+          if (daysUntilBirthday === 0) {
+            const age = currentYear - birthDate.getFullYear();
+            alerts.push({
+              name: resource.name,
+              unitName: unit.name,
+              age,
+              daysUntil: 0
+            });
           }
-          
-          const age = currentYear - birthDate.getFullYear();
-          alerts.push({
-            name: resource.name,
-            unitName: unit.name,
-            age,
-            daysUntil
-          });
         }
       });
     });
-
-    // Ordenar por días hasta el cumpleaños (hoy primero, luego próximos)
-    alerts.sort((a, b) => a.daysUntil - b.daysUntil);
     
     setBirthdayAlerts(alerts);
     if (alerts.length > 0) {
@@ -2868,12 +2856,9 @@ const App: React.FC = () => {
     return renderContent();
   }
 
-  // Modal de alertas de cumpleaños
+  // Modal de alertas de cumpleaños (solo cumpleaños de hoy)
   const BirthdayAlertsModal = () => {
     if (!showBirthdayAlerts || birthdayAlerts.length === 0) return null;
-    
-    const todayBirthdays = birthdayAlerts.filter(a => a.daysUntil === 0);
-    const upcomingBirthdays = birthdayAlerts.filter(a => a.daysUntil > 0);
     
     return (
       <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -2881,7 +2866,7 @@ const App: React.FC = () => {
           <div className="bg-pink-600 text-white px-6 py-4 flex justify-between items-center">
             <h3 className="font-bold text-lg flex items-center">
               <Cake className="mr-2" size={20} />
-              Alertas de Cumpleaños
+              Cumpleaños de Hoy
             </h3>
             <button 
               onClick={() => setShowBirthdayAlerts(false)}
@@ -2891,39 +2876,16 @@ const App: React.FC = () => {
             </button>
           </div>
           <div className="p-6 overflow-y-auto flex-1">
-            {todayBirthdays.length > 0 && (
-              <div className="mb-6">
-                <h4 className="font-semibold text-slate-800 mb-3 flex items-center">
-                  <Cake className="mr-2 text-pink-600" size={16} />
-                  Cumpleaños Hoy
-                </h4>
-                <div className="space-y-2">
-                  {todayBirthdays.map((alert, idx) => (
-                    <div key={idx} className="bg-pink-50 border border-pink-200 rounded-lg p-3">
-                      <p className="font-medium text-slate-800">
-                        🎉 {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} hoy
-                      </p>
-                      <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
-                    </div>
-                  ))}
+            <div className="space-y-2">
+              {birthdayAlerts.map((alert, idx) => (
+                <div key={idx} className="bg-pink-50 border border-pink-200 rounded-lg p-3">
+                  <p className="font-medium text-slate-800">
+                    🎉 {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} hoy
+                  </p>
+                  <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
                 </div>
-              </div>
-            )}
-            {upcomingBirthdays.length > 0 && (
-              <div>
-                <h4 className="font-semibold text-slate-800 mb-3">Próximos Cumpleaños</h4>
-                <div className="space-y-2">
-                  {upcomingBirthdays.map((alert, idx) => (
-                    <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                      <p className="font-medium text-slate-800">
-                        {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} en {alert.daysUntil} día{alert.daysUntil !== 1 ? 's' : ''}
-                      </p>
-                      <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
           <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
             <button
@@ -3064,8 +3026,8 @@ const App: React.FC = () => {
                   </button>
               )}
 
-              {/* Headcount - Visible for SUPER_ADMIN, ADMIN, OPERATIONS */}
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS') && (
+              {/* Headcount - Visible for users with HEADCOUNT view permission */}
+              {checkPermission(currentUser.role, 'HEADCOUNT', 'view') && (
                   <button 
                     onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
