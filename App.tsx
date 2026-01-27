@@ -47,6 +47,10 @@ const App: React.FC = () => {
   const [loadingVisibleUnits, setLoadingVisibleUnits] = useState(false);
   const [availableClientNames, setAvailableClientNames] = useState<string[]>([]); // Nombres de clientes para el usuario seleccionado
   
+  // Estado para alertas de cumpleaños
+  const [birthdayAlerts, setBirthdayAlerts] = useState<Array<{ name: string; unitName: string; age: number; daysUntil: number }>>([]);
+  const [showBirthdayAlerts, setShowBirthdayAlerts] = useState(false);
+  
   // Settings accordion state
   const [settingsSections, setSettingsSections] = useState<Record<string, boolean>>({
     permissions: true, // Abierto por defecto
@@ -324,6 +328,63 @@ const App: React.FC = () => {
     handleResize(); // Initial check
     return () => window.removeEventListener('resize', handleResize);
   }, [isAuthenticated]);
+
+  // Calcular alertas de cumpleaños cuando se carguen las unidades
+  useEffect(() => {
+    if (!isAuthenticated || !units.length) {
+      setBirthdayAlerts([]);
+      setShowBirthdayAlerts(false);
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const currentYear = today.getFullYear();
+    const alerts: Array<{ name: string; unitName: string; age: number; daysUntil: number }> = [];
+
+    units.forEach(unit => {
+      unit.resources.forEach(resource => {
+        if (resource.type === ResourceType.PERSONNEL && 
+            resource.birthDate && 
+            !resource.archived && 
+            resource.personnelStatus !== 'cesado') {
+          
+          const birthDate = new Date(resource.birthDate);
+          const birthdayThisYear = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
+          const birthdayNextYear = new Date(currentYear + 1, birthDate.getMonth(), birthDate.getDate());
+          
+          const daysUntilBirthday = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          const daysUntilNextYearBirthday = Math.floor((birthdayNextYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          let daysUntil: number;
+          
+          if (daysUntilBirthday >= 0 && daysUntilBirthday <= 7) {
+            daysUntil = daysUntilBirthday;
+          } else if (daysUntilBirthday < 0 && daysUntilNextYearBirthday <= 7) {
+            daysUntil = daysUntilNextYearBirthday;
+          } else {
+            return; // Skip if birthday is more than 7 days away
+          }
+          
+          const age = currentYear - birthDate.getFullYear();
+          alerts.push({
+            name: resource.name,
+            unitName: unit.name,
+            age,
+            daysUntil
+          });
+        }
+      });
+    });
+
+    // Ordenar por días hasta el cumpleaños (hoy primero, luego próximos)
+    alerts.sort((a, b) => a.daysUntil - b.daysUntil);
+    
+    setBirthdayAlerts(alerts);
+    if (alerts.length > 0) {
+      setShowBirthdayAlerts(true);
+    }
+  }, [units, isAuthenticated]);
 
   // Manejar login exitoso
   const handleLoginSuccess = async (user: User) => {
@@ -1319,76 +1380,6 @@ const App: React.FC = () => {
     if (!isAuthenticated || !currentUser) {
       return <Login onLoginSuccess={handleLoginSuccess} />;
     }
-
-    // Modal de alertas de cumpleaños
-    const BirthdayAlertsModal = () => {
-      if (!showBirthdayAlerts || birthdayAlerts.length === 0) return null;
-      
-      const todayBirthdays = birthdayAlerts.filter(a => a.daysUntil === 0);
-      const upcomingBirthdays = birthdayAlerts.filter(a => a.daysUntil > 0);
-      
-      return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-pink-600 text-white px-6 py-4 flex justify-between items-center">
-              <h3 className="font-bold text-lg flex items-center">
-                <Cake className="mr-2" size={20} />
-                Alertas de Cumpleaños
-              </h3>
-              <button 
-                onClick={() => setShowBirthdayAlerts(false)}
-                className="text-white/80 hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1">
-              {todayBirthdays.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="font-semibold text-slate-800 mb-3 flex items-center">
-                    <Cake className="mr-2 text-pink-600" size={16} />
-                    Cumpleaños Hoy
-                  </h4>
-                  <div className="space-y-2">
-                    {todayBirthdays.map((alert, idx) => (
-                      <div key={idx} className="bg-pink-50 border border-pink-200 rounded-lg p-3">
-                        <p className="font-medium text-slate-800">
-                          🎉 {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} hoy
-                        </p>
-                        <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {upcomingBirthdays.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-slate-800 mb-3">Próximos Cumpleaños</h4>
-                  <div className="space-y-2">
-                    {upcomingBirthdays.map((alert, idx) => (
-                      <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                        <p className="font-medium text-slate-800">
-                          {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} en {alert.daysUntil} día{alert.daysUntil !== 1 ? 's' : ''}
-                        </p>
-                        <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button
-                onClick={() => setShowBirthdayAlerts(false)}
-                className="w-full bg-pink-600 text-white py-2.5 rounded-lg font-medium hover:bg-pink-700 transition-colors"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    };
 
     // Mostrar loading mientras se cargan los datos
     if (unitsLoading || usersLoading || staffLoading) {
