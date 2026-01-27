@@ -159,38 +159,50 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       });
     });
 
-    // Add birthday events (only for today)
+    // Add birthday events (show birthdays in the next 30 days for calendar visibility)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const currentYear = today.getFullYear();
-    const todayMonth = today.getMonth();
-    const todayDate = today.getDate();
     
     units.forEach(unit => {
       unit.resources.forEach(resource => {
         if (resource.type === ResourceType.PERSONNEL && resource.birthDate && !resource.archived && resource.personnelStatus !== 'cesado') {
           const birthDate = new Date(resource.birthDate);
-          const birthMonth = birthDate.getMonth();
-          const birthDay = birthDate.getDate();
+          const birthdayThisYear = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
+          const birthdayNextYear = new Date(currentYear + 1, birthDate.getMonth(), birthDate.getDate());
           
-          // Solo incluir si el cumpleaños es exactamente hoy (mismo mes y día)
-          if (birthMonth === todayMonth && birthDay === todayDate) {
-            const birthdayDateStr = today.toISOString().split('T')[0];
-            const age = currentYear - birthDate.getFullYear();
-            
-            events.push({
-              id: `birthday-${resource.id}-${birthdayDateStr}`,
-              unitId: unit.id,
-              unitName: unit.name,
-              date: birthdayDateStr,
-              category: 'Birthday',
-              type: 'Cumpleaños Hoy',
-              description: `${resource.name} cumple ${age} año${age !== 1 ? 's' : ''}`,
-              status: 'Hoy',
-              resourceName: resource.name,
-              originalRef: resource
-            });
+          // Check if birthday is today or in the next 30 days
+          const daysUntilBirthday = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          const daysUntilNextYearBirthday = Math.floor((birthdayNextYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          let birthdayDate: Date;
+          let daysUntil: number;
+          
+          if (daysUntilBirthday >= 0 && daysUntilBirthday <= 30) {
+            birthdayDate = birthdayThisYear;
+            daysUntil = daysUntilBirthday;
+          } else if (daysUntilBirthday < 0 && daysUntilNextYearBirthday <= 30) {
+            birthdayDate = birthdayNextYear;
+            daysUntil = daysUntilNextYearBirthday;
+          } else {
+            return; // Skip if birthday is more than 30 days away
           }
+          
+          const birthdayDateStr = birthdayDate.toISOString().split('T')[0];
+          const age = currentYear - birthDate.getFullYear();
+          
+          events.push({
+            id: `birthday-${resource.id}-${birthdayDateStr}`,
+            unitId: unit.id,
+            unitName: unit.name,
+            date: birthdayDateStr,
+            category: 'Birthday',
+            type: daysUntil === 0 ? 'Cumpleaños Hoy' : `Cumpleaños en ${daysUntil} día${daysUntil !== 1 ? 's' : ''}`,
+            description: `${resource.name} cumple ${age} año${age !== 1 ? 's' : ''}`,
+            status: daysUntil === 0 ? 'Hoy' : 'Próximo',
+            resourceName: resource.name,
+            originalRef: resource
+          });
         }
       });
     });

@@ -102,8 +102,38 @@ export const getPermissions = (): PermissionConfig => {
     if (stored) {
       // Merge with default to ensure new features are covered
       const parsed = JSON.parse(stored);
-      // Ensure new roles are merged if they didn't exist in storage
-      return { ...DEFAULT_PERMISSIONS, ...parsed };
+      // Deep merge: for each role, merge default permissions with stored permissions
+      // IMPORTANT: Default permissions take precedence to ensure updates are applied
+      const merged: PermissionConfig = {} as PermissionConfig;
+      
+      // First, copy all default roles (defaults take precedence)
+      Object.keys(DEFAULT_PERMISSIONS).forEach(role => {
+        const roleKey = role as UserRole;
+        merged[roleKey] = { ...DEFAULT_PERMISSIONS[roleKey] };
+        
+        // Then merge stored permissions for this role if they exist
+        // But only for features that don't exist in defaults (new features)
+        if (parsed[roleKey]) {
+          Object.keys(parsed[roleKey]).forEach(feature => {
+            const featureKey = feature as AppFeature;
+            // Only use stored permission if feature doesn't exist in defaults
+            // This ensures default updates always apply
+            if (!merged[roleKey][featureKey]) {
+              merged[roleKey][featureKey] = parsed[roleKey][featureKey];
+            }
+          });
+        }
+      });
+      
+      // Also include any roles that exist in stored but not in defaults
+      Object.keys(parsed).forEach(role => {
+        const roleKey = role as UserRole;
+        if (!merged[roleKey]) {
+          merged[roleKey] = parsed[roleKey];
+        }
+      });
+      
+      return merged;
     }
   } catch (e) {
     console.error("Error loading permissions", e);
