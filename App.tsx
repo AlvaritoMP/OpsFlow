@@ -351,7 +351,9 @@ const App: React.FC = () => {
             !resource.archived && 
             resource.personnelStatus !== 'cesado') {
           
-          const birthDate = new Date(resource.birthDate);
+          // Parse birthDate manually to avoid timezone issues
+          const [birthYear, birthMonthNum, birthDayNum] = resource.birthDate.split('-').map(Number);
+          const birthDate = new Date(birthYear, birthMonthNum - 1, birthDayNum);
           const birthMonth = birthDate.getMonth();
           const birthDay = birthDate.getDate();
           
@@ -3036,7 +3038,17 @@ const App: React.FC = () => {
               )}
 
               {/* Headcount - Visible for users with HEADCOUNT view permission */}
-              {checkPermission(currentUser.role, 'HEADCOUNT', 'view') && (
+              {(() => {
+                const hasPermission = checkPermission(currentUser.role, 'HEADCOUNT', 'view');
+                if (process.env.NODE_ENV === 'development') {
+                  console.log('🔍 Headcount permission check:', {
+                    role: currentUser.role,
+                    hasPermission,
+                    permissions: getPermissions()[currentUser.role]?.HEADCOUNT
+                  });
+                }
+                return hasPermission;
+              })() && (
                   <button 
                     onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
