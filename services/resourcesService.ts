@@ -411,25 +411,31 @@ export const resourcesService = {
     );
   },
 
-  // Actualizar un solo turno (upsert: insert o update)
+  // Actualizar un solo turno (comportamiento tipo upsert sin depender de índices únicos)
   async upsertDailyShift(resourceId: string, shift: DailyShift): Promise<void> {
-    const { error } = await supabase
+    // 1) Eliminar cualquier turno existente para ese recurso y fecha
+    const { error: deleteError } = await supabase
       .from('daily_shifts')
-      .upsert(
-        {
-          resource_id: resourceId,
-          date: shift.date,
-          type: shift.type,
-          hours: shift.hours,
-        },
-        {
-          onConflict: 'resource_id,date',
-        }
-      );
-    
-    if (error) {
-      console.error('❌ Error al actualizar turno:', error);
-      throw error;
+      .delete()
+      .eq('resource_id', resourceId)
+      .eq('date', shift.date);
+
+    if (deleteError) {
+      console.error('❌ Error al eliminar turno existente:', deleteError);
+      throw deleteError;
+    }
+
+    // 2) Insertar el nuevo turno
+    const { error: insertError } = await supabase.from('daily_shifts').insert({
+      resource_id: resourceId,
+      date: shift.date,
+      type: shift.type,
+      hours: shift.hours,
+    });
+
+    if (insertError) {
+      console.error('❌ Error al insertar turno:', insertError);
+      throw insertError;
     }
   },
 

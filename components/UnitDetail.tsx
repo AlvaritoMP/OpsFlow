@@ -2267,6 +2267,72 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       alert("Se han replicado los turnos a la próxima semana.");
   };
 
+  // Exportar tabla de personal a Excel
+  const handleExportPersonnelToExcel = async () => {
+    try {
+      const { excelService } = await import('../services/excelService');
+      
+      // Preparar datos para exportación
+      const personnelToExport = showArchivedPersonnel ? archivedPersonnel : personnel;
+      
+      const headers = [
+        'Colaborador',
+        'DNI',
+        'Puesto',
+        'Zonas Asignadas',
+        'Estado',
+        'Fecha Inicio',
+        'Fecha Fin',
+        'Turno',
+        'Cumplimiento (%)',
+        'Salario Mensual (S/)',
+        'Condición Trabajo (S/)',
+        'En Capacitación',
+        'Archivado',
+        'Cantidad Capacitaciones',
+        'Cantidad Activos Asignados'
+      ];
+      
+      const data = personnelToExport.map(worker => ({
+        'Colaborador': worker.name,
+        'DNI': worker.dni || '',
+        'Puesto': worker.puesto || '',
+        'Zonas Asignadas': worker.assignedZones?.join(', ') || 'Sin zona',
+        'Estado': worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo'),
+        'Fecha Inicio': worker.startDate ? formatDateFromString(worker.startDate) : '',
+        'Fecha Fin': worker.endDate ? formatDateFromString(worker.endDate) : '',
+        'Turno': worker.assignedShift || '',
+        'Cumplimiento (%)': worker.compliancePercentage || 0,
+        'Salario Mensual (S/)': worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
+        'Condición Trabajo (S/)': worker.workConditionAmount ? `S/ ${worker.workConditionAmount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
+        'En Capacitación': worker.inTraining ? 'Sí' : 'No',
+        'Archivado': worker.archived ? 'Sí' : 'No',
+        'Cantidad Capacitaciones': worker.trainings?.length || 0,
+        'Cantidad Activos Asignados': worker.assignedAssets?.length || 0
+      }));
+      
+      const filename = `personal_${unit.name}_${showArchivedPersonnel ? 'archivado' : 'activo'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      
+      await excelService.exportToExcel(data, headers, {
+        filename,
+        sheetName: 'Personal'
+      });
+      
+      setNotification({ 
+        type: 'success', 
+        message: `Se exportaron ${data.length} colaborador${data.length !== 1 ? 'es' : ''} a Excel correctamente.` 
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al exportar personal a Excel:', error);
+      setNotification({ 
+        type: 'error', 
+        message: 'Error al exportar a Excel. Por favor, intente nuevamente.' 
+      });
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
   const getShiftColor = (type: string) => {
       switch(type) {
           case 'Day': return 'bg-blue-500 text-white hover:bg-blue-600';
@@ -4453,6 +4519,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             </button>
               </div>
             )}
+            {canViewPersonnel && personnel.length > 0 && (
+              <button 
+                onClick={handleExportPersonnelToExcel}
+                className="bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors flex items-center shadow-sm"
+                title="Exportar tabla de personal a Excel"
+              >
+                <Download size={18} className="mr-2" /> Exportar Excel
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -4522,19 +4597,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
                           {worker.name.charAt(0)}
                        </div>
-                       <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
-                            {worker.inTraining && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 shrink-0">
-                                En Capacitación
-                              </span>
-                            )}
-                       </div>
-                          <p className="text-xs text-slate-500 truncate">
-                            {worker.puesto ? `${worker.puesto} • ` : ''}{worker.assignedZones?.join(', ') || 'Sin zona'}
-                          </p>
-                    </div>
+                       <button
+                         type="button"
+                         onClick={() => togglePersonnelExpand(worker.id)}
+                         className="min-w-0 flex-1 text-left group/name focus:outline-none"
+                         disabled={isArchivingPersonnel === worker.id}
+                       >
+                         <div className="flex items-center gap-2">
+                           <p className="text-sm font-medium text-slate-900 truncate underline decoration-dotted group-hover/name:decoration-solid group-hover/name:text-blue-700">
+                             {worker.name}
+                           </p>
+                           {worker.inTraining && (
+                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 shrink-0">
+                               En Capacitación
+                             </span>
+                           )}
+                         </div>
+                         <p className="text-xs text-slate-500 truncate">
+                           {worker.puesto ? `${worker.puesto} • ` : ''}{worker.assignedZones?.join(', ') || 'Sin zona'}
+                         </p>
+                       </button>
                     </div>
                     <div className="col-span-2 hidden md:flex lg:col-span-1 items-center justify-center text-sm text-slate-500 font-mono">
                        {worker.dni || <span className="text-slate-300 italic">-</span>}
