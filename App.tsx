@@ -340,6 +340,8 @@ const App: React.FC = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const currentYear = today.getFullYear();
+    const todayMonth = today.getMonth();
+    const todayDate = today.getDate();
     const alerts: Array<{ name: string; unitName: string; age: number; daysUntil: number }> = [];
 
     units.forEach(unit => {
@@ -350,12 +352,12 @@ const App: React.FC = () => {
             resource.personnelStatus !== 'cesado') {
           
           const birthDate = new Date(resource.birthDate);
-          const birthdayThisYear = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
+          const birthMonth = birthDate.getMonth();
+          const birthDay = birthDate.getDate();
           
-          // Solo incluir si el cumpleaños es hoy
-          const daysUntilBirthday = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-          
-          if (daysUntilBirthday === 0) {
+          // Solo incluir si el cumpleaños es exactamente hoy (mismo mes y día)
+          // No incluir cumpleaños futuros o pasados
+          if (birthMonth === todayMonth && birthDay === todayDate) {
             const age = currentYear - birthDate.getFullYear();
             alerts.push({
               name: resource.name,
@@ -368,9 +370,13 @@ const App: React.FC = () => {
       });
     });
     
-    setBirthdayAlerts(alerts);
-    if (alerts.length > 0) {
+    // Solo mostrar alertas si hay cumpleaños HOY (daysUntil === 0)
+    const todayAlerts = alerts.filter(alert => alert.daysUntil === 0);
+    setBirthdayAlerts(todayAlerts);
+    if (todayAlerts.length > 0) {
       setShowBirthdayAlerts(true);
+    } else {
+      setShowBirthdayAlerts(false);
     }
   }, [units, isAuthenticated]);
 
@@ -2858,7 +2864,10 @@ const App: React.FC = () => {
 
   // Modal de alertas de cumpleaños (solo cumpleaños de hoy)
   const BirthdayAlertsModal = () => {
-    if (!showBirthdayAlerts || birthdayAlerts.length === 0) return null;
+    // Filtrar solo alertas de hoy (daysUntil === 0)
+    const todayAlerts = birthdayAlerts.filter(alert => alert.daysUntil === 0);
+    
+    if (!showBirthdayAlerts || todayAlerts.length === 0) return null;
     
     return (
       <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -2877,7 +2886,7 @@ const App: React.FC = () => {
           </div>
           <div className="p-6 overflow-y-auto flex-1">
             <div className="space-y-2">
-              {birthdayAlerts.map((alert, idx) => (
+              {todayAlerts.map((alert, idx) => (
                 <div key={idx} className="bg-pink-50 border border-pink-200 rounded-lg p-3">
                   <p className="font-medium text-slate-800">
                     🎉 {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} hoy
