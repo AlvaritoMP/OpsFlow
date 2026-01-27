@@ -2963,13 +2963,34 @@ const App: React.FC = () => {
                 </button>
               )}
               
-              <button 
-                onClick={() => { setCurrentView('client-control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'client-control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-              >
-                <LayoutList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                <span className="truncate min-w-0">Centro de Control</span>
-              </button>
+              {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
+                <button 
+                  onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                  className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                >
+                  <LayoutList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                  <span className="truncate min-w-0">Centro de Control</span>
+                </button>
+              )}
+
+              {/* Headcount - Visible for users with HEADCOUNT view permission */}
+              {(() => {
+                const hasPermission = checkPermission(currentUser.role, 'HEADCOUNT', 'view');
+                console.log('🔍 Headcount permission check (CLIENT):', {
+                  role: currentUser.role,
+                  hasPermission,
+                  permissions: getPermissions()[currentUser.role]?.HEADCOUNT
+                });
+                return hasPermission;
+              })() && (
+                  <button 
+                    onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Users size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Headcount</span>
+                  </button>
+              )}
             </>
           ) : (
             <>
@@ -3040,13 +3061,11 @@ const App: React.FC = () => {
               {/* Headcount - Visible for users with HEADCOUNT view permission */}
               {(() => {
                 const hasPermission = checkPermission(currentUser.role, 'HEADCOUNT', 'view');
-                if (process.env.NODE_ENV === 'development') {
-                  console.log('🔍 Headcount permission check:', {
-                    role: currentUser.role,
-                    hasPermission,
-                    permissions: getPermissions()[currentUser.role]?.HEADCOUNT
-                  });
-                }
+                console.log('🔍 Headcount permission check:', {
+                  role: currentUser.role,
+                  hasPermission,
+                  permissions: getPermissions()[currentUser.role]?.HEADCOUNT
+                });
                 return hasPermission;
               })() && (
                   <button 

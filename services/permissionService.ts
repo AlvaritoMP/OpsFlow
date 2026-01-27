@@ -83,7 +83,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     LOGISTICS: { view: true, edit: false },
     LOGS: { view: true, edit: false }, 
     BLUEPRINT: { view: true, edit: false },
-    CONTROL_CENTER: { view: false, edit: false },
+    CONTROL_CENTER: { view: true, edit: false },
     REPORTS: { view: true, edit: false }, 
     CLIENT_REQUESTS: { view: true, edit: true },
     HEADCOUNT: { view: true, edit: false },
