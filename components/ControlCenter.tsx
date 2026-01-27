@@ -188,7 +188,11 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
             return; // Skip if birthday is more than 30 days away
           }
           
-          const birthdayDateStr = birthdayDate.toISOString().split('T')[0];
+          // Format date in local timezone to avoid UTC offset issues
+          const year = birthdayDate.getFullYear();
+          const month = String(birthdayDate.getMonth() + 1).padStart(2, '0');
+          const day = String(birthdayDate.getDate()).padStart(2, '0');
+          const birthdayDateStr = `${year}-${month}-${day}`;
           const age = currentYear - birthDate.getFullYear();
           
           events.push({
@@ -847,6 +851,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                 <option value="Log">Bitácora</option>
                 <option value="Maintenance">Mantenimiento</option>
                 <option value="Training">Capacitación</option>
+                <option value="Birthday">Cumpleaños</option>
                 {isOperationsUser && <option value="ContractAlert">Alertas de Contrato</option>}
              </select>
           </div>
