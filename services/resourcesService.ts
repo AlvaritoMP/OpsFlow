@@ -386,6 +386,109 @@ export const resourcesService = {
     }
   },
 
+  // Limpiar duplicados de activos asignados
+  async cleanupDuplicateAssets(): Promise<{ totalDuplicates: number; cleanedResources: number }> {
+    try {
+      // Obtener todos los activos agrupados por recurso
+      const { data: allAssets, error: fetchError } = await supabase
+        .from('assigned_assets')
+        .select('*')
+        .order('resource_id')
+        .order('date_assigned', { ascending: false });
+
+      if (fetchError) throw fetchError;
+      if (!allAssets || allAssets.length === 0) {
+        return { totalDuplicates: 0, cleanedResources: 0 };
+      }
+
+      // Agrupar por resource_id
+      const assetsByResource = new Map<string, any[]>();
+      allAssets.forEach(asset => {
+        if (!assetsByResource.has(asset.resource_id)) {
+          assetsByResource.set(asset.resource_id, []);
+        }
+        assetsByResource.get(asset.resource_id)!.push(asset);
+      });
+
+      let totalDuplicates = 0;
+      let cleanedResources = 0;
+      const idsToDelete: string[] = [];
+
+      // Para cada recurso, identificar duplicados
+      for (const [resourceId, assets] of assetsByResource.entries()) {
+        if (assets.length <= 1) continue; // No hay duplicados si solo hay uno
+
+        // Agrupar por combinación de: name, date_assigned, serial_number
+        const uniqueGroups = new Map<string, any[]>();
+        
+        assets.forEach(asset => {
+          // Crear clave única basada en nombre, fecha y serial number
+          const key = `${asset.name}|${asset.date_assigned || ''}|${asset.serial_number || ''}`;
+          if (!uniqueGroups.has(key)) {
+            uniqueGroups.set(key, []);
+          }
+          uniqueGroups.get(key)!.push(asset);
+        });
+
+        // Para cada grupo, si hay más de uno, mantener el más reciente (o el que tiene constancia) y eliminar los demás
+        for (const [key, group] of uniqueGroups.entries()) {
+          if (group.length > 1) {
+            // Ordenar: primero los que tienen constancia, luego por fecha más reciente, luego por id más reciente
+            group.sort((a, b) => {
+              // Priorizar los que tienen constancia
+              if (a.constancy_code && !b.constancy_code) return -1;
+              if (!a.constancy_code && b.constancy_code) return 1;
+              // Luego por fecha más reciente
+              if (a.date_assigned && b.date_assigned) {
+                const dateCompare = b.date_assigned.localeCompare(a.date_assigned);
+                if (dateCompare !== 0) return dateCompare;
+              }
+              // Finalmente por id más reciente (asumiendo que los IDs más nuevos son mayores)
+              return b.id.localeCompare(a.id);
+            });
+
+            // Mantener el primero (el mejor), eliminar los demás
+            const toKeep = group[0];
+            const toDelete = group.slice(1);
+            
+            totalDuplicates += toDelete.length;
+            idsToDelete.push(...toDelete.map(a => a.id));
+            
+            if (toDelete.length > 0) {
+              cleanedResources++;
+              console.log(`🧹 Recurso ${resourceId}: ${toDelete.length} duplicado(s) de "${toKeep.name}" - Manteniendo: ${toKeep.id}, Eliminando: ${toDelete.map(d => d.id).join(', ')}`);
+            }
+          }
+        }
+      }
+
+      // Eliminar duplicados en lotes para mejor rendimiento
+      if (idsToDelete.length > 0) {
+        const batchSize = 100;
+        for (let i = 0; i < idsToDelete.length; i += batchSize) {
+          const batch = idsToDelete.slice(i, i + batchSize);
+          const { error: deleteError } = await supabase
+            .from('assigned_assets')
+            .delete()
+            .in('id', batch);
+
+          if (deleteError) {
+            console.error(`❌ Error al eliminar lote de duplicados (${i} a ${i + batch.length}):`, deleteError);
+            throw deleteError;
+          }
+        }
+
+        console.log(`✅ Limpieza completada: ${totalDuplicates} duplicados eliminados de ${cleanedResources} recursos`);
+      }
+
+      return { totalDuplicates, cleanedResources };
+    } catch (error) {
+      console.error('❌ Error al limpiar duplicados:', error);
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+
   async getDailyShifts(resourceId: string): Promise<DailyShift[]> {
     const { data } = await supabase
       .from('daily_shifts')

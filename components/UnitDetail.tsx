@@ -201,6 +201,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [isUpdatingResource, setIsUpdatingResource] = useState(false);
   const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
   const [isSavingRequest, setIsSavingRequest] = useState(false);
+  const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   
   // Roster State - Estado local optimizado para actualizaciones rápidas
@@ -2344,6 +2345,49 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       onUpdate({ ...unit, resources: updatedResources });
       alert("Se han replicado los turnos a la próxima semana.");
+  };
+
+  // Limpiar duplicados de activos asignados
+  const handleCleanupDuplicateAssets = async () => {
+    if (!confirm('¿Está seguro de ejecutar la limpieza de duplicados?\n\nEsto eliminará registros duplicados de activos asignados, manteniendo solo uno de cada duplicado (priorizando los que tienen constancia).\n\nEsta acción puede tardar varios minutos si hay muchos duplicados.')) {
+      return;
+    }
+
+    setIsCleaningDuplicates(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      
+      setNotification({ 
+        type: 'info', 
+        message: 'Iniciando limpieza de duplicados... Esto puede tardar varios minutos.' 
+      });
+      
+      const result = await resourcesService.cleanupDuplicateAssets();
+      
+      setNotification({ 
+        type: 'success', 
+        message: `Limpieza completada: ${result.totalDuplicates} duplicado(s) eliminado(s) de ${result.cleanedResources} recurso(s).` 
+      });
+      setTimeout(() => setNotification(null), 8000);
+      
+      // Recargar la unidad para reflejar los cambios
+      if (onUpdate) {
+        const { unitsService } = await import('../services/unitsService');
+        const updatedUnit = await unitsService.getById(unit.id);
+        if (updatedUnit) {
+          onUpdate(updatedUnit);
+        }
+      }
+    } catch (error) {
+      console.error('Error al limpiar duplicados:', error);
+      setNotification({ 
+        type: 'error', 
+        message: 'Error al limpiar duplicados. Por favor, intente nuevamente.' 
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsCleaningDuplicates(false);
+    }
   };
 
   // Exportar tabla de personal a Excel
@@ -4599,13 +4643,34 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               </div>
             )}
             {canViewPersonnel && personnel.length > 0 && (
-              <button 
-                onClick={handleExportPersonnelToExcel}
-                className="bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors flex items-center shadow-sm"
-                title="Exportar tabla de personal a Excel"
-              >
-                <Download size={18} className="mr-2" /> Exportar Excel
-              </button>
+              <>
+                <button 
+                  onClick={handleExportPersonnelToExcel}
+                  className="bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors flex items-center shadow-sm"
+                  title="Exportar tabla de personal a Excel"
+                >
+                  <Download size={18} className="mr-2" /> Exportar Excel
+                </button>
+                {canEditPersonnel && (
+                  <button 
+                    onClick={handleCleanupDuplicateAssets}
+                    className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors flex items-center shadow-sm"
+                    title="Limpiar activos duplicados en la base de datos"
+                    disabled={isCleaningDuplicates}
+                  >
+                    {isCleaningDuplicates ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Limpiando...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={18} className="mr-2" /> Limpiar Duplicados
+                      </>
+                    )}
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
