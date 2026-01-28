@@ -2573,7 +2573,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y mostrar notificación
       setEditingResource(null);
-      const message = shouldArchive 
+      // Verificar si se archivó explícitamente (no basado en endDate)
+      const wasArchived = editingResource.archived === true && editingResource.personnelStatus === 'archivado';
+      const message = wasArchived 
         ? 'Trabajador cesado y archivado correctamente' 
         : 'Cambios guardados correctamente';
       setNotification({ type: 'success', message });
@@ -4989,7 +4991,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 setIsArchivingPersonnel(worker.id);
                                                 try {
                                                     const { resourcesService } = await import('../services/resourcesService');
-                                                    await resourcesService.update(worker.id, { archived: false, personnelStatus: 'activo' });
+                                                    // Desarchivar: cambiar a activo, eliminar archived, y eliminar endDate (es solo referencial)
+                                                    await resourcesService.update(worker.id, { 
+                                                        archived: false, 
+                                                        personnelStatus: 'activo',
+                                                        endDate: null // Eliminar fecha de fin (es solo referencial, no debe afectar el estado)
+                                                    });
                                                     // Recargar recursos desde BD
                                                     if (onUpdate) {
                                                         const { unitsService } = await import('../services/unitsService');

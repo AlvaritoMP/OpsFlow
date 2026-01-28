@@ -749,8 +749,9 @@ function normalizeDateFromDB(dateValue: any): string | undefined {
 }
 
 // Función helper para normalizar fechas antes de guardar en la BD
-function normalizeDateToDB(dateValue: any): string | undefined {
-  if (!dateValue) return undefined;
+function normalizeDateToDB(dateValue: any): string | null | undefined {
+  if (dateValue === null || dateValue === undefined) return null; // null elimina el campo en BD
+  if (!dateValue) return null;
   
   // Si es un string, extraer solo la parte de la fecha (YYYY-MM-DD)
   if (typeof dateValue === 'string') {
@@ -794,8 +795,12 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     if (resource.birthDate !== undefined) result.birth_date = normalizeDateToDB(resource.birthDate);
     if (resource.isShared !== undefined) result.is_shared = resource.isShared;
     // Normalizar fechas antes de guardar para evitar problemas de timezone
+    // endDate es solo referencial, NO debe archivar automáticamente
     if (resource.startDate !== undefined) result.start_date = normalizeDateToDB(resource.startDate);
-    if (resource.endDate !== undefined) result.end_date = normalizeDateToDB(resource.endDate);
+    if (resource.endDate !== undefined) {
+      // Si endDate es null, establecerlo explícitamente para eliminar la fecha de fin
+      result.end_date = normalizeDateToDB(resource.endDate);
+    }
     if (resource.personnelStatus !== undefined) result.personnel_status = resource.personnelStatus;
     if (resource.archived !== undefined) result.archived = resource.archived;
     // Campos de capacitación

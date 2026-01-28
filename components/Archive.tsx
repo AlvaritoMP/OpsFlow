@@ -8,6 +8,7 @@ import { checkPermission } from '../services/permissionService';
 
 interface ArchiveProps {
   currentUserRole?: UserRole;
+  onRestoreWorker?: () => void; // Callback para refrescar unidades después de recuperar un trabajador
 }
 
 interface ArchivedPersonnel extends Resource {
@@ -15,7 +16,7 @@ interface ArchivedPersonnel extends Resource {
   originalUnitName: string;
 }
 
-export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
+export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWorker }) => {
   const [archivedPersonnel, setArchivedPersonnel] = useState<ArchivedPersonnel[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,7 +76,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
         {
           archived: false,
           personnelStatus: 'activo',
-          endDate: undefined, // Eliminar fecha de fin si existe
+          endDate: null, // Eliminar fecha de fin si existe (null se guarda en BD)
         },
         selectedUnitId // Nuevo unit_id
       );
@@ -84,7 +85,13 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
       setShowRestoreModal(false);
       setSelectedPersonnel(null);
       setSelectedUnitId('');
-      await loadData(); // Recargar datos
+      await loadData(); // Recargar datos del archivo
+      
+      // Notificar al componente padre para refrescar las unidades
+      // Esto asegura que el trabajador recuperado aparezca en su unidad
+      if (onRestoreWorker) {
+        onRestoreWorker();
+      }
     } catch (error) {
       console.error('Error al recuperar trabajador:', error);
       alert('Error al recuperar el trabajador. Por favor, intente nuevamente.');

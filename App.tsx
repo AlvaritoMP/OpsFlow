@@ -1452,7 +1452,11 @@ const App: React.FC = () => {
     if (currentView === 'archive') {
       return (
         <div className="w-full h-full">
-          <Archive key="archive-view" currentUserRole={currentUser?.role} />
+          <Archive 
+            key="archive-view" 
+            currentUserRole={currentUser?.role}
+            onRestoreWorker={loadUnits} // Refrescar unidades cuando se recupera un trabajador
+          />
         </div>
       );
     }

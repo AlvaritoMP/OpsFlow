@@ -309,6 +309,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
         const { resourcesService } = await import('../services/resourcesService');
         const archived = await resourcesService.getAllArchivedPersonnel();
         setArchivedPersonnel(archived);
+        console.log('📊 Trabajadores archivados cargados:', archived.length);
+        // Debug: mostrar trabajadores con endDate en enero 2026
+        const jan2026Workers = archived.filter(p => {
+          if (!p.endDate) return false;
+          const endDateStr = p.endDate.split('T')[0];
+          return endDateStr.startsWith('2026-01-');
+        });
+        console.log('📊 Trabajadores archivados con endDate en enero 2026:', jan2026Workers.length, jan2026Workers.map(p => ({ name: p.name, endDate: p.endDate })));
       } catch (error) {
         console.error('Error al cargar trabajadores archivados:', error);
       }
@@ -418,9 +426,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             if (!isCesadoOrArchivado) return false;
             if (!r.endDate) return false;
             
-            const endDate = new Date(r.endDate);
+            // Parsear la fecha de forma segura
+            const endDateStr = r.endDate.split('T')[0]; // YYYY-MM-DD
+            const [year, month, day] = endDateStr.split('-').map(Number);
+            const endDate = new Date(year, month - 1, day);
+            
+            // Comparar solo las fechas (sin hora)
+            const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+            const firstDayOnly = new Date(firstDayOfMonth.getFullYear(), firstDayOfMonth.getMonth(), firstDayOfMonth.getDate());
+            const lastDayOnly = new Date(lastDayOfMonth.getFullYear(), lastDayOfMonth.getMonth(), lastDayOfMonth.getDate());
+            
             // Worker left during the month if endDate is between firstDayOfMonth and lastDayOfMonth
-            return endDate >= firstDayOfMonth && endDate <= lastDayOfMonth;
+            return endDateOnly >= firstDayOnly && endDateOnly <= lastDayOnly;
           })
           .forEach(r => {
             if (r.isShared) {
@@ -436,21 +453,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
       });
       
       // También contar trabajadores archivados que ya no están en unidades activas
-      const today = new Date();
-      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      
+      // Usar las mismas fechas del mes que se calcularon arriba (firstDayOfMonth y lastDayOfMonth ya están definidas)
       let archivedExitedThisMonth = 0;
+      const archivedWorkersSet = new Set<string>(); // Para evitar duplicados con trabajadores en unidades activas
+      
       archivedPersonnel.forEach(personnel => {
         if (personnel.endDate) {
-          const endDate = new Date(personnel.endDate);
-          if (endDate >= firstDayOfMonth && endDate <= lastDayOfMonth) {
-            archivedExitedThisMonth++;
+          // Parsear la fecha de forma segura
+          const endDateStr = personnel.endDate.split('T')[0]; // YYYY-MM-DD
+          const [year, month, day] = endDateStr.split('-').map(Number);
+          const endDate = new Date(year, month - 1, day);
+          
+          // Comparar solo las fechas (sin hora)
+          const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+          const firstDayOnly = new Date(firstDayOfMonth.getFullYear(), firstDayOfMonth.getMonth(), firstDayOfMonth.getDate());
+          const lastDayOnly = new Date(lastDayOfMonth.getFullYear(), lastDayOfMonth.getMonth(), lastDayOfMonth.getDate());
+          
+          // Contar si la fecha de cese está en el mes actual
+          if (endDateOnly >= firstDayOnly && endDateOnly <= lastDayOnly) {
+            // Usar DNI o nombre como identificador único para evitar duplicados
+            const identifier = personnel.dni || personnel.id || personnel.name;
+            if (!archivedWorkersSet.has(identifier)) {
+              archivedWorkersSet.add(identifier);
+              archivedExitedThisMonth++;
+            }
           }
         }
       });
       
       const totalWorkersExited = uniqueWorkersExited + sharedWorkersExitedCount + archivedExitedThisMonth;
+      
+      // Debug: mostrar conteo
+      console.log('📊 Trabajadores salientes calculados:', {
+        deUnidadesActivas: uniqueWorkersExited + sharedWorkersExitedCount,
+        archivados: archivedExitedThisMonth,
+        total: totalWorkersExited,
+        mes: `${firstDayOfMonth.getFullYear()}-${String(firstDayOfMonth.getMonth() + 1).padStart(2, '0')}`,
+        rangoFechas: `${firstDayOfMonth.toISOString().split('T')[0]} a ${lastDayOfMonth.toISOString().split('T')[0]}`
+      });
       
       // Set workers exited this month
       setWorkersExitedThisMonth(totalWorkersExited);
