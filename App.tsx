@@ -3091,7 +3091,7 @@ const App: React.FC = () => {
                     onClick={() => { setCurrentView('archive'); setSelectedUnitId(null); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'archive' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <ArchiveIcon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <Archive size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Archivo</span>
                   </button>
               )}
