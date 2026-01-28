@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Unit, Resource, UserRole } from '../types';
 import { resourcesService } from '../services/resourcesService';
 import { unitsService } from '../services/unitsService';
-import { Archive as ArchiveIcon, User, Building, Calendar, Mail, Phone, FileText, RefreshCw, ArrowRight, Search, X, CheckCircle, AlertCircle } from 'lucide-react';
+import { Archive as ArchiveIcon, User, Building, Calendar, Mail, Phone, FileText, RefreshCw, ArrowRight, Search, X, CheckCircle, AlertCircle, Edit2 } from 'lucide-react';
 import { SafeImage } from './SafeImage';
 import { checkPermission } from '../services/permissionService';
 
@@ -24,6 +24,13 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<string>('');
   const [restoring, setRestoring] = useState(false);
+  
+  // Estados para cambiar estado
+  const [showChangeStatusModal, setShowChangeStatusModal] = useState(false);
+  const [selectedPersonnelForStatusChange, setSelectedPersonnelForStatusChange] = useState<ArchivedPersonnel | null>(null);
+  const [terminationType, setTerminationType] = useState<'cesado' | 'archivado'>('cesado');
+  const [terminationDate, setTerminationDate] = useState<string>('');
+  const [changingStatus, setChangingStatus] = useState(false);
 
   const canView = checkPermission(currentUserRole || 'OPERATIONS', 'ARCHIVE', 'view');
   const canEdit = checkPermission(currentUserRole || 'OPERATIONS', 'ARCHIVE', 'edit');
@@ -83,6 +90,40 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
       alert('Error al recuperar el trabajador. Por favor, intente nuevamente.');
     } finally {
       setRestoring(false);
+    }
+  };
+
+  const handleChangeStatus = (personnel: ArchivedPersonnel) => {
+    setSelectedPersonnelForStatusChange(personnel);
+    setTerminationType(personnel.personnelStatus === 'cesado' ? 'archivado' : 'cesado');
+    setTerminationDate(personnel.endDate || new Date().toISOString().split('T')[0]);
+    setShowChangeStatusModal(true);
+  };
+
+  const handleConfirmStatusChange = async () => {
+    if (!selectedPersonnelForStatusChange) return;
+
+    setChangingStatus(true);
+    try {
+      const updateData: any = {
+        personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+      };
+      
+      if (terminationDate) {
+        updateData.endDate = terminationDate;
+      }
+      
+      await resourcesService.update(selectedPersonnelForStatusChange.id, updateData);
+      
+      alert(`✅ Estado de ${selectedPersonnelForStatusChange.name} actualizado a ${terminationType === 'cesado' ? 'Cesado' : 'Archivado'} correctamente.`);
+      setShowChangeStatusModal(false);
+      setSelectedPersonnelForStatusChange(null);
+      await loadData(); // Recargar datos
+    } catch (error) {
+      console.error('Error al cambiar estado:', error);
+      alert('Error al cambiar el estado del trabajador. Por favor, intente nuevamente.');
+    } finally {
+      setChangingStatus(false);
     }
   };
 
@@ -234,13 +275,24 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
                     </td>
                     {canEdit && (
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => handleRestore(personnel)}
-                          className="text-green-600 hover:text-green-900 p-2 rounded hover:bg-green-50 transition-colors"
-                          title="Recuperar trabajador"
-                        >
-                          <RefreshCw size={18} />
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleChangeStatus(personnel)}
+                            className="text-blue-600 hover:text-blue-900 p-2 rounded hover:bg-blue-50 transition-colors"
+                            title={`Cambiar estado a ${personnel.personnelStatus === 'cesado' ? 'Archivado' : 'Cesado'}`}
+                            disabled={changingStatus}
+                          >
+                            <Edit2 size={18} />
+                          </button>
+                          <button
+                            onClick={() => handleRestore(personnel)}
+                            className="text-green-600 hover:text-green-900 p-2 rounded hover:bg-green-50 transition-colors"
+                            title="Recuperar trabajador"
+                            disabled={restoring}
+                          >
+                            <RefreshCw size={18} />
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -386,6 +438,112 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
                       Recuperar Trabajador
                     </>
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para cambiar estado */}
+      {showChangeStatusModal && selectedPersonnelForStatusChange && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-slate-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-slate-800 flex items-center">
+                  <Edit2 className="mr-2" size={24} />
+                  Cambiar Estado
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowChangeStatusModal(false);
+                    setSelectedPersonnelForStatusChange(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="mb-4">
+                <p className="text-sm text-slate-600 mb-4">
+                  Cambiar estado de <strong>{selectedPersonnelForStatusChange.name}</strong> (actualmente: {selectedPersonnelForStatusChange.personnelStatus === 'cesado' ? 'Cesado' : 'Archivado'}). Seleccione el nuevo estado:
+                </p>
+                
+                <div className="space-y-3 mb-4">
+                  <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                    <input
+                      type="radio"
+                      name="terminationType"
+                      value="cesado"
+                      checked={terminationType === 'cesado'}
+                      onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-800">Cesado</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        Se decidió sacar al trabajador (despido/terminación de relación laboral)
+                      </div>
+                    </div>
+                  </label>
+                  
+                  <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                    <input
+                      type="radio"
+                      name="terminationType"
+                      value="archivado"
+                      checked={terminationType === 'archivado'}
+                      onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-800">Archivado</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        El contrato se terminó naturalmente (fin de contrato)
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Fecha de cese *
+                  </label>
+                  <input
+                    type="date"
+                    value={terminationDate}
+                    onChange={(e) => setTerminationDate(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowChangeStatusModal(false);
+                    setSelectedPersonnelForStatusChange(null);
+                  }}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+                  disabled={changingStatus}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmStatusChange}
+                  disabled={!terminationDate || changingStatus}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    terminationType === 'cesado'
+                      ? 'bg-orange-600 text-white hover:bg-orange-700'
+                      : 'bg-amber-600 text-white hover:bg-amber-700'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {changingStatus ? 'Procesando...' : `Confirmar ${terminationType === 'cesado' ? 'Cese' : 'Archivo'}`}
                 </button>
               </div>
             </div>
