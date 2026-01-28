@@ -107,7 +107,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
   }
 
   return (
-    <div className="p-6">
+    <div className="w-full h-full p-6 bg-slate-50">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800 flex items-center mb-2">
           <ArchiveIcon className="mr-3" size={28} />

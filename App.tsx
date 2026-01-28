@@ -1450,7 +1450,11 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'archive') {
-      return <Archive key="archive-view" currentUserRole={currentUser?.role} />;
+      return (
+        <div className="w-full h-full">
+          <Archive key="archive-view" currentUserRole={currentUser?.role} />
+        </div>
+      );
     }
 
     if (currentView === 'units') {
