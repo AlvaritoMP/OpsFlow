@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck, Moon, Search } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -2207,7 +2207,7 @@ const App: React.FC = () => {
                                  className="text-amber-600 hover:text-amber-900 p-1 rounded hover:bg-amber-50"
                                  title="Archivar trabajador"
                                >
-                                 <Archive size={16} />
+                                 <ArchiveIcon size={16} />
                                </button>
                              )}
                              <button
@@ -3092,7 +3092,7 @@ const App: React.FC = () => {
                     onClick={() => { setCurrentView('archive'); setSelectedUnitId(null); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'archive' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Archive size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <ArchiveIcon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Archivo</span>
                   </button>
               )}
