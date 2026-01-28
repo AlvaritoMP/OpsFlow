@@ -4964,42 +4964,57 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               </>
                             )}
                             {showArchivedPersonnel && (
-                                <button 
-                                    onClick={async () => {
-                                        if (confirm(`¿Desarchivar a ${worker.name}? El trabajador volverá a aparecer en la lista de personal activo.`)) {
-                                            setIsArchivingPersonnel(worker.id);
-                                            try {
-                                                const { resourcesService } = await import('../services/resourcesService');
-                                                await resourcesService.update(worker.id, { archived: false });
-                                                // Recargar recursos desde BD
-                                                if (onUpdate) {
-                                                    const { unitsService } = await import('../services/unitsService');
-                                                    const refreshedUnit = await unitsService.getById(unit.id);
-                                                    if (refreshedUnit) {
-                                                        onUpdate(refreshedUnit);
+                                <>
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedWorkerForTermination(worker);
+                                            setTerminationType(worker.personnelStatus === 'cesado' ? 'archivado' : 'cesado');
+                                            setTerminationDate(worker.endDate || new Date().toISOString().split('T')[0]);
+                                            setShowTerminateModal(true);
+                                        }}
+                                        className="text-blue-600 hover:text-blue-900 p-1" 
+                                        title={`Cambiar estado a ${worker.personnelStatus === 'cesado' ? 'Archivado' : 'Cesado'}`}
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource || isTerminating}
+                                    >
+                                        <Edit2 size={16} />
+                                    </button>
+                                    <button 
+                                        onClick={async () => {
+                                            if (confirm(`¿Desarchivar a ${worker.name}? El trabajador volverá a aparecer en la lista de personal activo.`)) {
+                                                setIsArchivingPersonnel(worker.id);
+                                                try {
+                                                    const { resourcesService } = await import('../services/resourcesService');
+                                                    await resourcesService.update(worker.id, { archived: false, personnelStatus: 'activo' });
+                                                    // Recargar recursos desde BD
+                                                    if (onUpdate) {
+                                                        const { unitsService } = await import('../services/unitsService');
+                                                        const refreshedUnit = await unitsService.getById(unit.id);
+                                                        if (refreshedUnit) {
+                                                            onUpdate(refreshedUnit);
+                                                        }
                                                     }
+                                                    setNotification({ type: 'success', message: 'Trabajador desarchivado correctamente' });
+                                                    setTimeout(() => setNotification(null), 3000);
+                                                } catch (error) {
+                                                    console.error('Error al desarchivar trabajador:', error);
+                                                    setNotification({ type: 'error', message: 'Error al desarchivar el trabajador. Por favor, intente nuevamente.' });
+                                                    setTimeout(() => setNotification(null), 5000);
+                                                } finally {
+                                                    setIsArchivingPersonnel(null);
                                                 }
-                                                setNotification({ type: 'success', message: 'Trabajador desarchivado correctamente' });
-                                                setTimeout(() => setNotification(null), 3000);
-                                            } catch (error) {
-                                                console.error('Error al desarchivar trabajador:', error);
-                                                setNotification({ type: 'error', message: 'Error al desarchivar el trabajador. Por favor, intente nuevamente.' });
-                                                setTimeout(() => setNotification(null), 5000);
-                                            } finally {
-                                                setIsArchivingPersonnel(null);
                                             }
-                                        }
-                                    }}
-                                    className="text-green-600 hover:text-green-900 p-1 disabled:opacity-50" 
-                                    title="Desarchivar trabajador"
-                                    disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
-                                >
-                                    {isArchivingPersonnel === worker.id ? (
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
-                                    ) : (
-                                      <Archive size={16} />
-                                    )}
-                                </button>
+                                        }}
+                                        className="text-green-600 hover:text-green-900 p-1 disabled:opacity-50" 
+                                        title="Desarchivar trabajador"
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
+                                    >
+                                        {isArchivingPersonnel === worker.id ? (
+                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                                        ) : (
+                                          <Archive size={16} />
+                                        )}
+                                    </button>
+                                </>
                             )}
                             </>
                         )}
@@ -7859,8 +7874,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             
             <div className="mb-4">
               <p className="text-sm text-slate-600 mb-4">
-                Está a punto de cesar a <strong>{selectedWorkerForTermination.name}</strong>. 
-                Seleccione el tipo de cese:
+                {selectedWorkerForTermination.archived 
+                  ? `Cambiar estado de <strong>${selectedWorkerForTermination.name}</strong> (actualmente: ${selectedWorkerForTermination.personnelStatus === 'cesado' ? 'Cesado' : 'Archivado'}). Seleccione el nuevo estado:`
+                  : `Está a punto de cesar a <strong>${selectedWorkerForTermination.name}</strong>. Seleccione el tipo de cese:`
+                }
               </p>
               
               <div className="space-y-3 mb-4">
@@ -7933,23 +7950,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     const { resourcesService } = await import('../services/resourcesService');
                     const { contractService } = await import('../services/contractService');
                     
-                    // Finalizar el contrato activo si existe
-                    const activeContract = await contractService.getActiveContract(selectedWorkerForTermination.id);
-                    if (activeContract) {
-                      await contractService.finalizeContract(activeContract.id);
+                    // Si el trabajador ya está archivado, solo cambiar el estado
+                    if (selectedWorkerForTermination.archived) {
+                      const updateData: any = {
+                        personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+                      };
+                      
+                      // Si se cambia la fecha de cese, actualizarla también
+                      if (terminationDate) {
+                        updateData.endDate = terminationDate;
+                      }
+                      
+                      await resourcesService.update(selectedWorkerForTermination.id, updateData);
+                    } else {
+                      // Si no está archivado, es un cese nuevo
+                      // Finalizar el contrato activo si existe
+                      const activeContract = await contractService.getActiveContract(selectedWorkerForTermination.id);
+                      if (activeContract) {
+                        await contractService.finalizeContract(activeContract.id);
+                      }
+                      
+                      // Actualizar el trabajador según el tipo de cese
+                      const updateData: any = {
+                        personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+                        endDate: terminationDate,
+                      };
+                      
+                      if (terminationType === 'archivado') {
+                        updateData.archived = true;
+                      }
+                      
+                      await resourcesService.update(selectedWorkerForTermination.id, updateData);
                     }
-                    
-                    // Actualizar el trabajador según el tipo de cese
-                    const updateData: any = {
-                      personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
-                      endDate: terminationDate,
-                    };
-                    
-                    if (terminationType === 'archivado') {
-                      updateData.archived = true;
-                    }
-                    
-                    await resourcesService.update(selectedWorkerForTermination.id, updateData);
                     
                     // Recargar la unidad
                     const { unitsService } = await import('../services/unitsService');
@@ -7960,7 +7992,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     
                     setNotification({ 
                       type: 'success', 
-                      message: `Trabajador ${terminationType === 'cesado' ? 'cesado' : 'archivado'} correctamente` 
+                      message: selectedWorkerForTermination.archived 
+                        ? `Estado del trabajador actualizado a ${terminationType === 'cesado' ? 'Cesado' : 'Archivado'} correctamente`
+                        : `Trabajador ${terminationType === 'cesado' ? 'cesado' : 'archivado'} correctamente` 
                     });
                     setTimeout(() => setNotification(null), 3000);
                     
