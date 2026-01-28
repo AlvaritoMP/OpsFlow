@@ -24,6 +24,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
   const [personnelExitRate, setPersonnelExitRate] = useState<number>(0);
   const [mostUsedReten, setMostUsedReten] = useState<{ name: string; count: number } | null>(null);
   const [workersExitedThisMonth, setWorkersExitedThisMonth] = useState<number>(0);
+  const [archivedPersonnel, setArchivedPersonnel] = useState<any[]>([]);
   
 
   // Calculate aggregations
@@ -301,6 +302,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
     loadRetenMetrics();
   }, []);
 
+  // Cargar trabajadores archivados para el cálculo de salientes
+  useEffect(() => {
+    const loadArchivedPersonnel = async () => {
+      try {
+        const { resourcesService } = await import('../services/resourcesService');
+        const archived = await resourcesService.getAllArchivedPersonnel();
+        setArchivedPersonnel(archived);
+      } catch (error) {
+        console.error('Error al cargar trabajadores archivados:', error);
+      }
+    };
+    loadArchivedPersonnel();
+  }, []);
+
   // Note: setLoadingMetrics(false) is now handled in loadShiftMetrics finally block
 
   // Calculate new workers this month (sin duplicar compartidos)
@@ -387,7 +402,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
       
       const totalWorkersAtStart = uniqueWorkersAtStart + sharedWorkersAtStartCount;
       
-      // Calculate workers who left during the month (endDate in the current month)
+      // Calculate workers who left during the month (endDate in the current month OR archived/cesado this month)
       const sharedWorkersExited = new Set<string>();
       let uniqueWorkersExited = 0;
       let sharedWorkersExitedCount = 0;
@@ -396,6 +411,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
         unit.resources
           .filter(r => {
             if (r.type !== ResourceType.PERSONNEL) return false;
+            
+            // Incluir trabajadores cesados o archivados
+            const isCesadoOrArchivado = r.personnelStatus === 'cesado' || r.personnelStatus === 'archivado' || r.archived;
+            
+            if (!isCesadoOrArchivado) return false;
             if (!r.endDate) return false;
             
             const endDate = new Date(r.endDate);
@@ -415,7 +435,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
           });
       });
       
-      const totalWorkersExited = uniqueWorkersExited + sharedWorkersExitedCount;
+      // También contar trabajadores archivados que ya no están en unidades activas
+      const today = new Date();
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      
+      let archivedExitedThisMonth = 0;
+      archivedPersonnel.forEach(personnel => {
+        if (personnel.endDate) {
+          const endDate = new Date(personnel.endDate);
+          if (endDate >= firstDayOfMonth && endDate <= lastDayOfMonth) {
+            archivedExitedThisMonth++;
+          }
+        }
+      });
+      
+      const totalWorkersExited = uniqueWorkersExited + sharedWorkersExitedCount + archivedExitedThisMonth;
       
       // Set workers exited this month
       setWorkersExitedThisMonth(totalWorkersExited);
@@ -441,7 +476,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
     };
     
     calculatePersonnelRotation();
-  }, [units, newWorkersCount]);
+  }, [units, newWorkersCount, archivedPersonnel]);
 
   // Calculate units activity (events and requests)
   useEffect(() => {

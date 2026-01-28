@@ -3137,23 +3137,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const resourcesForRoster = personnelViewMode === 'roster' ? localResources : unit.resources;
   
   // Calcular personal archivado usando useMemo para asegurar disponibilidad
-  // Incluye personal archivado explícitamente O personal cesado (que se archiva automáticamente)
+  // Incluye solo personal EXPLÍCITAMENTE archivado (archived = true)
+  // NO incluir trabajadores activos con solo endDate o solo personnelStatus = 'cesado'
   const archivedPersonnel = useMemo(() => {
     return unit.resources.filter(r => 
       r.type === ResourceType.PERSONNEL && 
-      (r.archived === true || r.personnelStatus === 'cesado')
+      r.archived === true // Solo trabajadores explícitamente archivados
     );
   }, [unit.resources]);
   
   const personnel = useMemo(() => {
     return resourcesForRoster.filter(r => {
       if (r.type !== ResourceType.PERSONNEL) return false;
-      // Si estamos viendo archivados, mostrar solo los archivados o cesados
+      // Si estamos viendo archivados, mostrar solo los EXPLÍCITAMENTE archivados
       if (showArchivedPersonnel) {
-        return r.archived === true || r.personnelStatus === 'cesado';
+        return r.archived === true; // Solo trabajadores explícitamente archivados
       }
-      // Si estamos viendo activos, excluir archivados y cesados
-      return !r.archived && r.personnelStatus !== 'cesado';
+      // Si estamos viendo activos, excluir solo los archivados explícitamente
+      // Los trabajadores con endDate pero activos SÍ deben mostrarse
+      // Los trabajadores con personnelStatus = 'cesado' pero no archivados también se muestran (para poder cesarlos)
+      return !r.archived; // Solo excluir los explícitamente archivados
     });
   }, [resourcesForRoster, showArchivedPersonnel]);
   
@@ -4470,7 +4473,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              
              {(() => {
                const requiredPositions = unit.requiredPositions || [];
-               const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
+               const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
                
                if (requiredPositions.length === 0) {
                  return (

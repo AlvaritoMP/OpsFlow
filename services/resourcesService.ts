@@ -91,6 +91,9 @@ export const resourcesService = {
   },
 
   // Obtener todos los trabajadores archivados/cesados de todas las unidades
+  // Solo incluir trabajadores que están EXPLÍCITAMENTE archivados (archived = true)
+  // O que tienen personnel_status = 'cesado' Y archived = true
+  // NO incluir trabajadores activos con solo endDate o solo personnel_status = 'cesado'
   async getAllArchivedPersonnel(): Promise<Array<Resource & { originalUnitId: string; originalUnitName: string }>> {
     try {
       const { data, error } = await supabase
@@ -100,7 +103,7 @@ export const resourcesService = {
           unit:units!resources_unit_id_fkey(id, name)
         `)
         .eq('type', 'Personal')
-        .or('archived.eq.true,personnel_status.eq.cesado')
+        .eq('archived', true) // Solo trabajadores explícitamente archivados
         .order('end_date', { ascending: false });
 
       if (error) throw error;

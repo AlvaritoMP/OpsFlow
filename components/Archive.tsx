@@ -202,6 +202,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Puesto</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Unidad de Origen</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Fechas</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Fecha de Cese</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estado</th>
                   {canEdit && (
                     <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
@@ -260,6 +261,15 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
                           <span className="text-slate-400">Fin:</span>{' '}
                           {new Date(personnel.endDate).toLocaleDateString('es-ES')}
                         </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
+                      {personnel.endDate ? (
+                        <div className="text-red-600 font-medium">
+                          {new Date(personnel.endDate).toLocaleDateString('es-ES')}
+                        </div>
+                      ) : (
+                        <span className="text-slate-300 italic">-</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
