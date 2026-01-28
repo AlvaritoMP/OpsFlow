@@ -5020,8 +5020,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             )}
                             </>
                         )}
-                            </>
-                        )}
                     </div>
                  </div>
 
