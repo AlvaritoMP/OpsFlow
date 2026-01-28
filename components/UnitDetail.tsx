@@ -4847,13 +4847,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </button>
                         {canEditPersonnel && (
                             <>
-                                <button onClick={() => { setEditingResource(worker); }} className="text-blue-600 hover:text-blue-900 p-1" title="Editar" disabled={isArchivingPersonnel === worker.id || isUpdatingResource}>
-                                    {isUpdatingResource && editingResource?.id === worker.id ? (
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                                    ) : (
-                                <Edit2 size={16} />
-                                    )}
-                            </button>
+                                {!showArchivedPersonnel && (
+                                    <button onClick={() => { setEditingResource(worker); }} className="text-blue-600 hover:text-blue-900 p-1" title="Editar" disabled={isArchivingPersonnel === worker.id || isUpdatingResource}>
+                                        {isUpdatingResource && editingResource?.id === worker.id ? (
+                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                        ) : (
+                                    <Edit2 size={16} />
+                                        )}
+                                </button>
+                                )}
                                 {!showArchivedPersonnel && worker.personnelStatus === 'activo' && (
                                     <button 
                                         onClick={() => {
@@ -5016,6 +5018,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     </button>
                                 </>
                             )}
+                            </>
+                        )}
                             </>
                         )}
                     </div>
