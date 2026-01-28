@@ -27,15 +27,20 @@ export const resourcesService = {
       // Cargar datos relacionados para cada recurso
       const resources = await Promise.all(
         data.map(async (resource) => {
-          const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
+          const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
             this.getTrainings(resource.id),
             this.getAssignedAssets(resource.id),
             this.getDailyShifts(resource.id),
             this.getMaintenanceRecords(resource.id),
             this.getZoneAssignments(resource.id),
+            this.getContractHistory(resource.id),
           ]);
 
-          return transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
+          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
+          return {
+            ...transformed,
+            contractHistory: contractHistory,
+          };
         })
       );
 
@@ -61,15 +66,20 @@ export const resourcesService = {
 
       const resources = await Promise.all(
         data.map(async (resource) => {
-          const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
+          const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
             this.getTrainings(resource.id),
             this.getAssignedAssets(resource.id),
             this.getDailyShifts(resource.id),
             this.getMaintenanceRecords(resource.id),
             this.getZoneAssignments(resource.id),
+            this.getContractHistory(resource.id),
           ]);
 
-          return transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
+          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
+          return {
+            ...transformed,
+            contractHistory: contractHistory,
+          };
         })
       );
 
@@ -135,15 +145,20 @@ export const resourcesService = {
         throw error;
       }
 
-      const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
+      const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
         this.getTrainings(id),
         this.getAssignedAssets(id),
         this.getDailyShifts(id),
         this.getMaintenanceRecords(id),
         this.getZoneAssignments(id),
+        this.getContractHistory(id),
       ]);
 
-      return transformResourceFromDB(data, trainings, assets, shifts, maintenance, zoneAssignments);
+      const transformed = transformResourceFromDB(data, trainings, assets, shifts, maintenance, zoneAssignments);
+      return {
+        ...transformed,
+        contractHistory: contractHistory,
+      };
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -175,6 +190,17 @@ export const resourcesService = {
       }
       if (resource.assignedZones) {
         await this.createZoneAssignments(data.id, resource.assignedZones);
+      }
+
+      // Si es personal y tiene startDate y endDate, crear contrato inicial
+      if (resource.type === ResourceType.PERSONNEL && resource.startDate && resource.endDate) {
+        try {
+          const { contractService } = await import('./contractService');
+          await contractService.createContract(data.id, resource.startDate, resource.endDate);
+        } catch (error) {
+          console.error('Error al crear contrato inicial:', error);
+          // No lanzar error, solo registrar
+        }
       }
 
       return await this.getById(data.id) || resource as Resource;
@@ -606,6 +632,17 @@ export const resourcesService = {
     }) || [];
   },
 
+  // Obtener historial de contratos para un recurso
+  async getContractHistory(resourceId: string): Promise<any[]> {
+    try {
+      const { contractService } = await import('./contractService');
+      return await contractService.getContractHistory(resourceId);
+    } catch (error) {
+      console.error('Error al obtener historial de contratos:', error);
+      return [];
+    }
+  },
+
   async getZoneAssignments(resourceId: string): Promise<string[]> {
     const { data } = await supabase
       .from('resource_zone_assignments')
@@ -672,24 +709,14 @@ function transformResourceFromDB(
     // Normalizar fechas para evitar problemas de timezone
     startDate: normalizeDateFromDB(data.start_date),
     endDate: normalizeDateFromDB(data.end_date),
-    // Si tiene endDate, automáticamente es cesado (a menos que esté explícitamente marcado como activo)
+    // endDate es solo para monitoreo, NO cambia automáticamente el estado
+    // El estado se cambia manualmente mediante el proceso de cese
     personnelStatus: (() => {
-      const normalizedEndDate = normalizeDateFromDB(data.end_date);
-      if (normalizedEndDate) {
-        // Si tiene fecha de fin, es cesado
-        return 'cesado' as const;
-      }
-      // Si no tiene fecha de fin, usar el valor de la BD o 'activo' por defecto
-      return (data.personnel_status as 'activo' | 'cesado') || (data.type === 'Personal' ? 'activo' : undefined);
+      // Usar el valor de la BD directamente, sin lógica automática basada en endDate
+      return (data.personnel_status as 'activo' | 'cesado' | 'archivado') || (data.type === 'Personal' ? 'activo' : undefined);
     })(),
-    // Si tiene endDate o está cesado, debería estar archivado automáticamente
-    archived: (() => {
-      const normalizedEndDate = normalizeDateFromDB(data.end_date);
-      const isCesado = normalizedEndDate || data.personnel_status === 'cesado';
-      // Si está cesado pero no archivado, retornar false (se archivará al guardar)
-      // Si ya está archivado en la BD, mantenerlo
-      return data.archived || false;
-    })(),
+    // archived solo se cambia manualmente mediante el proceso de cese/archivo
+    archived: data.archived || false,
     // Campos de capacitación
     inTraining: data.in_training || false,
     trainingStartDate: normalizeDateFromDB(data.training_start_date),

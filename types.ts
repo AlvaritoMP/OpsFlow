@@ -72,7 +72,7 @@ export interface User {
   password_hash?: string; // Hash de la contraseña (solo para comparación interna)
 }
 
-export type StaffStatus = 'activo' | 'cesado';
+export type StaffStatus = 'activo' | 'cesado' | 'archivado';
 
 export interface ManagementStaff {
   id: string;
@@ -232,10 +232,11 @@ export interface Resource {
   dni?: string; // Documento Nacional de Identidad
   puesto?: string; // Puesto o cargo del trabajador
   birthDate?: string; // Fecha de nacimiento (YYYY-MM-DD)
-  startDate?: string; // Fecha de inicio de labores (YYYY-MM-DD)
-  endDate?: string; // Fecha de fin de labores (YYYY-MM-DD)
-  personnelStatus?: 'activo' | 'cesado'; // Estado: activo o cesado (solo para personal)
+  startDate?: string; // Fecha de inicio de labores (YYYY-MM-DD) - del contrato actual
+  endDate?: string; // Fecha de fin de contrato (YYYY-MM-DD) - solo para monitoreo, NO archiva automáticamente
+  personnelStatus?: 'activo' | 'cesado' | 'archivado'; // Estado: activo, cesado (despido) o archivado (fin de contrato)
   archived?: boolean; // Si está archivado (no se muestra en vista normal)
+  contractHistory?: ContractHistory[]; // Historial de contratos y renovaciones
   inTraining?: boolean; // Si está en periodo de capacitación
   trainingStartDate?: string; // Fecha de inicio de capacitación (YYYY-MM-DD)
   contractGenerated?: boolean; // Si ya se generó el contrato de trabajo (resuelve la alerta)
@@ -252,6 +253,18 @@ export interface SalaryIncrement {
   newSalary: number;
   incrementDate: string; // Fecha en que se registró el incremento (YYYY-MM-DD)
   effectiveDate: string; // Fecha de aplicación del incremento (YYYY-MM-DD)
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContractHistory {
+  id: string;
+  resourceId: string;
+  contractNumber: number; // 1 = contrato inicial, 2+ = renovaciones
+  startDate: string; // Fecha de inicio del contrato (YYYY-MM-DD)
+  endDate: string; // Fecha de fin del contrato (YYYY-MM-DD)
+  status: 'activo' | 'finalizado' | 'renovado'; // Estado del contrato
   notes?: string;
   createdAt: string;
   updatedAt: string;

@@ -180,6 +180,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Salary increments states
   const [showSalaryIncrementModal, setShowSalaryIncrementModal] = useState(false);
   const [selectedWorkerForIncrement, setSelectedWorkerForIncrement] = useState<Resource | null>(null);
+  
+  // Cese y renovación de contrato states
+  const [showTerminateModal, setShowTerminateModal] = useState(false);
+  const [selectedWorkerForTermination, setSelectedWorkerForTermination] = useState<Resource | null>(null);
+  const [terminationType, setTerminationType] = useState<'cesado' | 'archivado'>('cesado');
+  const [terminationDate, setTerminationDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [isTerminating, setIsTerminating] = useState(false);
+  
+  const [showRenewContractModal, setShowRenewContractModal] = useState(false);
+  const [selectedWorkerForRenewal, setSelectedWorkerForRenewal] = useState<Resource | null>(null);
+  const [renewContractForm, setRenewContractForm] = useState({ startDate: '', endDate: '', notes: '' });
+  const [isRenewingContract, setIsRenewingContract] = useState(false);
+  const [contractHistory, setContractHistory] = useState<Record<string, any[]>>({});
   const [salaryIncrements, setSalaryIncrements] = useState<Record<string, SalaryIncrement[]>>({});
   const [newIncrementForm, setNewIncrementForm] = useState<{
     previousSalary: number;
@@ -1789,9 +1802,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         birthDate: newWorkerForm.birthDate || undefined,
         isShared: newWorkerForm.isShared || false,
         startDate: newWorkerForm.startDate || undefined,
-        endDate: newWorkerForm.endDate || undefined,
-        personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
-        archived: newWorkerForm.endDate ? true : false, // Archivar automáticamente si tiene fecha de fin
+        endDate: newWorkerForm.endDate || undefined, // Solo para monitoreo, NO archiva automáticamente
+        personnelStatus: 'activo', // Siempre activo al crear, el cese se hace manualmente
+        archived: false, // No se archiva automáticamente
         monthlySalary: newWorkerForm.monthlySalary ? Number(newWorkerForm.monthlySalary) : undefined,
         workConditionAmount: newWorkerForm.workConditionAmount ? Number(newWorkerForm.workConditionAmount) : undefined,
       trainings: [],
@@ -1901,9 +1914,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             puesto: row.puesto?.trim() || undefined,
             isShared: row.compartido === true || row.compartido === 'true' || row.compartido === 'Sí' || row.compartido === 'Sí' || false,
             startDate: row.fechaInicio || undefined,
-            endDate: row.fechaFin || undefined,
-            personnelStatus: row.fechaFin ? 'cesado' : 'activo',
-            archived: row.fechaFin ? true : false, // Archivar automáticamente si tiene fecha de fin
+            endDate: row.fechaFin || undefined, // Solo para monitoreo, NO archiva automáticamente
+            personnelStatus: 'activo', // Siempre activo al crear, el cese se hace manualmente
+            archived: false, // No se archiva automáticamente
             trainings: [],
             assignedAssets: []
           }, unit.id);
@@ -2095,6 +2108,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const togglePersonnelExpand = async (id: string) => {
     const newExpandedId = expandedPersonnel === id ? null : id;
     setExpandedPersonnel(newExpandedId);
+    
+    // Cargar historial de contratos cuando se expande
+    if (newExpandedId && !contractHistory[newExpandedId]) {
+      try {
+        const { contractService } = await import('../services/contractService');
+        const history = await contractService.getContractHistory(newExpandedId);
+        setContractHistory(prev => ({
+          ...prev,
+          [newExpandedId]: history
+        }));
+      } catch (error) {
+        console.error('Error al cargar historial de contratos:', error);
+      }
+    }
     
     // Cargar incrementos salariales cuando se expande
     if (newExpandedId && !salaryIncrements[newExpandedId]) {
@@ -2510,22 +2537,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     try {
       const { resourcesService } = await import('../services/resourcesService');
       
-      // Si es personal y se establece endDate, marcarlo como cesado y archivarlo automáticamente
-      const hasEndDate = editingResource.type === ResourceType.PERSONNEL && editingResource.endDate;
-      const isCesado = editingResource.type === ResourceType.PERSONNEL && editingResource.personnelStatus === 'cesado';
-      const shouldArchive = hasEndDate || isCesado;
+      // endDate es solo para monitoreo, NO cambia automáticamente el estado
+      // El cese/archivo se hace manualmente mediante el proceso de cese
       
       // Excluir assignedAssets, trainings y workSchedule del objeto de actualización
       // Estos campos se manejan por separado y solo se actualizan si se modifican explícitamente
       const { assignedAssets, trainings, workSchedule, ...resourceData } = editingResource;
       
-      const resourceToUpdate = shouldArchive 
-        ? { 
-            ...resourceData, 
-            archived: true, 
-            personnelStatus: hasEndDate ? 'cesado' as const : editingResource.personnelStatus 
-          }
-        : resourceData;
+      const resourceToUpdate = resourceData;
       
       // Guardar en la BD (sin assignedAssets, trainings, workSchedule)
       await resourcesService.update(editingResource.id, resourceToUpdate);
@@ -4835,6 +4854,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 <Edit2 size={16} />
                                     )}
                             </button>
+                                {!showArchivedPersonnel && worker.personnelStatus === 'activo' && (
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedWorkerForTermination(worker);
+                                            setTerminationDate(new Date().toISOString().split('T')[0]);
+                                            setTerminationType('cesado');
+                                            setShowTerminateModal(true);
+                                        }}
+                                        className="text-orange-600 hover:text-orange-900 p-1" 
+                                        title="Cesar trabajador"
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource || isTerminating}
+                                    >
+                                        <XCircle size={16} />
+                                    </button>
+                                )}
                                 {!showArchivedPersonnel && (
                                   <>
                                     <button 
@@ -5052,6 +5086,55 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     </div>
                                     );
                                 }) : <p className="text-xs text-slate-400 italic">Sin activos asignados.</p>}
+                            </div>
+                        </div>
+
+                        {/* Contract History */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm md:col-span-2">
+                            <div className="flex justify-between items-center mb-3">
+                                <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center"><FileText size={14} className="mr-1.5"/> Historial de Contratos</h5>
+                                {canEditPersonnel && worker.personnelStatus === 'activo' && (
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedWorkerForRenewal(worker);
+                                            const activeContract = contractHistory[worker.id]?.find((c: any) => c.status === 'activo');
+                                            setRenewContractForm({ 
+                                                startDate: activeContract?.endDate ? new Date(new Date(activeContract.endDate).getTime() + 86400000).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                                                endDate: '',
+                                                notes: ''
+                                            });
+                                            setShowRenewContractModal(true);
+                                        }} 
+                                        className="text-xs text-blue-600 hover:underline flex items-center"
+                                    >
+                                        <Plus size={12} className="mr-1"/> Renovar Contrato
+                                    </button>
+                                )}
+                            </div>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {(contractHistory[worker.id] || []).length > 0 ? (contractHistory[worker.id] || []).map((contract: any) => (
+                                    <div key={contract.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 bg-blue-50/50 p-2 rounded">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <FileText size={12} className="text-blue-600" />
+                                                <p className="font-medium text-slate-700">
+                                                    Contrato #{contract.contractNumber}
+                                                </p>
+                                                <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                                    contract.status === 'activo' ? 'bg-green-100 text-green-700' :
+                                                    contract.status === 'renovado' ? 'bg-blue-100 text-blue-700' :
+                                                    'bg-slate-100 text-slate-700'
+                                                }`}>
+                                                    {contract.status}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-slate-500">
+                                                {contract.startDate} - {contract.endDate}
+                                                {contract.notes && ` • ${contract.notes}`}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )) : <p className="text-xs text-slate-400 italic">Sin registro de contratos. El contrato inicial se creará automáticamente al renovar.</p>}
                             </div>
                         </div>
 
@@ -7753,6 +7836,325 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 )}
               </div>
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmación de Cese */}
+      {showTerminateModal && selectedWorkerForTermination && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Confirmar Cese de Trabajador</h3>
+              <button
+                onClick={() => {
+                  setShowTerminateModal(false);
+                  setSelectedWorkerForTermination(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-sm text-slate-600 mb-4">
+                Está a punto de cesar a <strong>{selectedWorkerForTermination.name}</strong>. 
+                Seleccione el tipo de cese:
+              </p>
+              
+              <div className="space-y-3 mb-4">
+                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="terminationType"
+                    value="cesado"
+                    checked={terminationType === 'cesado'}
+                    onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-slate-800">Cesado</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      Se decidió sacar al trabajador (despido/terminación de relación laboral)
+                    </div>
+                  </div>
+                </label>
+                
+                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="terminationType"
+                    value="archivado"
+                    checked={terminationType === 'archivado'}
+                    onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-slate-800">Archivado</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      El contrato se terminó naturalmente (fin de contrato)
+                    </div>
+                  </div>
+                </label>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Fecha de cese *
+                </label>
+                <input
+                  type="date"
+                  value={terminationDate}
+                  onChange={(e) => setTerminationDate(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowTerminateModal(false);
+                  setSelectedWorkerForTermination(null);
+                }}
+                className="flex-1 py-2 px-4 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+                disabled={isTerminating}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!selectedWorkerForTermination || !onUpdate) return;
+                  
+                  setIsTerminating(true);
+                  try {
+                    const { resourcesService } = await import('../services/resourcesService');
+                    const { contractService } = await import('../services/contractService');
+                    
+                    // Finalizar el contrato activo si existe
+                    const activeContract = await contractService.getActiveContract(selectedWorkerForTermination.id);
+                    if (activeContract) {
+                      await contractService.finalizeContract(activeContract.id);
+                    }
+                    
+                    // Actualizar el trabajador según el tipo de cese
+                    const updateData: any = {
+                      personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+                      endDate: terminationDate,
+                    };
+                    
+                    if (terminationType === 'archivado') {
+                      updateData.archived = true;
+                    }
+                    
+                    await resourcesService.update(selectedWorkerForTermination.id, updateData);
+                    
+                    // Recargar la unidad
+                    const { unitsService } = await import('../services/unitsService');
+                    const refreshedUnit = await unitsService.getById(unit.id);
+                    if (refreshedUnit) {
+                      onUpdate(refreshedUnit);
+                    }
+                    
+                    setNotification({ 
+                      type: 'success', 
+                      message: `Trabajador ${terminationType === 'cesado' ? 'cesado' : 'archivado'} correctamente` 
+                    });
+                    setTimeout(() => setNotification(null), 3000);
+                    
+                    setShowTerminateModal(false);
+                    setSelectedWorkerForTermination(null);
+                  } catch (error) {
+                    console.error('Error al cesar trabajador:', error);
+                    setNotification({ 
+                      type: 'error', 
+                      message: 'Error al cesar el trabajador. Por favor, intente nuevamente.' 
+                    });
+                    setTimeout(() => setNotification(null), 5000);
+                  } finally {
+                    setIsTerminating(false);
+                  }
+                }}
+                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+                  terminationType === 'cesado'
+                    ? 'bg-orange-600 text-white hover:bg-orange-700'
+                    : 'bg-amber-600 text-white hover:bg-amber-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                disabled={isTerminating || !terminationDate}
+              >
+                {isTerminating ? 'Procesando...' : `Confirmar ${terminationType === 'cesado' ? 'Cese' : 'Archivo'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Renovación de Contrato */}
+      {showRenewContractModal && selectedWorkerForRenewal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Renovar Contrato</h3>
+              <button
+                onClick={() => {
+                  setShowRenewContractModal(false);
+                  setSelectedWorkerForRenewal(null);
+                  setRenewContractForm({ startDate: '', endDate: '', notes: '' });
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-sm text-slate-600 mb-4">
+                Renovar contrato de <strong>{selectedWorkerForRenewal.name}</strong>
+              </p>
+              
+              {/* Mostrar historial de contratos */}
+              {contractHistory[selectedWorkerForRenewal.id] && contractHistory[selectedWorkerForRenewal.id].length > 0 && (
+                <div className="mb-4 p-3 bg-slate-50 rounded-lg">
+                  <div className="text-xs font-semibold text-slate-700 mb-2">Historial de Contratos:</div>
+                  <div className="space-y-1">
+                    {contractHistory[selectedWorkerForRenewal.id].map((contract: any) => (
+                      <div key={contract.id} className="text-xs text-slate-600">
+                        Contrato #{contract.contractNumber}: {contract.startDate} - {contract.endDate} 
+                        <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
+                          contract.status === 'activo' ? 'bg-green-100 text-green-700' :
+                          contract.status === 'renovado' ? 'bg-blue-100 text-blue-700' :
+                          'bg-slate-100 text-slate-700'
+                        }`}>
+                          {contract.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Fecha de inicio del nuevo contrato *
+                  </label>
+                  <input
+                    type="date"
+                    value={renewContractForm.startDate}
+                    onChange={(e) => setRenewContractForm({ ...renewContractForm, startDate: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Fecha de fin del nuevo contrato *
+                  </label>
+                  <input
+                    type="date"
+                    value={renewContractForm.endDate}
+                    onChange={(e) => setRenewContractForm({ ...renewContractForm, endDate: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                    min={renewContractForm.startDate}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Notas (opcional)
+                  </label>
+                  <textarea
+                    value={renewContractForm.notes}
+                    onChange={(e) => setRenewContractForm({ ...renewContractForm, notes: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={3}
+                    placeholder="Notas adicionales sobre la renovación..."
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowRenewContractModal(false);
+                  setSelectedWorkerForRenewal(null);
+                  setRenewContractForm({ startDate: '', endDate: '', notes: '' });
+                }}
+                className="flex-1 py-2 px-4 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+                disabled={isRenewingContract}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!selectedWorkerForRenewal || !onUpdate || !renewContractForm.startDate || !renewContractForm.endDate) return;
+                  
+                  if (new Date(renewContractForm.endDate) < new Date(renewContractForm.startDate)) {
+                    setNotification({ type: 'error', message: 'La fecha de fin debe ser posterior a la fecha de inicio' });
+                    setTimeout(() => setNotification(null), 3000);
+                    return;
+                  }
+                  
+                  setIsRenewingContract(true);
+                  try {
+                    const { contractService } = await import('../services/contractService');
+                    const { resourcesService } = await import('../services/resourcesService');
+                    
+                    // Crear el nuevo contrato
+                    await contractService.createContract(
+                      selectedWorkerForRenewal.id,
+                      renewContractForm.startDate,
+                      renewContractForm.endDate,
+                      renewContractForm.notes || undefined
+                    );
+                    
+                    // Actualizar las fechas del trabajador
+                    await resourcesService.update(selectedWorkerForRenewal.id, {
+                      startDate: renewContractForm.startDate,
+                      endDate: renewContractForm.endDate,
+                      personnelStatus: 'activo', // Mantener activo en renovación
+                      archived: false, // Asegurar que no esté archivado
+                    });
+                    
+                    // Recargar historial de contratos
+                    const history = await contractService.getContractHistory(selectedWorkerForRenewal.id);
+                    setContractHistory(prev => ({
+                      ...prev,
+                      [selectedWorkerForRenewal.id]: history
+                    }));
+                    
+                    // Recargar la unidad
+                    const { unitsService } = await import('../services/unitsService');
+                    const refreshedUnit = await unitsService.getById(unit.id);
+                    if (refreshedUnit) {
+                      onUpdate(refreshedUnit);
+                    }
+                    
+                    setNotification({ type: 'success', message: 'Contrato renovado correctamente' });
+                    setTimeout(() => setNotification(null), 3000);
+                    
+                    setShowRenewContractModal(false);
+                    setSelectedWorkerForRenewal(null);
+                    setRenewContractForm({ startDate: '', endDate: '', notes: '' });
+                  } catch (error) {
+                    console.error('Error al renovar contrato:', error);
+                    setNotification({ type: 'error', message: 'Error al renovar el contrato. Por favor, intente nuevamente.' });
+                    setTimeout(() => setNotification(null), 5000);
+                  } finally {
+                    setIsRenewingContract(false);
+                  }
+                }}
+                className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isRenewingContract || !renewContractForm.startDate || !renewContractForm.endDate}
+              >
+                {isRenewingContract ? 'Renovando...' : 'Renovar Contrato'}
+              </button>
+            </div>
           </div>
         </div>
       )}
