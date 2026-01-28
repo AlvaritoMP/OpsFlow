@@ -85,15 +85,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     loadPositions();
   }, []);
 
-  // Corregir trabajadores con endDate que no están marcados como cesados/archivados
+  // NOTA: endDate es solo referencial y NO debe cambiar automáticamente el estado
+  // El cese/archivo solo ocurre cuando se ejecuta explícitamente la acción de "Cesar"
+  // Este useEffect fue eliminado porque marcaba automáticamente como "cesado" a trabajadores con endDate
+  // Los trabajadores con endDate pero sin haber sido cesados explícitamente deben mantenerse como "activo"
+  
+  // Corregir trabajadores que fueron marcados incorrectamente como "cesado" solo por tener endDate
+  // Estos trabajadores deben volver a estado "activo" si no están archivados explícitamente
   React.useEffect(() => {
-    const fixCesadosWorkers = async () => {
+    const fixIncorrectlyCesadoWorkers = async () => {
       if (!onUpdate) return;
       
+      // Buscar trabajadores con endDate que están marcados como "cesado" pero NO están archivados
+      // Estos fueron marcados incorrectamente y deben volver a "activo"
       const workersToFix = unit.resources.filter(r => 
         r.type === ResourceType.PERSONNEL && 
         r.endDate && 
-        (r.personnelStatus !== 'cesado' || !r.archived)
+        r.personnelStatus === 'cesado' && 
+        !r.archived // Solo corregir si NO están archivados explícitamente
       );
 
       if (workersToFix.length === 0) return;
@@ -102,8 +111,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const { resourcesService } = await import('../services/resourcesService');
         const updatePromises = workersToFix.map(worker => 
           resourcesService.update(worker.id, {
-            personnelStatus: 'cesado' as const,
-            archived: true
+            personnelStatus: 'activo' as const, // Volver a activo
+            // Mantener endDate (es solo referencial)
+            // NO cambiar archived (debe permanecer false)
           })
         );
 
@@ -115,14 +125,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         if (updatedUnit) {
           onUpdate(updatedUnit);
         }
+        
+        console.log(`✅ Corregidos ${workersToFix.length} trabajadores que estaban incorrectamente marcados como "cesado"`);
+        setNotification({ 
+          type: 'success', 
+          message: `✅ Corregidos ${workersToFix.length} trabajador${workersToFix.length > 1 ? 'es' : ''} que estaban incorrectamente marcados como "cesado"` 
+        });
+        setTimeout(() => setNotification(null), 5000);
       } catch (error) {
-        console.error('Error al corregir trabajadores cesados:', error);
+        console.error('Error al corregir trabajadores incorrectamente marcados como cesado:', error);
+        setNotification({ 
+          type: 'error', 
+          message: 'Error al corregir trabajadores. Por favor, ejecute el script SQL manualmente.' 
+        });
+        setTimeout(() => setNotification(null), 5000);
       }
     };
 
     // Ejecutar solo una vez al cargar la unidad
-    fixCesadosWorkers();
-  }, [unit.id]); // Solo cuando cambia el ID de la unidad
+    fixIncorrectlyCesadoWorkers();
+  }, [unit.id, onUpdate]); // Agregar onUpdate a las dependencias
 
   // Mantener el tab activo incluso cuando la unidad se actualiza
   const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
@@ -6931,12 +6953,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         setEditingResource({
                                           ...editingResource, 
                                           endDate,
-                                          personnelStatus: endDate ? 'cesado' as const : 'activo' as const,
-                                          // Se archivará automáticamente al guardar si tiene endDate
+                                          // NO cambiar automáticamente el estado basado en endDate
+                                          // endDate es solo referencial para monitoreo del término del contrato
+                                          // El cese/archivo se hace manualmente mediante la acción de "Cesar"
                                         });
                                       }} />
                                       {editingResource.endDate && (
-                                        <p className="text-xs text-amber-600 mt-1">El trabajador será cesado y archivado automáticamente al guardar</p>
+                                        <p className="text-xs text-blue-600 mt-1">La fecha de fin de contrato es solo referencial para monitoreo. No afecta el estado del trabajador.</p>
                                       )}
                                   </div>
                               </div>
