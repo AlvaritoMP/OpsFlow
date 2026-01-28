@@ -108,13 +108,13 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole }) => {
 
   return (
     <div className="p-6">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center mb-2">
-            <ArchiveIcon className="mr-3" size={28} />
-            Archivo de Personal
-          </h1>
-          <p className="text-slate-600">Trabajadores cesados o archivados</p>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-800 flex items-center mb-2">
+          <ArchiveIcon className="mr-3" size={28} />
+          Archivo de Personal
+        </h1>
+        <p className="text-slate-600">Trabajadores cesados o archivados</p>
+      </div>
 
       {/* Barra de búsqueda */}
       <div className="mb-6">
