@@ -659,7 +659,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Total de unidades registradas en el sistema. Incluye todas las unidades sin importar su estado."
+        >
           <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
             <Building2 size={20} className="md:w-6 md:h-6" />
           </div>
@@ -668,7 +671,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-xl md:text-2xl font-bold text-slate-800">{totalUnits}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Unidades con estado 'Activo'. Calculado como: unidades.filter(u => u.status === 'Activo').length"
+        >
           <div className="p-2 md:p-3 bg-green-100 text-green-600 rounded-lg shrink-0">
             <CheckCircle size={20} className="md:w-6 md:h-6" />
           </div>
@@ -677,7 +683,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-xl md:text-2xl font-bold text-slate-800">{activeUnits}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Total de trabajadores activos (no archivados y no cesados). Los trabajadores compartidos se cuentan solo una vez usando DNI o nombre como identificador único. Fórmula: Trabajadores únicos + Trabajadores compartidos (sin duplicar)."
+        >
           <div className="p-2 md:p-3 bg-purple-100 text-purple-600 rounded-lg shrink-0">
             <Users size={20} className="md:w-6 md:h-6" />
           </div>
@@ -686,7 +695,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-xl md:text-2xl font-bold text-slate-800">{totalWorkers}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Unidades con estado 'Con Incidencias'. Calculado como: unidades.filter(u => u.status === 'Con Incidencias').length"
+        >
           <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
             <AlertTriangle size={20} className="md:w-6 md:h-6" />
           </div>
@@ -695,7 +707,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-xl md:text-2xl font-bold text-slate-800">{issueUnits}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Trabajadores activos con turno 'Diurno' asignado. Los trabajadores compartidos se cuentan solo una vez. Se filtra por assignedShift que contenga 'diurno', 'día', 'dia', 'day' o 'morning'."
+        >
           <div className="p-2 md:p-3 bg-yellow-100 text-yellow-600 rounded-lg shrink-0">
             <Sun size={20} className="md:w-6 md:h-6" />
           </div>
@@ -704,7 +719,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.day}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Trabajadores activos con turno 'Tarde' asignado. Los trabajadores compartidos se cuentan solo una vez. Se filtra por assignedShift que contenga 'tarde' o 'afternoon'."
+        >
           <div className="p-2 md:p-3 bg-orange-100 text-orange-600 rounded-lg shrink-0">
             <Clock size={20} className="md:w-6 md:h-6" />
           </div>
@@ -713,7 +731,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.afternoon}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Trabajadores activos con turno 'Nocturno' asignado. Los trabajadores compartidos se cuentan solo una vez. Se filtra por assignedShift que contenga 'nocturno', 'noche' o 'night'."
+        >
           <div className="p-2 md:p-3 bg-indigo-100 text-indigo-600 rounded-lg shrink-0">
             <Moon size={20} className="md:w-6 md:h-6" />
           </div>
@@ -723,7 +744,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
           </div>
         </div>
         {!isClient && (
-          <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div 
+            className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+            title="Total de asignaciones (coberturas) de retenes en el último mes con datos disponibles. Se busca el último mes que tenga asignaciones registradas y se cuenta el total de asignaciones en ese mes."
+          >
             <div className="p-2 md:p-3 bg-teal-100 text-teal-600 rounded-lg shrink-0">
               <Shield size={20} className="md:w-6 md:h-6" />
             </div>
@@ -734,7 +758,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
           </div>
         )}
         {!isClient && (
-          <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div 
+            className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+            title="Promedio diario de utilización de retenes del mes anterior. Se calcula como: (Suma de porcentajes diarios de utilización) / (Días con coberturas realizadas). Solo se consideran los días que tuvieron coberturas. El porcentaje diario se calcula como: (Coberturas del día / Total de retenes disponibles) × 100."
+          >
             <div className="p-2 md:p-3 bg-cyan-100 text-cyan-600 rounded-lg shrink-0">
               <Shield size={20} className="md:w-6 md:h-6" />
             </div>
@@ -747,7 +774,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             </div>
           </div>
         )}
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Trabajadores que iniciaron en el mes actual. Se cuenta por startDate entre el primer día del mes actual y hoy. Los trabajadores compartidos se cuentan solo una vez usando DNI o nombre como identificador único."
+        >
           <div className="p-2 md:p-3 bg-pink-100 text-pink-600 rounded-lg shrink-0">
             <UserPlus size={20} className="md:w-6 md:h-6" />
           </div>
@@ -756,7 +786,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-xl md:text-2xl font-bold text-slate-800">{newWorkersThisMonth}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Rotación mensual de personal. Fórmula: ((Trabajadores nuevos del mes + Trabajadores que salieron del mes) / Trabajadores al inicio del mes) × 100. Los trabajadores al inicio son aquellos con startDate <= primer día del mes y (sin endDate o endDate > primer día del mes)."
+        >
           <div className="p-2 md:p-3 bg-emerald-100 text-emerald-600 rounded-lg shrink-0">
             <TrendingUp size={20} className="md:w-6 md:h-6" />
           </div>
@@ -768,7 +801,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-[10px] text-slate-400">(Nuevos + Salidas) / Inicio</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Tasa de ingreso de personal. Fórmula: (Trabajadores nuevos del mes / Trabajadores al inicio del mes) × 100. Mide qué porcentaje de la plantilla inicial son trabajadores nuevos."
+        >
           <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
             <UserPlus size={20} className="md:w-6 md:h-6" />
           </div>
@@ -780,7 +816,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             <p className="text-[10px] text-slate-400">Nuevos / Inicio</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Tasa de salida de personal. Fórmula: (Trabajadores que salieron del mes / Trabajadores al inicio del mes) × 100. Incluye trabajadores con endDate en el mes actual o que fueron archivados/cesados. Mide qué porcentaje de la plantilla inicial salió."
+        >
           <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
             <UserMinus size={20} className="md:w-6 md:h-6" />
           </div>
@@ -793,7 +832,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
           </div>
         </div>
         {!isClient && (
-          <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+          <div 
+            className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+            title="Retén con más asignaciones en el mes actual. Se cuenta el número de asignaciones por retén y se muestra el que tiene más. Si hay empate, se muestra uno de ellos."
+          >
             <div className="p-2 md:p-3 bg-amber-100 text-amber-600 rounded-lg shrink-0">
               <Star size={20} className="md:w-6 md:h-6" />
             </div>
@@ -808,7 +850,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
             </div>
           </div>
         )}
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title="Trabajadores que salieron durante el mes actual. Incluye trabajadores con endDate entre el primer y último día del mes actual, o que fueron archivados/cesados. Los trabajadores compartidos se cuentan solo una vez. Se consideran tanto trabajadores activos como archivados."
+        >
           <div className="p-2 md:p-3 bg-rose-100 text-rose-600 rounded-lg shrink-0">
             <UserX size={20} className="md:w-6 md:h-6" />
           </div>
