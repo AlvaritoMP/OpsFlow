@@ -30,6 +30,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
   const [workersAtStart, setWorkersAtStart] = useState<number>(0);
   const [retenMetrics, setRetenMetrics] = useState<{ totalRetenes: number; assignments: number; month: string } | null>(null);
   const [utilizationDetails, setUtilizationDetails] = useState<{ sumPercentages: number; daysWithUsage: number; totalDays: number } | null>(null);
+  const [shiftBreakdown, setShiftBreakdown] = useState<{ day: { unique: number; shared: number }; afternoon: { unique: number; shared: number }; night: { unique: number; shared: number } }>({
+    day: { unique: 0, shared: 0 },
+    afternoon: { unique: 0, shared: 0 },
+    night: { unique: 0, shared: 0 }
+  });
+  const [newWorkersBreakdown, setNewWorkersBreakdown] = useState<{ unique: number; shared: number; month: string }>({ unique: 0, shared: 0, month: '' });
+  const [rotationDetails, setRotationDetails] = useState<{ nuevos: number; salidas: number; inicio: number } | null>(null);
+  const [entryRateDetails, setEntryRateDetails] = useState<{ nuevos: number; inicio: number } | null>(null);
+  const [exitRateDetails, setExitRateDetails] = useState<{ salidas: number; inicio: number; deUnidades: number; archivados: number } | null>(null);
   
 
   // Calculate aggregations
@@ -81,6 +90,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
     let afternoonCount = 0;
     let nightCount = 0;
     const sharedWorkersByShift = new Map<string, Set<string>>(); // Map<shift, Set<identifier>>
+    const shiftBreakdownData = {
+      day: { unique: 0, shared: 0 },
+      afternoon: { unique: 0, shared: 0 },
+      night: { unique: 0, shared: 0 }
+    };
 
     units.forEach(unit => {
       unit.resources
