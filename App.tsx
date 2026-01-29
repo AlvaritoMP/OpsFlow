@@ -24,7 +24,7 @@ import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
 import { Login } from './components/Login';
 import { authService } from './services/authService';
-import { LogOut, FileText, RefreshCw, Eye, Cake, X } from 'lucide-react';
+import { LogOut, FileText, RefreshCw, Eye, Cake, X, Download } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
 import { PositionsManagementSection } from './components/PositionsManagement';
@@ -637,6 +637,82 @@ const App: React.FC = () => {
         return [...prev, unitId];
       }
     });
+  };
+
+  const handleExportUnitsToExcel = async () => {
+    try {
+      const { excelService } = await import('./services/excelService');
+      
+      // Preparar datos de las unidades para exportar
+      const exportData = visibleUnits.map(unit => {
+        const staffCount = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived && r.personnelStatus !== 'cesado').length;
+        const equipmentCount = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT).length;
+        const materialsCount = unit.resources.filter(r => r.type === ResourceType.MATERIAL).length;
+        const pendingRequestsCount = unit.requests?.filter(r => r.status === 'PENDING').length || 0;
+        const zonesNames = unit.zones.map(z => z.name).join(', ') || 'Sin zonas';
+        const lastComplianceScore = unit.complianceHistory && unit.complianceHistory.length > 0 
+          ? unit.complianceHistory[unit.complianceHistory.length - 1].score 
+          : 'N/A';
+        
+        return {
+          'Nombre': unit.name,
+          'Cliente': unit.clientName || '',
+          'Dirección': unit.address || '',
+          'Estado': unit.status || '',
+          'Descripción': unit.description || '',
+          'Latitud': unit.latitude || '',
+          'Longitud': unit.longitude || '',
+          'Personal Activo': staffCount,
+          'Equipos': equipmentCount,
+          'Materiales': materialsCount,
+          'Total Recursos': staffCount + equipmentCount + materialsCount,
+          'Zonas': unit.zones.length,
+          'Nombres de Zonas': zonesNames,
+          'Coordinador': unit.coordinator?.name || '',
+          'Supervisor Residente': unit.residentSupervisor?.name || '',
+          'Supervisor de Ronda': unit.rovingSupervisor?.name || '',
+          'Documentos': unit.documents?.length || 0,
+          'Puestos Requeridos': unit.requiredPositions?.length || 0,
+          'Solicitudes Pendientes': pendingRequestsCount,
+          'Score Cumplimiento': lastComplianceScore,
+          'Imágenes': unit.images?.length || 0,
+        };
+      });
+
+      const headers = [
+        'Nombre',
+        'Cliente',
+        'Dirección',
+        'Estado',
+        'Descripción',
+        'Latitud',
+        'Longitud',
+        'Personal Activo',
+        'Equipos',
+        'Materiales',
+        'Total Recursos',
+        'Zonas',
+        'Nombres de Zonas',
+        'Coordinador',
+        'Supervisor Residente',
+        'Supervisor de Ronda',
+        'Documentos',
+        'Puestos Requeridos',
+        'Solicitudes Pendientes',
+        'Score Cumplimiento',
+        'Imágenes',
+      ];
+
+      await excelService.exportToExcel(exportData, headers, {
+        filename: `unidades_${new Date().toISOString().split('T')[0]}.xlsx`,
+        sheetName: 'Unidades',
+      });
+
+      alert(`✅ Se exportaron ${visibleUnits.length} unidad${visibleUnits.length !== 1 ? 'es' : ''} correctamente`);
+    } catch (error: any) {
+      console.error('Error al exportar unidades:', error);
+      alert(`❌ Error al exportar: ${error.message || 'Error desconocido'}`);
+    }
   };
 
   const handleSaveVisibleUnits = async () => {
@@ -1496,14 +1572,23 @@ const App: React.FC = () => {
                 {unitSearchQuery && ` para "${unitSearchQuery}"`}
               </p>
             </div>
-            {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
+            <div className="flex gap-2">
               <button 
-                onClick={() => setShowAddUnitModal(true)}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 transition-colors shadow-sm"
+                onClick={handleExportUnitsToExcel}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-green-700 transition-colors shadow-sm"
+                title="Exportar unidades a Excel"
               >
-                <Plus size={20} className="mr-2" /> Nueva Unidad
+                <Download size={20} className="mr-2" /> Exportar Excel
               </button>
-            )}
+              {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
+                <button 
+                  onClick={() => setShowAddUnitModal(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  <Plus size={20} className="mr-2" /> Nueva Unidad
+                </button>
+              )}
+            </div>
           </div>
           
           {/* Search Bar */}

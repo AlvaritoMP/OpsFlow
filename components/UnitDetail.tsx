@@ -2566,7 +2566,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Estos campos se manejan por separado y solo se actualizan si se modifican explícitamente
       const { assignedAssets, trainings, workSchedule, ...resourceData } = editingResource;
       
-      const resourceToUpdate = resourceData;
+      // Asegurar que si el trabajador NO está archivado, el estado sea "activo"
+      // endDate es solo referencial y NO debe cambiar el estado automáticamente
+      const resourceToUpdate = {
+        ...resourceData,
+        // Si NO está archivado explícitamente, forzar estado "activo"
+        // Esto previene que trabajadores con endDate sean marcados como "cesado"
+        personnelStatus: editingResource.archived === true 
+          ? (editingResource.personnelStatus || 'activo')
+          : 'activo' // Si no está archivado, siempre debe ser "activo"
+      };
       
       // Guardar en la BD (sin assignedAssets, trainings, workSchedule)
       await resourcesService.update(editingResource.id, resourceToUpdate);
@@ -3177,10 +3186,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       if (showArchivedPersonnel) {
         return r.archived === true; // Solo trabajadores explícitamente archivados
       }
-      // Si estamos viendo activos, excluir solo los archivados explícitamente
-      // Los trabajadores con endDate pero activos SÍ deben mostrarse
-      // Los trabajadores con personnelStatus = 'cesado' pero no archivados también se muestran (para poder cesarlos)
-      return !r.archived; // Solo excluir los explícitamente archivados
+      // Si estamos viendo activos, mostrar solo trabajadores activos
+      // endDate es solo referencial y NO debe afectar la visualización
+      // Un trabajador solo debe aparecer como "cesado" si fue explícitamente cesado mediante el proceso de cese
+      // Los trabajadores con endDate pero activos SÍ deben mostrarse (endDate es solo para monitoreo)
+      // NO mostrar trabajadores con personnelStatus = 'cesado' en la vista de activos
+      return !r.archived && r.personnelStatus !== 'cesado';
     });
   }, [resourcesForRoster, showArchivedPersonnel]);
   
