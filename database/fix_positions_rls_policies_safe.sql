@@ -1,32 +1,23 @@
 -- ============================================
--- CORRECCIÓN DE POLÍTICAS RLS PARA POSITIONS
+-- CORRECCIÓN DE POLÍTICAS RLS PARA POSITIONS (VERSIÓN SEGURA)
 -- ============================================
--- Este script ajusta las políticas RLS de la tabla positions
--- para permitir que todos los usuarios autenticados puedan ver
--- los puestos activos, independientemente de su rol.
+-- Este script crea nuevas políticas RLS para la tabla positions
+-- SIN eliminar las políticas existentes, evitando así advertencias
+-- de operaciones destructivas.
 --
 -- Problema identificado:
 -- Las políticas actuales requieren auth.role() = 'authenticated',
 -- pero cuando no hay sesión de Supabase Auth activa, las consultas fallan.
 --
 -- Solución:
--- Permitir acceso a puestos activos a usuarios autenticados
--- y mantener restricciones solo para operaciones de escritura.
+-- Crear nuevas políticas que permitan acceso a puestos activos
+-- a usuarios autenticados. Las políticas antiguas seguirán existiendo
+-- pero las nuevas tendrán prioridad.
 
--- 1. Crear o reemplazar política que permita a todos los usuarios autenticados ver puestos activos
+-- 1. Crear política que permita a todos los usuarios autenticados ver puestos activos
 -- Esta política permite ver puestos activos a cualquier usuario autenticado
 DO $$
 BEGIN
-  -- Eliminar política antigua si existe
-  IF EXISTS (
-    SELECT 1 FROM pg_policies 
-    WHERE tablename = 'positions' 
-    AND policyname = 'Users can view active positions'
-  ) THEN
-    DROP POLICY "Users can view active positions" ON positions;
-  END IF;
-  
-  -- Crear nueva política
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies 
     WHERE tablename = 'positions' 
@@ -37,22 +28,16 @@ BEGIN
     FOR SELECT
     TO authenticated
     USING (is_active = true);
+    
+    RAISE NOTICE 'Política "Authenticated users can view active positions" creada exitosamente';
+  ELSE
+    RAISE NOTICE 'Política "Authenticated users can view active positions" ya existe';
   END IF;
 END $$;
 
--- 2. Crear o reemplazar política que permita a admins ver todos los puestos (activos e inactivos)
+-- 2. Crear política que permita a admins ver todos los puestos (activos e inactivos)
 DO $$
 BEGIN
-  -- Eliminar política antigua si existe
-  IF EXISTS (
-    SELECT 1 FROM pg_policies 
-    WHERE tablename = 'positions' 
-    AND policyname = 'Admins can view all positions'
-  ) THEN
-    DROP POLICY "Admins can view all positions" ON positions;
-  END IF;
-  
-  -- Crear nueva política si no existe
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies 
     WHERE tablename = 'positions' 
@@ -70,11 +55,14 @@ BEGIN
         AND users.role IN ('ADMIN', 'SUPER_ADMIN')
       )
     );
+    
+    RAISE NOTICE 'Política "Admins can view all positions (updated)" creada exitosamente';
+  ELSE
+    RAISE NOTICE 'Política "Admins can view all positions (updated)" ya existe';
   END IF;
 END $$;
 
--- 4. Mantener las políticas de escritura existentes (ya están bien configuradas)
--- Solo verificar que existan, si no, crearlas
+-- 3. Verificar y crear políticas de escritura si no existen
 
 -- Política para INSERT (solo admins)
 DO $$
@@ -96,6 +84,10 @@ BEGIN
         AND users.role IN ('ADMIN', 'SUPER_ADMIN')
       )
     );
+    
+    RAISE NOTICE 'Política "Admins can insert positions" creada exitosamente';
+  ELSE
+    RAISE NOTICE 'Política "Admins can insert positions" ya existe';
   END IF;
 END $$;
 
@@ -119,6 +111,10 @@ BEGIN
         AND users.role IN ('ADMIN', 'SUPER_ADMIN')
       )
     );
+    
+    RAISE NOTICE 'Política "Admins can update positions" creada exitosamente';
+  ELSE
+    RAISE NOTICE 'Política "Admins can update positions" ya existe';
   END IF;
 END $$;
 
@@ -142,19 +138,26 @@ BEGIN
         AND users.role IN ('ADMIN', 'SUPER_ADMIN')
       )
     );
+    
+    RAISE NOTICE 'Política "Admins can delete positions" creada exitosamente';
+  ELSE
+    RAISE NOTICE 'Política "Admins can delete positions" ya existe';
   END IF;
 END $$;
 
 -- ============================================
 -- NOTA IMPORTANTE:
 -- ============================================
+-- Este script NO elimina políticas existentes, solo crea nuevas.
+-- Si quieres eliminar las políticas antiguas después de verificar
+-- que las nuevas funcionan, puedes ejecutar manualmente:
+--
+-- DROP POLICY IF EXISTS "Users can view active positions" ON positions;
+-- DROP POLICY IF EXISTS "Admins can view all positions" ON positions;
+--
 -- Si el problema persiste después de ejecutar este script,
 -- puede ser que el usuario no tenga una sesión de Supabase Auth activa.
 -- En ese caso, el usuario debe:
 -- 1. Cerrar sesión
 -- 2. Volver a iniciar sesión
 -- Esto creará la sesión de Supabase Auth necesaria para que RLS funcione.
---
--- Alternativamente, si se necesita acceso sin sesión de Auth,
--- se puede deshabilitar RLS temporalmente o crear políticas más permisivas,
--- pero esto no es recomendado por seguridad.
