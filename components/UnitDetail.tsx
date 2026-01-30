@@ -562,28 +562,29 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 'Las imágenes se mantendrán en el formulario para subirlas después.'
               );
             
-            if (!userWantsToSaveWithoutImages) {
-              // El usuario canceló, no guardar
-              return;
+              if (!userWantsToSaveWithoutImages) {
+                // El usuario canceló, no guardar
+                return;
+              }
+              
+              // El usuario quiere guardar sin imágenes, remover los blob URLs
+              console.log('ℹ️ Usuario decidió guardar sin imágenes nuevas');
+              finalImages = editForm.images.filter(img => !img.startsWith('blob:'));
+              
+              // Actualizar el formulario para remover blob URLs
+              setEditForm(prev => ({
+                ...prev,
+                images: finalImages
+              }));
+              
+              setNotification({ 
+                type: 'info', 
+                message: 'Unidad guardada sin las imágenes nuevas. Para subir imágenes, cierra sesión y vuelve a iniciar sesión.' 
+              });
+              setTimeout(() => setNotification(null), 8000);
+              
+              // Continuar con el guardado sin las imágenes blob
             }
-            
-            // El usuario quiere guardar sin imágenes, remover los blob URLs
-            console.log('ℹ️ Usuario decidió guardar sin imágenes nuevas');
-            finalImages = editForm.images.filter(img => !img.startsWith('blob:'));
-            
-            // Actualizar el formulario para remover blob URLs
-            setEditForm(prev => ({
-              ...prev,
-              images: finalImages
-            }));
-            
-            setNotification({ 
-              type: 'info', 
-              message: 'Unidad guardada sin las imágenes nuevas. Para subir imágenes, cierra sesión y vuelve a iniciar sesión.' 
-            });
-            setTimeout(() => setNotification(null), 8000);
-            
-            // Continuar con el guardado sin las imágenes blob
           } else {
             setNotification({ 
               type: 'error', 
@@ -594,7 +595,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           }
         } else {
           // Hay sesión, continuar con la subida normal
-        
           console.log('✅ Sesión de Supabase Auth activa para manejo de imágenes:', session.user.id);
           
           // Intentar subir cada imagen blob
