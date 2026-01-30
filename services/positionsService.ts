@@ -11,13 +11,12 @@ export const positionsService = {
     try {
       console.log('🔍 positionsService.getAll - Iniciando consulta...', { includeInactive });
       
-      // Verificar sesión de Supabase Auth primero
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // Verificar sesión de Supabase Auth (solo para logging, no bloquear)
+      // La política RLS "Public can view active positions" permite acceso sin Auth
+      const { data: { session } } = await supabase.auth.getSession();
       
-      if (sessionError || !session) {
-        console.warn('⚠️ positionsService.getAll - No hay sesión de Supabase Auth activa');
-        console.warn('⚠️ Esto puede causar problemas con RLS. Intentando consulta de todas formas...');
-      } else {
+      // Solo loguear si hay sesión, no mostrar warnings si no hay
+      if (session) {
         console.log('✅ positionsService.getAll - Sesión de Supabase Auth activa:', session.user.id);
       }
       

@@ -190,6 +190,8 @@ export const authService = {
 
               // Intentar crear sesión de Supabase Auth para compatibilidad con Storage
               // Esto es necesario para que Storage funcione
+              // IMPORTANTE: Si el usuario existe en Auth pero la contraseña no coincide,
+              // continuamos con la sesión local sin bloquear la aplicación
               try {
                 const authResult = await supabase.auth.signInWithPassword({
                   email: email.toLowerCase(),
@@ -197,12 +199,35 @@ export const authService = {
                 });
                 
                 if (authResult.error) {
-                  // Si el usuario no existe en Auth, intentar crearlo
-                  if (authResult.error.message?.includes('Invalid login credentials') || 
-                      authResult.error.message?.includes('Email not confirmed')) {
-                    console.log('ℹ️ Usuario existe en Auth pero credenciales no coinciden o email no confirmado');
-                    // Intentar sign up (puede fallar si ya existe, pero lo intentamos)
+                  // Verificar si el usuario existe en Auth pero las credenciales no coinciden
+                  const isInvalidCredentials = authResult.error.message?.includes('Invalid login credentials') || 
+                                               authResult.error.message?.includes('Email not confirmed') ||
+                                               authResult.status === 400;
+                  
+                  // Verificar si el usuario existe en Auth
+                  let userExistsInAuth = false;
+                  try {
+                    // Intentar obtener el usuario por email (esto no requiere contraseña)
+                    const { data: { user } } = await supabase.auth.admin.getUserByEmail(email.toLowerCase());
+                    userExistsInAuth = !!user;
+                  } catch (e) {
+                    // Si no podemos verificar, asumimos que puede existir
+                    userExistsInAuth = isInvalidCredentials;
+                  }
+                  
+                  if (userExistsInAuth && isInvalidCredentials) {
+                    // El usuario existe en Auth pero la contraseña no coincide
+                    console.warn('⚠️ Usuario existe en Supabase Auth pero la contraseña no coincide.');
+                    console.warn('⚠️ Continuando con sesión local. Para subir imágenes, necesitas que la contraseña en Auth coincida con la de la tabla users.');
+                    console.warn('⚠️ SOLUCIÓN: Restablece la contraseña en Supabase Dashboard → Authentication → Users para que coincida.');
+                    // Continuar sin bloquear - la sesión local ya está activa
+                  } else if (authResult.error.message?.includes('User not found') || !userExistsInAuth) {
+                    // El usuario no existe en Auth, intentar crearlo
+                    console.log('ℹ️ Usuario no existe en Supabase Auth. Intentando crear cuenta...');
+                    
+                    // Verificar si el email ya está registrado en Auth
                     try {
+                      // Intentar sign up (puede fallar si ya existe)
                       const signUpResult = await supabase.auth.signUp({
                         email: email.toLowerCase(),
                         password: password,
@@ -210,34 +235,87 @@ export const authService = {
                           data: {
                             name: dbUser.name,
                             role: dbUser.role,
-                          }
+                          },
+                          emailRedirectTo: undefined, // No requerir confirmación de email
                         }
                       });
                       
-                      if (signUpResult.error && !signUpResult.error.message?.includes('already registered')) {
-                        console.warn('⚠️ No se pudo crear cuenta en Supabase Auth:', signUpResult.error.message);
+                      if (signUpResult.error) {
+                        if (signUpResult.error.message?.includes('already registered') || 
+                            signUpResult.error.message?.includes('User already registered')) {
+                          console.log('ℹ️ Usuario ya existe en Supabase Auth. Intentando sign in con credenciales...');
+                          // El usuario existe pero las credenciales pueden no coincidir
+                          // Intentar sign in de nuevo después de un momento
+                          await new Promise(resolve => setTimeout(resolve, 1000));
+                          const retryResult = await supabase.auth.signInWithPassword({
+                            email: email.toLowerCase(),
+                            password: password,
+                          });
+                          
+                          if (retryResult.error) {
+                            console.warn('⚠️ No se pudo autenticar con Supabase Auth después de crear cuenta:', retryResult.error.message);
+                            console.warn('⚠️ Esto puede deberse a que la contraseña en Auth es diferente a la de la tabla users.');
+                            console.warn('⚠️ SOLUCIÓN: Ejecuta el script SQL para migrar usuarios a Supabase Auth o restablece la contraseña en Supabase Dashboard.');
+                          } else {
+                            console.log('✅ Sesión de Supabase Auth creada correctamente después de reintento');
+                          }
+                        } else {
+                          console.warn('⚠️ No se pudo crear cuenta en Supabase Auth:', signUpResult.error.message);
+                          console.warn('⚠️ Código de error:', signUpResult.error.status);
+                          console.warn('⚠️ Esto puede deberse a políticas de Supabase que requieren confirmación de email.');
+                        }
                       } else if (signUpResult.data?.user) {
                         console.log('✅ Cuenta creada en Supabase Auth, intentando sign in...');
-                        // Esperar un momento y luego intentar sign in
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        await supabase.auth.signInWithPassword({
+                        // Esperar un momento para que Supabase procese el signup
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        const signInResult = await supabase.auth.signInWithPassword({
                           email: email.toLowerCase(),
                           password: password,
                         });
+                        
+                        if (signInResult.error) {
+                          console.warn('⚠️ No se pudo hacer sign in después de crear cuenta:', signInResult.error.message);
+                          console.warn('⚠️ Puede ser necesario confirmar el email o esperar unos segundos.');
+                        } else {
+                          console.log('✅ Sesión de Supabase Auth creada correctamente');
+                        }
                       }
-                    } catch (signUpErr) {
+                    } catch (signUpErr: any) {
                       console.warn('⚠️ Error al crear cuenta en Supabase Auth:', signUpErr);
+                      console.warn('⚠️ Detalles:', {
+                        message: signUpErr.message,
+                        status: signUpErr.status,
+                        code: signUpErr.code
+                      });
                     }
                   } else {
                     console.warn('⚠️ Error al autenticar con Supabase Auth:', authResult.error.message);
+                    console.warn('⚠️ Código de error:', authResult.error.status);
                   }
                 } else {
                   console.log('✅ Sesión de Supabase Auth creada correctamente');
                 }
               } catch (authErr: any) {
                 // Si falla, la sesión local ya está activa, pero Storage no funcionará
+                // No bloquear la aplicación - solo advertir de forma menos agresiva
                 console.warn('⚠️ No se pudo crear sesión de Supabase Auth:', authErr?.message || authErr);
-                console.warn('⚠️ La sesión local está activa, pero Storage requerirá re-autenticación');
+                console.warn('⚠️ La sesión local está activa. La aplicación funcionará normalmente.');
+                console.warn('⚠️ Para subir imágenes a Storage, necesitas sesión de Supabase Auth.');
+                console.warn('⚠️ SOLUCIÓN: Si tu usuario existe en Auth, asegúrate de que la contraseña coincida.');
+                console.warn('⚠️ Puedes restablecer la contraseña en Supabase Dashboard → Authentication → Users');
+              }
+              
+              // Verificar si finalmente se creó la sesión de Auth (sin bloquear si no existe)
+              try {
+                const { data: { session: finalSession } } = await supabase.auth.getSession();
+                if (finalSession) {
+                  console.log('✅ Sesión de Supabase Auth verificada:', finalSession.user.id);
+                } else {
+                  // No mostrar advertencia agresiva - solo log informativo
+                  console.log('ℹ️ Sesión local activa. Sesión de Supabase Auth no disponible (esto es normal si las contraseñas no coinciden).');
+                }
+              } catch (e) {
+                // Ignorar errores de verificación - no es crítico
               }
 
               // Registrar login en auditoría
@@ -576,9 +654,71 @@ export const authService = {
         throw new Error(`Error al actualizar contraseña: ${updateError.message}`);
       }
 
-      // NOTA: No podemos actualizar la contraseña en Supabase Auth desde el cliente
-      // porque requiere service_role key. Si el usuario existe en Auth, necesitará
-      // usar "Olvidé mi contraseña" o se debe crear una Edge Function para sincronizar.
+      // Intentar actualizar también en Supabase Auth si el usuario existe allí
+      // Esto es importante para que Storage funcione correctamente
+      try {
+        // Si es el propio usuario cambiando su contraseña y tiene sesión de Auth activa
+        if (isOwnPassword) {
+          const { data: { session: authSession } } = await supabase.auth.getSession();
+          if (authSession && authSession.user) {
+            // Actualizar contraseña en Supabase Auth
+            const { error: authUpdateError } = await supabase.auth.updateUser({
+              password: newPassword
+            });
+            
+            if (authUpdateError) {
+              console.warn('⚠️ No se pudo actualizar contraseña en Supabase Auth:', authUpdateError.message);
+              console.warn('⚠️ La contraseña se actualizó en la tabla users, pero puede que necesites cerrar sesión y volver a iniciar para que Supabase Auth se sincronice.');
+            } else {
+              console.log('✅ Contraseña actualizada también en Supabase Auth');
+            }
+          } else {
+            console.log('ℹ️ No hay sesión de Supabase Auth activa. La contraseña se actualizó en la tabla users.');
+            // Intentar crear sesión de Auth con la nueva contraseña
+            try {
+              const { data: { user: targetUser } } = await usersService.getById(userId);
+              if (targetUser) {
+                const signInResult = await supabase.auth.signInWithPassword({
+                  email: targetUser.email,
+                  password: newPassword,
+                });
+                
+                if (signInResult.error) {
+                  console.warn('⚠️ No se pudo crear sesión de Supabase Auth automáticamente:', signInResult.error.message);
+                  console.warn('⚠️ Esto puede deberse a que el usuario no existe en Auth o las credenciales no coinciden.');
+                  console.warn('⚠️ La contraseña se actualizó correctamente. Cierra sesión y vuelve a iniciar para que se sincronice.');
+                } else {
+                  console.log('✅ Sesión de Supabase Auth creada automáticamente con la nueva contraseña');
+                }
+              }
+            } catch (autoAuthError: any) {
+              console.warn('⚠️ No se pudo crear sesión de Auth automáticamente:', autoAuthError.message);
+              console.warn('⚠️ La contraseña se actualizó correctamente. Cierra sesión y vuelve a iniciar.');
+            }
+          }
+        } else {
+          // Si un admin está cambiando la contraseña de otro usuario
+          // Intentar actualizar en Supabase Auth usando la sesión del admin
+          // Nota: Esto solo funcionará si el admin tiene sesión de Auth activa
+          const { data: { session: adminSession } } = await supabase.auth.getSession();
+          if (adminSession && adminSession.user) {
+            // Buscar el usuario en Auth por email
+            try {
+              // Nota: No podemos actualizar directamente la contraseña de otro usuario desde el cliente
+              // sin service_role key. Pero podemos intentar hacer signIn con las nuevas credenciales
+              // para verificar que funcionan, o simplemente informar al usuario.
+              console.log('ℹ️ Un administrador cambió la contraseña. El usuario deberá usar la nueva contraseña en su próximo login.');
+              console.log('ℹ️ Si el usuario existe en Supabase Auth, necesitará restablecer su contraseña desde el Dashboard o usar "Olvidé mi contraseña".');
+            } catch (e) {
+              // Ignorar errores - no es crítico
+            }
+          }
+        }
+      } catch (authSyncError: any) {
+        // No bloquear si falla la sincronización con Auth
+        console.warn('⚠️ No se pudo sincronizar contraseña con Supabase Auth:', authSyncError.message);
+        console.warn('⚠️ La contraseña se actualizó correctamente en la tabla users.');
+      }
 
       // Registrar en auditoría
       if (targetUser) {

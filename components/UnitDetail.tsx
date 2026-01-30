@@ -548,19 +548,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError || !session) {
-          console.warn('⚠️ No hay sesión de Supabase Auth activa. Las nuevas imágenes no pueden guardarse.');
+          // No hay sesión de Auth - las imágenes se mantendrán como blob
+          // No mostrar warning agresivo, solo continuar
           const { authService } = await import('../services/authService');
           const localSession = authService.getSession();
           if (localSession) {
-            // Mostrar mensaje claro y preguntar si quiere guardar sin las imágenes
-            const userWantsToSaveWithoutImages = window.confirm(
-              '⚠️ No hay sesión de Supabase Auth activa.\n\n' +
-              'Para subir imágenes necesitas:\n' +
-              '1. Cerrar sesión (botón en la esquina superior derecha)\n' +
-              '2. Volver a iniciar sesión con tu email y contraseña\n\n' +
-              '¿Deseas guardar la unidad SIN las imágenes nuevas?\n\n' +
-              'Las imágenes seleccionadas se mantendrán en el formulario para subirlas después.'
-            );
+            // Solo preguntar si realmente hay imágenes blob que no se pueden subir
+            if (blobImages.length > 0) {
+              const userWantsToSaveWithoutImages = window.confirm(
+                'No se puede subir las imágenes nuevas ahora.\n\n' +
+                'Para subir imágenes necesitas sesión de Supabase Auth.\n\n' +
+                '¿Deseas guardar la unidad SIN las imágenes nuevas?\n\n' +
+                'Las imágenes se mantendrán en el formulario para subirlas después.'
+              );
             
             if (!userWantsToSaveWithoutImages) {
               // El usuario canceló, no guardar
@@ -976,29 +976,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError || !session) {
-          console.log('⚠️ No hay sesión de Supabase Auth. La imagen se agregará como blob URL y se intentará subir al guardar.');
-          const { authService } = await import('../services/authService');
-          const localSession = authService.getSession();
-          
-          if (localSession) {
-            setNotification({ 
-              type: 'info', 
-              message: '⚠️ Imagen agregada al formulario.\n\n' +
-                       'Para subirla ahora, necesitas una sesión de Supabase Auth activa.\n\n' +
-                       'SOLUCIÓN:\n' +
-                       '1. Cierra sesión (botón en la esquina superior derecha)\n' +
-                       '2. Vuelve a iniciar sesión con tu email y contraseña\n' +
-                       '3. Esto creará la sesión necesaria para subir imágenes\n\n' +
-                       'La imagen se intentará subir automáticamente cuando guardes la unidad.' 
-            });
-            setTimeout(() => setNotification(null), 12000);
-          } else {
-            setNotification({ 
-              type: 'error', 
-              message: 'Debes estar autenticado para subir imágenes. Por favor, inicia sesión.' 
-            });
-            setTimeout(() => setNotification(null), 8000);
-          }
+          // No hay sesión de Auth - la imagen se agregará como blob
+          // No mostrar notificación agresiva - solo continuar silenciosamente
+          // La imagen se subirá cuando se guarde la unidad si hay sesión
           hasAuthSession = false;
         } else {
           console.log('✅ Sesión de Supabase Auth verificada:', session.user.id);

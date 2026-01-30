@@ -910,7 +910,14 @@ const App: React.FC = () => {
           
           setShowChangePasswordModal(false);
           setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
-          alert('✅ Contraseña actualizada correctamente');
+          
+          // Verificar si es el propio usuario
+          const isOwnPassword = currentUser?.id === passwordForm.userId;
+          if (isOwnPassword) {
+            alert('✅ Contraseña actualizada correctamente.\n\nSi no puedes subir imágenes, cierra sesión y vuelve a iniciar para sincronizar con Supabase Auth.');
+          } else {
+            alert('✅ Contraseña actualizada correctamente.\n\nEl usuario deberá usar la nueva contraseña en su próximo login.');
+          }
       } catch (error: any) {
           console.error('Error al cambiar contraseña:', error);
           const errorMessage = error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.';
