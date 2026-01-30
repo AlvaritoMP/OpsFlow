@@ -685,8 +685,19 @@ export const authService = {
                 
                 if (signInResult.error) {
                   console.warn('⚠️ No se pudo crear sesión de Supabase Auth automáticamente:', signInResult.error.message);
-                  console.warn('⚠️ Esto puede deberse a que el usuario no existe en Auth o las credenciales no coinciden.');
-                  console.warn('⚠️ La contraseña se actualizó correctamente. Cierra sesión y vuelve a iniciar para que se sincronice.');
+                  console.warn('⚠️ Esto significa que la contraseña en Supabase Auth no coincide con la nueva contraseña.');
+                  console.warn('⚠️ SOLUCIÓN: Debes actualizar la contraseña en Supabase Auth manualmente:');
+                  console.warn('   1. Ve a Supabase Dashboard → Authentication → Users');
+                  console.warn('   2. Busca tu usuario y cambia la contraseña para que coincida con la nueva');
+                  console.warn('   3. O usa el script reset_password.js con tu SERVICE_ROLE_KEY');
+                  console.warn('⚠️ La contraseña se actualizó correctamente en la tabla users.');
+                  // No lanzar error - solo advertir. La contraseña se actualizó correctamente en users.
+                  // El usuario puede seguir usando la app, solo no podrá subir imágenes hasta que sincronice Auth.
+                  console.warn('⚠️ IMPORTANTE: La contraseña se actualizó en la tabla users.');
+                  console.warn('⚠️ Para subir imágenes, necesitas actualizar la contraseña en Supabase Auth también.');
+                  console.warn('⚠️ Ve a Supabase Dashboard → Authentication → Users y cambia la contraseña manualmente.');
+                  // No lanzar error - permitir que el cambio de contraseña se complete exitosamente
+                  // El usuario verá el mensaje en la consola y puede actualizar Auth manualmente
                 } else {
                   console.log('✅ Sesión de Supabase Auth creada automáticamente con la nueva contraseña');
                 }

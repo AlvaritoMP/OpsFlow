@@ -30,6 +30,7 @@ import { SafeImage } from './components/SafeImage';
 import { PositionsManagementSection } from './components/PositionsManagement';
 import { Headcount } from './components/Headcount';
 import { Archive } from './components/Archive';
+import { PasswordReset } from './components/PasswordReset';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -40,6 +41,9 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'archive'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
+  
+  // Estado para manejo de recuperación de contraseña
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
   
   // Estado para gestión de unidades visibles por usuario CLIENT
   const [showVisibleUnitsModal, setShowVisibleUnitsModal] = useState(false);
@@ -298,6 +302,21 @@ const App: React.FC = () => {
     };
 
     checkAuth();
+    
+    // Verificar si hay un token de recuperación de contraseña en la URL
+    const hash = window.location.hash;
+    if (hash) {
+      const params = new URLSearchParams(hash.substring(1)); // Remover el #
+      const accessToken = params.get('access_token');
+      const type = params.get('type');
+      
+      if (accessToken && type === 'recovery') {
+        console.log('🔑 Token de recuperación de contraseña detectado en la URL');
+        setPasswordResetToken(accessToken);
+        // Limpiar la URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
     
     return () => {
       mounted = false;
@@ -914,13 +933,35 @@ const App: React.FC = () => {
           // Verificar si es el propio usuario
           const isOwnPassword = currentUser?.id === passwordForm.userId;
           if (isOwnPassword) {
-            alert('✅ Contraseña actualizada correctamente.\n\nSi no puedes subir imágenes, cierra sesión y vuelve a iniciar para sincronizar con Supabase Auth.');
+            // Verificar si se creó la sesión de Auth
+            try {
+              const { supabase } = await import('./services/supabase');
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session) {
+                alert('✅ Contraseña actualizada correctamente.\n\nLa sesión de Supabase Auth se sincronizó automáticamente. Ahora puedes subir imágenes.');
+              } else {
+                alert('✅ Contraseña actualizada en la tabla users.\n\n⚠️ IMPORTANTE: Para subir imágenes, necesitas actualizar la contraseña en Supabase Auth también.\n\n' +
+                      'SOLUCIÓN:\n' +
+                      '1. Ve a Supabase Dashboard → Authentication → Users\n' +
+                      '2. Busca tu usuario (' + currentUser.email + ')\n' +
+                      '3. Cambia la contraseña para que coincida con la nueva\n' +
+                      '4. Cierra sesión y vuelve a iniciar en la app\n\n' +
+                      'O contacta al administrador para que use el script reset_password.js');
+              }
+            } catch (e) {
+              alert('✅ Contraseña actualizada en la tabla users.\n\n⚠️ Para subir imágenes, actualiza la contraseña en Supabase Auth también.');
+            }
           } else {
             alert('✅ Contraseña actualizada correctamente.\n\nEl usuario deberá usar la nueva contraseña en su próximo login.');
           }
       } catch (error: any) {
           console.error('Error al cambiar contraseña:', error);
-          const errorMessage = error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.';
+          let errorMessage = error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.';
+          
+          // Si el error menciona Supabase Auth, dar instrucciones más claras
+          if (errorMessage.includes('Supabase Auth') || errorMessage.includes('sincronizar')) {
+            errorMessage = error.message; // Usar el mensaje completo del error
+          }
           
           // Si el mensaje contiene información útil, mostrarlo
           if (errorMessage.includes('email de reset') || errorMessage.includes('enviado')) {
@@ -3454,6 +3495,21 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de recuperación de contraseña */}
+      {passwordResetToken && (
+        <PasswordReset
+          accessToken={passwordResetToken}
+          onSuccess={() => {
+            setPasswordResetToken(null);
+            // Recargar la página para que el usuario pueda iniciar sesión
+            window.location.reload();
+          }}
+          onCancel={() => {
+            setPasswordResetToken(null);
+          }}
+        />
       )}
     </div>
     </>
