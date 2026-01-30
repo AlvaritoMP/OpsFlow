@@ -313,8 +313,22 @@ const App: React.FC = () => {
       if (accessToken && type === 'recovery') {
         console.log('🔑 Token de recuperación de contraseña detectado en la URL');
         setPasswordResetToken(accessToken);
-        // Limpiar la URL
-        window.history.replaceState({}, document.title, window.location.pathname);
+        // Limpiar la URL de forma segura
+        try {
+          const cleanPath = window.location.pathname || '/';
+          const cleanUrl = cleanPath.endsWith('/') && cleanPath !== '/' 
+            ? cleanPath.slice(0, -1) 
+            : cleanPath;
+          window.history.replaceState({}, document.title, cleanUrl);
+        } catch (e) {
+          console.warn('No se pudo limpiar la URL:', e);
+          // Intentar con una URL más simple
+          try {
+            window.history.replaceState({}, document.title, '/');
+          } catch (e2) {
+            console.warn('No se pudo limpiar la URL con método alternativo:', e2);
+          }
+        }
       }
     }
     

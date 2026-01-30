@@ -21,14 +21,26 @@ export const PasswordReset: React.FC<PasswordResetProps> = ({ accessToken, onSuc
     // Obtener información del usuario desde el token
     const getUserFromToken = async () => {
       try {
-        // Establecer la sesión temporal con el token de recuperación
-        const { data: { user }, error: sessionError } = await supabase.auth.getUser(accessToken);
+        console.log('🔑 Validando token de recuperación...');
         
-        if (user && !sessionError) {
+        // Primero, intentar obtener el usuario directamente del token
+        // Esto no requiere establecer una sesión completa
+        const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
+        
+        if (user && !userError) {
+          console.log('✅ Token válido, usuario:', user.email);
           setUserEmail(user.email || null);
+        } else {
+          console.error('❌ Error al validar token:', userError);
+          if (userError?.message?.includes('expired') || userError?.message?.includes('invalid')) {
+            setError('El enlace de recuperación ha expirado. Por favor, solicita un nuevo enlace desde Supabase Dashboard.');
+          } else {
+            setError('Token de recuperación inválido. Por favor, solicita un nuevo enlace.');
+          }
         }
-      } catch (err) {
-        console.error('Error al obtener usuario del token:', err);
+      } catch (err: any) {
+        console.error('❌ Error al obtener usuario del token:', err);
+        setError(err.message || 'Error al validar el token de recuperación. Por favor, solicita un nuevo enlace.');
       }
     };
 
@@ -52,40 +64,127 @@ export const PasswordReset: React.FC<PasswordResetProps> = ({ accessToken, onSuc
     setLoading(true);
 
     try {
-      // Establecer la sesión con el token de recuperación
-      const { data: { session }, error: sessionError } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: '' // No tenemos refresh token en recovery
-      });
-
-      if (sessionError || !session) {
-        throw new Error('Token de recuperación inválido o expirado. Por favor, solicita un nuevo enlace de recuperación.');
+      console.log('🔑 Intentando actualizar contraseña con token de recuperación...');
+      
+      // Método 1: Intentar establecer sesión primero
+      let session = null;
+      try {
+        const { data: { session: newSession }, error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: '' // Los tokens de recuperación no tienen refresh_token
+        });
+        
+        if (!sessionError && newSession) {
+          session = newSession;
+          console.log('✅ Sesión establecida con token de recuperación');
+        } else {
+          console.warn('⚠️ No se pudo establecer sesión completa:', sessionError?.message);
+          // Continuar con método alternativo
+        }
+      } catch (sessionErr: any) {
+        console.warn('⚠️ Error al establecer sesión:', sessionErr.message);
+        // Continuar con método alternativo
       }
 
-      // Actualizar la contraseña usando la sesión de recuperación
+      // Método 2: Si no hay sesión, usar la API REST directamente con el token
+      if (!session) {
+        console.log('🔄 Usando método alternativo: API REST directa...');
+        
+        // Verificar que el token es válido
+        const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
+        
+        if (userError || !user) {
+          throw new Error('Token de recuperación inválido o expirado. Por favor, solicita un nuevo enlace de recuperación.');
+        }
+        
+        console.log('✅ Token válido, usuario:', user.email);
+        
+        // Usar la API REST de Supabase para actualizar la contraseña
+        // Esto funciona con tokens de recuperación sin necesidad de sesión completa
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://rlnfehtgspnkyeevduli.supabase.co';
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJsbmZlaHRnc3Bua3llZXZkdWxpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NzQ5MzUsImV4cCI6MjA4MDQ1MDkzNX0.8VJfcSBgGylmXrpyVR6wVTMq94P8jlRkfkZgUlvRDtY';
+        
+        console.log('🔄 Llamando a API REST de Supabase para actualizar contraseña...');
+        const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'apikey': supabaseAnonKey
+          },
+          body: JSON.stringify({
+            password: newPassword
+          })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          console.error('❌ Error en API REST:', result);
+          const errorMsg = result.message || result.error_description || result.error || 'No se pudo actualizar la contraseña';
+          
+          if (errorMsg.includes('expired') || errorMsg.includes('invalid') || errorMsg.includes('stale')) {
+            throw new Error('El enlace de recuperación ha expirado. Por favor, solicita un nuevo enlace desde Supabase Dashboard.');
+          }
+          
+          throw new Error(errorMsg);
+        }
+
+        console.log('✅ Contraseña actualizada exitosamente usando API REST');
+        
+        // Actualizar también en tabla users
+        try {
+          const currentUser = await authService.getCurrentUser();
+          if (currentUser && currentUser.email === user.email) {
+            await authService.updatePassword(currentUser.id, newPassword);
+            console.log('✅ Contraseña sincronizada con tabla users');
+          }
+        } catch (usersError) {
+          console.warn('⚠️ No se pudo actualizar contraseña en tabla users:', usersError);
+        }
+        
+        setSuccess(true);
+        setTimeout(() => {
+          onSuccess();
+        }, 2000);
+        return;
+      }
+
+      // Si tenemos sesión, usar el método normal
+      console.log('✅ Sesión establecida, usuario:', session.user.email);
+      console.log('🔐 Actualizando contraseña...');
+      
       const { error: updateError } = await supabase.auth.updateUser({
         password: newPassword
       });
 
       if (updateError) {
+        console.error('❌ Error al actualizar contraseña:', updateError);
         throw new Error(updateError.message || 'Error al actualizar la contraseña');
       }
 
+      console.log('✅ Contraseña actualizada exitosamente en Supabase Auth');
+
       // También actualizar en la tabla users para mantener sincronización
-      if (session.user?.email) {
+      if (session?.user?.email) {
         try {
+          console.log('🔄 Sincronizando contraseña con tabla users...');
           const currentUser = await authService.getCurrentUser();
           if (currentUser && currentUser.email === session.user.email) {
             // Actualizar también en la tabla users
             await authService.updatePassword(currentUser.id, newPassword);
+            console.log('✅ Contraseña sincronizada con tabla users');
+          } else {
+            console.warn('⚠️ No se encontró usuario en tabla users para sincronizar');
           }
         } catch (usersError) {
-          console.warn('No se pudo actualizar contraseña en tabla users:', usersError);
+          console.warn('⚠️ No se pudo actualizar contraseña en tabla users:', usersError);
           // No es crítico, la contraseña ya se actualizó en Auth
         }
       }
 
       setSuccess(true);
+      console.log('✅ Proceso de recuperación de contraseña completado exitosamente');
       
       // Esperar un momento y luego cerrar
       setTimeout(() => {
