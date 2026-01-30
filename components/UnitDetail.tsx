@@ -788,7 +788,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       let errorMessage = `Error al guardar: ${error.message || 'Error desconocido'}`;
       
-      if (error.message?.includes('permission') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
+      // Detectar errores de red y proporcionar mensajes más útiles
+      if (error?.name === 'NetworkError' || 
+          error?.message?.includes('conexión') || 
+          error?.message?.includes('Failed to fetch') ||
+          error?.message?.includes('ERR_FAILED')) {
+        errorMessage = 'Error de conexión con el servidor.\n\n' +
+                      'Por favor, verifica tu conexión a internet e intenta de nuevo.\n\n' +
+                      'Si el problema persiste, puede ser que el servidor esté temporalmente no disponible.\n\n' +
+                      'Los cambios que hiciste se mantendrán en el formulario. Puedes intentar guardar de nuevo cuando se restablezca la conexión.';
+      } else if (error?.name === 'TimeoutError' || error?.message?.includes('timeout')) {
+        errorMessage = 'La solicitud tardó demasiado tiempo.\n\n' +
+                      'Por favor, intenta de nuevo. Si el problema persiste, verifica tu conexión a internet.\n\n' +
+                      'Los cambios que hiciste se mantendrán en el formulario.';
+      } else if (error.message?.includes('permission') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
         errorMessage = `Error de permisos al guardar. Verifica que tengas permisos para editar unidades y que las políticas RLS estén configuradas correctamente.\n\nError: ${error.message}`;
       }
       
@@ -796,7 +809,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         type: 'error', 
         message: errorMessage
       });
-      setTimeout(() => setNotification(null), 8000);
+      setTimeout(() => setNotification(null), 12000); // Más tiempo para leer mensajes de error de red
     }
   };
 
@@ -941,158 +954,138 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       console.log('📤 Iniciando subida de imagen:', file.name, file.size, 'bytes');
       
-      // Verificar sesión de Supabase Auth ANTES de crear el blob URL
-      // Si no hay sesión, intentar crearla desde la sesión local
+      // Crear blob URL inmediatamente para mostrar preview
+      const tempUrl = URL.createObjectURL(file);
+      
+      // Agregar la imagen al formulario inmediatamente (como blob URL)
+      setEditForm(prev => {
+        const updated = {
+          ...prev,
+          images: [...prev.images, tempUrl]
+        };
+        console.log('🖼️ Imagen agregada al formulario (blob URL):', tempUrl);
+        return updated;
+      });
+      
+      // Verificar sesión de Supabase Auth para intentar subir inmediatamente
+      // Si no hay sesión, la imagen se mantendrá como blob URL y se intentará subir al guardar
+      let hasAuthSession = false;
+      
       try {
         const { supabase } = await import('../services/supabase');
-        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError || !session) {
-          console.log('⚠️ No hay sesión de Supabase Auth, intentando crear desde sesión local...');
+          console.log('⚠️ No hay sesión de Supabase Auth. La imagen se agregará como blob URL y se intentará subir al guardar.');
           const { authService } = await import('../services/authService');
           const localSession = authService.getSession();
           
           if (localSession) {
-            // El usuario tiene sesión local pero no de Supabase Auth
-            // Esto significa que el usuario inició sesión con password_hash pero no se creó la sesión de Auth
-            // La mejor solución es que el usuario cierre sesión y vuelva a iniciar sesión
-            // El código de signIn ya intenta crear la sesión de Auth, así que si el usuario
-            // cierra sesión y vuelve a iniciar, debería funcionar
-            
-            // Verificar de nuevo si ahora hay sesión
-            if (!session) {
-              const { data: { session: newSession } } = await supabase.auth.getSession();
-              session = newSession || undefined;
-            }
-            
-            if (!session) {
-              console.error('❌ No se pudo crear sesión de Supabase Auth');
-              setNotification({ 
-                type: 'error', 
-                message: '⚠️ No se puede subir la imagen ahora.\n\n' +
-                         'Para subir imágenes necesitas una sesión de Supabase Auth activa.\n\n' +
-                         'SOLUCIÓN:\n' +
-                         '1. Cierra sesión (botón en la esquina superior derecha)\n' +
-                         '2. Vuelve a iniciar sesión con tu email y contraseña\n' +
-                         '3. Esto creará la sesión necesaria para subir imágenes\n\n' +
-                         'La imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.' 
-              });
-              setTimeout(() => setNotification(null), 15000);
-              
-              // NO limpiar el input - permitir que la imagen se agregue como blob URL
-              // para intentar subirla cuando se guarde
-            }
+            setNotification({ 
+              type: 'info', 
+              message: '⚠️ Imagen agregada al formulario.\n\n' +
+                       'Para subirla ahora, necesitas una sesión de Supabase Auth activa.\n\n' +
+                       'SOLUCIÓN:\n' +
+                       '1. Cierra sesión (botón en la esquina superior derecha)\n' +
+                       '2. Vuelve a iniciar sesión con tu email y contraseña\n' +
+                       '3. Esto creará la sesión necesaria para subir imágenes\n\n' +
+                       'La imagen se intentará subir automáticamente cuando guardes la unidad.' 
+            });
+            setTimeout(() => setNotification(null), 12000);
           } else {
             setNotification({ 
               type: 'error', 
               message: 'Debes estar autenticado para subir imágenes. Por favor, inicia sesión.' 
             });
             setTimeout(() => setNotification(null), 8000);
-            
-            // Limpiar el input solo si no hay sesión local
-            if (fileInput) {
-              fileInput.value = '';
-            }
-            return;
           }
+          hasAuthSession = false;
+        } else {
+          console.log('✅ Sesión de Supabase Auth verificada:', session.user.id);
+          hasAuthSession = true;
         }
-        
-        console.log('✅ Sesión de Supabase Auth verificada:', session?.user?.id);
       } catch (authCheckError) {
         console.error('❌ Error al verificar sesión de Auth:', authCheckError);
-        setNotification({ 
-          type: 'error', 
-          message: 'Error al verificar autenticación. Por favor, intenta de nuevo.' 
-        });
-        setTimeout(() => setNotification(null), 5000);
-        
-        // Limpiar el input
-        if (fileInput) {
-          fileInput.value = '';
-        }
-        return;
+        hasAuthSession = false;
       }
       
-      // Mostrar preview temporal mientras se sube
-      const tempUrl = URL.createObjectURL(file);
-      
-      // Agregar a la lista de imágenes que se están subiendo
-      setUploadingImages(prev => new Set(prev).add(tempUrl));
-      
-      setEditForm({ ...editForm, images: [...editForm.images, tempUrl] });
-      console.log('🖼️ Preview temporal creado:', tempUrl);
-      
-      try {
-        // Subir a Supabase Storage
-        const { storageService } = await import('../services/storageService');
-        const timestamp = Date.now();
-        const fileName = `unit-${unit.id}-${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-        const path = `units/${unit.id}/${fileName}`;
+      // Si hay sesión de Auth, intentar subir inmediatamente
+      if (hasAuthSession) {
+        // Agregar a la lista de imágenes que se están subiendo
+        setUploadingImages(prev => new Set(prev).add(tempUrl));
         
-        console.log('☁️ Subiendo a Storage:', { bucket: 'unit-images', path });
-        const permanentUrl = await storageService.uploadFile('unit-images', file, path);
-        console.log('✅ URL permanente obtenida:', permanentUrl);
-        
-        // Reemplazar el blob URL temporal con la URL permanente
-        setEditForm(prev => {
-          const updated = {
-            ...prev,
-            images: prev.images.map(img => img === tempUrl ? permanentUrl : img)
-          };
-          console.log('🔄 Estado actualizado con URL permanente. Total imágenes:', updated.images.length);
-          return updated;
-        });
-        
-        // Remover de la lista de imágenes que se están subiendo
-        setUploadingImages(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(tempUrl);
-          return newSet;
-        });
-        
-        // Limpiar el blob URL temporal
-        URL.revokeObjectURL(tempUrl);
-        
-        setNotification({ type: 'success', message: 'Imagen subida correctamente' });
-        setTimeout(() => setNotification(null), 3000);
-      } catch (error: any) {
-        console.error('❌ Error al subir imagen:', error);
-        console.error('❌ Detalles del error:', {
-          message: error.message,
-          stack: error.stack,
-          name: error.name
-        });
-        
-        // Remover de la lista de imágenes que se están subiendo
-        setUploadingImages(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(tempUrl);
-          return newSet;
-        });
-        
-        // NO remover la imagen temporal si falló la subida
-        // La mantendremos como blob URL para intentar subirla cuando se guarde la unidad
-        console.log('ℹ️ Imagen blob mantenida en el formulario. Se intentará subir al guardar la unidad.');
-        
-        // Mensaje de error más específico
-        let errorMessage = `No se pudo subir la imagen automáticamente: ${error.message || 'Error desconocido'}`;
-        
-        if (error.message?.includes('Supabase Auth') || error.message?.includes('sesión')) {
-          errorMessage = `No se puede subir la imagen ahora.\n\n${error.message}\n\nLa imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.\n\nSi el problema persiste, cierra sesión y vuelve a iniciar sesión para activar la sesión de Supabase Auth necesaria.`;
-        } else {
-          errorMessage = `No se pudo subir la imagen automáticamente.\n\n${error.message}\n\nLa imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.`;
+        try {
+          // Subir a Supabase Storage
+          const { storageService } = await import('../services/storageService');
+          const timestamp = Date.now();
+          const fileName = `unit-${unit.id}-${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+          const path = `units/${unit.id}/${fileName}`;
+          
+          console.log('☁️ Subiendo a Storage:', { bucket: 'unit-images', path });
+          const permanentUrl = await storageService.uploadFile('unit-images', file, path);
+          console.log('✅ URL permanente obtenida:', permanentUrl);
+          
+          // Reemplazar el blob URL temporal con la URL permanente
+          setEditForm(prev => {
+            const updated = {
+              ...prev,
+              images: prev.images.map(img => img === tempUrl ? permanentUrl : img)
+            };
+            console.log('🔄 Estado actualizado con URL permanente. Total imágenes:', updated.images.length);
+            return updated;
+          });
+          
+          // Remover de la lista de imágenes que se están subiendo
+          setUploadingImages(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(tempUrl);
+            return newSet;
+          });
+          
+          // Limpiar el blob URL temporal
+          URL.revokeObjectURL(tempUrl);
+          
+          setNotification({ type: 'success', message: 'Imagen subida correctamente' });
+          setTimeout(() => setNotification(null), 3000);
+        } catch (error: any) {
+          console.error('❌ Error al subir imagen:', error);
+          console.error('❌ Detalles del error:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+          });
+          
+          // Remover de la lista de imágenes que se están subiendo
+          setUploadingImages(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(tempUrl);
+            return newSet;
+          });
+          
+          // NO remover la imagen temporal si falló la subida
+          // La mantendremos como blob URL para intentar subirla cuando se guarde la unidad
+          console.log('ℹ️ Imagen blob mantenida en el formulario. Se intentará subir al guardar la unidad.');
+          
+          // Mensaje de error más específico
+          let errorMessage = `No se pudo subir la imagen automáticamente: ${error.message || 'Error desconocido'}`;
+          
+          if (error.message?.includes('Supabase Auth') || error.message?.includes('sesión')) {
+            errorMessage = `No se puede subir la imagen ahora.\n\n${error.message}\n\nLa imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.\n\nSi el problema persiste, cierra sesión y vuelve a iniciar sesión para activar la sesión de Supabase Auth necesaria.`;
+          } else {
+            errorMessage = `No se pudo subir la imagen automáticamente.\n\n${error.message}\n\nLa imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.`;
+          }
+          
+          setNotification({ 
+            type: 'error', 
+            message: errorMessage
+          });
+          setTimeout(() => setNotification(null), 10000);
         }
-        
-        setNotification({ 
-          type: 'error', 
-          message: errorMessage
-        });
-        setTimeout(() => setNotification(null), 10000); // Más tiempo para leer el mensaje
-      } finally {
-        // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
-        if (fileInput) {
-          fileInput.value = '';
-        }
+      }
+      
+      // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
+      if (fileInput) {
+        fileInput.value = '';
       }
     }
   };
@@ -6604,7 +6597,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     ))}
                   </select>
                   {positions.length === 0 && (
-                    <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
+                    <div className="text-xs text-slate-500 mt-1">
+                      <p>No hay puestos definidos.</p>
+                      <p className="mt-1 text-amber-600">
+                        Si sabes que existen puestos en la base de datos, verifica tu conexión y sesión de Supabase Auth.
+                      </p>
+                      <p className="mt-1">
+                        Configúralos en Configuración → Gestión de Puestos.
+                      </p>
+                    </div>
                   )}
                 </div>
                 
@@ -7049,7 +7050,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     ))}
                                   </select>
                                   {positions.length === 0 && (
-                                    <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
+                                    <div className="text-xs text-slate-500 mt-1">
+                                      <p>No hay puestos definidos.</p>
+                                      <p className="mt-1 text-amber-600">
+                                        Si sabes que existen puestos en la base de datos, verifica tu conexión y sesión de Supabase Auth.
+                                      </p>
+                                      <p className="mt-1">
+                                        Configúralos en Configuración → Gestión de Puestos.
+                                      </p>
+                                    </div>
                                   )}
                               </div>
                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
@@ -7817,9 +7826,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   ))}
                 </select>
                 {positions.length === 0 && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.
-                  </p>
+                  <div className="text-xs text-slate-500 mt-1">
+                    <p>No hay puestos definidos.</p>
+                    <p className="mt-1 text-amber-600">
+                      Si sabes que existen puestos en la base de datos, verifica tu conexión y sesión de Supabase Auth.
+                    </p>
+                    <p className="mt-1">
+                      Configúralos en Configuración → Gestión de Puestos.
+                    </p>
+                  </div>
                 )}
               </div>
               <div>

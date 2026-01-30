@@ -11,6 +11,16 @@ export const positionsService = {
     try {
       console.log('🔍 positionsService.getAll - Iniciando consulta...', { includeInactive });
       
+      // Verificar sesión de Supabase Auth primero
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.warn('⚠️ positionsService.getAll - No hay sesión de Supabase Auth activa');
+        console.warn('⚠️ Esto puede causar problemas con RLS. Intentando consulta de todas formas...');
+      } else {
+        console.log('✅ positionsService.getAll - Sesión de Supabase Auth activa:', session.user.id);
+      }
+      
       let query = supabase
         .from('positions')
         .select('*')
@@ -27,14 +37,61 @@ export const positionsService = {
           message: error.message,
           code: error.code,
           details: error.details,
-          hint: error.hint
+          hint: error.hint,
+          hasSession: !!session
         });
+        
+        // Si es un error de RLS o permisos, dar un mensaje más claro
+        if (error.code === '42501' || 
+            error.message?.includes('permission denied') || 
+            error.message?.includes('row-level security') ||
+            error.message?.includes('new row violates row-level security')) {
+          console.error('⚠️ Error de permisos RLS en tabla positions.');
+          console.error('⚠️ Verifica que:');
+          console.error('   1. Tengas una sesión de Supabase Auth activa (cierra sesión y vuelve a iniciar)');
+          console.error('   2. Las políticas RLS estén configuradas correctamente');
+          console.error('   3. Se haya ejecutado el script fix_positions_rls_policies_safe.sql');
+          
+          // Intentar una consulta más simple como fallback
+          console.log('🔄 Intentando consulta alternativa...');
+          try {
+            const { data: fallbackData, error: fallbackError } = await supabase
+              .from('positions')
+              .select('id, name, is_active')
+              .eq('is_active', true)
+              .order('name', { ascending: true })
+              .limit(100);
+            
+            if (!fallbackError && fallbackData) {
+              console.log(`✅ Consulta alternativa exitosa: ${fallbackData.length} puestos encontrados`);
+              const transformed = fallbackData.map((p: any) => ({
+                id: p.id,
+                name: p.name,
+                description: undefined,
+                isActive: p.is_active ?? true,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }));
+              return transformed;
+            }
+          } catch (fallbackErr) {
+            console.error('❌ Consulta alternativa también falló:', fallbackErr);
+          }
+        }
+        
         throw error;
       }
 
       console.log(`✅ positionsService.getAll - ${data?.length || 0} puestos encontrados`);
       const transformed = (data || []).map(transformPositionFromDB);
       console.log('📋 Puestos transformados:', transformed.length);
+      
+      if (transformed.length === 0) {
+        console.warn('⚠️ positionsService.getAll - No se encontraron puestos. Verifica:');
+        console.warn('   1. Que existan puestos en la base de datos');
+        console.warn('   2. Que las políticas RLS permitan el acceso');
+        console.warn('   3. Que tengas una sesión de Supabase Auth activa');
+      }
       
       return transformed;
     } catch (error: any) {
@@ -46,12 +103,8 @@ export const positionsService = {
         stack: error.stack
       });
       
-      // Si es un error de RLS o permisos, dar un mensaje más claro
-      if (error.code === '42501' || error.message?.includes('permission denied') || error.message?.includes('row-level security')) {
-        console.error('⚠️ Error de permisos RLS en tabla positions. Verifica las políticas de seguridad en Supabase.');
-      }
-      
-      handleSupabaseError(error);
+      // No lanzar el error, solo retornar array vacío para que la app no se rompa
+      // El componente mostrará un mensaje si no hay puestos
       return [];
     }
   },

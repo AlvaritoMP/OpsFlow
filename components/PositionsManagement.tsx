@@ -176,13 +176,24 @@ export const PositionsManagementSection: React.FC<PositionsManagementSectionProp
             <p className="mt-2">Cargando puestos...</p>
           </div>
         ) : positions.length === 0 ? (
-          <div className="text-center py-8 text-slate-400">
-            <Briefcase size={48} className="mx-auto mb-4 opacity-20" />
-            <p>No hay puestos definidos</p>
+          <div className="text-center py-8">
+            <Briefcase size={48} className="mx-auto mb-4 opacity-20 text-slate-400" />
+            <p className="text-slate-600 font-medium mb-2">No se encontraron puestos</p>
+            <div className="text-sm text-slate-500 space-y-2 max-w-md mx-auto">
+              <p>Esto puede deberse a:</p>
+              <ul className="list-disc list-inside text-left space-y-1">
+                <li>No hay puestos creados en la base de datos</li>
+                <li>Problemas de permisos RLS (verifica tu sesión de Supabase Auth)</li>
+                <li>Problemas de conexión con el servidor</li>
+              </ul>
+              <p className="mt-4 text-amber-600">
+                Si sabes que existen puestos en la base de datos, verifica la consola del navegador (F12) para ver los errores detallados.
+              </p>
+            </div>
             {isAdmin && (
               <button
                 onClick={() => handleOpenModal()}
-                className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                className="mt-6 text-blue-600 hover:text-blue-700 text-sm font-medium px-4 py-2 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
               >
                 Crear el primer puesto
               </button>

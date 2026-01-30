@@ -438,10 +438,30 @@ const App: React.FC = () => {
       // await loadUnits(); // Comentado para evitar recargas que interrumpen la edición
       
       // Notificación de éxito se maneja en el componente que llama
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al actualizar unidad:', error);
+      
+      // Mejorar mensajes de error para el usuario
+      let errorMessage = error?.message || 'Error desconocido al actualizar la unidad';
+      
+      if (error?.name === 'NetworkError' || error?.message?.includes('conexión') || error?.message?.includes('Failed to fetch')) {
+        errorMessage = 'Error de conexión con el servidor.\n\n' +
+                      'Por favor, verifica tu conexión a internet e intenta de nuevo.\n\n' +
+                      'Si el problema persiste, puede ser que el servidor esté temporalmente no disponible.';
+      } else if (error?.name === 'TimeoutError' || error?.message?.includes('timeout')) {
+        errorMessage = 'La solicitud tardó demasiado tiempo.\n\n' +
+                      'Por favor, intenta de nuevo. Si el problema persiste, verifica tu conexión a internet.';
+      } else if (error?.message?.includes('permission') || error?.message?.includes('RLS') || error?.message?.includes('row-level security')) {
+        errorMessage = 'Error de permisos al actualizar la unidad.\n\n' +
+                      'Verifica que tengas permisos para editar unidades y que las políticas RLS estén configuradas correctamente.';
+      }
+      
+      // Crear un nuevo error con el mensaje mejorado
+      const improvedError = new Error(errorMessage);
+      improvedError.name = error?.name || 'UpdateError';
+      
       // El error se propaga para que el componente pueda mostrar su propia notificación
-      throw error;
+      throw improvedError;
     }
   };
 

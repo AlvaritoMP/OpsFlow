@@ -259,9 +259,19 @@ export const unitsService = {
 
   // Actualizar una unidad
   async update(id: string, unit: Partial<Unit>, skipAuditLog: boolean = false): Promise<Unit> {
+    let oldUnit: Unit | null = null;
+    
     try {
       // Obtener la unidad antes de actualizar para el log (solo si vamos a registrar)
-      const oldUnit = skipAuditLog ? null : await this.getById(id);
+      // Si falla, continuar sin el log (no es crítico)
+      if (!skipAuditLog) {
+        try {
+          oldUnit = await this.getById(id);
+        } catch (getError: any) {
+          console.warn('⚠️ No se pudo obtener unidad antes de actualizar (para log). Continuando...', getError);
+          // Continuar sin oldUnit - el log de auditoría se omitirá
+        }
+      }
       
       const unitData = transformUnitToDB(unit);
 
@@ -406,8 +416,69 @@ export const unitsService = {
         }
       }
 
-      const updatedUnit = await this.getById(id);
-      if (!updatedUnit) throw new Error('Unidad no encontrada');
+      // Intentar obtener la unidad actualizada con reintentos en caso de error de red
+      let updatedUnit: Unit | null = null;
+      let retries = 3;
+      let lastError: any = null;
+      
+      while (retries > 0 && !updatedUnit) {
+        try {
+          updatedUnit = await this.getById(id);
+          if (updatedUnit) break;
+        } catch (getError: any) {
+          lastError = getError;
+          console.warn(`⚠️ Error al obtener unidad actualizada (intentos restantes: ${retries - 1}):`, getError);
+          
+          // Si es un error de red, esperar un poco antes de reintentar
+          if (getError.message?.includes('Failed to fetch') || getError.message?.includes('ERR_FAILED') || getError.name === 'TypeError') {
+            retries--;
+            if (retries > 0) {
+              console.log(`🔄 Reintentando en 1 segundo... (${retries} intentos restantes)`);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          } else {
+            // Si no es error de red, no reintentar
+            break;
+          }
+        }
+      }
+      
+      if (!updatedUnit) {
+        // Si no pudimos obtener la unidad actualizada, intentar construirla desde los datos que tenemos
+        console.warn('⚠️ No se pudo obtener unidad actualizada después de actualizar. Construyendo desde datos locales...');
+        
+        // Construir unidad básica desde los datos que tenemos
+        const fallbackUnit: Unit = {
+          ...unit as Unit,
+          id,
+          name: unit.name || 'Unidad sin nombre',
+          clientName: unit.clientName || '',
+          address: unit.address || '',
+          status: unit.status || UnitStatus.ACTIVE,
+          resources: unit.resources || [],
+          logs: unit.logs || [],
+          requests: unit.requests || [],
+          zones: unit.zones || [],
+          images: unit.images || [],
+          blueprintLayers: unit.blueprintLayers || [],
+          complianceHistory: unit.complianceHistory || [],
+          requiredPositions: unit.requiredPositions || [],
+          documents: unit.documents || [],
+          assignedStaff: unit.assignedStaff || [],
+        };
+        
+        // Si tenemos oldUnit, usar sus datos como base
+        if (oldUnit) {
+          updatedUnit = {
+            ...oldUnit,
+            ...fallbackUnit,
+          };
+        } else {
+          updatedUnit = fallbackUnit;
+        }
+        
+        console.warn('⚠️ Usando unidad construida desde datos locales. Algunos datos pueden estar desactualizados.');
+      }
 
       // Registrar en auditoría solo si no se omite explícitamente (para evitar logs de actualizaciones optimistas)
       if (!skipAuditLog && oldUnit) {
