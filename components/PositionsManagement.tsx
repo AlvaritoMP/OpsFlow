@@ -30,11 +30,29 @@ export const PositionsManagementSection: React.FC<PositionsManagementSectionProp
     try {
       setLoading(true);
       const data = await positionsService.getAll(showInactive);
+      console.log(`✅ PositionsManagement - ${data.length} puestos cargados`);
       setPositions(data);
-    } catch (error) {
-      console.error('Error al cargar puestos:', error);
-      setNotification({ type: 'error', message: 'Error al cargar puestos' });
-      setTimeout(() => setNotification(null), 3000);
+      
+      if (data.length === 0) {
+        console.warn('⚠️ No se encontraron puestos. Verifica que existan en la base de datos y que tengas permisos para verlos.');
+      }
+    } catch (error: any) {
+      console.error('❌ Error al cargar puestos:', error);
+      console.error('❌ Detalles:', {
+        message: error.message,
+        code: error.code,
+        details: error.details
+      });
+      
+      let errorMessage = 'Error al cargar puestos';
+      if (error.message?.includes('permission denied') || error.message?.includes('row-level security') || error.code === '42501') {
+        errorMessage = 'Error de permisos al cargar puestos. Verifica que tengas una sesión de Supabase Auth activa. Si el problema persiste, cierra sesión y vuelve a iniciar sesión.';
+      } else if (error.message) {
+        errorMessage = `Error al cargar puestos: ${error.message}`;
+      }
+      
+      setNotification({ type: 'error', message: errorMessage });
+      setTimeout(() => setNotification(null), 8000);
     } finally {
       setLoading(false);
     }

@@ -35,9 +35,23 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
     try {
       setLoading(true);
       const data = await positionsService.getAll(true); // Incluir inactivos para referencia
+      console.log(`✅ Headcount - ${data.length} puestos cargados`);
       setPositions(data);
-    } catch (error) {
-      console.error('Error al cargar puestos:', error);
+      
+      if (data.length === 0) {
+        console.warn('⚠️ Headcount: No se encontraron puestos. Verifica que existan en la base de datos y que tengas permisos para verlos.');
+      }
+    } catch (error: any) {
+      console.error('❌ Headcount - Error al cargar puestos:', error);
+      console.error('❌ Detalles:', {
+        message: error.message,
+        code: error.code,
+        details: error.details
+      });
+      
+      if (error.message?.includes('permission denied') || error.message?.includes('row-level security') || error.code === '42501') {
+        console.error('⚠️ Error de permisos RLS. Verifica que tengas una sesión de Supabase Auth activa.');
+      }
     } finally {
       setLoading(false);
     }

@@ -9,6 +9,8 @@ export const positionsService = {
   // Obtener todas las posiciones
   async getAll(includeInactive: boolean = false): Promise<Position[]> {
     try {
+      console.log('🔍 positionsService.getAll - Iniciando consulta...', { includeInactive });
+      
       let query = supabase
         .from('positions')
         .select('*')
@@ -20,10 +22,35 @@ export const positionsService = {
 
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ positionsService.getAll - Error de Supabase:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
+        throw error;
+      }
 
-      return (data || []).map(transformPositionFromDB);
-    } catch (error) {
+      console.log(`✅ positionsService.getAll - ${data?.length || 0} puestos encontrados`);
+      const transformed = (data || []).map(transformPositionFromDB);
+      console.log('📋 Puestos transformados:', transformed.length);
+      
+      return transformed;
+    } catch (error: any) {
+      console.error('❌ positionsService.getAll - Error completo:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        stack: error.stack
+      });
+      
+      // Si es un error de RLS o permisos, dar un mensaje más claro
+      if (error.code === '42501' || error.message?.includes('permission denied') || error.message?.includes('row-level security')) {
+        console.error('⚠️ Error de permisos RLS en tabla positions. Verifica las políticas de seguridad en Supabase.');
+      }
+      
       handleSupabaseError(error);
       return [];
     }

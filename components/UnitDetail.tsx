@@ -77,9 +77,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       try {
         const { positionsService } = await import('../services/positionsService');
         const data = await positionsService.getAll(true); // Incluir inactivos para referencia
+        console.log('✅ Puestos cargados:', data.length);
         setPositions(data);
-      } catch (error) {
-        console.error('Error al cargar puestos:', error);
+        if (data.length === 0) {
+          console.warn('⚠️ No se encontraron puestos predefinidos. Verifica que existan en la base de datos.');
+        }
+      } catch (error: any) {
+        console.error('❌ Error al cargar puestos:', error);
+        console.error('❌ Detalles del error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details
+        });
+        // Mostrar notificación si hay error
+        setNotification({ 
+          type: 'error', 
+          message: `Error al cargar puestos predefinidos: ${error.message || 'Error desconocido'}. Verifica tu conexión y permisos.` 
+        });
+        setTimeout(() => setNotification(null), 8000);
       }
     };
     loadPositions();
@@ -519,10 +534,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     console.log('📸 Imágenes en editForm:', editForm.images);
 
     // Detectar si hay imágenes locales (blob URLs) que requieren sesión activa para subir
-    const hasBlobImages = editForm.images.some(img => img.startsWith('blob:'));
+    const blobImages = editForm.images.filter(img => img.startsWith('blob:'));
+    const hasBlobImages = blobImages.length > 0;
 
+    // Si hay imágenes blob, intentar subirlas antes de guardar
+    let finalImages = [...editForm.images];
+    
     if (hasBlobImages) {
-      // Solo en este caso exigimos sesión de Supabase Auth, porque habrá subida de nuevas imágenes
+      console.log(`📤 Intentando subir ${blobImages.length} imagen(es) blob antes de guardar...`);
+      
       try {
         const { supabase } = await import('../services/supabase');
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -534,31 +554,98 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           if (localSession) {
             setNotification({ 
               type: 'error', 
-              message: 'No hay sesión de Supabase Auth activa. Inicia sesión nuevamente para poder subir nuevas imágenes.' 
+              message: 'No hay sesión de Supabase Auth activa. Por favor, cierra sesión y vuelve a iniciar sesión para poder subir nuevas imágenes.\n\nLas imágenes seleccionadas se mantendrán en el formulario.' 
+            });
+            setTimeout(() => setNotification(null), 10000);
+            return; // No guardar si necesitamos subir blobs y no hay sesión
+          } else {
+            setNotification({ 
+              type: 'error', 
+              message: 'Debes estar autenticado para subir imágenes. Por favor, inicia sesión.' 
             });
             setTimeout(() => setNotification(null), 8000);
-            return; // No guardar si necesitamos subir blobs y no hay sesión
+            return;
           }
-        } else {
-          console.log('✅ Sesión de Supabase Auth activa para manejo de imágenes:', session.user.id);
         }
+        
+        console.log('✅ Sesión de Supabase Auth activa para manejo de imágenes:', session.user.id);
+        
+        // Intentar subir cada imagen blob
+        const { storageService } = await import('../services/storageService');
+        const uploadedUrls: string[] = [];
+        const failedBlobs: string[] = [];
+        
+        for (const blobUrl of blobImages) {
+          try {
+            // Obtener el archivo desde el blob URL
+            const response = await fetch(blobUrl);
+            const blob = await response.blob();
+            const file = new File([blob], `image-${Date.now()}.${blob.type.split('/')[1] || 'jpg'}`, { type: blob.type });
+            
+            // Subir a Storage
+            const timestamp = Date.now();
+            const fileName = `unit-${unit.id}-${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+            const path = `units/${unit.id}/${fileName}`;
+            
+            console.log('☁️ Subiendo imagen blob a Storage:', path);
+            const permanentUrl = await storageService.uploadFile('unit-images', file, path);
+            console.log('✅ Imagen subida correctamente:', permanentUrl);
+            
+            uploadedUrls.push(permanentUrl);
+          } catch (uploadError: any) {
+            console.error('❌ Error al subir imagen blob:', uploadError);
+            failedBlobs.push(blobUrl);
+          }
+        }
+        
+        if (failedBlobs.length > 0) {
+          setNotification({ 
+            type: 'error', 
+            message: `No se pudieron subir ${failedBlobs.length} de ${blobImages.length} imagen(es). Por favor, verifica tu conexión y sesión, e intenta de nuevo.\n\nLas imágenes que no se subieron se mantendrán en el formulario.` 
+          });
+          setTimeout(() => setNotification(null), 10000);
+          return; // No guardar si hay imágenes que no se pudieron subir
+        }
+        
+        // Reemplazar blob URLs con URLs permanentes
+        finalImages = editForm.images.map(img => {
+          const blobIndex = blobImages.indexOf(img);
+          if (blobIndex >= 0) {
+            return uploadedUrls[blobIndex];
+          }
+          return img;
+        });
+        
+        // Actualizar el estado del formulario con las URLs permanentes
+        setEditForm(prev => ({
+          ...prev,
+          images: finalImages
+        }));
+        
+        console.log('✅ Todas las imágenes se subieron correctamente. URLs permanentes:', finalImages);
       } catch (authCheckError) {
-        console.warn('⚠️ Error al verificar sesión de Auth:', authCheckError);
+        console.error('❌ Error al verificar sesión de Auth:', authCheckError);
+        setNotification({ 
+          type: 'error', 
+          message: 'Error al verificar autenticación. Por favor, intenta de nuevo.' 
+        });
+        setTimeout(() => setNotification(null), 8000);
+        return;
       }
     } else {
       console.log('ℹ️ No hay nuevas imágenes locales (blob). Se puede guardar aunque no haya sesión de Auth.');
     }
     
-    // Filtrar y limpiar cualquier blob URL que pueda quedar (por si acaso)
-    const cleanedImages = editForm.images.filter(img => {
+    // Filtrar cualquier blob URL que pueda quedar (por seguridad)
+    const cleanedImages = finalImages.filter(img => {
       if (img.startsWith('blob:')) {
-        console.warn('⚠️ Se encontró un blob URL en las imágenes. Omitiendo:', img);
-        return false; // NO mantener blob URLs, deben haberse subido a Storage
+        console.warn('⚠️ Se encontró un blob URL en las imágenes después de intentar subirlas. Omitiendo:', img);
+        return false;
       }
       return true;
     });
     
-    console.log('✅ Imágenes limpiadas (sin blob URLs):', cleanedImages);
+    console.log('✅ Imágenes finales (sin blob URLs):', cleanedImages);
     
     // Geocodificar la dirección si cambió O si no hay coordenadas
     let latitude = editForm.latitude;
@@ -929,22 +1016,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           return newSet;
         });
         
-        // Remover la imagen temporal si falló la subida
-        setEditForm(prev => {
-          const updated = {
-            ...prev,
-            images: prev.images.filter(img => img !== tempUrl)
-          };
-          console.log('🗑️ Imagen temporal removida. Total imágenes:', updated.images.length);
-          return updated;
-        });
-        URL.revokeObjectURL(tempUrl);
+        // NO remover la imagen temporal si falló la subida
+        // La mantendremos como blob URL para intentar subirla cuando se guarde la unidad
+        console.log('ℹ️ Imagen blob mantenida en el formulario. Se intentará subir al guardar la unidad.');
         
         // Mensaje de error más específico
-        let errorMessage = `Error al subir imagen: ${error.message || 'Error desconocido'}`;
+        let errorMessage = `No se pudo subir la imagen automáticamente: ${error.message || 'Error desconocido'}`;
         
         if (error.message?.includes('Supabase Auth') || error.message?.includes('sesión')) {
-          errorMessage = `No se puede subir la imagen.\n\n${error.message}\n\nPor favor, cierra sesión y vuelve a iniciar sesión para activar la sesión de Supabase Auth necesaria.`;
+          errorMessage = `No se puede subir la imagen ahora.\n\n${error.message}\n\nLa imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.\n\nSi el problema persiste, cierra sesión y vuelve a iniciar sesión para activar la sesión de Supabase Auth necesaria.`;
+        } else {
+          errorMessage = `No se pudo subir la imagen automáticamente.\n\n${error.message}\n\nLa imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.`;
         }
         
         setNotification({ 
