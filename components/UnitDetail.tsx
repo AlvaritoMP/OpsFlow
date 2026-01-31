@@ -201,7 +201,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Restaurar el tab activo si la unidad cambia pero es la misma unidad (solo actualización de datos)
   useEffect(() => {
     // Si es la misma unidad (mismo ID), mantener el tab activo
-    if (previousUnitIdForTabRef.current === unit.id) {
+    if (previousUnitIdRef.current === unit.id) {
       // Si el tab cambió inesperadamente, restaurarlo
       if (activeTab !== activeTabRef.current && activeTabRef.current !== 'overview') {
         setActiveTab(activeTabRef.current);
@@ -210,9 +210,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Nueva unidad, resetear a overview
       setActiveTab('overview');
       activeTabRef.current = 'overview';
+      previousUnitIdRef.current = unit.id;
     }
-    previousUnitIdForTabRef.current = unit.id;
-  }, [unit.id]); // Solo cuando cambia el ID de la unidad
+  }, [unit.id, activeTab]); // Solo cuando cambia el ID de la unidad
   
   // Edit Unit General Info State
   const [isEditing, setIsEditing] = useState(false);
