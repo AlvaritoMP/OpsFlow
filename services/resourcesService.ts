@@ -349,11 +349,23 @@ export const resourcesService = {
   // ============================================
 
   async getTrainings(resourceId: string): Promise<Training[]> {
-    const { data } = await supabase
-      .from('trainings')
-      .select('*')
-      .eq('resource_id', resourceId)
-      .order('date', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('trainings')
+        .select('*')
+        .eq('resource_id', resourceId)
+        .order('date', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener capacitaciones para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener capacitaciones:', error);
+      return [];
+    }
 
     return data?.map(t => ({
       id: t.id,
@@ -379,11 +391,23 @@ export const resourcesService = {
   },
 
   async getAssignedAssets(resourceId: string): Promise<AssignedAsset[]> {
-    const { data, error } = await supabase
-      .from('assigned_assets')
-      .select('*')
-      .eq('resource_id', resourceId)
-      .order('date_assigned', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('assigned_assets')
+        .select('*')
+        .eq('resource_id', resourceId)
+        .order('date_assigned', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener activos asignados para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener activos asignados:', error);
+      return [];
+    }
 
     if (error) {
       console.error('Error al obtener assigned assets:', error);
@@ -560,11 +584,23 @@ export const resourcesService = {
   },
 
   async getDailyShifts(resourceId: string): Promise<DailyShift[]> {
-    const { data } = await supabase
-      .from('daily_shifts')
-      .select('*')
-      .eq('resource_id', resourceId)
-      .order('date', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('daily_shifts')
+        .select('*')
+        .eq('resource_id', resourceId)
+        .order('date', { ascending: true });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener turnos para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener turnos:', error);
+      return [];
+    }
 
     return data?.map(s => ({
       date: s.date,
@@ -613,11 +649,23 @@ export const resourcesService = {
   },
 
   async getMaintenanceRecords(resourceId: string): Promise<MaintenanceRecord[]> {
-    const { data } = await supabase
-      .from('maintenance_records')
-      .select('*, maintenance_images(*)')
-      .eq('resource_id', resourceId)
-      .order('date', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_records')
+        .select('*, maintenance_images(*)')
+        .eq('resource_id', resourceId)
+        .order('date', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener registros de mantenimiento para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener registros de mantenimiento:', error);
+      return [];
+    }
 
     return data?.map((m) => {
       const images = m.maintenance_images?.map((img: any) => img.image_url) || [];
@@ -640,19 +688,34 @@ export const resourcesService = {
     try {
       const { contractService } = await import('./contractService');
       return await contractService.getContractHistory(resourceId);
-    } catch (error) {
-      console.error('Error al obtener historial de contratos:', error);
+    } catch (error: any) {
+      // Si es un error de red, no loguear como error crítico
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener historial de contratos para ${resourceId}:`, error.message);
+      } else {
+        console.error('Error al obtener historial de contratos:', error);
+      }
       return [];
     }
   },
 
   async getZoneAssignments(resourceId: string): Promise<string[]> {
-    const { data } = await supabase
-      .from('resource_zone_assignments')
-      .select('zones(name)')
-      .eq('resource_id', resourceId);
-
-    return data?.map((item: any) => item.zones.name) || [];
+    try {
+      const { data, error } = await supabase
+        .from('resource_zone_assignments')
+        .select('zones(name)')
+        .eq('resource_id', resourceId);
+      
+      if (error) throw error;
+      return data?.map((item: any) => item.zones.name) || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener asignaciones de zonas para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener asignaciones de zonas:', error);
+      return [];
+    }
   },
 
   async createZoneAssignments(resourceId: string, zoneNames: string[]): Promise<void> {

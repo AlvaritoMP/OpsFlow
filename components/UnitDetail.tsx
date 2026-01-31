@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download } from 'lucide-react';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
@@ -105,9 +105,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Este useEffect fue eliminado porque marcaba automáticamente como "cesado" a trabajadores con endDate
   // Los trabajadores con endDate pero sin haber sido cesados explícitamente deben mantenerse como "activo"
   
+  // Ref para evitar que se ejecute múltiples veces la corrección de trabajadores cesados
+  const hasFixedCesadoWorkersRef = useRef<Set<string>>(new Set());
+
   // Corregir trabajadores que fueron marcados incorrectamente como "cesado" solo por tener endDate
   // Estos trabajadores deben volver a estado "activo" si no están archivados explícitamente
   React.useEffect(() => {
+    // Evitar ejecutar múltiples veces para la misma unidad
+    if (hasFixedCesadoWorkersRef.current.has(unit.id)) {
+      return;
+    }
+
     const fixIncorrectlyCesadoWorkers = async () => {
       if (!onUpdate) return;
       
@@ -120,9 +128,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         !r.archived // Solo corregir si NO están archivados explícitamente
       );
 
-      if (workersToFix.length === 0) return;
+      if (workersToFix.length === 0) {
+        // Marcar como procesado aunque no haya nada que corregir
+        hasFixedCesadoWorkersRef.current.add(unit.id);
+        return;
+      }
 
       try {
+        // Marcar como procesado ANTES de hacer las actualizaciones para evitar loops
+        hasFixedCesadoWorkersRef.current.add(unit.id);
+
         const { resourcesService } = await import('../services/resourcesService');
         const updatePromises = workersToFix.map(worker => 
           resourcesService.update(worker.id, {
@@ -148,6 +163,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         });
         setTimeout(() => setNotification(null), 5000);
       } catch (error) {
+        // Si hay error, remover de la lista para permitir reintento
+        hasFixedCesadoWorkersRef.current.delete(unit.id);
         console.error('Error al corregir trabajadores incorrectamente marcados como cesado:', error);
         setNotification({ 
           type: 'error', 
@@ -159,7 +176,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
     // Ejecutar solo una vez al cargar la unidad
     fixIncorrectlyCesadoWorkers();
-  }, [unit.id, onUpdate]); // Agregar onUpdate a las dependencias
+  }, [unit.id]); // Remover onUpdate de las dependencias para evitar loops
 
   // Mantener el tab activo incluso cuando la unidad se actualiza
   const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
@@ -184,7 +201,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Restaurar el tab activo si la unidad cambia pero es la misma unidad (solo actualización de datos)
   useEffect(() => {
     // Si es la misma unidad (mismo ID), mantener el tab activo
-    if (previousUnitIdRef.current === unit.id) {
+    if (previousUnitIdForTabRef.current === unit.id) {
       // Si el tab cambió inesperadamente, restaurarlo
       if (activeTab !== activeTabRef.current && activeTabRef.current !== 'overview') {
         setActiveTab(activeTabRef.current);
@@ -194,7 +211,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setActiveTab('overview');
       activeTabRef.current = 'overview';
     }
-    previousUnitIdRef.current = unit.id;
+    previousUnitIdForTabRef.current = unit.id;
   }, [unit.id]); // Solo cuando cambia el ID de la unidad
   
   // Edit Unit General Info State
@@ -202,8 +219,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [editForm, setEditForm] = useState(unit);
   
   // Sincronizar editForm cuando unit cambia (importante para preservar recursos)
+  // Usar un ref para evitar actualizaciones innecesarias
+  const previousUnitIdRef = useRef<string>(unit.id);
   useEffect(() => {
-    setEditForm(unit);
+    // Solo actualizar si cambió el ID de la unidad, no en cada actualización de datos
+    if (previousUnitIdRef.current !== unit.id) {
+      setEditForm(unit);
+      previousUnitIdRef.current = unit.id;
+    }
   }, [unit.id]); // Solo cuando cambia el ID de la unidad
   const [newZoneName, setNewZoneName] = useState('');
   const [newZoneShifts, setNewZoneShifts] = useState<string[]>([]);
@@ -213,6 +236,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
   const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado
+  const [personnelSearchQuery, setPersonnelSearchQuery] = useState<string>(''); // Barra de búsqueda para personal
+  
+  // Limpiar búsqueda cuando cambie el modo de vista o el estado de archivados
+  React.useEffect(() => {
+    setPersonnelSearchQuery('');
+  }, [personnelViewMode, showArchivedPersonnel]);
   
   // Salary increments states
   const [showSalaryIncrementModal, setShowSalaryIncrementModal] = useState(false);
@@ -1633,10 +1662,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const selectAllPersonnel = () => {
-    if (selectedPersonnelIds.length === unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length) {
+    // Usar filteredPersonnel si hay búsqueda activa, sino usar personnel
+    const personnelToUse = personnelSearchQuery.trim() ? filteredPersonnel : personnel;
+    if (selectedPersonnelIds.length === personnelToUse.length && personnelToUse.length > 0) {
       setSelectedPersonnelIds([]);
     } else {
-      setSelectedPersonnelIds(unit.resources.filter(r => r.type === ResourceType.PERSONNEL).map(r => r.id));
+      setSelectedPersonnelIds(personnelToUse.map(p => p.id));
     }
   };
 
@@ -3303,6 +3334,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       return !r.archived && r.personnelStatus !== 'cesado';
     });
   }, [resourcesForRoster, showArchivedPersonnel]);
+
+  // Filtrar personal basado en la búsqueda
+  const filteredPersonnel = useMemo(() => {
+    if (!personnelSearchQuery.trim()) {
+      return personnel;
+    }
+    
+    const query = personnelSearchQuery.toLowerCase().trim();
+    return personnel.filter(worker => {
+      const name = (worker.name || '').toLowerCase();
+      const dni = (worker.dni || '').toLowerCase();
+      const puesto = (worker.puesto || '').toLowerCase();
+      const zones = (worker.assignedZones || []).join(' ').toLowerCase();
+      const email = (worker.email || '').toLowerCase();
+      const phone = (worker.phone || '').toLowerCase();
+      
+      return name.includes(query) || 
+             dni.includes(query) || 
+             puesto.includes(query) || 
+             zones.includes(query) ||
+             email.includes(query) ||
+             phone.includes(query);
+    });
+  }, [personnel, personnelSearchQuery]);
   
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
   const materials = unit.resources.filter(r => r.type === ResourceType.MATERIAL);
@@ -4865,6 +4920,35 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       )}
 
       {personnelViewMode === 'list' ? (
+      <div className="space-y-4">
+        {/* Barra de búsqueda */}
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar por nombre, DNI, puesto, zona, email o teléfono..."
+              value={personnelSearchQuery}
+              onChange={(e) => setPersonnelSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            />
+            {personnelSearchQuery && (
+              <button
+                onClick={() => setPersonnelSearchQuery('')}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                title="Limpiar búsqueda"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+          {personnelSearchQuery && (
+            <p className="mt-2 text-xs text-slate-500">
+              Mostrando {filteredPersonnel.length} de {personnel.length} colaborador{personnel.length !== 1 ? 'es' : ''}
+            </p>
+          )}
+        </div>
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
          {/* Table Header */}
          <div className={`grid grid-cols-12 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[1000px] ${
@@ -4872,7 +4956,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          }`}>
             <div className="col-span-1 flex items-center justify-center">
                {!showArchivedPersonnel && (
-                 <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                 <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === filteredPersonnel.length && filteredPersonnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                )}
             </div>
             <div className="col-span-3 md:col-span-2 lg:col-span-2 whitespace-nowrap">Colaborador</div>
@@ -4888,15 +4972,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          </div>
 
          <div className="divide-y divide-slate-100">
-            {personnel.length === 0 ? (
+            {filteredPersonnel.length === 0 ? (
               <div className="p-12 text-center text-slate-400">
                 <Archive size={48} className="mx-auto mb-4 opacity-20"/>
                 <p className="font-medium">
-                  {showArchivedPersonnel ? 'No hay personal archivado' : 'No hay personal registrado'}
+                  {personnelSearchQuery 
+                    ? `No se encontraron colaboradores que coincidan con "${personnelSearchQuery}"`
+                    : showArchivedPersonnel 
+                      ? 'No hay personal archivado' 
+                      : 'No hay personal registrado'}
                 </p>
               </div>
             ) : (
-              personnel.map(worker => (
+              filteredPersonnel.map(worker => (
                 <div key={worker.id} className={`group transition-colors hover:bg-slate-50 ${showArchivedPersonnel ? 'bg-amber-50/30' : ''}`}>
                  {/* Main Row */}
                  <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[1000px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
@@ -5360,6 +5448,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               ))
             )}
          </div>
+      </div>
       </div>
       ) : (
           // --- ROSTER VIEW (GRID) ---

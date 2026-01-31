@@ -625,7 +625,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                 </>
                               ) : (
                                 <>
-                                  <span className="truncate block">{ev.description}</span>
+                                <span className="truncate block">{ev.description}</span>
                                   {ev.category === 'Log' && (ev.author || ev.originalRef?.author) && (
                                     <span
                                       className={`inline-flex items-center mt-0.5 px-1 py-0.5 rounded-full border text-[8px] md:text-[9px] font-medium ${getAuthorColor(
@@ -731,7 +731,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
             </div>
             
             <div className="p-4 md:p-6 overflow-y-auto flex-1">
-      <div className="space-y-3">
+              <div className="space-y-3">
                 {selectedDayEvents.events.map(ev => (
                   <div
                     key={ev.id}

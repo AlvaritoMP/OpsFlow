@@ -260,7 +260,7 @@ export const authService = {
                             console.log('✅ Sesión de Supabase Auth creada correctamente después de reintento');
                           }
                         } else {
-                          console.warn('⚠️ No se pudo crear cuenta en Supabase Auth:', signUpResult.error.message);
+                        console.warn('⚠️ No se pudo crear cuenta en Supabase Auth:', signUpResult.error.message);
                           console.warn('⚠️ Código de error:', signUpResult.error.status);
                           console.warn('⚠️ Esto puede deberse a políticas de Supabase que requieren confirmación de email.');
                         }
