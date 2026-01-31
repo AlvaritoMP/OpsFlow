@@ -219,15 +219,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [editForm, setEditForm] = useState(unit);
   
   // Sincronizar editForm cuando unit cambia (importante para preservar recursos)
-  // Usar un ref para evitar actualizaciones innecesarias
-  const previousUnitIdRef = useRef<string>(unit.id);
-  useEffect(() => {
-    // Solo actualizar si cambió el ID de la unidad, no en cada actualización de datos
-    if (previousUnitIdRef.current !== unit.id) {
-      setEditForm(unit);
-      previousUnitIdRef.current = unit.id;
-    }
-  }, [unit.id]); // Solo cuando cambia el ID de la unidad
+  // El useEffect más abajo (línea ~500) ya maneja esta sincronización
   const [newZoneName, setNewZoneName] = useState('');
   const [newZoneShifts, setNewZoneShifts] = useState<string[]>([]);
 
