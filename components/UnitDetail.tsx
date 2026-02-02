@@ -228,12 +228,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
   const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado
+  const [showCesadoPersonnel, setShowCesadoPersonnel] = useState(false); // Mostrar personal cesado (no archivado)
   const [personnelSearchQuery, setPersonnelSearchQuery] = useState<string>(''); // Barra de búsqueda para personal
   
-  // Limpiar búsqueda cuando cambie el modo de vista o el estado de archivados
+  // Limpiar búsqueda cuando cambie el modo de vista o el estado de archivados/cesados
   React.useEffect(() => {
     setPersonnelSearchQuery('');
-  }, [personnelViewMode, showArchivedPersonnel]);
+  }, [personnelViewMode, showArchivedPersonnel, showCesadoPersonnel]);
   
   // Salary increments states
   const [showSalaryIncrementModal, setShowSalaryIncrementModal] = useState(false);
@@ -3303,11 +3304,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   
   // Calcular personal archivado usando useMemo para asegurar disponibilidad
   // Incluye solo personal EXPLÍCITAMENTE archivado (archived = true)
-  // NO incluir trabajadores activos con solo endDate o solo personnelStatus = 'cesado'
   const archivedPersonnel = useMemo(() => {
     return unit.resources.filter(r => 
       r.type === ResourceType.PERSONNEL && 
       r.archived === true // Solo trabajadores explícitamente archivados
+    );
+  }, [unit.resources]);
+
+  // Incluye trabajadores cesados pero NO archivados
+  const cesadoPersonnel = useMemo(() => {
+    return unit.resources.filter(r => 
+      r.type === ResourceType.PERSONNEL && 
+      r.personnelStatus === 'cesado' && 
+      !r.archived // Cesados pero no archivados
     );
   }, [unit.resources]);
   
@@ -3318,6 +3327,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       if (showArchivedPersonnel) {
         return r.archived === true; // Solo trabajadores explícitamente archivados
       }
+      // Si estamos viendo cesados, mostrar solo trabajadores cesados (no archivados)
+      if (showCesadoPersonnel) {
+        return r.personnelStatus === 'cesado' && !r.archived;
+      }
       // Si estamos viendo activos, mostrar solo trabajadores activos
       // endDate es solo referencial y NO debe afectar la visualización
       // Un trabajador solo debe aparecer como "cesado" si fue explícitamente cesado mediante el proceso de cese
@@ -3325,7 +3338,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // NO mostrar trabajadores con personnelStatus = 'cesado' en la vista de activos
       return !r.archived && r.personnelStatus !== 'cesado';
     });
-  }, [resourcesForRoster, showArchivedPersonnel]);
+  }, [resourcesForRoster, showArchivedPersonnel, showCesadoPersonnel]);
 
   // Filtrar personal basado en la búsqueda
   const filteredPersonnel = useMemo(() => {
@@ -4780,15 +4793,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h3 className="text-lg font-semibold text-slate-800">
-            Gestión de Personal ({showArchivedPersonnel ? archivedPersonnel.length : personnel.length})
-            {!showArchivedPersonnel && archivedPersonnel.length > 0 && (
-              <span className="text-sm font-normal text-slate-500 ml-2">
-                ({archivedPersonnel.length} archivado{archivedPersonnel.length > 1 ? 's' : ''})
-              </span>
+            Gestión de Personal ({
+              showArchivedPersonnel ? archivedPersonnel.length : 
+              showCesadoPersonnel ? cesadoPersonnel.length : 
+              personnel.length
+            })
+            {!showArchivedPersonnel && !showCesadoPersonnel && (
+              <>
+                {cesadoPersonnel.length > 0 && (
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    ({cesadoPersonnel.length} cesado{cesadoPersonnel.length > 1 ? 's' : ''})
+                  </span>
+                )}
+                {archivedPersonnel.length > 0 && (
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    ({archivedPersonnel.length} archivado{archivedPersonnel.length > 1 ? 's' : ''})
+                  </span>
+                )}
+              </>
             )}
           </h3>
           <p className="text-slate-500 text-sm">
-            {showArchivedPersonnel ? 'Personal archivado' : 'Administración de colaboradores, asistencias y capacitaciones.'}
+            {showArchivedPersonnel ? 'Personal archivado' : 
+             showCesadoPersonnel ? 'Personal cesado (no archivado)' : 
+             'Administración de colaboradores, asistencias y capacitaciones.'}
           </p>
         </div>
         {canViewPersonnel && (
@@ -4797,22 +4825,42 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  <button 
                     onClick={() => setPersonnelViewMode('list')} 
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'list' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
-                    disabled={showArchivedPersonnel}
+                    disabled={showArchivedPersonnel || showCesadoPersonnel}
                  >
                      <Users size={14} className="mr-1.5"/> Lista
                  </button>
                  <button 
                     onClick={() => setPersonnelViewMode('roster')} 
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'roster' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
-                    disabled={showArchivedPersonnel}
+                    disabled={showArchivedPersonnel || showCesadoPersonnel}
                  >
                      <Calendar size={14} className="mr-1.5"/> Turnos / Rostering
                  </button>
              </div>
+             {/* Botón para mostrar/ocultar personal cesado */}
+             {cesadoPersonnel.length > 0 && (
+               <button
+                 onClick={() => {
+                   setShowCesadoPersonnel(!showCesadoPersonnel);
+                   setShowArchivedPersonnel(false); // Asegurar que solo una vista esté activa
+                 }}
+                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center ${
+                   showCesadoPersonnel 
+                     ? 'bg-red-100 text-red-700 hover:bg-red-200' 
+                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                 }`}
+               >
+                 <UserCheck size={16} className="mr-2"/>
+                 {showCesadoPersonnel ? 'Ver Activos' : `Ver Cesados (${cesadoPersonnel.length})`}
+               </button>
+             )}
              {/* Botón para mostrar/ocultar personal archivado */}
              {archivedPersonnel.length > 0 && (
                <button
-                 onClick={() => setShowArchivedPersonnel(!showArchivedPersonnel)}
+                 onClick={() => {
+                   setShowArchivedPersonnel(!showArchivedPersonnel);
+                   setShowCesadoPersonnel(false); // Asegurar que solo una vista esté activa
+                 }}
                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center ${
                    showArchivedPersonnel 
                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
@@ -4937,6 +4985,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {personnelSearchQuery && (
             <p className="mt-2 text-xs text-slate-500">
               Mostrando {filteredPersonnel.length} de {personnel.length} colaborador{personnel.length !== 1 ? 'es' : ''}
+              {showCesadoPersonnel && (
+                <span className="text-red-600 font-medium ml-2">(Cesados)</span>
+              )}
+              {showArchivedPersonnel && (
+                <span className="text-amber-600 font-medium ml-2">(Archivados)</span>
+              )}
             </p>
           )}
         </div>
