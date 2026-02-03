@@ -117,12 +117,19 @@ export const contractService = {
         .eq('status', 'activo')
         .order('contract_number', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle(); // Usar maybeSingle en lugar de single para evitar error 406
 
       if (error) {
-        if (error.code === 'PGRST116') return null; // No encontrado
+        // Si es un error 406 (Not Acceptable) o PGRST116 (No encontrado), retornar null
+        if (error.code === 'PGRST116' || error.code === '406' || error.message?.includes('406')) {
+          console.warn(`⚠️ No se pudo obtener contrato activo para ${resourceId} (puede no existir o haber problema de permisos)`);
+          return null;
+        }
         throw error;
       }
+
+      // Si no hay datos, retornar null
+      if (!data) return null;
 
       return {
         id: data.id,
@@ -135,7 +142,12 @@ export const contractService = {
         createdAt: data.created_at,
         updatedAt: data.updated_at,
       };
-    } catch (error) {
+    } catch (error: any) {
+      // Manejar errores de red o permisos sin bloquear
+      if (error?.code === '406' || error?.message?.includes('406') || error?.message?.includes('Not Acceptable')) {
+        console.warn(`⚠️ Error 406 al obtener contrato activo para ${resourceId} (posible problema de RLS)`);
+        return null;
+      }
       handleSupabaseError(error);
       return null;
     }

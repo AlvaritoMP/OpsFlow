@@ -8276,10 +8276,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       await resourcesService.update(selectedWorkerForTermination.id, updateData);
                     } else {
                       // Si no está archivado, es un cese nuevo
-                      // Finalizar el contrato activo si existe
-                      const activeContract = await contractService.getActiveContract(selectedWorkerForTermination.id);
-                      if (activeContract) {
-                        await contractService.finalizeContract(activeContract.id);
+                      // Intentar finalizar el contrato activo si existe (no bloquear si falla)
+                      try {
+                        const activeContract = await contractService.getActiveContract(selectedWorkerForTermination.id);
+                        if (activeContract) {
+                          await contractService.finalizeContract(activeContract.id);
+                        }
+                      } catch (contractError) {
+                        // No bloquear el proceso si falla la finalización del contrato
+                        console.warn('⚠️ No se pudo finalizar el contrato activo (continuando con el cese):', contractError);
                       }
                       
                       // Actualizar el trabajador según el tipo de cese
@@ -8292,14 +8297,34 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         updateData.archived = true;
                       }
                       
+                      console.log('🔄 Actualizando trabajador con datos:', updateData);
                       await resourcesService.update(selectedWorkerForTermination.id, updateData);
+                      console.log('✅ Trabajador actualizado correctamente');
                     }
                     
-                    // Recargar la unidad
+                    // Recargar la unidad para reflejar los cambios
+                    console.log('🔄 Recargando unidad para reflejar cambios...');
                     const { unitsService } = await import('../services/unitsService');
                     const refreshedUnit = await unitsService.getById(unit.id);
                     if (refreshedUnit) {
+                      console.log('✅ Unidad recargada, actualizando estado local');
                       onUpdate(refreshedUnit);
+                      
+                      // Verificar que el trabajador se actualizó correctamente
+                      const updatedWorker = refreshedUnit.resources.find(r => r.id === selectedWorkerForTermination.id);
+                      if (updatedWorker) {
+                        console.log('✅ Trabajador encontrado en unidad recargada:', {
+                          id: updatedWorker.id,
+                          name: updatedWorker.name,
+                          personnelStatus: updatedWorker.personnelStatus,
+                          archived: updatedWorker.archived,
+                          endDate: updatedWorker.endDate
+                        });
+                      } else {
+                        console.warn('⚠️ Trabajador no encontrado en unidad recargada');
+                      }
+                    } else {
+                      console.error('❌ No se pudo recargar la unidad');
                     }
                     
                     setNotification({ 
