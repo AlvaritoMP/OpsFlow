@@ -217,13 +217,40 @@ export const resourcesService = {
   async update(id: string, resource: Partial<Resource>, newUnitId?: string): Promise<Resource> {
     try {
       const resourceData = transformResourceToDB(resource, newUnitId);
+      
+      // Log detallado para debugging de ceses
+      if (resource.personnelStatus) {
+        console.log('🔍 [resourcesService.update] Actualizando trabajador:', {
+          id,
+          personnelStatus: resource.personnelStatus,
+          archived: resource.archived,
+          endDate: resource.endDate,
+          resourceData: resourceData
+        });
+      }
 
-      const { error } = await supabase
+      const { data: updateResult, error } = await supabase
         .from('resources')
         .update(resourceData)
-        .eq('id', id);
+        .eq('id', id)
+        .select(); // Agregar select para verificar que se actualizó
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ [resourcesService.update] Error al actualizar:', error);
+        throw error;
+      }
+      
+      // Verificar que se actualizó correctamente
+      if (updateResult && updateResult.length > 0) {
+        console.log('✅ [resourcesService.update] Recurso actualizado en BD:', {
+          id: updateResult[0].id,
+          personnel_status: updateResult[0].personnel_status,
+          archived: updateResult[0].archived,
+          end_date: updateResult[0].end_date
+        });
+      } else {
+        console.warn('⚠️ [resourcesService.update] No se encontró el recurso después de actualizar');
+      }
 
       // Actualizar workSchedule (turnos) si se proporcionan
       if (resource.workSchedule !== undefined) {
@@ -851,8 +878,18 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     result.unit_id = unitId;
   }
 
-  // Incluir nuevos campos solo si el recurso es de tipo Personal
-  if (resource.type === ResourceType.PERSONNEL) {
+  // Incluir nuevos campos de personal si están presentes
+  // Procesar campos de personal si el tipo es PERSONNEL o si hay campos de personal presentes
+  // (esto permite actualizaciones parciales sin requerir el type)
+  const hasPersonnelFields = resource.type === ResourceType.PERSONNEL || 
+                             resource.personnelStatus !== undefined ||
+                             resource.dni !== undefined ||
+                             resource.puesto !== undefined ||
+                             resource.archived !== undefined ||
+                             resource.endDate !== undefined ||
+                             resource.startDate !== undefined;
+  
+  if (hasPersonnelFields) {
     if (resource.dni !== undefined) result.dni = resource.dni;
     if (resource.puesto !== undefined) result.puesto = resource.puesto;
     if (resource.birthDate !== undefined) result.birth_date = normalizeDateToDB(resource.birthDate);

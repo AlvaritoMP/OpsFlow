@@ -8295,7 +8295,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       }
                       
                       // Actualizar el trabajador según el tipo de cese
+                      // IMPORTANTE: Incluir type para que transformResourceToDB procese los campos de personal
                       const updateData: any = {
+                        type: ResourceType.PERSONNEL, // Necesario para que transformResourceToDB procese los campos
                         personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
                         endDate: terminationDate,
                       };
@@ -8304,9 +8306,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         updateData.archived = true;
                       }
                       
-                      console.log('🔄 Actualizando trabajador con datos:', updateData);
-                      await resourcesService.update(selectedWorkerForTermination.id, updateData);
-                      console.log('✅ Trabajador actualizado correctamente');
+                      console.log('🔄 [UnitDetail] Actualizando trabajador con datos:', {
+                        id: selectedWorkerForTermination.id,
+                        name: selectedWorkerForTermination.name,
+                        updateData
+                      });
+                      
+                      const updatedResource = await resourcesService.update(selectedWorkerForTermination.id, updateData);
+                      
+                      console.log('✅ [UnitDetail] Trabajador actualizado, recurso retornado:', {
+                        id: updatedResource.id,
+                        name: updatedResource.name,
+                        personnelStatus: updatedResource.personnelStatus,
+                        archived: updatedResource.archived,
+                        endDate: updatedResource.endDate
+                      });
                     }
                     
                     // Recargar la unidad para reflejar los cambios
