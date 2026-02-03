@@ -314,7 +314,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [positions, setPositions] = useState<Position[]>([]);
   const [showRequiredPositionsModal, setShowRequiredPositionsModal] = useState(false);
   const [editingRequiredPosition, setEditingRequiredPosition] = useState<RequiredPosition | null>(null);
-  const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1 });
+  const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1, shift: '' as string | undefined });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
   const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', dni: '', puesto: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
@@ -4671,7 +4671,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                    onClick={() => {
                      setShowRequiredPositionsModal(true);
                      setEditingRequiredPosition(null);
-                     setRequiredPositionForm({ positionId: '', quantity: 1 });
+                     setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
                    }}
                    className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
                  >
@@ -4694,7 +4694,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          onClick={() => {
                            setShowRequiredPositionsModal(true);
                            setEditingRequiredPosition(null);
-                           setRequiredPositionForm({ positionId: '', quantity: 1 });
+                           setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
                          }}
                          className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
                        >
@@ -4709,15 +4709,58 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  <div className="space-y-3">
                    {requiredPositions.map((reqPos, index) => {
                      const positionName = reqPos.positionName || positions.find(p => p.id === reqPos.positionId)?.name || 'Desconocido';
-                     const covered = personnel.filter(p => p.puesto === positionName || p.puesto === reqPos.positionId).length;
+                     
+                     // Helper para obtener turno del trabajador
+                     const getWorkerShift = (worker: Resource): string | undefined => {
+                       if (worker.assignedShift) return worker.assignedShift;
+                       if (worker.workSchedule && worker.workSchedule.length > 0) {
+                         const today = new Date().toISOString().split('T')[0];
+                         const todayShift = worker.workSchedule.find(s => s.date === today);
+                         if (todayShift && todayShift.type !== 'OFF' && todayShift.type !== 'Vacation' && todayShift.type !== 'Sick') {
+                           return todayShift.type;
+                         }
+                       }
+                       return undefined;
+                     };
+                     
+                     // Helper para hacer match entre turnos
+                     const matchesShift = (workerShift: string | undefined, requiredShift: string | undefined): boolean => {
+                       if (!requiredShift) return true;
+                       if (!workerShift) return false;
+                       const normalizeShift = (shift: string): string => {
+                         const lower = shift.toLowerCase();
+                         if (lower.includes('day') || lower.includes('mañana') || lower.includes('diurno') || lower.includes('morning')) return 'Day';
+                         if (lower.includes('afternoon') || lower.includes('tarde') || lower.includes('vespertino')) return 'Afternoon';
+                         if (lower.includes('night') || lower.includes('noche') || lower.includes('nocturno')) return 'Night';
+                         return shift;
+                       };
+                       return normalizeShift(workerShift) === normalizeShift(requiredShift);
+                     };
+                     
+                     // Filtrar trabajadores por puesto Y turno
+                     const matchingPersonnel = personnel.filter(p => {
+                       const matchesPosition = p.puesto === positionName || p.puesto === reqPos.positionId;
+                       if (!matchesPosition) return false;
+                       if (reqPos.shift) {
+                         const workerShift = getWorkerShift(p);
+                         return matchesShift(workerShift, reqPos.shift);
+                       }
+                       return true;
+                     });
+                     
+                     const covered = matchingPersonnel.length;
                      const deficit = reqPos.quantity - covered;
                      const coverage = reqPos.quantity > 0 ? (covered / reqPos.quantity) * 100 : 0;
+                     const shiftLabel = reqPos.shift ? (reqPos.shift === 'Day' ? 'Mañana' : reqPos.shift === 'Afternoon' ? 'Tarde' : reqPos.shift === 'Night' ? 'Noche' : reqPos.shift) : 'Todos';
                      
                      return (
                        <div key={index} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                          <div className="flex items-center justify-between mb-2">
                            <div className="flex-1">
                              <h4 className="font-medium text-slate-800">{positionName}</h4>
+                             {reqPos.shift && (
+                               <p className="text-xs text-slate-500 mt-1">Turno: {shiftLabel}</p>
+                             )}
                              <div className="flex items-center space-x-4 mt-2 text-sm">
                                <span className="text-slate-600">Requerido: <strong>{reqPos.quantity}</strong></span>
                                <span className={covered >= reqPos.quantity ? 'text-green-600' : 'text-orange-600'}>
@@ -4726,6 +4769,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                {deficit > 0 && (
                                  <span className="text-red-600 flex items-center">
                                    <AlertCircle size={14} className="mr-1" /> Falta: <strong>{deficit}</strong>
+                                   {reqPos.shift && <span className="ml-1 text-xs">({shiftLabel})</span>}
                                  </span>
                                )}
                                {deficit === 0 && (
@@ -4740,10 +4784,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                <button
                                  onClick={() => {
                                    setEditingRequiredPosition(reqPos);
-                                   setRequiredPositionForm({
-                                     positionId: reqPos.positionId,
-                                     quantity: reqPos.quantity,
-                                   });
+                                  setRequiredPositionForm({
+                                    positionId: reqPos.positionId,
+                                    quantity: reqPos.quantity,
+                                    shift: reqPos.shift,
+                                  });
                                    setShowRequiredPositionsModal(true);
                                  }}
                                  className="text-blue-600 hover:text-blue-800 p-1"
@@ -7972,6 +8017,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   })}
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Turno <span className="text-slate-400 text-xs">(Opcional)</span>
+                </label>
+                <select
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={requiredPositionForm.shift || ''}
+                  onChange={(e) => setRequiredPositionForm({
+                    ...requiredPositionForm,
+                    shift: e.target.value || undefined,
+                  })}
+                >
+                  <option value="">Todos los turnos</option>
+                  <option value="Day">Mañana (Day)</option>
+                  <option value="Afternoon">Tarde (Afternoon)</option>
+                  <option value="Night">Noche (Night)</option>
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  Si se especifica un turno, solo se contarán trabajadores asignados a ese turno para cubrir este requerimiento.
+                </p>
+              </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-200 flex justify-end space-x-3">
               <button
@@ -8009,6 +8075,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           positionId: requiredPositionForm.positionId,
                           positionName: position.name,
                           quantity: requiredPositionForm.quantity,
+                          shift: requiredPositionForm.shift,
                         };
                       }
                       return req;
@@ -8028,6 +8095,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         positionId: requiredPositionForm.positionId,
                         positionName: position.name,
                         quantity: requiredPositionForm.quantity,
+                        shift: requiredPositionForm.shift,
                       },
                     ];
                   }

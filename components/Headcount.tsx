@@ -19,8 +19,46 @@ interface PositionSummary {
     required: number;
     covered: number;
     deficit: number;
+    shift?: string; // Turno requerido
+    shiftDeficit?: { [shift: string]: number }; // Déficit por turno
   }[];
 }
+
+// Helper para hacer match entre turnos
+const matchesShift = (workerShift: string | undefined, requiredShift: string | undefined): boolean => {
+  if (!requiredShift) return true; // Si no se especifica turno, cualquier trabajador cuenta
+  if (!workerShift) return false; // Si el trabajador no tiene turno asignado, no cuenta
+  
+  // Normalizar nombres de turnos para comparación
+  const normalizeShift = (shift: string): string => {
+    const lower = shift.toLowerCase();
+    if (lower.includes('day') || lower.includes('mañana') || lower.includes('diurno') || lower.includes('morning')) return 'Day';
+    if (lower.includes('afternoon') || lower.includes('tarde') || lower.includes('vespertino')) return 'Afternoon';
+    if (lower.includes('night') || lower.includes('noche') || lower.includes('nocturno')) return 'Night';
+    return shift;
+  };
+  
+  return normalizeShift(workerShift) === normalizeShift(requiredShift);
+};
+
+// Helper para obtener el turno de un trabajador (de assignedShift o workSchedule)
+const getWorkerShift = (worker: Resource): string | undefined => {
+  // Primero intentar assignedShift
+  if (worker.assignedShift) {
+    return worker.assignedShift;
+  }
+  
+  // Si no hay assignedShift, intentar obtener del workSchedule del día actual
+  if (worker.workSchedule && worker.workSchedule.length > 0) {
+    const today = new Date().toISOString().split('T')[0];
+    const todayShift = worker.workSchedule.find(s => s.date === today);
+    if (todayShift && todayShift.type !== 'OFF' && todayShift.type !== 'Vacation' && todayShift.type !== 'Sick') {
+      return todayShift.type;
+    }
+  }
+  
+  return undefined;
+};
 
 export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
   const [positions, setPositions] = useState<Position[]>([]);
@@ -73,8 +111,11 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
       const personnel = (unit.resources || []).filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
 
       requiredPositions.forEach(reqPos => {
-        if (!positionMap.has(reqPos.positionId)) {
-          positionMap.set(reqPos.positionId, {
+        // Crear clave única que incluya el turno si está especificado
+        const positionKey = reqPos.shift ? `${reqPos.positionId}_${reqPos.shift}` : reqPos.positionId;
+        
+        if (!positionMap.has(positionKey)) {
+          positionMap.set(positionKey, {
             positionId: reqPos.positionId,
             positionName: reqPos.positionName || positions.find(p => p.id === reqPos.positionId)?.name || 'Desconocido',
             totalRequired: 0,
@@ -83,36 +124,82 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
           });
         }
 
-        const summaryItem = positionMap.get(reqPos.positionId)!;
-        // Contar trabajadores para esta unidad (cantidad bruta)
-        const unitPersonnel = personnel.filter(p => p.puesto === reqPos.positionName || p.puesto === reqPos.positionId);
+        const summaryItem = positionMap.get(positionKey)!;
+        
+        // Filtrar trabajadores por puesto Y turno
+        const unitPersonnel = personnel.filter(p => {
+          const matchesPosition = p.puesto === reqPos.positionName || p.puesto === reqPos.positionId;
+          if (!matchesPosition) return false;
+          
+          // Si se especifica turno, verificar que coincida
+          if (reqPos.shift) {
+            const workerShift = getWorkerShift(p);
+            return matchesShift(workerShift, reqPos.shift);
+          }
+          
+          return true;
+        });
+        
         const covered = unitPersonnel.length;
         const deficit = reqPos.quantity - covered;
+        
+        // Calcular déficit por turno si hay múltiples turnos requeridos
+        const shiftDeficit: { [shift: string]: number } = {};
+        if (reqPos.shift) {
+          shiftDeficit[reqPos.shift] = deficit;
+        }
 
         summaryItem.totalRequired += reqPos.quantity;
         summaryItem.units.push({
           unitId: unit.id,
           unitName: unit.name,
           required: reqPos.quantity,
-          covered, // Cantidad bruta para la unidad
+          covered,
           deficit,
+          shift: reqPos.shift,
+          shiftDeficit: Object.keys(shiftDeficit).length > 0 ? shiftDeficit : undefined,
         });
       });
     });
 
     // Recalcular totalCovered correctamente para cada posición (sin duplicar compartidos)
-    positionMap.forEach((summaryItem, positionId) => {
+    // Nota: Ahora agrupamos por posición + turno, así que cada entrada ya tiene su turno específico
+    positionMap.forEach((summaryItem, positionKey) => {
       const sharedWorkers = new Set<string>(); // Set de identificadores de trabajadores compartidos ya contados
       let totalUnique = 0;
       
+      // Extraer positionId del key (puede incluir turno)
+      const positionId = positionKey.includes('_') ? positionKey.split('_')[0] : positionKey;
+      const shiftFromKey = positionKey.includes('_') ? positionKey.split('_')[1] : undefined;
+      
       filteredUnits.forEach(unit => {
         const requiredPositions = unit.requiredPositions || [];
-        const reqPos = requiredPositions.find(rp => rp.positionId === positionId);
-        if (reqPos) {
+        const reqPositions = requiredPositions.filter(rp => {
+          const matchesPosition = rp.positionId === positionId;
+          if (!matchesPosition) return false;
+          // Si el key incluye turno, debe coincidir
+          if (shiftFromKey) {
+            return rp.shift === shiftFromKey;
+          }
+          // Si el key no incluye turno, solo incluir requerimientos sin turno
+          return !rp.shift;
+        });
+        
+        reqPositions.forEach(reqPos => {
           const personnel = (unit.resources || []).filter(
-            r => r.type === ResourceType.PERSONNEL && 
-            r.personnelStatus !== 'cesado' &&
-            (r.puesto === reqPos.positionName || r.puesto === reqPos.positionId)
+            r => {
+              const matchesType = r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado';
+              const matchesPosition = r.puesto === reqPos.positionName || r.puesto === reqPos.positionId;
+              if (!matchesType || !matchesPosition) return false;
+              
+              // Verificar turno si está especificado
+              if (reqPos.shift) {
+                const workerShift = getWorkerShift(r);
+                return matchesShift(workerShift, reqPos.shift);
+              }
+              
+              return true;
+            }
           );
           
           personnel.forEach(p => {
@@ -128,7 +215,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
               totalUnique++;
             }
           });
-        }
+        });
       });
       
       summaryItem.totalCovered = totalUnique;
@@ -148,7 +235,20 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
 
       requiredPositions.forEach(reqPos => {
         totalRequired += reqPos.quantity;
-        const covered = personnel.filter(p => p.puesto === reqPos.positionName || p.puesto === reqPos.positionId).length;
+        // Filtrar trabajadores por puesto Y turno
+        const matchingPersonnel = personnel.filter(p => {
+          const matchesPosition = p.puesto === reqPos.positionName || p.puesto === reqPos.positionId;
+          if (!matchesPosition) return false;
+          
+          // Si se especifica turno, verificar que coincida
+          if (reqPos.shift) {
+            const workerShift = getWorkerShift(p);
+            return matchesShift(workerShift, reqPos.shift);
+          }
+          
+          return true;
+        });
+        const covered = matchingPersonnel.length;
         totalCovered += Math.min(covered, reqPos.quantity); // No contar más de lo requerido
       });
 
@@ -160,13 +260,27 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
         totalCovered,
         deficit: totalRequired - totalCovered,
         positions: requiredPositions.map(reqPos => {
-          const covered = personnel.filter(p => p.puesto === reqPos.positionName || p.puesto === reqPos.positionId).length;
+          // Filtrar trabajadores por puesto Y turno
+          const matchingPersonnel = personnel.filter(p => {
+            const matchesPosition = p.puesto === reqPos.positionName || p.puesto === reqPos.positionId;
+            if (!matchesPosition) return false;
+            
+            // Si se especifica turno, verificar que coincida
+            if (reqPos.shift) {
+              const workerShift = getWorkerShift(p);
+              return matchesShift(workerShift, reqPos.shift);
+            }
+            
+            return true;
+          });
+          const covered = matchingPersonnel.length;
           return {
             positionId: reqPos.positionId,
             positionName: reqPos.positionName || positions.find(p => p.id === reqPos.positionId)?.name || 'Desconocido',
             required: reqPos.quantity,
             covered,
             deficit: reqPos.quantity - covered,
+            shift: reqPos.shift, // Incluir turno en el resultado
           };
         }),
       };
@@ -330,6 +444,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
             <thead className="bg-slate-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Puesto</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Turno</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Requerido</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Cubierto</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Déficit</th>
@@ -339,17 +454,23 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
             <tbody className="bg-white divide-y divide-slate-200">
               {positionSummary.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-slate-400">
+                  <td colSpan={6} className="px-6 py-8 text-center text-slate-400">
                     No hay puestos requeridos definidos en las unidades
                   </td>
                 </tr>
               ) : (
                 positionSummary.map((pos) => {
                   const coverage = pos.totalRequired > 0 ? (pos.totalCovered / pos.totalRequired) * 100 : 0;
+                  // Obtener el turno del primer requerimiento que tenga turno (si hay)
+                  const shift = pos.units.find(u => u.shift)?.shift;
+                  const shiftLabel = shift ? (shift === 'Day' ? 'Mañana' : shift === 'Afternoon' ? 'Tarde' : shift === 'Night' ? 'Noche' : shift) : 'Todos';
                   return (
-                    <tr key={pos.positionId} className="hover:bg-slate-50">
+                    <tr key={`${pos.positionId}_${shift || 'all'}`} className="hover:bg-slate-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
                         {pos.positionName}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-slate-600">
+                        <span className="px-2 py-1 bg-slate-100 rounded text-xs">{shiftLabel}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-slate-600">
                         {pos.totalRequired}
@@ -441,12 +562,16 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                   </div>
                   {unit.positions.length > 0 && (
                     <div className="mt-4 space-y-2">
-                      {unit.positions.map((pos) => {
+                      {unit.positions.map((pos: any) => {
                         const posCoverage = pos.required > 0 ? (pos.covered / pos.required) * 100 : 0;
+                        const shiftLabel = pos.shift ? (pos.shift === 'Day' ? 'Mañana' : pos.shift === 'Afternoon' ? 'Tarde' : pos.shift === 'Night' ? 'Noche' : pos.shift) : 'Todos';
                         return (
-                          <div key={pos.positionId} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                          <div key={`${pos.positionId}_${pos.shift || 'all'}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                             <div className="flex-1">
                               <p className="text-sm font-medium text-slate-700">{pos.positionName}</p>
+                              {pos.shift && (
+                                <p className="text-xs text-slate-500 mt-1">Turno: {shiftLabel}</p>
+                              )}
                             </div>
                             <div className="flex items-center space-x-4 text-sm">
                               <span className="text-slate-600">Req: {pos.required}</span>
@@ -454,6 +579,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                               {pos.deficit > 0 ? (
                                 <span className="text-red-600 font-medium flex items-center">
                                   <AlertCircle size={14} className="mr-1" /> Falta: {pos.deficit}
+                                  {pos.shift && <span className="ml-1 text-xs">({shiftLabel})</span>}
                                 </span>
                               ) : (
                                 <span className="text-green-600 flex items-center">

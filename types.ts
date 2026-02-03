@@ -346,6 +346,7 @@ export interface RequiredPosition {
   positionId: string; // ID del puesto predefinido
   positionName?: string; // Nombre del puesto (cached para evitar joins)
   quantity: number; // Cantidad requerida
+  shift?: string; // Turno requerido: 'Day', 'Afternoon', 'Night', o undefined para cualquier turno
 }
 
 export interface Unit {
