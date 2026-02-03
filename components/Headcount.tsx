@@ -252,6 +252,40 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
         totalCovered += Math.min(covered, reqPos.quantity); // No contar más de lo requerido
       });
 
+      // Calcular resumen por turno
+      const shiftSummary: { [shift: string]: { required: number; covered: number; deficit: number } } = {
+        'Day': { required: 0, covered: 0, deficit: 0 },
+        'Afternoon': { required: 0, covered: 0, deficit: 0 },
+        'Night': { required: 0, covered: 0, deficit: 0 },
+        'Sin turno': { required: 0, covered: 0, deficit: 0 },
+      };
+
+      requiredPositions.forEach(reqPos => {
+        // Filtrar trabajadores por puesto Y turno
+        const matchingPersonnel = personnel.filter(p => {
+          const matchesPosition = p.puesto === reqPos.positionName || p.puesto === reqPos.positionId;
+          if (!matchesPosition) return false;
+          
+          // Si se especifica turno, verificar que coincida
+          if (reqPos.shift) {
+            const workerShift = getWorkerShift(p);
+            return matchesShift(workerShift, reqPos.shift);
+          }
+          
+          return true;
+        });
+        const covered = matchingPersonnel.length;
+        const deficit = reqPos.quantity - covered;
+        
+        // Agregar al resumen por turno
+        const shiftKey = reqPos.shift || 'Sin turno';
+        if (shiftSummary[shiftKey]) {
+          shiftSummary[shiftKey].required += reqPos.quantity;
+          shiftSummary[shiftKey].covered += Math.min(covered, reqPos.quantity);
+          shiftSummary[shiftKey].deficit += deficit;
+        }
+      });
+
       return {
         unitId: unit.id,
         unitName: unit.name,
@@ -259,6 +293,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
         totalRequired,
         totalCovered,
         deficit: totalRequired - totalCovered,
+        shiftSummary, // Resumen por turno
         positions: requiredPositions.map(reqPos => {
           // Filtrar trabajadores por puesto Y turno
           const matchingPersonnel = personnel.filter(p => {
@@ -560,8 +595,52 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                       </div>
                     </div>
                   </div>
+                  
+                  {/* Resumen por turno */}
+                  {unit.shiftSummary && Object.keys(unit.shiftSummary).some(shift => unit.shiftSummary[shift].required > 0) && (
+                    <div className="mt-4">
+                      <h5 className="text-sm font-semibold text-slate-700 mb-3">Resumen por Turno</h5>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {Object.entries(unit.shiftSummary).map(([shift, summary]: [string, any]) => {
+                          if (summary.required === 0) return null;
+                          const shiftLabel = shift === 'Day' ? 'Mañana' : shift === 'Afternoon' ? 'Tarde' : shift === 'Night' ? 'Noche' : shift;
+                          const coverage = summary.required > 0 ? (summary.covered / summary.required) * 100 : 0;
+                          return (
+                            <div key={shift} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-medium text-slate-600">{shiftLabel}</span>
+                                <span className={`text-xs font-bold ${
+                                  coverage >= 100 ? 'text-green-600' : coverage >= 80 ? 'text-yellow-600' : 'text-red-600'
+                                }`}>
+                                  {coverage.toFixed(0)}%
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-slate-500">Requerido:</span>
+                                  <span className="font-medium text-slate-700">{summary.required}</span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-slate-500">Cubierto:</span>
+                                  <span className="font-medium text-green-600">{summary.covered}</span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-slate-500">Déficit:</span>
+                                  <span className={`font-medium ${summary.deficit > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                    {summary.deficit}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
                   {unit.positions.length > 0 && (
                     <div className="mt-4 space-y-2">
+                      <h5 className="text-sm font-semibold text-slate-700 mb-2">Detalle por Puesto</h5>
                       {unit.positions.map((pos: any) => {
                         const posCoverage = pos.required > 0 ? (pos.covered / pos.required) * 100 : 0;
                         const shiftLabel = pos.shift ? (pos.shift === 'Day' ? 'Mañana' : pos.shift === 'Afternoon' ? 'Tarde' : pos.shift === 'Night' ? 'Noche' : pos.shift) : 'Todos';

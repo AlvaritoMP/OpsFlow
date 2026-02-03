@@ -8081,14 +8081,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       return req;
                     });
                   } else {
-                    // Verificar si ya existe
-                    const exists = currentRequired.some(r => r.positionId === requiredPositionForm.positionId);
+                    // Verificar si ya existe (mismo puesto Y mismo turno, o mismo puesto sin turno)
+                    const exists = currentRequired.some(r => {
+                      const samePosition = r.positionId === requiredPositionForm.positionId;
+                      const sameShift = (r.shift || undefined) === (requiredPositionForm.shift || undefined);
+                      return samePosition && sameShift;
+                    });
                     if (exists) {
-                      setNotification({ type: 'error', message: 'Este puesto ya está en la lista de requeridos' });
+                      const shiftText = requiredPositionForm.shift ? ` en turno ${requiredPositionForm.shift === 'Day' ? 'Mañana' : requiredPositionForm.shift === 'Afternoon' ? 'Tarde' : 'Noche'}` : '';
+                      setNotification({ type: 'error', message: `Este puesto${shiftText} ya está en la lista de requeridos` });
                       setTimeout(() => setNotification(null), 3000);
                       return;
                     }
                     // Agregar nuevo
+                    console.log('🔄 Agregando nuevo puesto requerido:', {
+                      positionId: requiredPositionForm.positionId,
+                      positionName: position.name,
+                      quantity: requiredPositionForm.quantity,
+                      shift: requiredPositionForm.shift
+                    });
                     updated = [
                       ...currentRequired,
                       {
@@ -8098,15 +8109,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         shift: requiredPositionForm.shift,
                       },
                     ];
+                    console.log('✅ Lista actualizada de puestos requeridos:', updated);
                   }
 
                   if (onUpdate) {
-                    await onUpdate({ ...unit, requiredPositions: updated });
-                    setNotification({ type: 'success', message: editingRequiredPosition ? 'Puesto requerido actualizado' : 'Puesto requerido agregado' });
-                    setTimeout(() => setNotification(null), 3000);
-                    setShowRequiredPositionsModal(false);
-                    setEditingRequiredPosition(null);
-                    setRequiredPositionForm({ positionId: '', quantity: 1 });
+                    console.log('🔄 Llamando a onUpdate con requiredPositions:', updated);
+                    try {
+                      await onUpdate({ ...unit, requiredPositions: updated });
+                      console.log('✅ onUpdate completado exitosamente');
+                      setNotification({ type: 'success', message: editingRequiredPosition ? 'Puesto requerido actualizado' : 'Puesto requerido agregado' });
+                      setTimeout(() => setNotification(null), 3000);
+                      setShowRequiredPositionsModal(false);
+                      setEditingRequiredPosition(null);
+                      setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
+                    } catch (error) {
+                      console.error('❌ Error al actualizar requiredPositions:', error);
+                      setNotification({ type: 'error', message: 'Error al guardar. Por favor, intente nuevamente.' });
+                      setTimeout(() => setNotification(null), 5000);
+                    }
+                  } else {
+                    console.error('❌ onUpdate no está disponible');
+                    setNotification({ type: 'error', message: 'Error: No se puede actualizar la unidad' });
+                    setTimeout(() => setNotification(null), 5000);
                   }
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
