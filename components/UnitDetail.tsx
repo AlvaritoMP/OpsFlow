@@ -107,76 +107,81 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   
   // Ref para evitar que se ejecute múltiples veces la corrección de trabajadores cesados
   const hasFixedCesadoWorkersRef = useRef<Set<string>>(new Set());
+  
+  // Ref para rastrear si hay un proceso de cese en curso
+  const isTerminatingRef = useRef<boolean>(false);
 
-  // Corregir trabajadores que fueron marcados incorrectamente como "cesado" solo por tener endDate
-  // Estos trabajadores deben volver a estado "activo" si no están archivados explícitamente
-  React.useEffect(() => {
-    // Evitar ejecutar múltiples veces para la misma unidad
-    if (hasFixedCesadoWorkersRef.current.has(unit.id)) {
-      return;
-    }
-
-    const fixIncorrectlyCesadoWorkers = async () => {
-      if (!onUpdate) return;
-      
-      // Buscar trabajadores con endDate que están marcados como "cesado" pero NO están archivados
-      // Estos fueron marcados incorrectamente y deben volver a "activo"
-      const workersToFix = unit.resources.filter(r => 
-        r.type === ResourceType.PERSONNEL && 
-        r.endDate && 
-        r.personnelStatus === 'cesado' && 
-        !r.archived // Solo corregir si NO están archivados explícitamente
-      );
-
-      if (workersToFix.length === 0) {
-        // Marcar como procesado aunque no haya nada que corregir
-        hasFixedCesadoWorkersRef.current.add(unit.id);
-        return;
-      }
-
-      try {
-        // Marcar como procesado ANTES de hacer las actualizaciones para evitar loops
-        hasFixedCesadoWorkersRef.current.add(unit.id);
-
-        const { resourcesService } = await import('../services/resourcesService');
-        const updatePromises = workersToFix.map(worker => 
-          resourcesService.update(worker.id, {
-            personnelStatus: 'activo' as const, // Volver a activo
-            // Mantener endDate (es solo referencial)
-            // NO cambiar archived (debe permanecer false)
-          })
-        );
-
-        await Promise.all(updatePromises);
-        
-        // Recargar la unidad para reflejar los cambios
-        const { unitsService } = await import('../services/unitsService');
-        const updatedUnit = await unitsService.getById(unit.id);
-        if (updatedUnit) {
-          onUpdate(updatedUnit);
-        }
-        
-        console.log(`✅ Corregidos ${workersToFix.length} trabajadores que estaban incorrectamente marcados como "cesado"`);
-        setNotification({ 
-          type: 'success', 
-          message: `✅ Corregidos ${workersToFix.length} trabajador${workersToFix.length > 1 ? 'es' : ''} que estaban incorrectamente marcados como "cesado"` 
-        });
-        setTimeout(() => setNotification(null), 5000);
-      } catch (error) {
-        // Si hay error, remover de la lista para permitir reintento
-        hasFixedCesadoWorkersRef.current.delete(unit.id);
-        console.error('Error al corregir trabajadores incorrectamente marcados como cesado:', error);
-        setNotification({ 
-          type: 'error', 
-          message: 'Error al corregir trabajadores. Por favor, ejecute el script SQL manualmente.' 
-        });
-        setTimeout(() => setNotification(null), 5000);
-      }
-    };
-
-    // Ejecutar solo una vez al cargar la unidad
-    fixIncorrectlyCesadoWorkers();
-  }, [unit.id]); // Remover onUpdate de las dependencias para evitar loops
+  // DESHABILITADO: Este proceso automático estaba causando conflictos con el cese manual de trabajadores
+  // Los trabajadores cesados manualmente por los usuarios estaban siendo revertidos automáticamente
+  // Si necesitas corregir trabajadores incorrectamente cesados, usa el script SQL manualmente
+  // 
+  // React.useEffect(() => {
+  //   // Evitar ejecutar múltiples veces para la misma unidad
+  //   if (hasFixedCesadoWorkersRef.current.has(unit.id)) {
+  //     return;
+  //   }
+  //
+  //   const fixIncorrectlyCesadoWorkers = async () => {
+  //     if (!onUpdate || isTerminatingRef.current) return; // No ejecutar si hay un cese en curso
+  //     
+  //     // Buscar trabajadores con endDate que están marcados como "cesado" pero NO están archivados
+  //     // Estos fueron marcados incorrectamente y deben volver a "activo"
+  //     const workersToFix = unit.resources.filter(r => 
+  //       r.type === ResourceType.PERSONNEL && 
+  //       r.endDate && 
+  //       r.personnelStatus === 'cesado' && 
+  //       !r.archived // Solo corregir si NO están archivados explícitamente
+  //     );
+  //
+  //     if (workersToFix.length === 0) {
+  //       // Marcar como procesado aunque no haya nada que corregir
+  //       hasFixedCesadoWorkersRef.current.add(unit.id);
+  //       return;
+  //     }
+  //
+  //     try {
+  //       // Marcar como procesado ANTES de hacer las actualizaciones para evitar loops
+  //       hasFixedCesadoWorkersRef.current.add(unit.id);
+  //
+  //       const { resourcesService } = await import('../services/resourcesService');
+  //       const updatePromises = workersToFix.map(worker => 
+  //         resourcesService.update(worker.id, {
+  //           personnelStatus: 'activo' as const, // Volver a activo
+  //           // Mantener endDate (es solo referencial)
+  //           // NO cambiar archived (debe permanecer false)
+  //         })
+  //       );
+  //
+  //       await Promise.all(updatePromises);
+  //       
+  //       // Recargar la unidad para reflejar los cambios
+  //       const { unitsService } = await import('../services/unitsService');
+  //       const updatedUnit = await unitsService.getById(unit.id);
+  //       if (updatedUnit) {
+  //         onUpdate(updatedUnit);
+  //       }
+  //       
+  //       console.log(`✅ Corregidos ${workersToFix.length} trabajadores que estaban incorrectamente marcados como "cesado"`);
+  //       setNotification({ 
+  //         type: 'success', 
+  //         message: `✅ Corregidos ${workersToFix.length} trabajador${workersToFix.length > 1 ? 'es' : ''} que estaban incorrectamente marcados como "cesado"` 
+  //       });
+  //       setTimeout(() => setNotification(null), 5000);
+  //     } catch (error) {
+  //       // Si hay error, remover de la lista para permitir reintento
+  //       hasFixedCesadoWorkersRef.current.delete(unit.id);
+  //       console.error('Error al corregir trabajadores incorrectamente marcados como cesado:', error);
+  //       setNotification({ 
+  //         type: 'error', 
+  //         message: 'Error al corregir trabajadores. Por favor, ejecute el script SQL manualmente.' 
+  //       });
+  //       setTimeout(() => setNotification(null), 5000);
+  //     }
+  //   };
+  //
+  //   // Ejecutar solo una vez al cargar la unidad
+  //   fixIncorrectlyCesadoWorkers();
+  // }, [unit.id]); // Remover onUpdate de las dependencias para evitar loops
 
   // Mantener el tab activo incluso cuando la unidad se actualiza
   const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
@@ -8257,6 +8262,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 onClick={async () => {
                   if (!selectedWorkerForTermination || !onUpdate) return;
                   
+                  // Marcar que hay un proceso de cese en curso para evitar conflictos
+                  isTerminatingRef.current = true;
                   setIsTerminating(true);
                   try {
                     const { resourcesService } = await import('../services/resourcesService');
@@ -8346,6 +8353,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     setTimeout(() => setNotification(null), 5000);
                   } finally {
                     setIsTerminating(false);
+                    // Permitir que otros procesos continúen después de un breve delay
+                    setTimeout(() => {
+                      isTerminatingRef.current = false;
+                    }, 2000);
                   }
                 }}
                 className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
