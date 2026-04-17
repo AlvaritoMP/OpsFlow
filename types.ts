@@ -232,8 +232,8 @@ export interface Resource {
   dni?: string; // Documento Nacional de Identidad
   puesto?: string; // Puesto o cargo del trabajador
   birthDate?: string; // Fecha de nacimiento (YYYY-MM-DD)
-  startDate?: string; // Fecha de inicio de labores (YYYY-MM-DD) - del contrato actual
-  endDate?: string; // Fecha de fin de contrato (YYYY-MM-DD) - solo para monitoreo, NO archiva automáticamente
+  startDate?: string; // Fecha de inicio de la relación laboral (YYYY-MM-DD): primer contrato; no se actualiza en renovaciones
+  endDate?: string; // Fecha de fin del último contrato (YYYY-MM-DD); referencial para monitoreo, NO archiva automáticamente
   personnelStatus?: 'activo' | 'cesado' | 'archivado'; // Estado: activo, cesado (despido) o archivado (fin de contrato)
   archived?: boolean; // Si está archivado (no se muestra en vista normal)
   contractHistory?: ContractHistory[]; // Historial de contratos y renovaciones

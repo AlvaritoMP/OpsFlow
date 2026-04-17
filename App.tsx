@@ -1701,7 +1701,9 @@ const App: React.FC = () => {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {visibleUnits.map(unit => {
-              const staffCount = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
+              const staffCount = unit.resources.filter(
+                r => r.type === ResourceType.PERSONNEL && !r.archived && r.personnelStatus !== 'cesado'
+              ).length;
               const logisticsCount = unit.resources.filter(r => r.type !== ResourceType.PERSONNEL).length;
               const pendingRequestsCount = unit.requests?.filter(r => r.status === 'PENDING').length || 0;
 

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement } from '../types';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory } from '../types';
 import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
@@ -49,6 +49,21 @@ const getMonday = (d: Date) => {
   const day = date.getDay();
   const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
   return new Date(date.setDate(diff));
+}
+
+/** Inicio = primer contrato; fin = último contrato (historial). Sin historial, usa fechas del recurso. */
+function getLaborRelationshipDisplayDates(
+  worker: Resource,
+  history?: ContractHistory[]
+): { start?: string; end?: string } {
+  if (history && history.length > 0) {
+    const sorted = [...history].sort((a, b) => a.contractNumber - b.contractNumber);
+    return {
+      start: sorted[0].startDate,
+      end: sorted[sorted.length - 1].endDate,
+    };
+  }
+  return { start: worker.startDate, end: worker.endDate };
 }
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, googleMapsApiKey }) => {
@@ -256,7 +271,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [selectedWorkerForRenewal, setSelectedWorkerForRenewal] = useState<Resource | null>(null);
   const [renewContractForm, setRenewContractForm] = useState({ startDate: '', endDate: '', notes: '' });
   const [isRenewingContract, setIsRenewingContract] = useState(false);
-  const [contractHistory, setContractHistory] = useState<Record<string, any[]>>({});
+  const [contractHistory, setContractHistory] = useState<Record<string, ContractHistory[]>>({});
+  const contractHistoryRef = useRef<Record<string, ContractHistory[]>>({});
+  useEffect(() => {
+    contractHistoryRef.current = contractHistory;
+  }, [contractHistory]);
   const [salaryIncrements, setSalaryIncrements] = useState<Record<string, SalaryIncrement[]>>({});
   const [newIncrementForm, setNewIncrementForm] = useState<{
     previousSalary: number;
@@ -2610,8 +2629,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Puesto': worker.puesto || '',
         'Zonas Asignadas': worker.assignedZones?.join(', ') || 'Sin zona',
         'Estado': worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo'),
-        'Fecha Inicio': worker.startDate ? formatDateFromString(worker.startDate) : '',
-        'Fecha Fin': worker.endDate ? formatDateFromString(worker.endDate) : '',
+        'Fecha Inicio': (() => {
+          const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
+          return rel.start ? formatDateFromString(rel.start) : '';
+        })(),
+        'Fecha Fin': (() => {
+          const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
+          return rel.end ? formatDateFromString(rel.end) : '';
+        })(),
         'Turno': worker.assignedShift || '',
         'Cumplimiento (%)': worker.compliancePercentage || 0,
         'Salario Mensual (S/)': worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
@@ -3368,6 +3393,42 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              phone.includes(query);
     });
   }, [personnel, personnelSearchQuery]);
+
+  const personnelIdsKey = useMemo(
+    () => personnel.map(p => p.id).sort().join(','),
+    [personnel]
+  );
+
+  useEffect(() => {
+    if (activeTab !== 'personnel') return;
+    const ids = personnel.map(p => p.id).filter(id => contractHistoryRef.current[id] === undefined);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { contractService } = await import('../services/contractService');
+        const results = await Promise.all(
+          ids.map(async (id) => {
+            const h = await contractService.getContractHistory(id);
+            return [id, h] as const;
+          })
+        );
+        if (cancelled) return;
+        setContractHistory(prev => {
+          const next = { ...prev };
+          for (const [id, h] of results) {
+            if (next[id] === undefined) next[id] = h;
+          }
+          return next;
+        });
+      } catch (e) {
+        console.error('Error precargando historial de contratos:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, personnelIdsKey, personnel]);
   
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
   const materials = unit.resources.filter(r => r.type === ResourceType.MATERIAL);
@@ -5149,13 +5210,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </span>
                     </div>
                     <div className="col-span-2 hidden md:flex lg:col-span-1 flex-col items-center justify-center text-xs text-slate-500">
-                       {worker.startDate && (
-                         <div className="whitespace-nowrap">Inicio: {formatDateFromString(worker.startDate)}</div>
-                       )}
-                       {worker.endDate && (
-                         <div className="text-red-600 whitespace-nowrap">Fin: {formatDateFromString(worker.endDate)}</div>
-                       )}
-                       {!worker.startDate && !worker.endDate && <span className="text-slate-300 italic">-</span>}
+                       {(() => {
+                         const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
+                         return (
+                           <>
+                             {rel.start && (
+                               <div className="whitespace-nowrap">Inicio: {formatDateFromString(rel.start)}</div>
+                             )}
+                             {rel.end && (
+                               <div className="text-red-600 whitespace-nowrap">Fin: {formatDateFromString(rel.end)}</div>
+                             )}
+                             {!rel.start && !rel.end && <span className="text-slate-300 italic">-</span>}
+                           </>
+                         );
+                       })()}
                             </div>
                     <div className="col-span-1 hidden md:flex lg:col-span-1 items-center justify-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
                     <div className="col-span-1 hidden md:flex lg:col-span-1 items-center justify-center">
@@ -8601,12 +8669,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       renewContractForm.notes || undefined
                     );
                     
-                    // Actualizar las fechas del trabajador
+                    // Solo actualizar fin del último contrato en el recurso; el inicio de la relación laboral
+                    // permanece como el primer contrato (no se sobrescribe en renovaciones).
                     await resourcesService.update(selectedWorkerForRenewal.id, {
-                      startDate: renewContractForm.startDate,
                       endDate: renewContractForm.endDate,
-                      personnelStatus: 'activo', // Mantener activo en renovación
-                      archived: false, // Asegurar que no esté archivado
+                      personnelStatus: 'activo',
+                      archived: false,
                     });
                     
                     // Recargar historial de contratos
