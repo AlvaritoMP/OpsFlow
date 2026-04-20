@@ -315,10 +315,43 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [generateConstancy, setGenerateConstancy] = useState(true); // Por defecto generar constancia
   const [standardAssets, setStandardAssets] = useState<Array<{ id: string; name: string; type: string; defaultSerialNumberPrefix?: string }>>([]);
   const [useStandardAsset, setUseStandardAsset] = useState(true); // Por defecto usar catálogo
+  const [showEditAssignedAssetModal, setShowEditAssignedAssetModal] = useState(false);
+  const [selectedWorkerForAssetEdit, setSelectedWorkerForAssetEdit] = useState<Resource | null>(null);
+  const [editAssignedAssetForm, setEditAssignedAssetForm] = useState<{
+    id: string;
+    name: string;
+    type: 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro';
+    dateAssigned: string;
+    serialNumber: string;
+    phoneNumber: string;
+    notes: string;
+  }>({
+    id: '',
+    name: '',
+    type: 'EPP',
+    dateAssigned: '',
+    serialNumber: '',
+    phoneNumber: '',
+    notes: ''
+  });
 
   const isCorporatePhoneAsset = (name: string) => {
     const normalized = (name || '').toLowerCase();
     return normalized.includes('celular corporativo') || normalized.includes('telefono corporativo');
+  };
+
+  const handleOpenEditAssignedAsset = (worker: Resource, asset: AssignedAsset) => {
+    setSelectedWorkerForAssetEdit(worker);
+    setEditAssignedAssetForm({
+      id: asset.id,
+      name: asset.name || '',
+      type: (asset.type || 'EPP') as 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro',
+      dateAssigned: (asset.dateAssigned || (asset as any).date_assigned || '').split('T')[0],
+      serialNumber: asset.serialNumber || (asset as any).serial_number || '',
+      phoneNumber: asset.phoneNumber || (asset as any).phone_number || '',
+      notes: asset.notes || ''
+    });
+    setShowEditAssignedAssetModal(true);
   };
   
   // Positions State
@@ -2214,6 +2247,48 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         setNotification({ type: 'error', message: 'Error al eliminar activo. Por favor, intente nuevamente.' });
         setTimeout(() => setNotification(null), 5000);
       }
+  };
+
+  const handleSaveEditedAssignedAsset = async () => {
+    if (!onUpdate || !selectedWorkerForAssetEdit || !editAssignedAssetForm.id) return;
+
+    try {
+      setIsUpdatingResource(true);
+      const { resourcesService } = await import('../services/resourcesService');
+      const worker = unit.resources.find(r => r.id === selectedWorkerForAssetEdit.id);
+      if (!worker) throw new Error('Trabajador no encontrado');
+
+      const updatedAssets = (worker.assignedAssets || []).map(a => {
+        if (a.id !== editAssignedAssetForm.id) return a;
+        return {
+          ...a,
+          name: editAssignedAssetForm.name,
+          type: editAssignedAssetForm.type,
+          dateAssigned: editAssignedAssetForm.dateAssigned || new Date().toISOString().split('T')[0],
+          serialNumber: editAssignedAssetForm.serialNumber || undefined,
+          phoneNumber: editAssignedAssetForm.phoneNumber || undefined,
+          notes: editAssignedAssetForm.notes || undefined
+        };
+      });
+
+      await resourcesService.update(worker.id, { assignedAssets: updatedAssets });
+      const refreshedWorker = await resourcesService.getById(worker.id);
+      if (!refreshedWorker) throw new Error('No se pudo recargar trabajador actualizado');
+
+      const updatedResources = unit.resources.map(r => r.id === worker.id ? refreshedWorker : r);
+      onUpdate({ ...unit, resources: updatedResources });
+
+      setNotification({ type: 'success', message: 'Activo actualizado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+      setShowEditAssignedAssetModal(false);
+      setSelectedWorkerForAssetEdit(null);
+    } catch (error) {
+      console.error('Error al actualizar activo asignado:', error);
+      setNotification({ type: 'error', message: 'Error al actualizar activo. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsUpdatingResource(false);
+    }
   };
 
   // Función para generar y descargar PDF de constancia a demanda
@@ -5491,6 +5566,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 <span className="text-xs text-slate-400 italic">Sin constancia</span>
                                             )}
                                             {canEditPersonnel && (
+                                                <button
+                                                    onClick={() => handleOpenEditAssignedAsset(worker, a)}
+                                                    className="text-slate-300 hover:text-blue-600 p-1 hover:bg-blue-50 rounded transition-colors"
+                                                    title="Editar activo"
+                                                >
+                                                    <Edit2 size={12}/>
+                                                </button>
+                                            )}
+                                            {canEditPersonnel && (
                                                 <button 
                                                     onClick={() => handleDeleteAsset(worker.id, a.id)} 
                                                     className="text-slate-300 hover:text-red-500 p-1 hover:bg-red-50 rounded transition-colors"
@@ -8559,6 +8643,110 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 disabled={isTerminating || !terminationDate}
               >
                 {isTerminating ? 'Procesando...' : `Confirmar ${terminationType === 'cesado' ? 'Cese' : 'Archivo'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Renovación de Contrato */}
+      {showEditAssignedAssetModal && selectedWorkerForAssetEdit && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Editar Activo Asignado</h3>
+              <button
+                onClick={() => {
+                  setShowEditAssignedAssetModal(false);
+                  setSelectedWorkerForAssetEdit(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-600 mb-4">
+              Trabajador: <strong>{selectedWorkerForAssetEdit.name}</strong>
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Activo</label>
+                <input
+                  type="text"
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editAssignedAssetForm.name}
+                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, name: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                <select
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editAssignedAssetForm.type}
+                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, type: e.target.value as any })}
+                >
+                  <option value="EPP">EPP</option>
+                  <option value="Uniforme">Uniforme</option>
+                  <option value="Tecnologia">Tecnología</option>
+                  <option value="Herramienta">Herramienta</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label>
+                <input
+                  type="date"
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editAssignedAssetForm.dateAssigned}
+                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, dateAssigned: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">N° Serie (Opcional)</label>
+                <input
+                  type="text"
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editAssignedAssetForm.serialNumber}
+                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, serialNumber: e.target.value })}
+                />
+              </div>
+
+              {isCorporatePhoneAsset(editAssignedAssetForm.name) && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">N° Telefónico (Opcional)</label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editAssignedAssetForm.phoneNumber}
+                    onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, phoneNumber: e.target.value })}
+                    placeholder="Ej. 987654321"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEditAssignedAssetModal(false);
+                  setSelectedWorkerForAssetEdit(null);
+                }}
+                className="flex-1 py-2 px-4 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+                disabled={isUpdatingResource}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveEditedAssignedAsset}
+                className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isUpdatingResource || !editAssignedAssetForm.name.trim()}
+              >
+                {isUpdatingResource ? 'Guardando...' : 'Guardar Cambios'}
               </button>
             </div>
           </div>
