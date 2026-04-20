@@ -21,6 +21,8 @@ export const contractService = {
         endDate: contract.end_date,
         status: contract.status,
         notes: contract.notes || undefined,
+        monthlySalary: contract.monthly_salary !== null && contract.monthly_salary !== undefined ? Number(contract.monthly_salary) : undefined,
+        workConditionAmount: contract.work_condition_amount !== null && contract.work_condition_amount !== undefined ? Number(contract.work_condition_amount) : undefined,
         createdAt: contract.created_at,
         updatedAt: contract.updated_at,
       }));
@@ -36,7 +38,7 @@ export const contractService = {
     startDate: string,
     endDate: string,
     notes?: string,
-    options?: { isRenewal?: boolean }
+    options?: { isRenewal?: boolean; monthlySalary?: number; workConditionAmount?: number }
   ): Promise<ContractHistory> {
     try {
       // Obtener el siguiente número de contrato
@@ -62,6 +64,8 @@ export const contractService = {
           end_date: endDate,
           status: 'activo',
           notes: notes || null,
+          monthly_salary: options?.monthlySalary ?? null,
+          work_condition_amount: options?.workConditionAmount ?? null,
         })
         .select()
         .single();
@@ -90,6 +94,8 @@ export const contractService = {
         endDate: data.end_date,
         status: data.status,
         notes: data.notes || undefined,
+        monthlySalary: data.monthly_salary !== null && data.monthly_salary !== undefined ? Number(data.monthly_salary) : undefined,
+        workConditionAmount: data.work_condition_amount !== null && data.work_condition_amount !== undefined ? Number(data.work_condition_amount) : undefined,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
       };
@@ -146,6 +152,8 @@ export const contractService = {
         endDate: data.end_date,
         status: data.status,
         notes: data.notes || undefined,
+        monthlySalary: data.monthly_salary !== null && data.monthly_salary !== undefined ? Number(data.monthly_salary) : undefined,
+        workConditionAmount: data.work_condition_amount !== null && data.work_condition_amount !== undefined ? Number(data.work_condition_amount) : undefined,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
       };

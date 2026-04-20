@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS contract_history (
   end_date DATE NOT NULL,
   status TEXT NOT NULL DEFAULT 'activo' CHECK (status IN ('activo', 'finalizado', 'renovado')),
   notes TEXT,
+  monthly_salary NUMERIC(10,2),
+  work_condition_amount NUMERIC(10,2),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
   CONSTRAINT contract_dates_check CHECK (end_date >= start_date)
@@ -24,6 +26,8 @@ COMMENT ON COLUMN contract_history.contract_number IS 'Número secuencial del co
 COMMENT ON COLUMN contract_history.status IS 'Estado del contrato: activo, finalizado, renovado';
 COMMENT ON COLUMN contract_history.start_date IS 'Fecha de inicio del contrato';
 COMMENT ON COLUMN contract_history.end_date IS 'Fecha de fin del contrato';
+COMMENT ON COLUMN contract_history.monthly_salary IS 'Salario bruto mensual vigente para este contrato';
+COMMENT ON COLUMN contract_history.work_condition_amount IS 'Monto por condición de trabajo vigente para este contrato';
 
 -- Trigger para actualizar updated_at
 CREATE OR REPLACE FUNCTION update_contract_history_updated_at()

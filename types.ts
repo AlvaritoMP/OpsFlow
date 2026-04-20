@@ -266,6 +266,8 @@ export interface ContractHistory {
   endDate: string; // Fecha de fin del contrato (YYYY-MM-DD)
   status: 'activo' | 'finalizado' | 'renovado'; // Estado del contrato
   notes?: string;
+  monthlySalary?: number; // Salario bruto mensual vigente en este contrato
+  workConditionAmount?: number; // Condición de trabajo vigente en este contrato
   createdAt: string;
   updatedAt: string;
 }
