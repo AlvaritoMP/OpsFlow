@@ -471,6 +471,7 @@ export const resourcesService = {
         type: a.type,
         date_assigned: a.dateAssigned,
         serial_number: a.serialNumber,
+        phone_number: a.phoneNumber || null,
         notes: a.notes,
         constancy_code: a.constancyCode || null,
         constancy_generated_at: a.constancyGeneratedAt || null,

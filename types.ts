@@ -141,6 +141,7 @@ export interface AssignedAsset {
   type: 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro';
   dateAssigned: string;
   serialNumber?: string;
+  phoneNumber?: string; // Número telefónico cuando aplica (ej: celular corporativo)
   notes?: string;
   constancyCode?: string; // Código correlativo de constancia
   constancyGeneratedAt?: string; // Fecha de generación de constancia

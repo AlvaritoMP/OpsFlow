@@ -309,11 +309,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     type: 'EPP' as 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro', 
     dateAssigned: '', 
     serialNumber: '',
+    phoneNumber: '',
     standardAssetId: '' as string | undefined
   });
   const [generateConstancy, setGenerateConstancy] = useState(true); // Por defecto generar constancia
   const [standardAssets, setStandardAssets] = useState<Array<{ id: string; name: string; type: string; defaultSerialNumberPrefix?: string }>>([]);
   const [useStandardAsset, setUseStandardAsset] = useState(true); // Por defecto usar catálogo
+
+  const isCorporatePhoneAsset = (name: string) => {
+    const normalized = (name || '').toLowerCase();
+    return normalized.includes('celular corporativo') || normalized.includes('telefono corporativo');
+  };
   
   // Positions State
   const [positions, setPositions] = useState<Position[]>([]);
@@ -1773,7 +1779,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         name: assetAssignmentForm.name,
         type: assetAssignmentForm.type as any,
               dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
-        serialNumber: assetAssignmentForm.serialNumber
+        serialNumber: assetAssignmentForm.serialNumber,
+        phoneNumber: assetAssignmentForm.phoneNumber || undefined
     };
     
             // Generar constancia (solo guardar en BD, no descargar PDF)
@@ -1819,6 +1826,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               type: assetAssignmentForm.type as any,
               dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
               serialNumber: assetAssignmentForm.serialNumber,
+              phoneNumber: assetAssignmentForm.phoneNumber || undefined,
               constancyCode: constancyCode || undefined,
               constancyGeneratedAt: constancyCode ? new Date().toISOString() : undefined,
               standardAssetId: assetAssignmentForm.standardAssetId || undefined
@@ -1844,7 +1852,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         // Cerrar modal ANTES de actualizar para evitar que se recargue y cierre
     setShowAssetAssignmentModal(false);
     setSelectedPersonnelIds([]);
-    setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+    setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '', phoneNumber: '' });
         setGenerateConstancy(true);
         
         // Guardar activos explícitamente en la BD para cada trabajador
@@ -1893,6 +1901,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               type: assetAssignmentForm.type as any,
               dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
               serialNumber: assetAssignmentForm.serialNumber,
+              phoneNumber: assetAssignmentForm.phoneNumber || undefined,
               standardAssetId: assetAssignmentForm.standardAssetId || undefined
             };
           
@@ -1910,7 +1919,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Cerrar modal ANTES de actualizar
       setShowAssetAssignmentModal(false);
       setSelectedPersonnelIds([]);
-      setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '', standardAssetId: undefined });
+      setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '', phoneNumber: '', standardAssetId: undefined });
       setGenerateConstancy(true);
       setUseStandardAsset(true);
       
@@ -5463,7 +5472,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 <p className="font-medium text-slate-700 truncate">{a.name}</p>
                                                 <p className="text-xs text-slate-500 truncate">
                                                     {a.dateAssigned} 
-                                                    {a.serialNumber && ` • SN: ${a.serialNumber}`}
+                                                    {(a.serialNumber || (a as any).serial_number) && ` • SN: ${a.serialNumber || (a as any).serial_number}`}
+                                                    {(a.phoneNumber || (a as any).phone_number) && ` • Tel: ${a.phoneNumber || (a as any).phone_number}`}
                                                     {a.constancyCode && ` • Const: ${a.constancyCode}`}
                                                 </p>
                                             </div>
@@ -7105,7 +7115,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     onChange={(e) => {
                       setUseStandardAsset(e.target.checked);
                       if (!e.target.checked) {
-                        setAssetAssignmentForm({ ...assetAssignmentForm, standardAssetId: undefined, name: '', serialNumber: '' });
+                        setAssetAssignmentForm({ ...assetAssignmentForm, standardAssetId: undefined, name: '', serialNumber: '', phoneNumber: '' });
                       }
                     }}
                     className="rounded"
@@ -7132,7 +7142,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               standardAssetId: selectedAsset.id,
                               name: selectedAsset.name,
                               type: selectedAsset.type as any,
-                              serialNumber: selectedAsset.defaultSerialNumberPrefix || ''
+                              serialNumber: selectedAsset.defaultSerialNumberPrefix || '',
+                              phoneNumber: ''
                             });
                           }
                         }}
@@ -7220,6 +7231,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     placeholder={useStandardAsset && assetAssignmentForm.standardAssetId ? "Prefijo aplicado automáticamente" : ""}
                   />
                 </div>
+                {isCorporatePhoneAsset(assetAssignmentForm.name) && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">N° Telefónico (Opcional)</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      value={assetAssignmentForm.phoneNumber}
+                      onChange={e => setAssetAssignmentForm({ ...assetAssignmentForm, phoneNumber: e.target.value })}
+                      placeholder="Ej. 987654321"
+                    />
+                  </div>
+                )}
                 
                 <div className="flex items-center space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <input 
