@@ -50,15 +50,6 @@ export const contractService = {
         ? existingContracts[0].contract_number + 1
         : 1;
 
-      // Si es una renovación, marcar el contrato anterior como renovado
-      if (nextContractNumber > 1) {
-        await supabase
-          .from('contract_history')
-          .update({ status: 'renovado' })
-          .eq('resource_id', resourceId)
-          .eq('status', 'activo');
-      }
-
       // Crear el nuevo contrato
       const { data, error } = await supabase
         .from('contract_history')
@@ -74,6 +65,20 @@ export const contractService = {
         .single();
 
       if (error) throw error;
+
+      // Si es una renovación, marcar el contrato anterior como renovado DESPUÉS
+      // de crear el nuevo contrato activo para evitar estados intermedios
+      // donde el trabajador quede sin contrato activo.
+      if (nextContractNumber > 1) {
+        const { error: updatePreviousError } = await supabase
+          .from('contract_history')
+          .update({ status: 'renovado' })
+          .eq('resource_id', resourceId)
+          .eq('status', 'activo')
+          .lt('contract_number', nextContractNumber);
+
+        if (updatePreviousError) throw updatePreviousError;
+      }
 
       return {
         id: data.id,
