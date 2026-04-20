@@ -5,6 +5,7 @@ import { unitsService } from '../services/unitsService';
 import { Archive as ArchiveIcon, User, Building, Calendar, Mail, Phone, FileText, RefreshCw, ArrowRight, Search, X, CheckCircle, AlertCircle, Edit2 } from 'lucide-react';
 import { SafeImage } from './SafeImage';
 import { checkPermission } from '../services/permissionService';
+import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 
 interface ArchiveProps {
   currentUserRole?: UserRole;
@@ -257,23 +258,23 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
-                      {personnel.startDate && (
+                      {getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).start && (
                         <div className="mb-1">
                           <span className="text-slate-400">Inicio:</span>{' '}
-                          {new Date(personnel.startDate).toLocaleDateString('es-ES')}
+                          {new Date(getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).start!).toLocaleDateString('es-ES')}
                         </div>
                       )}
-                      {personnel.endDate && (
+                      {getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end && (
                         <div className="text-red-600">
                           <span className="text-slate-400">Fin:</span>{' '}
-                          {new Date(personnel.endDate).toLocaleDateString('es-ES')}
+                          {new Date(getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end!).toLocaleDateString('es-ES')}
                         </div>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
-                      {personnel.endDate ? (
+                      {getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end ? (
                         <div className="text-red-600 font-medium">
-                          {new Date(personnel.endDate).toLocaleDateString('es-ES')}
+                          {new Date(getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end!).toLocaleDateString('es-ES')}
                         </div>
                       ) : (
                         <span className="text-slate-300 italic">-</span>
@@ -386,19 +387,19 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                         </span>
                       </div>
                     )}
-                    {selectedPersonnel.startDate && (
+                    {getLaborRelationshipDisplayDates(selectedPersonnel, selectedPersonnel.contractHistory).start && (
                       <div>
                         <span className="text-slate-500">Inicio:</span>{' '}
                         <span className="font-medium">
-                          {new Date(selectedPersonnel.startDate).toLocaleDateString('es-ES')}
+                          {new Date(getLaborRelationshipDisplayDates(selectedPersonnel, selectedPersonnel.contractHistory).start!).toLocaleDateString('es-ES')}
                         </span>
                       </div>
                     )}
-                    {selectedPersonnel.endDate && (
+                    {getLaborRelationshipDisplayDates(selectedPersonnel, selectedPersonnel.contractHistory).end && (
                       <div>
                         <span className="text-slate-500">Fin:</span>{' '}
                         <span className="font-medium text-red-600">
-                          {new Date(selectedPersonnel.endDate).toLocaleDateString('es-ES')}
+                          {new Date(getLaborRelationshipDisplayDates(selectedPersonnel, selectedPersonnel.contractHistory).end!).toLocaleDateString('es-ES')}
                         </span>
                       </div>
                     )}

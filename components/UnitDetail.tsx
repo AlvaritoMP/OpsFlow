@@ -7,6 +7,7 @@ import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
 import { requestsService } from '../services/requestsService';
 import { SafeImage } from './SafeImage';
+import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -49,21 +50,6 @@ const getMonday = (d: Date) => {
   const day = date.getDay();
   const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
   return new Date(date.setDate(diff));
-}
-
-/** Inicio = primer contrato; fin = último contrato (historial). Sin historial, usa fechas del recurso. */
-function getLaborRelationshipDisplayDates(
-  worker: Resource,
-  history?: ContractHistory[]
-): { start?: string; end?: string } {
-  if (history && history.length > 0) {
-    const sorted = [...history].sort((a, b) => a.contractNumber - b.contractNumber);
-    return {
-      start: sorted[0].startDate,
-      end: sorted[sorted.length - 1].endDate,
-    };
-  }
-  return { start: worker.startDate, end: worker.endDate };
 }
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, googleMapsApiKey }) => {

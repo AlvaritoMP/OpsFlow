@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw } from 'lucide-react';
 import { Unit, Resource, ResourceType, Client } from '../types';
+import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 
 interface WorkersManagementProps {
   units: Unit[];
@@ -114,14 +115,19 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
   // Exportar a Excel
   const handleExport = () => {
     const data = filteredWorkers.map(worker => ({
+      ...(function () {
+        const rel = getLaborRelationshipDisplayDates(worker, worker.contractHistory);
+        return {
+          'Fecha Inicio': rel.start ? new Date(rel.start).toLocaleDateString('es-ES') : '-',
+          'Fecha Fin': rel.end ? new Date(rel.end).toLocaleDateString('es-ES') : '-',
+        };
+      })(),
       'Nombre': worker.name,
       'DNI': worker.dni || '-',
       'Puesto': worker.puesto || '-',
       'Unidad': worker.unitName,
       'Cliente': worker.clientName,
       'Estado': worker.archived ? 'Archivado' : (worker.personnelStatus === 'cesado' ? 'Cesado' : worker.personnelStatus === 'activo' ? 'Activo' : 'Sin estado'),
-      'Fecha Inicio': worker.startDate ? new Date(worker.startDate).toLocaleDateString('es-ES') : '-',
-      'Fecha Fin': worker.endDate ? new Date(worker.endDate).toLocaleDateString('es-ES') : '-',
       'Zonas Asignadas': worker.assignedZones?.join(', ') || '-',
       'Turno': worker.assignedShift || '-'
     }));
@@ -380,13 +386,19 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                 <div>
                   <label className="text-sm font-medium text-slate-700">Fecha de Inicio</label>
                   <div className="text-sm text-slate-900">
-                    {selectedWorker.startDate ? new Date(selectedWorker.startDate).toLocaleDateString('es-ES') : '-'}
+                    {(() => {
+                      const rel = getLaborRelationshipDisplayDates(selectedWorker, selectedWorker.contractHistory);
+                      return rel.start ? new Date(rel.start).toLocaleDateString('es-ES') : '-';
+                    })()}
                   </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700">Fecha de Fin</label>
                   <div className="text-sm text-slate-900">
-                    {selectedWorker.endDate ? new Date(selectedWorker.endDate).toLocaleDateString('es-ES') : '-'}
+                    {(() => {
+                      const rel = getLaborRelationshipDisplayDates(selectedWorker, selectedWorker.contractHistory);
+                      return rel.end ? new Date(rel.end).toLocaleDateString('es-ES') : '-';
+                    })()}
                   </div>
                 </div>
                 <div>
