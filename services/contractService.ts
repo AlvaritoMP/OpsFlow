@@ -35,7 +35,8 @@ export const contractService = {
     resourceId: string,
     startDate: string,
     endDate: string,
-    notes?: string
+    notes?: string,
+    options?: { isRenewal?: boolean }
   ): Promise<ContractHistory> {
     try {
       // Obtener el siguiente número de contrato
@@ -46,9 +47,10 @@ export const contractService = {
         .order('contract_number', { ascending: false })
         .limit(1);
 
-      const nextContractNumber = existingContracts && existingContracts.length > 0
+      const hasExistingContracts = !!(existingContracts && existingContracts.length > 0);
+      const nextContractNumber = hasExistingContracts
         ? existingContracts[0].contract_number + 1
-        : 1;
+        : (options?.isRenewal ? 2 : 1);
 
       // Crear el nuevo contrato
       const { data, error } = await supabase

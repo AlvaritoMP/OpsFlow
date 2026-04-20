@@ -8652,7 +8652,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       selectedWorkerForRenewal.id,
                       renewContractForm.startDate,
                       renewContractForm.endDate,
-                      renewContractForm.notes || undefined
+                      renewContractForm.notes || undefined,
+                      { isRenewal: true }
                     );
                     
                     // Solo actualizar fin del último contrato en el recurso; el inicio de la relación laboral
