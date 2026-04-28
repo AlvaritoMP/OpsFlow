@@ -576,7 +576,7 @@ const App: React.FC = () => {
     try {
       // Filtrar representantes vacíos
       const validRepresentatives = clientForm.representatives.filter(
-        rep => rep.name.trim() !== '' && (rep.phone.trim() !== '' || rep.email.trim() !== '')
+        rep => rep.name.trim() !== ''
       );
 
       if (editingClient) {
