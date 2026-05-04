@@ -19,4 +19,5 @@ export * from './excelService';
 export * from './nightSupervisionService';
 export * from './nightSupervisionPdfService';
 export * from './nightSupervisionHistoricalService';
+export * from './variableCompensationsService';
 

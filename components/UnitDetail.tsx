@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory } from '../types';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation } from '../types';
 import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
@@ -51,6 +51,8 @@ const getMonday = (d: Date) => {
   const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
   return new Date(date.setDate(diff));
 }
+
+type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation';
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, googleMapsApiKey }) => {
   // Cargar activos estándar al montar el componente
@@ -185,8 +187,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // }, [unit.id]); // Remover onUpdate de las dependencias para evitar loops
 
   // Mantener el tab activo incluso cuando la unidad se actualiza
-  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
-  const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
+  const [activeTab, setActiveTab] = useState<UnitDetailTab>('overview');
+  const activeTabRef = useRef<UnitDetailTab>('overview');
   const previousUnitIdRef = useRef<string>(unit.id);
 
   // Estados para modal de supervisión nocturna
@@ -277,6 +279,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     notes: ''
   });
   const [isSavingIncrement, setIsSavingIncrement] = useState(false);
+
+  // Variable compensation states
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [compensationMonth, setCompensationMonth] = useState(currentMonth);
+  const [variableCompensations, setVariableCompensations] = useState<VariableCompensation[]>([]);
+  const [isLoadingCompensations, setIsLoadingCompensations] = useState(false);
+  const [isSavingCompensation, setIsSavingCompensation] = useState(false);
+  const [compensationForm, setCompensationForm] = useState({
+    resourceId: '',
+    amount: '',
+    concept: 'Comisión',
+    paymentDate: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
   
   // Loading and notification states
   const [isSavingWorker, setIsSavingWorker] = useState(false);
@@ -3464,6 +3480,182 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     });
   }, [personnel, personnelSearchQuery]);
 
+  const allUnitPersonnel = useMemo(() => (
+    unit.resources.filter(r => r.type === ResourceType.PERSONNEL)
+  ), [unit.resources]);
+
+  const formatMoney = (amount: number) => `S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const loadVariableCompensations = async () => {
+    setIsLoadingCompensations(true);
+    try {
+      const { variableCompensationsService } = await import('../services/variableCompensationsService');
+      const data = await variableCompensationsService.getByUnitAndMonth(unit.id, compensationMonth);
+      setVariableCompensations(data);
+    } catch (error) {
+      console.error('Error al cargar comisiones variables:', error);
+      setNotification({ type: 'error', message: 'Error al cargar comisiones/remuneraciones variables.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsLoadingCompensations(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'compensation') return;
+    loadVariableCompensations();
+  }, [activeTab, unit.id, compensationMonth]);
+
+  const getWorkerById = (resourceId: string) => allUnitPersonnel.find(worker => worker.id === resourceId);
+
+  const handleSaveVariableCompensation = async () => {
+    if (!compensationForm.resourceId || !compensationForm.amount) {
+      setNotification({ type: 'error', message: 'Seleccione un trabajador e ingrese un monto.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    const amount = Number(compensationForm.amount);
+    if (!amount || amount <= 0) {
+      setNotification({ type: 'error', message: 'El monto debe ser mayor a cero.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    setIsSavingCompensation(true);
+    try {
+      const { variableCompensationsService } = await import('../services/variableCompensationsService');
+      const created = await variableCompensationsService.create({
+        unitId: unit.id,
+        resourceId: compensationForm.resourceId,
+        periodMonth: compensationMonth,
+        amount,
+        concept: compensationForm.concept || 'Comisión',
+        paymentDate: compensationForm.paymentDate || undefined,
+        notes: compensationForm.notes || undefined,
+        source: 'manual'
+      });
+
+      setVariableCompensations(prev => [created, ...prev]);
+      setCompensationForm({
+        resourceId: '',
+        amount: '',
+        concept: 'Comisión',
+        paymentDate: new Date().toISOString().split('T')[0],
+        notes: ''
+      });
+      setNotification({ type: 'success', message: 'Comisión/remuneración variable registrada.' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar comisión variable:', error);
+      setNotification({ type: 'error', message: 'Error al guardar la comisión/remuneración variable.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingCompensation(false);
+    }
+  };
+
+  const handleDeleteVariableCompensation = async (id: string) => {
+    if (!confirm('¿Eliminar este registro variable?')) return;
+
+    try {
+      const { variableCompensationsService } = await import('../services/variableCompensationsService');
+      await variableCompensationsService.delete(id);
+      setVariableCompensations(prev => prev.filter(item => item.id !== id));
+      setNotification({ type: 'success', message: 'Registro eliminado.' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar comisión variable:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el registro.' });
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const handleImportVariableCompensations = async (file: File | null) => {
+    if (!file) return;
+    setIsSavingCompensation(true);
+
+    try {
+      const { excelService } = await import('../services/excelService');
+      const { variableCompensationsService } = await import('../services/variableCompensationsService');
+      const { data, result } = await excelService.importVariableCompensationsFromExcel(file);
+      const unmatched: string[] = [];
+
+      const rowsToCreate = data.flatMap(row => {
+        const worker = allUnitPersonnel.find(person => {
+          const sameDni = row.dni && person.dni && person.dni.trim() === row.dni.trim();
+          const sameName = row.trabajador && person.name.trim().toLowerCase() === row.trabajador.trim().toLowerCase();
+          return sameDni || sameName;
+        });
+
+        if (!worker) {
+          unmatched.push(row.dni || row.trabajador || 'Fila sin identificación');
+          return [];
+        }
+
+        return [{
+          unitId: unit.id,
+          resourceId: worker.id,
+          periodMonth: row.mes || compensationMonth,
+          amount: row.monto,
+          concept: row.concepto || 'Comisión',
+          paymentDate: row.fechaPago,
+          notes: row.notas,
+          source: 'import' as const
+        }];
+      });
+
+      if (rowsToCreate.length > 0) {
+        await variableCompensationsService.createMany(rowsToCreate);
+      }
+
+      await loadVariableCompensations();
+      const skippedText = unmatched.length > 0 ? ` ${unmatched.length} fila(s) no coincidieron con trabajadores de esta unidad.` : '';
+      const failedText = result.failed > 0 ? ` ${result.failed} fila(s) tenían errores de formato.` : '';
+      setNotification({
+        type: unmatched.length || result.failed ? 'info' : 'success',
+        message: `Importación completada: ${rowsToCreate.length} registro(s) cargado(s).${skippedText}${failedText}`
+      });
+      setTimeout(() => setNotification(null), 8000);
+    } catch (error) {
+      console.error('Error al importar comisiones variables:', error);
+      setNotification({ type: 'error', message: 'Error al importar la tabla de comisiones/remuneraciones variables.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingCompensation(false);
+    }
+  };
+
+  const handleExportVariableCompensations = async () => {
+    try {
+      const { excelService } = await import('../services/excelService');
+      const headers = ['Mes', 'Trabajador', 'DNI', 'Puesto', 'Concepto', 'Monto', 'Fecha Pago', 'Origen', 'Notas'];
+      const data = variableCompensations.map(item => {
+        const worker = getWorkerById(item.resourceId);
+        return {
+          'Mes': item.periodMonth,
+          'Trabajador': worker?.name || 'Trabajador no encontrado',
+          'DNI': worker?.dni || '',
+          'Puesto': worker?.puesto || '',
+          'Concepto': item.concept,
+          'Monto': item.amount,
+          'Fecha Pago': item.paymentDate || '',
+          'Origen': item.source === 'import' ? 'Importado' : 'Manual',
+          'Notas': item.notes || ''
+        };
+      });
+
+      await excelService.exportToExcel(data, headers, {
+        filename: `comisiones_${unit.name}_${compensationMonth}.xlsx`,
+        sheetName: 'Comisiones'
+      });
+    } catch (error) {
+      console.error('Error al exportar comisiones variables:', error);
+      setNotification({ type: 'error', message: 'Error al exportar comisiones/remuneraciones variables.' });
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
   const personnelIdsKey = useMemo(
     () => personnel.map(p => p.id).sort().join(','),
     [personnel]
@@ -6003,6 +6195,218 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     </div>
   );
 
+  const renderVariableCompensations = () => {
+    const totalMonth = variableCompensations.reduce((sum, item) => sum + item.amount, 0);
+    const totalsByWorker = allUnitPersonnel.map(worker => {
+      const workerTotal = variableCompensations
+        .filter(item => item.resourceId === worker.id)
+        .reduce((sum, item) => sum + item.amount, 0);
+      return { worker, total: workerTotal };
+    }).filter(item => item.total > 0).sort((a, b) => b.total - a.total);
+
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center">
+              <DollarSign className="mr-2 text-green-600" size={24} />
+              Comisiones y Remuneraciones Variables
+            </h2>
+            <p className="text-sm text-slate-500">Registre y consulte pagos variables por trabajador y mes.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={async () => {
+                const { excelService } = await import('../services/excelService');
+                await excelService.generateVariableCompensationsTemplate();
+              }}
+              className="px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 flex items-center text-sm"
+            >
+              <FileSpreadsheet size={16} className="mr-2" /> Plantilla
+            </button>
+            <label className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center text-sm cursor-pointer">
+              <Upload size={16} className="mr-2" /> Importar Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  handleImportVariableCompensations(e.target.files?.[0] || null);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            <button
+              onClick={handleExportVariableCompensations}
+              disabled={variableCompensations.length === 0}
+              className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300 flex items-center text-sm"
+            >
+              <Download size={16} className="mr-2" /> Exportar
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Mes de consulta</label>
+            <input
+              type="month"
+              className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-green-500"
+              value={compensationMonth}
+              onChange={(e) => setCompensationMonth(e.target.value)}
+            />
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <p className="text-sm text-slate-500">Total pagado en el mes</p>
+            <p className="text-3xl font-bold text-green-700 mt-2">{formatMoney(totalMonth)}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <p className="text-sm text-slate-500">Trabajadores con variable</p>
+            <p className="text-3xl font-bold text-slate-800 mt-2">{totalsByWorker.length}</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 className="font-bold text-slate-800 mb-4 flex items-center">
+            <Plus size={18} className="mr-2 text-green-600" />
+            Registro manual
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+            <select
+              className="lg:col-span-2 border border-slate-300 rounded-lg p-2 outline-none"
+              value={compensationForm.resourceId}
+              onChange={(e) => setCompensationForm({ ...compensationForm, resourceId: e.target.value })}
+            >
+              <option value="">Seleccionar trabajador...</option>
+              {allUnitPersonnel.map(worker => (
+                <option key={worker.id} value={worker.id}>
+                  {worker.name}{worker.dni ? ` - ${worker.dni}` : ''}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              className="border border-slate-300 rounded-lg p-2 outline-none"
+              placeholder="Monto"
+              value={compensationForm.amount}
+              onChange={(e) => setCompensationForm({ ...compensationForm, amount: e.target.value })}
+            />
+            <input
+              type="text"
+              className="border border-slate-300 rounded-lg p-2 outline-none"
+              placeholder="Concepto"
+              value={compensationForm.concept}
+              onChange={(e) => setCompensationForm({ ...compensationForm, concept: e.target.value })}
+            />
+            <input
+              type="date"
+              className="border border-slate-300 rounded-lg p-2 outline-none"
+              value={compensationForm.paymentDate}
+              onChange={(e) => setCompensationForm({ ...compensationForm, paymentDate: e.target.value })}
+            />
+            <button
+              onClick={handleSaveVariableCompensation}
+              disabled={isSavingCompensation}
+              className="bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700 disabled:bg-slate-300 flex items-center justify-center"
+            >
+              <Save size={16} className="mr-2" /> Guardar
+            </button>
+          </div>
+          <input
+            type="text"
+            className="mt-3 w-full border border-slate-300 rounded-lg p-2 outline-none"
+            placeholder="Notas u observaciones (opcional)"
+            value={compensationForm.notes}
+            onChange={(e) => setCompensationForm({ ...compensationForm, notes: e.target.value })}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800">Detalle de pagos variables</h3>
+              {isLoadingCompensations && <span className="text-xs text-slate-500">Cargando...</span>}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="text-left px-4 py-3">Trabajador</th>
+                    <th className="text-left px-4 py-3">Concepto</th>
+                    <th className="text-right px-4 py-3">Monto</th>
+                    <th className="text-left px-4 py-3">Fecha pago</th>
+                    <th className="text-left px-4 py-3">Origen</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {variableCompensations.map(item => {
+                    const worker = getWorkerById(item.resourceId);
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-slate-800">{worker?.name || 'Trabajador no encontrado'}</p>
+                          <p className="text-xs text-slate-500">{worker?.dni || worker?.puesto || ''}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-slate-700">{item.concept}</p>
+                          {item.notes && <p className="text-xs text-slate-400">{item.notes}</p>}
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-green-700">{formatMoney(item.amount)}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.paymentDate || '-'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${item.source === 'import' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>
+                            {item.source === 'import' ? 'Importado' : 'Manual'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleDeleteVariableCompensation(item.id)}
+                            className="text-slate-400 hover:text-red-600 p-1"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {variableCompensations.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                        No hay comisiones o remuneraciones variables registradas para este mes.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 h-fit">
+            <h3 className="font-bold text-slate-800 mb-4">Resumen por trabajador</h3>
+            <div className="space-y-3">
+              {totalsByWorker.map(({ worker, total }) => (
+                <div key={worker.id} className="flex justify-between items-center border-b border-slate-100 pb-2">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">{worker.name}</p>
+                    <p className="text-xs text-slate-400">{worker.puesto || worker.dni || 'Sin puesto'}</p>
+                  </div>
+                  <span className="font-bold text-green-700">{formatMoney(total)}</span>
+                </div>
+              ))}
+              {totalsByWorker.length === 0 && (
+                <p className="text-sm text-slate-400 text-center py-6">Sin pagos variables en el mes.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderDocuments = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -6232,6 +6636,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {checkPermission(userRole, 'PERSONNEL', 'view') && (
               <button onClick={() => setActiveTab('personnel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'personnel' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Personal</button>
           )}
+          {checkPermission(userRole, 'PERSONNEL', 'view') && (
+              <button onClick={() => setActiveTab('compensation')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'compensation' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Variables</button>
+          )}
           {checkPermission(userRole, 'LOGISTICS', 'view') && (
               <button onClick={() => setActiveTab('logistics')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'logistics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Logística</button>
           )}
@@ -6261,6 +6668,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       <div className="px-6 md:px-8 pb-10">
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'personnel' && renderPersonnel()}
+        {activeTab === 'compensation' && renderVariableCompensations()}
         {activeTab === 'logistics' && renderLogistics()}
         {activeTab === 'management' && renderManagement()}
         {activeTab === 'blueprint' && renderBlueprint()}

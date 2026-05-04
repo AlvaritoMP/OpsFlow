@@ -26,6 +26,25 @@ export interface ImportResult {
   warnings: Array<{ row: number; warning: string; data: PersonnelImportRow }>;
 }
 
+export interface VariableCompensationImportRow {
+  trabajador?: string;
+  dni?: string;
+  mes?: string;
+  monto: number;
+  concepto?: string;
+  fechaPago?: string;
+  notas?: string;
+}
+
+export interface VariableCompensationImportResult {
+  success: boolean;
+  totalRows: number;
+  successful: number;
+  failed: number;
+  errors: Array<{ row: number; error: string; data: Partial<VariableCompensationImportRow> }>;
+  warnings: Array<{ row: number; warning: string; data: Partial<VariableCompensationImportRow> }>;
+}
+
 export const excelService = {
   // Exportar datos a Excel
   async exportToExcel(
@@ -83,6 +102,126 @@ export const excelService = {
     } catch (error) {
       console.error('Error al exportar a Excel:', error);
       throw new Error('Error al exportar a Excel. Asegúrate de que xlsx está instalado: npm install xlsx');
+    }
+  },
+
+  async importVariableCompensationsFromExcel(file: File): Promise<{ data: VariableCompensationImportRow[]; result: VariableCompensationImportResult }> {
+    try {
+      const XLSX = await import('xlsx');
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: ''
+      }) as any[][];
+
+      if (jsonData.length < 2) {
+        throw new Error('El archivo Excel debe tener encabezados y al menos una fila de datos');
+      }
+
+      const headerMap: Record<string, string> = {
+        'trabajador': 'trabajador',
+        'colaborador': 'trabajador',
+        'nombre': 'trabajador',
+        'name': 'trabajador',
+        'dni': 'dni',
+        'documento': 'dni',
+        'mes': 'mes',
+        'periodo': 'mes',
+        'periodo mensual': 'mes',
+        'month': 'mes',
+        'monto': 'monto',
+        'importe': 'monto',
+        'amount': 'monto',
+        'comision': 'monto',
+        'comisión': 'monto',
+        'concepto': 'concepto',
+        'tipo': 'concepto',
+        'fecha pago': 'fechaPago',
+        'fecha de pago': 'fechaPago',
+        'payment date': 'fechaPago',
+        'notas': 'notas',
+        'observaciones': 'notas',
+        'notes': 'notas'
+      };
+
+      const headers = jsonData[0].map((h: any) => headerMap[String(h).trim().toLowerCase()] || String(h).trim().toLowerCase());
+      const rows: VariableCompensationImportRow[] = [];
+      const result: VariableCompensationImportResult = {
+        success: true,
+        totalRows: jsonData.length - 1,
+        successful: 0,
+        failed: 0,
+        errors: [],
+        warnings: []
+      };
+
+      for (let i = 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row || row.every((cell: any) => !cell || String(cell).trim() === '')) continue;
+
+        const rowData: Partial<VariableCompensationImportRow> = {};
+
+        headers.forEach((header, index) => {
+          const value = row[index];
+          if (value === undefined || value === null || String(value).trim() === '') return;
+
+          const stringValue = String(value).trim();
+          switch (header) {
+            case 'trabajador':
+              rowData.trabajador = stringValue;
+              break;
+            case 'dni':
+              rowData.dni = stringValue;
+              break;
+            case 'mes':
+              rowData.mes = this.normalizeMonth(stringValue);
+              break;
+            case 'monto':
+              rowData.monto = this.normalizeMoney(stringValue);
+              break;
+            case 'concepto':
+              rowData.concepto = stringValue;
+              break;
+            case 'fechaPago':
+              rowData.fechaPago = this.normalizeDate(stringValue);
+              break;
+            case 'notas':
+              rowData.notas = stringValue;
+              break;
+          }
+        });
+
+        if (!rowData.dni && !rowData.trabajador) {
+          result.failed++;
+          result.errors.push({ row: i + 1, error: 'Debe indicar DNI o nombre del trabajador', data: rowData });
+          continue;
+        }
+
+        if (!rowData.monto || rowData.monto <= 0) {
+          result.failed++;
+          result.errors.push({ row: i + 1, error: 'El monto debe ser mayor a cero', data: rowData });
+          continue;
+        }
+
+        rows.push({
+          trabajador: rowData.trabajador,
+          dni: rowData.dni,
+          mes: rowData.mes,
+          monto: rowData.monto,
+          concepto: rowData.concepto || 'Comisión',
+          fechaPago: rowData.fechaPago,
+          notas: rowData.notas
+        });
+        result.successful++;
+      }
+
+      result.success = result.failed === 0;
+      return { data: rows, result };
+    } catch (error) {
+      console.error('Error al importar comisiones desde Excel:', error);
+      throw new Error(`Error al importar Excel: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   },
 
@@ -313,6 +452,25 @@ export const excelService = {
     return dateString; // Retornar original si no se puede normalizar
   },
 
+  normalizeMonth(value: string): string {
+    const normalizedDate = this.normalizeDate(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+      return normalizedDate.slice(0, 7);
+    }
+    if (/^\d{4}-\d{2}$/.test(value)) {
+      return value;
+    }
+    return value;
+  },
+
+  normalizeMoney(value: string): number {
+    const normalized = value
+      .replace(/S\/\.?/gi, '')
+      .replace(/\s/g, '')
+      .replace(/,/g, '');
+    return Number(normalized) || 0;
+  },
+
   // Validar fila de personal
   validatePersonnelRow(row: PersonnelImportRow, rowNumber: number): { isValid: boolean; error?: string; warning?: string } {
     // Nombre es requerido
@@ -351,6 +509,48 @@ export const excelService = {
   },
 
   // Generar plantilla Excel para carga masiva de trabajadores
+  async generateVariableCompensationsTemplate(): Promise<void> {
+    try {
+      const XLSX = await import('xlsx');
+      const headers = ['DNI', 'Trabajador', 'Mes', 'Monto', 'Concepto', 'Fecha Pago', 'Notas'];
+      const exampleData = [
+        ['12345678', 'Juan Pérez García', '2026-05', 250.00, 'Comisión por productividad', '2026-05-31', 'Pago validado'],
+        ['87654321', 'María López Sánchez', '2026-05', 180.50, 'Bono variable', '2026-05-31', '']
+      ];
+
+      const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exampleData]);
+      worksheet['!cols'] = [
+        { wch: 12 },
+        { wch: 28 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 28 },
+        { wch: 15 },
+        { wch: 35 }
+      ];
+
+      const instructions = XLSX.utils.aoa_to_sheet([
+        ['INSTRUCCIONES PARA CARGA DE COMISIONES / VARIABLES'],
+        [''],
+        ['DNI o Trabajador:', 'Debe indicar al menos uno. Se recomienda DNI para evitar homónimos.'],
+        ['Mes:', 'Formato YYYY-MM. Si se deja vacío, se usará el mes seleccionado en la pantalla.'],
+        ['Monto:', 'Monto pagado. Debe ser mayor a cero.'],
+        ['Concepto:', 'Ej: Comisión, Bono variable, Productividad. Si se deja vacío se usará "Comisión".'],
+        ['Fecha Pago:', 'Opcional. Formato YYYY-MM-DD o DD/MM/YYYY.'],
+        ['Notas:', 'Opcional.']
+      ]);
+      instructions['!cols'] = [{ wch: 28 }, { wch: 70 }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Datos');
+      XLSX.utils.book_append_sheet(workbook, instructions, 'Instrucciones');
+      XLSX.writeFile(workbook, `plantilla_comisiones_variables_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (error) {
+      console.error('Error al generar plantilla de comisiones:', error);
+      throw new Error('Error al generar plantilla Excel. Asegúrate de que xlsx está instalado.');
+    }
+  },
+
   async generatePersonnelTemplate(): Promise<void> {
     try {
       const XLSX = await import('xlsx');

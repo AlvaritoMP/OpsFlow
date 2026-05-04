@@ -259,6 +259,20 @@ export interface SalaryIncrement {
   updatedAt: string;
 }
 
+export interface VariableCompensation {
+  id: string;
+  unitId: string;
+  resourceId: string;
+  periodMonth: string; // YYYY-MM
+  amount: number;
+  concept: string;
+  paymentDate?: string; // YYYY-MM-DD
+  notes?: string;
+  source: 'manual' | 'import';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ContractHistory {
   id: string;
   resourceId: string;
