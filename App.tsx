@@ -1100,6 +1100,7 @@ const App: React.FC = () => {
       if (confirm('¿Eliminar este miembro del equipo de gestión? Esta acción no se puede deshacer.')) {
         try {
           await deleteStaff(staffId);
+          await loadUnits();
         } catch (error) {
           console.error('Error al eliminar personal:', error);
           alert('Error al eliminar el personal. Por favor, intente nuevamente.');
@@ -1111,6 +1112,7 @@ const App: React.FC = () => {
       if (confirm('¿Archivar este trabajador? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
         try {
           await archiveStaff(staffId);
+          await loadUnits();
         } catch (error) {
           console.error('Error al archivar personal:', error);
           alert('Error al archivar el personal. Por favor, intente nuevamente.');
