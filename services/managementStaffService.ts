@@ -144,6 +144,7 @@ export const managementStaffService = {
   async delete(id: string): Promise<void> {
     try {
       await releaseStaffFromUnits(id);
+      await releaseStaffFromLogs(id);
 
       const { error } = await supabase
         .from('management_staff')
@@ -188,6 +189,30 @@ async function releaseStaffFromUnits(staffId: string): Promise<void> {
   } catch (error: any) {
     if (error.code === '42P01' || error.message?.includes('does not exist')) {
       console.warn('⚠️ Tabla unit_management_staff no existe. No se limpiaron asignaciones adicionales.');
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function releaseStaffFromLogs(staffId: string): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('log_responsible')
+      .delete()
+      .eq('management_staff_id', staffId);
+
+    if (error) {
+      if (error.code === '42P01') {
+        console.warn('⚠️ Tabla log_responsible no existe. No se limpiaron responsables de logs.');
+      } else {
+        throw error;
+      }
+    }
+  } catch (error: any) {
+    if (error.code === '42P01' || error.message?.includes('does not exist')) {
+      console.warn('⚠️ Tabla log_responsible no existe. No se limpiaron responsables de logs.');
       return;
     }
 

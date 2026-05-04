@@ -203,6 +203,16 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     }
   };
 
+  const releaseManagementStaffFromUnits = (staffId: string) => {
+    setUnits(currentUnits => currentUnits.map(unit => ({
+      ...unit,
+      coordinator: unit.coordinator?.id === staffId ? undefined : unit.coordinator,
+      rovingSupervisor: unit.rovingSupervisor?.id === staffId ? undefined : unit.rovingSupervisor,
+      residentSupervisor: unit.residentSupervisor?.id === staffId ? undefined : unit.residentSupervisor,
+      assignedStaff: unit.assignedStaff?.filter(id => id !== staffId) || [],
+    })));
+  };
+
   return {
     units,
     loading,
@@ -211,6 +221,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     createUnit,
     updateUnit,
     deleteUnit,
+    releaseManagementStaffFromUnits,
   };
 };
 

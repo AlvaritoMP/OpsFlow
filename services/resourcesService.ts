@@ -25,8 +25,10 @@ export const resourcesService = {
       if (error) throw error;
 
       // Cargar datos relacionados para cada recurso
-      const resources = await Promise.all(
-        data.map(async (resource) => {
+      const resources = await mapWithConcurrency(
+        data,
+        4,
+        async (resource) => {
           const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
             this.getTrainings(resource.id),
             this.getAssignedAssets(resource.id),
@@ -41,7 +43,7 @@ export const resourcesService = {
             ...transformed,
             contractHistory: contractHistory,
           };
-        })
+        }
       );
 
       return resources;
@@ -64,8 +66,10 @@ export const resourcesService = {
 
       if (error) throw error;
 
-      const resources = await Promise.all(
-        data.map(async (resource) => {
+      const resources = await mapWithConcurrency(
+        data,
+        4,
+        async (resource) => {
           const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
             this.getTrainings(resource.id),
             this.getAssignedAssets(resource.id),
@@ -80,7 +84,7 @@ export const resourcesService = {
             ...transformed,
             contractHistory: contractHistory,
           };
-        })
+        }
       );
 
       return resources;
@@ -108,8 +112,10 @@ export const resourcesService = {
 
       if (error) throw error;
 
-      const resources = await Promise.all(
-        data.map(async (resource: any) => {
+      const resources = await mapWithConcurrency(
+        data,
+        4,
+        async (resource: any) => {
           const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
             this.getTrainings(resource.id),
             this.getAssignedAssets(resource.id),
@@ -124,7 +130,7 @@ export const resourcesService = {
             originalUnitId: resource.unit_id,
             originalUnitName: resource.unit?.name || 'Unidad desconocida',
           };
-        })
+        }
       );
 
       return resources;
@@ -856,6 +862,25 @@ function normalizeDateToDB(dateValue: any): string | null | undefined {
   }
   
   return undefined;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }
 
 function transformResourceToDB(resource: Partial<Resource>, unitId?: string): any {

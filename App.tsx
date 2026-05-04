@@ -76,7 +76,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
-  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits } = useUnits(isAuthenticated, currentUser);
+  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits, releaseManagementStaffFromUnits } = useUnits(isAuthenticated, currentUser);
   const { users, loading: usersLoading, createUser, updateUser, deleteUser, loadUsers } = useUsers(isAuthenticated);
   const { staff: managementStaff, loading: staffLoading, createStaff, updateStaff, deleteStaff, archiveStaff, loadStaff } = useManagementStaff(isAuthenticated);
   const { clients, loading: clientsLoading, createClient, updateClient, deleteClient, loadClients } = useClients(isAuthenticated);
@@ -1100,7 +1100,7 @@ const App: React.FC = () => {
       if (confirm('¿Eliminar este miembro del equipo de gestión? Esta acción no se puede deshacer.')) {
         try {
           await deleteStaff(staffId);
-          await loadUnits();
+          releaseManagementStaffFromUnits(staffId);
         } catch (error) {
           console.error('Error al eliminar personal:', error);
           alert('Error al eliminar el personal. Por favor, intente nuevamente.');
@@ -1112,7 +1112,7 @@ const App: React.FC = () => {
       if (confirm('¿Archivar este trabajador? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
         try {
           await archiveStaff(staffId);
-          await loadUnits();
+          releaseManagementStaffFromUnits(staffId);
         } catch (error) {
           console.error('Error al archivar personal:', error);
           alert('Error al archivar el personal. Por favor, intente nuevamente.');
