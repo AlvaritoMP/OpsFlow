@@ -377,7 +377,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1, shift: '' as string | undefined });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', dni: '', puesto: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -390,6 +390,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [isSyncing, setIsSyncing] = useState<string | null>(null); // ID of resource currently syncing
+  const getWorkerInitial = (name?: string) => (name?.trim().charAt(0) || '?').toUpperCase();
+  const handleWorkerImageSelection = (
+    file: File | undefined,
+    currentImage: string | undefined,
+    onImageSelected: (imageUrl: string) => void
+  ) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setNotification({ type: 'error', message: 'Seleccione un archivo de imagen válido' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    if (currentImage?.startsWith('blob:')) {
+      URL.revokeObjectURL(currentImage);
+    }
+
+    onImageSelected(URL.createObjectURL(file));
+  };
+
+  const uploadWorkerImageIfNeeded = async (imageUrl: string | undefined, workerId?: string): Promise<string | undefined> => {
+    if (!imageUrl || !imageUrl.startsWith('blob:')) return imageUrl;
+
+    const response = await fetch(imageUrl);
+    const blob = await response.blob();
+    const extension = blob.type.split('/')[1] || 'jpg';
+    const file = new File([blob], `worker-${workerId || Date.now()}.${extension}`, { type: blob.type || 'image/jpeg' });
+    const { storageService } = await import('../services/storageService');
+    const uploadedUrl = await storageService.uploadFile('unit-images', file, `workers/${workerId || 'new'}-${Date.now()}.${extension}`);
+    URL.revokeObjectURL(imageUrl);
+    return uploadedUrl;
+  };
   
   // Maintenance History State (Equipment)
   const [expandedEquipment, setExpandedEquipment] = useState<string | null>(null);
@@ -2012,11 +2044,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setIsSavingWorker(true);
     try {
       const { resourcesService } = await import('../services/resourcesService');
+      const finalWorkerImage = await uploadWorkerImageIfNeeded(newWorkerForm.image);
       const newWorker = await resourcesService.create({
       name: newWorkerForm.name,
       type: ResourceType.PERSONNEL,
       quantity: 1,
       status: StaffStatus.ACTIVE,
+        image: finalWorkerImage,
         assignedZones: newWorkerForm.zones,
       assignedShift: newWorkerForm.shift,
       compliancePercentage: 100,
@@ -2048,7 +2082,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', puesto: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
+      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -2814,11 +2848,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Excluir assignedAssets, trainings y workSchedule del objeto de actualización
       // Estos campos se manejan por separado y solo se actualizan si se modifican explícitamente
       const { assignedAssets, trainings, workSchedule, ...resourceData } = editingResource;
+      const finalResourceImage = await uploadWorkerImageIfNeeded(editingResource.image, editingResource.id);
       
       // Asegurar que si el trabajador NO está archivado, el estado sea "activo"
       // endDate es solo referencial y NO debe cambiar el estado automáticamente
       const resourceToUpdate = {
         ...resourceData,
+        image: finalResourceImage,
         // Si NO está archivado explícitamente, forzar estado "activo"
         // Esto previene que trabajadores con endDate sean marcados como "cesado"
         personnelStatus: editingResource.archived === true 
@@ -5413,9 +5449,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                        )}
                     </div>
                     <div className="col-span-3 md:col-span-2 lg:col-span-2 flex items-center min-w-0">
-                       <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
-                          {worker.name.charAt(0)}
-                       </div>
+                       {worker.image ? (
+                         <SafeImage
+                           src={worker.image}
+                           alt={worker.name}
+                           bucket="unit-images"
+                           className="w-8 h-8 rounded-full object-cover mr-2 shrink-0 bg-slate-200"
+                           fallback={
+                             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
+                               {getWorkerInitial(worker.name)}
+                             </div>
+                           }
+                         />
+                       ) : (
+                         <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
+                            {getWorkerInitial(worker.name)}
+                         </div>
+                       )}
                        <button
                          type="button"
                          onClick={() => togglePersonnelExpand(worker.id)}
@@ -7304,6 +7354,58 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
              <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+                <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  {newWorkerForm.image ? (
+                    <SafeImage
+                      src={newWorkerForm.image}
+                      alt={newWorkerForm.name || 'Nuevo colaborador'}
+                      bucket="unit-images"
+                      className="w-16 h-16 rounded-full object-cover bg-slate-200 shrink-0"
+                      fallback={
+                        <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shrink-0">
+                          {getWorkerInitial(newWorkerForm.name)}
+                        </div>
+                      }
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shrink-0">
+                      {getWorkerInitial(newWorkerForm.name)}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Foto del trabajador</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center rounded-lg bg-white px-3 py-2 text-sm font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 transition-colors">
+                        <Camera size={16} className="mr-2" />
+                        Subir foto
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            handleWorkerImageSelection(e.target.files?.[0], newWorkerForm.image, (imageUrl) => setNewWorkerForm({ ...newWorkerForm, image: imageUrl }));
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      {newWorkerForm.image && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (newWorkerForm.image?.startsWith('blob:')) {
+                              URL.revokeObjectURL(newWorkerForm.image);
+                            }
+                            setNewWorkerForm({ ...newWorkerForm, image: undefined });
+                          }}
+                          className="text-sm text-red-600 hover:text-red-800"
+                        >
+                          Quitar
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">Se guardará como imagen de perfil del colaborador.</p>
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo *</label>
                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} required />
@@ -7772,6 +7874,58 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       
                       {editingResource.type === ResourceType.PERSONNEL && (
                           <>
+                              <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                  {editingResource.image ? (
+                                      <SafeImage
+                                          src={editingResource.image}
+                                          alt={editingResource.name}
+                                          bucket="unit-images"
+                                          className="w-16 h-16 rounded-full object-cover bg-slate-200 shrink-0"
+                                          fallback={
+                                              <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shrink-0">
+                                                  {getWorkerInitial(editingResource.name)}
+                                              </div>
+                                          }
+                                      />
+                                  ) : (
+                                      <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shrink-0">
+                                          {getWorkerInitial(editingResource.name)}
+                                      </div>
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                      <label className="block text-sm font-medium text-slate-700 mb-2">Foto del trabajador</label>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                          <label className="inline-flex cursor-pointer items-center rounded-lg bg-white px-3 py-2 text-sm font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 transition-colors">
+                                              <Camera size={16} className="mr-2" />
+                                              Cambiar foto
+                                              <input
+                                                  type="file"
+                                                  accept="image/*"
+                                                  className="hidden"
+                                                  onChange={(e) => {
+                                                      handleWorkerImageSelection(e.target.files?.[0], editingResource.image, (imageUrl) => setEditingResource({ ...editingResource, image: imageUrl }));
+                                                      e.target.value = '';
+                                                  }}
+                                              />
+                                          </label>
+                                          {editingResource.image && (
+                                              <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                      if (editingResource.image?.startsWith('blob:')) {
+                                                          URL.revokeObjectURL(editingResource.image);
+                                                      }
+                                                      setEditingResource({ ...editingResource, image: '' });
+                                                  }}
+                                                  className="text-sm text-red-600 hover:text-red-800"
+                                              >
+                                                  Quitar
+                                              </button>
+                                          )}
+                                      </div>
+                                      <p className="text-xs text-slate-500 mt-2">La foto se guarda al presionar Guardar Cambios.</p>
+                                  </div>
+                              </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
                                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.dni || ''} onChange={e => setEditingResource({...editingResource, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
