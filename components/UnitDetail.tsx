@@ -6038,9 +6038,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  <tr key={worker.id} className="hover:bg-slate-50/50">
                                      <td className="px-4 py-3 whitespace-nowrap sticky left-0 bg-white z-10 border-r border-slate-100">
                                          <div className="flex items-center">
-                                             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
-                                                 {worker.name.charAt(0)}
-                                             </div>
+                                            {worker.image ? (
+                                                <SafeImage
+                                                    src={worker.image}
+                                                    alt={worker.name}
+                                                    bucket="unit-images"
+                                                    className="w-10 h-10 rounded-full object-cover mr-3 shrink-0 bg-slate-200"
+                                                    fallback={
+                                                        <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600 mr-3 shrink-0">
+                                                            {getWorkerInitial(worker.name)}
+                                                        </div>
+                                                    }
+                                                />
+                                            ) : (
+                                                <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600 mr-3 shrink-0">
+                                                    {getWorkerInitial(worker.name)}
+                                                </div>
+                                            )}
                                              <div>
                                                  <p className="text-sm font-medium text-slate-900 truncate max-w-[120px]" title={worker.name}>{worker.name}</p>
                                                  <p className="text-[10px] text-slate-400">{worker.assignedShift || 'N/A'}</p>

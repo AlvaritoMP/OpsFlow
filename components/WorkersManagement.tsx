@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw } from 'lucide-react';
 import { Unit, Resource, ResourceType, Client } from '../types';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
+import { SafeImage } from './SafeImage';
 
 interface WorkersManagementProps {
   units: Unit[];
@@ -21,6 +22,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
   const [unitFilter, setUnitFilter] = useState<string>('all');
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [selectedWorker, setSelectedWorker] = useState<WorkerWithUnit | null>(null);
+  const getWorkerInitial = (name?: string) => (name?.trim().charAt(0) || '?').toUpperCase();
 
   // Obtener todos los trabajadores de todas las unidades
   const allWorkers = useMemo(() => {
@@ -320,7 +322,28 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
               ) : (
                 filteredWorkers.map(worker => (
                   <tr key={worker.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-medium text-slate-900">{worker.name}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center">
+                        {worker.image ? (
+                          <SafeImage
+                            src={worker.image}
+                            alt={worker.name}
+                            bucket="unit-images"
+                            className="w-10 h-10 rounded-full object-cover mr-3 shrink-0 bg-slate-200"
+                            fallback={
+                              <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600 mr-3 shrink-0">
+                                {getWorkerInitial(worker.name)}
+                              </div>
+                            }
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600 mr-3 shrink-0">
+                            {getWorkerInitial(worker.name)}
+                          </div>
+                        )}
+                        <span className="text-sm font-medium text-slate-900">{worker.name}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.dni || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.puesto || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.unitName}</td>
