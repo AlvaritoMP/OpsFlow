@@ -5454,15 +5454,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                            src={worker.image}
                            alt={worker.name}
                            bucket="unit-images"
-                           className="w-8 h-8 rounded-full object-cover mr-2 shrink-0 bg-slate-200"
+                           className="w-10 h-10 rounded-full object-cover mr-3 shrink-0 bg-slate-200"
                            fallback={
-                             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
+                             <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600 mr-3 shrink-0">
                                {getWorkerInitial(worker.name)}
                              </div>
                            }
                          />
                        ) : (
-                         <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
+                         <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600 mr-3 shrink-0">
                             {getWorkerInitial(worker.name)}
                          </div>
                        )}
