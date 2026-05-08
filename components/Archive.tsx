@@ -222,14 +222,14 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                   <tr key={personnel.id} className="hover:bg-slate-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
-                        <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex-shrink-0 mr-3">
+                        <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-100 flex-shrink-0 mr-4">
                           <SafeImage
                             src={personnel.image}
                             alt={personnel.name}
                             className="w-full h-full object-cover"
                             bucket="unit-images"
                             fallback={
-                              <div className="w-full h-full flex items-center justify-center font-bold text-slate-400 text-sm">
+                              <div className="w-full h-full flex items-center justify-center font-bold text-slate-400 text-base">
                                 {personnel.name.charAt(0).toUpperCase()}
                               </div>
                             }

@@ -329,15 +329,15 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                             src={worker.image}
                             alt={worker.name}
                             bucket="unit-images"
-                            className="w-10 h-10 rounded-full object-cover mr-3 shrink-0 bg-slate-200"
+                            className="w-12 h-12 rounded-full object-cover mr-4 shrink-0 bg-slate-200"
                             fallback={
-                              <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600 mr-3 shrink-0">
+                              <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-base font-bold text-slate-600 mr-4 shrink-0">
                                 {getWorkerInitial(worker.name)}
                               </div>
                             }
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600 mr-3 shrink-0">
+                          <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-base font-bold text-slate-600 mr-4 shrink-0">
                             {getWorkerInitial(worker.name)}
                           </div>
                         )}
