@@ -902,7 +902,12 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
   setIfDefined('compliance_percentage', resource.compliancePercentage);
   setIfDefined('last_restock', resource.lastRestock);
   setIfDefined('next_maintenance', resource.nextMaintenance);
-  setIfDefined('image', resource.image);
+  // No persistir null para image: las recargas antiguas pueden traer image=null y
+  // borrar accidentalmente una foto ya subida cuando se actualiza la unidad completa.
+  // Para quitar una foto explícitamente se usa string vacío.
+  if (resource.image !== undefined && resource.image !== null) {
+    result.image = resource.image;
+  }
   setIfDefined('external_id', resource.externalId);
   setIfDefined('last_sync', resource.lastSync);
 
