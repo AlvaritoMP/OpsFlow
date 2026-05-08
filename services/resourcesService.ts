@@ -235,27 +235,29 @@ export const resourcesService = {
         });
       }
 
-      const { data: updateResult, error } = await supabase
-        .from('resources')
-        .update(resourceData)
-        .eq('id', id)
-        .select(); // Agregar select para verificar que se actualizó
+      if (Object.keys(resourceData).length > 0) {
+        const { data: updateResult, error } = await supabase
+          .from('resources')
+          .update(resourceData)
+          .eq('id', id)
+          .select(); // Agregar select para verificar que se actualizó
 
-      if (error) {
-        console.error('❌ [resourcesService.update] Error al actualizar:', error);
-        throw error;
-      }
-      
-      // Verificar que se actualizó correctamente
-      if (updateResult && updateResult.length > 0) {
-        console.log('✅ [resourcesService.update] Recurso actualizado en BD:', {
-          id: updateResult[0].id,
-          personnel_status: updateResult[0].personnel_status,
-          archived: updateResult[0].archived,
-          end_date: updateResult[0].end_date
-        });
-      } else {
-        console.warn('⚠️ [resourcesService.update] No se encontró el recurso después de actualizar');
+        if (error) {
+          console.error('❌ [resourcesService.update] Error al actualizar:', error);
+          throw error;
+        }
+        
+        // Verificar que se actualizó correctamente
+        if (updateResult && updateResult.length > 0) {
+          console.log('✅ [resourcesService.update] Recurso actualizado en BD:', {
+            id: updateResult[0].id,
+            personnel_status: updateResult[0].personnel_status,
+            archived: updateResult[0].archived,
+            end_date: updateResult[0].end_date
+          });
+        } else {
+          console.warn('⚠️ [resourcesService.update] No se encontró el recurso después de actualizar');
+        }
       }
 
       // Actualizar workSchedule (turnos) si se proporcionan
@@ -884,20 +886,25 @@ async function mapWithConcurrency<T, R>(
 }
 
 function transformResourceToDB(resource: Partial<Resource>, unitId?: string): any {
-  const result: any = {
-    name: resource.name,
-    type: resource.type,
-    quantity: resource.quantity,
-    unit_of_measure: resource.unitOfMeasure,
-    status: resource.status,
-    assigned_shift: resource.assignedShift,
-    compliance_percentage: resource.compliancePercentage,
-    last_restock: resource.lastRestock,
-    next_maintenance: resource.nextMaintenance,
-    image: resource.image,
-    external_id: resource.externalId,
-    last_sync: resource.lastSync,
+  const result: any = {};
+  const setIfDefined = (key: string, value: any) => {
+    if (value !== undefined) {
+      result[key] = value;
+    }
   };
+
+  setIfDefined('name', resource.name);
+  setIfDefined('type', resource.type);
+  setIfDefined('quantity', resource.quantity);
+  setIfDefined('unit_of_measure', resource.unitOfMeasure);
+  setIfDefined('status', resource.status);
+  setIfDefined('assigned_shift', resource.assignedShift);
+  setIfDefined('compliance_percentage', resource.compliancePercentage);
+  setIfDefined('last_restock', resource.lastRestock);
+  setIfDefined('next_maintenance', resource.nextMaintenance);
+  setIfDefined('image', resource.image);
+  setIfDefined('external_id', resource.externalId);
+  setIfDefined('last_sync', resource.lastSync);
 
   // Solo incluir unit_id si se proporciona (para actualizaciones que cambian de unidad)
   if (unitId !== undefined) {
