@@ -325,6 +325,23 @@ export const resourcesService = {
         }
       }
 
+      // Actualizar zonas asignadas si se proporcionan
+      if (resource.assignedZones !== undefined) {
+        const { error: deleteError } = await supabase
+          .from('resource_zone_assignments')
+          .delete()
+          .eq('resource_id', id);
+
+        if (deleteError) {
+          console.error('Error al eliminar asignaciones de zonas existentes:', deleteError);
+          throw deleteError;
+        }
+
+        if (resource.assignedZones.length > 0) {
+          await this.createZoneAssignments(id, resource.assignedZones);
+        }
+      }
+
       return await this.getById(id) || resource as Resource;
     } catch (error) {
       handleSupabaseError(error);
@@ -755,19 +772,36 @@ export const resourcesService = {
   },
 
   async createZoneAssignments(resourceId: string, zoneNames: string[]): Promise<void> {
-    // Primero obtener los IDs de las zonas por nombre
-    const { data: zones } = await supabase
+    if (zoneNames.length === 0) return;
+
+    const uniqueZoneNames = [...new Set(zoneNames)];
+
+    // Primero obtener la unidad del recurso para evitar tomar zonas homónimas de otra unidad.
+    const { data: resource, error: resourceError } = await supabase
+      .from('resources')
+      .select('unit_id')
+      .eq('id', resourceId)
+      .single();
+
+    if (resourceError) throw resourceError;
+
+    const { data: zones, error: zonesError } = await supabase
       .from('zones')
       .select('id, name')
-      .in('name', zoneNames);
+      .eq('unit_id', resource.unit_id)
+      .in('name', uniqueZoneNames);
+
+    if (zonesError) throw zonesError;
 
     if (zones && zones.length > 0) {
-      await supabase.from('resource_zone_assignments').insert(
+      const { error } = await supabase.from('resource_zone_assignments').insert(
         zones.map(z => ({
           resource_id: resourceId,
           zone_id: z.id,
         }))
       );
+
+      if (error) throw error;
     }
   },
 };

@@ -2885,11 +2885,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           : 'activo' // Si no está archivado, siempre debe ser "activo"
       };
       
-      // Guardar en la BD (sin assignedAssets, trainings, workSchedule)
-      await resourcesService.update(editingResource.id, resourceToUpdate);
-      
-      // Recargar el recurso desde la BD para asegurar sincronización completa
-      const updatedResourceFromDB = await resourcesService.getById(editingResource.id);
+      // Guardar en la BD y usar la respuesta ya recargada del servicio.
+      const updatedResourceFromDB = await resourcesService.update(editingResource.id, resourceToUpdate);
       
       if (!updatedResourceFromDB) {
         throw new Error('No se pudo recargar el recurso actualizado');
@@ -5454,7 +5451,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             <div className="col-span-1 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Turno</div>
             <div className="col-span-1 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Cumpl.</div>
             <div className="col-span-1 hidden lg:block text-center whitespace-nowrap">Salario</div>
-            <div className="col-span-1 hidden lg:block text-center whitespace-nowrap">Cond. Trab.</div>
+            <div className="col-span-1 hidden lg:block text-center whitespace-nowrap">Zona/Grupo</div>
             <div className="col-span-3 md:col-span-2 lg:col-span-2 text-right whitespace-nowrap">Acciones</div>
          </div>
 
@@ -5581,8 +5578,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-700 font-medium">
                        {worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-300 italic">-</span>}
                     </div>
-                    <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-700 font-medium">
-                       {worker.workConditionAmount ? `S/ ${worker.workConditionAmount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-300 italic">-</span>}
+                    <div className="col-span-1 hidden lg:flex items-center justify-center text-xs text-slate-600">
+                       {worker.assignedZones && worker.assignedZones.length > 0 ? (
+                         <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100 max-w-full truncate" title={worker.assignedZones.join(', ')}>
+                           {worker.assignedZones.join(', ')}
+                         </span>
+                       ) : (
+                         <span className="text-slate-300 italic">Sin zona</span>
+                       )}
                     </div>
                     <div className="col-span-3 md:col-span-2 lg:col-span-2 flex justify-end items-center gap-2">
                         <button onClick={() => togglePersonnelExpand(worker.id)} className="text-slate-400 hover:text-blue-600 p-1" disabled={isArchivingPersonnel === worker.id}>
