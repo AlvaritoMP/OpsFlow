@@ -307,11 +307,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [localResources, setLocalResources] = useState<Resource[]>(unit.resources);
   const [rosterHasUnsavedChanges, setRosterHasUnsavedChanges] = useState(false);
   const [isSavingRoster, setIsSavingRoster] = useState(false);
+  const [dirtyRosterShifts, setDirtyRosterShifts] = useState<Set<string>>(new Set());
   
   // Sincronizar localResources cuando unit.resources cambia desde el padre
   useEffect(() => {
     setLocalResources(unit.resources);
     setRosterHasUnsavedChanges(false); // Resetear cuando se carga nueva data
+    setDirtyRosterShifts(new Set());
   }, [unit.resources]);
 
   // Mass Training State
@@ -2605,6 +2607,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      });
      
      // Marcar que hay cambios sin guardar (NO guardar automáticamente)
+     setDirtyRosterShifts(prev => {
+       const next = new Set(prev);
+       next.add(`${resourceId}|${date}`);
+       return next;
+     });
      setRosterHasUnsavedChanges(true);
   };
 
@@ -2616,24 +2623,35 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      try {
          const { resourcesService } = await import('../services/resourcesService');
          
-         // Guardar todos los turnos de todos los recursos que tienen cambios
-         const savePromises: Promise<void>[] = [];
-         
-         localResources.forEach(resource => {
-             if (resource.type === ResourceType.PERSONNEL && resource.workSchedule && resource.workSchedule.length > 0) {
-                 // Guardar todos los turnos de este recurso
-                 resource.workSchedule.forEach(shift => {
-                     savePromises.push(
-                         resourcesService.upsertDailyShift(resource.id, shift).catch(error => {
-                             console.error(`❌ Error al guardar turno para ${resource.name} en ${shift.date}:`, error);
-                             throw error;
-                         })
-                     );
-                 });
-             }
+         const changedShiftsByResource = new Map<string, { resource: Resource; shifts: DailyShift[] }>();
+
+         dirtyRosterShifts.forEach(key => {
+             const [resourceId, date] = key.split('|');
+             const resource = localResources.find(r => r.id === resourceId);
+             const shift = resource?.workSchedule?.find(s => s.date === date);
+
+             if (!resource || !shift) return;
+
+             const current = changedShiftsByResource.get(resourceId) || { resource, shifts: [] };
+             current.shifts.push(shift);
+             changedShiftsByResource.set(resourceId, current);
          });
-         
-         await Promise.all(savePromises);
+
+         if (changedShiftsByResource.size === 0) {
+             setRosterHasUnsavedChanges(false);
+             setDirtyRosterShifts(new Set());
+             setIsSavingRoster(false);
+             return;
+         }
+
+         for (const { resource, shifts } of changedShiftsByResource.values()) {
+             try {
+                 await resourcesService.upsertDailyShiftsForResource(resource.id, shifts);
+             } catch (error) {
+                 console.error(`❌ Error al guardar turnos para ${resource.name}:`, error);
+                 throw error;
+             }
+         }
          
          // Actualizar la unidad en el estado padre para sincronizar
          const updatedResources = localResources.map(r => {
@@ -2646,6 +2664,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      onUpdate({ ...unit, resources: updatedResources });
          
          setRosterHasUnsavedChanges(false);
+         setDirtyRosterShifts(new Set());
          setNotification({ type: 'success', message: 'Planificación guardada correctamente' });
          setTimeout(() => setNotification(null), 3000);
      } catch (error) {
@@ -2659,11 +2678,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
 
   const handleReplicateWeek = () => {
-      if (!onUpdate) return;
-      
       const currentWeekDates = getRosterDates().map(d => d.toISOString().split('T')[0]);
+      const newDirtyKeys = new Set<string>();
       
-      const updatedResources = unit.resources.map(r => {
+      const updatedResources = localResources.map(r => {
           if (r.type !== ResourceType.PERSONNEL) return r;
           
           const schedule = r.workSchedule ? [...r.workSchedule] : [];
@@ -2687,14 +2705,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       type: shift.type,
                       hours: shift.hours
                   });
+                  newDirtyKeys.add(`${r.id}|${targetDateStr}`);
               }
           });
           
           return { ...r, workSchedule: schedule };
       });
       
-      onUpdate({ ...unit, resources: updatedResources });
-      alert("Se han replicado los turnos a la próxima semana.");
+      setLocalResources(updatedResources);
+      setDirtyRosterShifts(prev => {
+        const next = new Set(prev);
+        newDirtyKeys.forEach(key => next.add(key));
+        return next;
+      });
+      setRosterHasUnsavedChanges(rosterHasUnsavedChanges || newDirtyKeys.size > 0);
+      setNotification({
+        type: newDirtyKeys.size > 0 ? 'info' : 'error',
+        message: newDirtyKeys.size > 0
+          ? 'Turnos replicados. Presiona "Guardar Planificación" para confirmar los cambios.'
+          : 'No hay turnos en la semana actual para replicar.'
+      });
+      setTimeout(() => setNotification(null), 4000);
   };
 
   // Limpiar duplicados de activos asignados

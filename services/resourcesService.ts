@@ -663,7 +663,7 @@ export const resourcesService = {
   },
 
   async createDailyShifts(resourceId: string, shifts: DailyShift[]): Promise<void> {
-    await supabase.from('daily_shifts').insert(
+    const { error } = await supabase.from('daily_shifts').insert(
       shifts.map(s => ({
         resource_id: resourceId,
         date: s.date,
@@ -671,6 +671,40 @@ export const resourcesService = {
         hours: s.hours,
       }))
     );
+
+    if (error) throw error;
+  },
+
+  async upsertDailyShiftsForResource(resourceId: string, shifts: DailyShift[]): Promise<void> {
+    if (shifts.length === 0) return;
+
+    const uniqueShifts = [...new Map(shifts.map(shift => [shift.date, shift])).values()];
+    const dates = uniqueShifts.map(shift => shift.date);
+
+    const { error: deleteError } = await supabase
+      .from('daily_shifts')
+      .delete()
+      .eq('resource_id', resourceId)
+      .in('date', dates);
+
+    if (deleteError) {
+      console.error('❌ Error al eliminar turnos existentes:', deleteError);
+      throw deleteError;
+    }
+
+    const { error: insertError } = await supabase.from('daily_shifts').insert(
+      uniqueShifts.map(shift => ({
+        resource_id: resourceId,
+        date: shift.date,
+        type: shift.type,
+        hours: shift.hours,
+      }))
+    );
+
+    if (insertError) {
+      console.error('❌ Error al insertar turnos:', insertError);
+      throw insertError;
+    }
   },
 
   // Actualizar un solo turno (comportamiento tipo upsert sin depender de índices únicos)
