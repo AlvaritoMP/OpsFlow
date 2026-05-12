@@ -229,7 +229,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Sincronizar editForm cuando unit cambia (importante para preservar recursos)
   // El useEffect más abajo (línea ~500) ya maneja esta sincronización
   const [newZoneName, setNewZoneName] = useState('');
-  const [newZoneShifts, setNewZoneShifts] = useState<string[]>([]);
+  const [newZoneShifts, setNewZoneShifts] = useState<ShiftType[]>(['Day']);
 
   // Personnel State
   const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>('list'); // New View Mode
@@ -506,7 +506,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
   const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
-  const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit');
+  const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit') || userRole === 'OPERATIONS' || userRole === 'OPERATIONS_SUPERVISOR';
+  const canManageZones = canEditGeneral || canEditBlueprint;
   const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
 
@@ -933,7 +934,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleAddZone = async () => {
-    if (!newZoneName) return;
+    if (!canManageZones) {
+      setNotification({ type: 'error', message: 'No tienes permisos para gestionar zonas.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    const zoneName = newZoneName.trim();
+    if (!zoneName) {
+      setNotification({ type: 'error', message: 'Ingresa un nombre para la zona.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
     
     // Validar que al menos un turno esté seleccionado
     if (newZoneShifts.length === 0) {
@@ -951,7 +963,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Crear la zona en la base de datos inmediatamente
       const newZone = await zonesService.create({
-      name: newZoneName,
+      name: zoneName,
         shifts: newZoneShifts, // Ya es un array de ShiftType
       layout: { 
           x: 1, y: 1, w: 2, h: 2, color: '#e2e8f0',
@@ -974,8 +986,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       };
       // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
 
-    setNewZoneName('');
-      setNewZoneShifts([]);
+      setNewZoneName('');
+      setNewZoneShifts(['Day']);
       
       setNotification({
         type: 'success',
@@ -993,6 +1005,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleDeleteZone = async (zoneId: string) => {
+    if (!canManageZones) {
+      setNotification({ type: 'error', message: 'No tienes permisos para gestionar zonas.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
     try {
       // Importar zonesService dinámicamente
       const { zonesService } = await import('../services/zonesService');
@@ -1603,9 +1621,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const deltaX = currentGridX - currentState.startGridX;
         const deltaY = currentGridY - currentState.startGridY;
 
-        // Usar editForm.zones si está disponible, sino unit.zones
+        // Usar editForm.zones incluso cuando queda vacío, para no revivir zonas eliminadas.
         setEditForm(prev => {
-          const zonesToUse = prev.zones && prev.zones.length > 0 ? prev.zones : unit.zones;
+          const zonesToUse = prev.zones ?? unit.zones;
           const zonesCopy = [...zonesToUse];
           const zoneIndex = zonesCopy.findIndex(z => z.id === currentState.zoneId);
           if (zoneIndex === -1) return prev;
@@ -1654,7 +1672,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         // Guardar cambios en BD
         if (currentState.type !== 'idle' && currentState.zoneId) {
           setEditForm(prev => {
-            const zonesToUse = prev.zones && prev.zones.length > 0 ? prev.zones : unit.zones;
+            const zonesToUse = prev.zones ?? unit.zones;
             const updatedZone = zonesToUse.find(z => z.id === currentState.zoneId);
             if (updatedZone && updatedZone.layout) {
               // Guardar de forma asíncrona sin bloquear
@@ -1696,9 +1714,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const updateSelectedZoneDetails = async (key: string, value: any) => {
       if (!selectedZoneId) return;
+      if (!canManageZones) {
+        setNotification({ type: 'error', message: 'No tienes permisos para gestionar zonas.' });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+
       try {
-        // Usar editForm.zones si está disponible, sino unit.zones
-        const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+        const zonesToUse = editForm.zones ?? unit.zones;
         const zonesCopy = zonesToUse.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
         
       if (key === 'color') {
@@ -4024,10 +4047,84 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  const renderZoneManagement = () => {
+    const shiftLabels: Record<string, string> = {
+      Day: 'Día',
+      Afternoon: 'Tarde',
+      Night: 'Noche',
+      OFF: 'Descanso',
+      Vacation: 'Vacaciones',
+      Sick: 'Enfermedad',
+    };
+
+    return (
+      <div className="pt-4 border-t border-slate-100">
+        <label className="block text-sm font-medium text-slate-700 mb-2">Gestión de Zonas y Turnos</label>
+        {editForm.zones.map(z => {
+          const displayShifts = z.shifts.map(s => shiftLabels[s] || s).join(', ');
+          return (
+            <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
+              <div>
+                <span className="font-bold text-sm">{z.name}</span>
+                <span className="text-xs text-slate-500"> ({displayShifts})</span>
+              </div>
+              <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700" title="Eliminar zona">
+                <Trash2 size={16}/>
+              </button>
+            </div>
+          );
+        })}
+        <div className="flex flex-col gap-2 mt-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Nombre Zona"
+              className="flex-1 border border-slate-300 rounded p-1.5 text-sm"
+              value={newZoneName}
+              onChange={e => setNewZoneName(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={handleAddZone}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"
+            >
+              Agregar
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs text-slate-600 self-center">Turnos:</span>
+            {(['Day', 'Afternoon', 'Night', 'OFF', 'Vacation', 'Sick'] as const).map(shift => {
+              const isSelected = newZoneShifts.includes(shift);
+              return (
+                <button
+                  key={shift}
+                  type="button"
+                  onClick={() => {
+                    if (isSelected) {
+                      setNewZoneShifts(newZoneShifts.filter(s => s !== shift));
+                    } else {
+                      setNewZoneShifts([...newZoneShifts, shift]);
+                    }
+                  }}
+                  className={`px-3 py-1 rounded text-xs border transition-colors ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {shiftLabels[shift] || shift}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // --- BLUEPRINT RENDERER ---
   const renderBlueprint = () => {
-    // Usar editForm.zones si está disponible (zonas agregadas localmente), sino usar unit.zones
-    const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+    const zonesToUse = editForm.zones ?? unit.zones;
     
     const selectedZone = zonesToUse.find(z => z.id === selectedZoneId);
     
@@ -4311,6 +4408,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
            {/* DYNAMIC SIDEBAR */}
            <div className="w-full lg:w-96 flex flex-col gap-6">
+               {isEditingBlueprint && (
+                   <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-5">
+                       {renderZoneManagement()}
+                   </div>
+               )}
                
                {/* 1. Edit Zone Details Panel */}
                {selectedZone ? (
@@ -4816,77 +4918,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
 
                   {/* Zones Management */}
-                  <div className="pt-4 border-t border-slate-100">
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Gestión de Zonas y Turnos</label>
-                    {editForm.zones.map(z => {
-                        const shiftLabels: Record<string, string> = {
-                            'Day': 'Día',
-                            'Afternoon': 'Tarde',
-                            'Night': 'Noche',
-                            'OFF': 'Descanso',
-                            'Vacation': 'Vacaciones',
-                            'Sick': 'Enfermedad'
-                        };
-                        const displayShifts = z.shifts.map(s => shiftLabels[s] || s).join(', ');
-                        return (
-                        <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
-                                <div><span className="font-bold text-sm">{z.name}</span> <span className="text-xs text-slate-500">({displayShifts})</span></div>
-                            <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
-                        </div>
-                        );
-                    })}
-                    <div className="flex flex-col gap-2 mt-2">
-                        <div className="flex gap-2">
-                            <input 
-                                type="text" 
-                                placeholder="Nombre Zona" 
-                                className="flex-1 border border-slate-300 rounded p-1.5 text-sm" 
-                                value={newZoneName} 
-                                onChange={e => setNewZoneName(e.target.value)} 
-                            />
-                            <button 
-                                onClick={handleAddZone} 
-                                className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"
-                            >
-                                Agregar
-                            </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <span className="text-xs text-slate-600 self-center">Turnos:</span>
-                            {(['Day', 'Afternoon', 'Night', 'OFF', 'Vacation', 'Sick'] as const).map(shift => {
-                                const shiftLabels: Record<string, string> = {
-                                    'Day': 'Día',
-                                    'Afternoon': 'Tarde',
-                                    'Night': 'Noche',
-                                    'OFF': 'Descanso',
-                                    'Vacation': 'Vacaciones',
-                                    'Sick': 'Enfermedad'
-                                };
-                                const isSelected = newZoneShifts.includes(shift);
-                                return (
-                                    <button
-                                        key={shift}
-                                        type="button"
-                                        onClick={() => {
-                                            if (isSelected) {
-                                                setNewZoneShifts(newZoneShifts.filter(s => s !== shift));
-                                            } else {
-                                                setNewZoneShifts([...newZoneShifts, shift]);
-                                            }
-                                        }}
-                                        className={`px-3 py-1 rounded text-xs border transition-colors ${
-                                            isSelected
-                                                ? 'bg-blue-600 text-white border-blue-600'
-                                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                                        }`}
-                                    >
-                                        {shiftLabels[shift] || shift}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                  </div>
+                  {canManageZones && renderZoneManagement()}
 
                   {/* Image Management */}
                   <div className="pt-4 border-t border-slate-100">
