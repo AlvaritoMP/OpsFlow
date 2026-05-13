@@ -349,13 +349,69 @@ export const resourcesService = {
     }
   },
 
-  // Eliminar un recurso
+  // Eliminar un recurso y filas dependientes (evita FK y filas huérfanas)
   async delete(id: string): Promise<void> {
+    const safe = async (
+      label: string,
+      run: () => Promise<{ error: { code?: string; message?: string } | null }>
+    ) => {
+      try {
+        const { error } = await run();
+        if (error && error.code !== '42P01') {
+          console.warn(`⚠️ [resources.delete] ${label}:`, error);
+        }
+      } catch (e) {
+        console.warn(`⚠️ [resources.delete] ${label}:`, e);
+      }
+    };
+
     try {
-      const { error } = await supabase
-        .from('resources')
-        .delete()
-        .eq('id', id);
+      await safe('maintenance_responsible', () =>
+        supabase.from('maintenance_responsible').delete().eq('resource_id', id)
+      );
+
+      try {
+        const { data: maintenanceRecords } = await supabase
+          .from('maintenance_records')
+          .select('id')
+          .eq('resource_id', id);
+        if (maintenanceRecords?.length) {
+          const recordIds = maintenanceRecords.map((r: { id: string }) => r.id);
+          await safe('maintenance_images', () =>
+            supabase.from('maintenance_images').delete().in('maintenance_record_id', recordIds)
+          );
+          await safe('maintenance_records', () =>
+            supabase.from('maintenance_records').delete().eq('resource_id', id)
+          );
+        }
+      } catch (e) {
+        console.warn('⚠️ [resources.delete] maintenance_records (bloque):', e);
+      }
+
+      await safe('daily_shifts', () =>
+        supabase.from('daily_shifts').delete().eq('resource_id', id)
+      );
+      await safe('assigned_assets', () =>
+        supabase.from('assigned_assets').delete().eq('resource_id', id)
+      );
+      await safe('trainings', () =>
+        supabase.from('trainings').delete().eq('resource_id', id)
+      );
+      await safe('resource_zone_assignments', () =>
+        supabase.from('resource_zone_assignments').delete().eq('resource_id', id)
+      );
+
+      await safe('contract_history', () =>
+        supabase.from('contract_history').delete().eq('resource_id', id)
+      );
+      await safe('salary_increments', () =>
+        supabase.from('salary_increments').delete().eq('resource_id', id)
+      );
+      await safe('variable_compensations', () =>
+        supabase.from('variable_compensations').delete().eq('resource_id', id)
+      );
+
+      const { error } = await supabase.from('resources').delete().eq('id', id);
 
       if (error) throw error;
     } catch (error) {

@@ -1,6 +1,6 @@
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
@@ -364,12 +364,35 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, [isAuthenticated]);
 
+  const BIRTHDAY_DISMISS_KEY = 'opsflow.birthdayModal.dismissedDate';
+  const BIRTHDAY_SHOWN_KEY = 'opsflow.birthdayModal.autoShownDate';
+
+  const dismissBirthdayAlerts = useCallback(() => {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    try {
+      sessionStorage.setItem(BIRTHDAY_DISMISS_KEY, todayKey);
+    } catch {
+      /* ignore */
+    }
+    setShowBirthdayAlerts(false);
+  }, []);
+
   // Calcular alertas de cumpleaños cuando se carguen las unidades (solo cumpleaños de hoy)
   useEffect(() => {
     if (!isAuthenticated || !units.length) {
       setBirthdayAlerts([]);
       setShowBirthdayAlerts(false);
       return;
+    }
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    let dismissed = false;
+    let alreadyAutoShown = false;
+    try {
+      dismissed = sessionStorage.getItem(BIRTHDAY_DISMISS_KEY) === todayKey;
+      alreadyAutoShown = sessionStorage.getItem(BIRTHDAY_SHOWN_KEY) === todayKey;
+    } catch {
+      /* ignore */
     }
 
     const today = new Date();
@@ -381,19 +404,16 @@ const App: React.FC = () => {
 
     units.forEach(unit => {
       unit.resources.forEach(resource => {
-        if (resource.type === ResourceType.PERSONNEL && 
-            resource.birthDate && 
-            !resource.archived && 
+        if (resource.type === ResourceType.PERSONNEL &&
+            resource.birthDate &&
+            !resource.archived &&
             resource.personnelStatus !== 'cesado') {
-          
-          // Parse birthDate manually to avoid timezone issues
+
           const [birthYear, birthMonthNum, birthDayNum] = resource.birthDate.split('-').map(Number);
           const birthDate = new Date(birthYear, birthMonthNum - 1, birthDayNum);
           const birthMonth = birthDate.getMonth();
           const birthDay = birthDate.getDate();
-          
-          // Solo incluir si el cumpleaños es exactamente hoy (mismo mes y día)
-          // No incluir cumpleaños futuros o pasados
+
           if (birthMonth === todayMonth && birthDay === todayDate) {
             const age = currentYear - birthDate.getFullYear();
             alerts.push({
@@ -406,14 +426,25 @@ const App: React.FC = () => {
         }
       });
     });
-    
-    // Solo mostrar alertas si hay cumpleaños HOY (daysUntil === 0)
+
     const todayAlerts = alerts.filter(alert => alert.daysUntil === 0);
     setBirthdayAlerts(todayAlerts);
-    if (todayAlerts.length > 0) {
-      setShowBirthdayAlerts(true);
-    } else {
+
+    if (todayAlerts.length === 0) {
       setShowBirthdayAlerts(false);
+      return;
+    }
+    if (dismissed) {
+      setShowBirthdayAlerts(false);
+      return;
+    }
+    if (!alreadyAutoShown) {
+      setShowBirthdayAlerts(true);
+      try {
+        sessionStorage.setItem(BIRTHDAY_SHOWN_KEY, todayKey);
+      } catch {
+        /* ignore */
+      }
     }
   }, [units, isAuthenticated]);
 
@@ -3069,7 +3100,7 @@ const App: React.FC = () => {
               Cumpleaños de Hoy
             </h3>
             <button 
-              onClick={() => setShowBirthdayAlerts(false)}
+              onClick={dismissBirthdayAlerts}
               className="text-white/80 hover:text-white"
             >
               <X size={20} />
@@ -3089,7 +3120,7 @@ const App: React.FC = () => {
           </div>
           <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
             <button
-              onClick={() => setShowBirthdayAlerts(false)}
+              onClick={dismissBirthdayAlerts}
               className="w-full bg-pink-600 text-white py-2.5 rounded-lg font-medium hover:bg-pink-700 transition-colors"
             >
               Cerrar

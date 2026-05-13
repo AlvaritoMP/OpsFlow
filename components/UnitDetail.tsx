@@ -300,6 +300,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Loading and notification states
   const [isSavingWorker, setIsSavingWorker] = useState(false);
   const [isUpdatingResource, setIsUpdatingResource] = useState(false);
+  const [isDeletingResource, setIsDeletingResource] = useState(false);
   const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
   const [isSavingRequest, setIsSavingRequest] = useState(false);
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
@@ -2983,12 +2984,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleDeleteResource = () => {
+  const handleDeleteResource = async () => {
     if (!onUpdate || !editingResource) return;
-    if (confirm('¿Estás seguro de eliminar este recurso?')) {
-      const updatedResources = unit.resources.filter(r => r.id !== editingResource.id);
-      onUpdate({ ...unit, resources: updatedResources });
+    if (!confirm('¿Estás seguro de eliminar este recurso?')) return;
+
+    setIsDeletingResource(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      await resourcesService.delete(editingResource.id);
+      const updatedResources = unit.resources.filter((r) => r.id !== editingResource.id);
+      await onUpdate({ ...unit, resources: updatedResources });
       setEditingResource(null);
+      setNotification({ type: 'success', message: 'Recurso eliminado.' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: unknown) {
+      console.error('Error al eliminar recurso:', error);
+      const msg = error instanceof Error ? error.message : 'No se pudo eliminar el recurso.';
+      setNotification({ type: 'error', message: msg });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsDeletingResource(false);
     }
   };
 
@@ -8390,11 +8405,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                       <div className="flex gap-2 pt-2">
                           <button 
-                            onClick={handleDeleteResource} 
-                            disabled={isUpdatingResource}
+                            type="button"
+                            onClick={() => void handleDeleteResource()} 
+                            disabled={isUpdatingResource || isDeletingResource}
                             className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-100 transition-colors border border-red-100 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <Trash2 size={16} className="mr-2"/> Eliminar
+                            {isDeletingResource ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600 mr-2" />
+                                Eliminando…
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 size={16} className="mr-2"/> Eliminar
+                              </>
+                            )}
                           </button>
                           <button 
                             onClick={handleUpdateResource} 
