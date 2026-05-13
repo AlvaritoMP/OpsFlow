@@ -127,7 +127,8 @@ export const AttendanceEvolutionView: React.FC<AttendanceEvolutionViewProps> = (
       otro: number;
     }[] = [];
     for (const r of asc) {
-const parts = d.split('-');
+      const d = effectiveAttendanceDate(r, r.import_report_date);
+      const parts = d.split('-');
       const label = parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
       const c = classifyAttendanceStatus(r.attendance_status);
       const row = {
