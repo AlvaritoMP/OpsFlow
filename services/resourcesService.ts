@@ -451,7 +451,19 @@ export const resourcesService = {
         .order('date_assigned', { ascending: false });
       
       if (error) throw error;
-      return data || [];
+
+      return data?.map(a => ({
+        id: a.id,
+        name: a.name,
+        type: a.type as any,
+        dateAssigned: a.date_assigned,
+        serialNumber: a.serial_number,
+        phoneNumber: a.phone_number,
+        notes: a.notes,
+        constancyCode: a.constancy_code || undefined,
+        constancyGeneratedAt: a.constancy_generated_at || undefined,
+        standardAssetId: a.standard_asset_id || undefined,
+      })) || [];
     } catch (error: any) {
       if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
         console.warn(`⚠️ Error de red al obtener activos asignados para ${resourceId}`);
@@ -460,32 +472,6 @@ export const resourcesService = {
       console.error('Error al obtener activos asignados:', error);
       return [];
     }
-
-    if (error) {
-      console.error('Error al obtener assigned assets:', error);
-      return [];
-    }
-
-    const assets = data?.map(a => ({
-      id: a.id,
-      name: a.name,
-      type: a.type as any,
-      dateAssigned: a.date_assigned,
-      serialNumber: a.serial_number,
-      notes: a.notes,
-      constancyCode: a.constancy_code || undefined,
-      constancyGeneratedAt: a.constancy_generated_at || undefined,
-    })) || [];
-    
-    // Debug: verificar códigos de constancia
-    // Logs reducidos - solo en modo debug
-    // const withConstancy = assets.filter(a => a.constancyCode);
-    // if (withConstancy.length > 0 && process.env.NODE_ENV === 'development') {
-    //   console.log(`📄 Activos con constancia para recurso ${resourceId}:`, 
-    //     withConstancy.map(a => ({ name: a.name, code: a.constancyCode })));
-    // }
-    
-    return assets;
   },
 
   async createAssignedAssets(resourceId: string, assets: AssignedAsset[]): Promise<void> {

@@ -155,7 +155,7 @@ export const UnitsMap: React.FC<UnitsMapProps> = ({ units, onSelectUnit }) => {
   }
 
   return (
-    <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
+    <div className="relative z-0 bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
       <div className="flex items-center gap-3 mb-4">
         <Building2 className="text-slate-600" size={20} />
         <h3 className="text-base md:text-lg font-semibold text-slate-800">Mapa de Unidades</h3>

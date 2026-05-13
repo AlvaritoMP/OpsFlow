@@ -53,6 +53,8 @@ const getMonday = (d: Date) => {
 }
 
 type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation';
+type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones';
+type SortDirection = 'asc' | 'desc';
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, googleMapsApiKey }) => {
   // Cargar activos estándar al montar el componente
@@ -238,6 +240,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado
   const [showCesadoPersonnel, setShowCesadoPersonnel] = useState(false); // Mostrar personal cesado (no archivado)
   const [personnelSearchQuery, setPersonnelSearchQuery] = useState<string>(''); // Barra de búsqueda para personal
+  const [personnelSort, setPersonnelSort] = useState<{ key: PersonnelSortKey; direction: SortDirection } | null>(null);
   
   // Limpiar búsqueda cuando cambie el modo de vista o el estado de archivados/cesados
   React.useEffect(() => {
@@ -543,6 +546,29 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       month: '2-digit',
       day: '2-digit'
     });
+  };
+
+  const getBirthdayStatus = (birthDateStr: string) => {
+    const [birthYear, birthMonth, birthDay] = birthDateStr.split('-').map(Number);
+    if (!birthYear || !birthMonth || !birthDay) return null;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let nextBirthday = new Date(today.getFullYear(), birthMonth - 1, birthDay);
+    if (nextBirthday.getTime() < today.getTime()) {
+      nextBirthday = new Date(today.getFullYear() + 1, birthMonth - 1, birthDay);
+    }
+
+    const daysUntil = Math.round((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return { daysUntil };
+  };
+
+  const parseLocalDateTime = (dateStr?: string) => {
+    if (!dateStr) return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day).getTime();
   };
 
   // Cargar turnos de supervisión nocturna para esta unidad
@@ -3543,14 +3569,50 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     });
   }, [resourcesForRoster, showArchivedPersonnel, showCesadoPersonnel]);
 
+  const getPersonnelSortValue = (worker: Resource, key: PersonnelSortKey): string | number => {
+    switch (key) {
+      case 'name':
+        return `${worker.name || ''} ${worker.puesto || ''}`.trim().toLocaleLowerCase('es-PE');
+      case 'dni':
+        return worker.dni || '';
+      case 'birthDate': {
+        if (!worker.birthDate) return Number.MAX_SAFE_INTEGER;
+        const [, month, day] = worker.birthDate.split('-').map(Number);
+        return month && day ? month * 100 + day : Number.MAX_SAFE_INTEGER;
+      }
+      case 'status':
+        return (worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo')).toLocaleLowerCase('es-PE');
+      case 'dates': {
+        const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
+        return parseLocalDateTime(rel.start || rel.end) ?? Number.MAX_SAFE_INTEGER;
+      }
+      case 'shift':
+        return (worker.assignedShift || '').toLocaleLowerCase('es-PE');
+      case 'compliance':
+        return worker.compliancePercentage ?? 0;
+      case 'salary':
+        return worker.monthlySalary ?? 0;
+      case 'zones':
+        return (worker.assignedZones || []).join(', ').toLocaleLowerCase('es-PE');
+      default:
+        return '';
+    }
+  };
+
+  const handlePersonnelSort = (key: PersonnelSortKey) => {
+    setPersonnelSort(current => {
+      if (!current || current.key !== key) {
+        return { key, direction: 'asc' };
+      }
+
+      return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+    });
+  };
+
   // Filtrar personal basado en la búsqueda
   const filteredPersonnel = useMemo(() => {
-    if (!personnelSearchQuery.trim()) {
-      return personnel;
-    }
-    
     const query = personnelSearchQuery.toLowerCase().trim();
-    return personnel.filter(worker => {
+    const filtered = query ? personnel.filter(worker => {
       const name = (worker.name || '').toLowerCase();
       const dni = (worker.dni || '').toLowerCase();
       const puesto = (worker.puesto || '').toLowerCase();
@@ -3564,8 +3626,29 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              zones.includes(query) ||
              email.includes(query) ||
              phone.includes(query);
+    }) : personnel;
+
+    if (!personnelSort) {
+      return filtered;
+    }
+
+    return [...filtered].sort((a, b) => {
+      const aValue = getPersonnelSortValue(a, personnelSort.key);
+      const bValue = getPersonnelSortValue(b, personnelSort.key);
+
+      let comparison = 0;
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        comparison = aValue - bValue;
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue), 'es-PE', {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      }
+
+      return personnelSort.direction === 'asc' ? comparison : -comparison;
     });
-  }, [personnel, personnelSearchQuery]);
+  }, [personnel, personnelSearchQuery, personnelSort, contractHistory]);
 
   const allUnitPersonnel = useMemo(() => (
     unit.resources.filter(r => r.type === ResourceType.PERSONNEL)
@@ -4158,11 +4241,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     
     // Filter resources that have this zone in their assignedZones array
     const zoneResources = selectedZone ? unit.resources.filter(r => r.assignedZones?.includes(selectedZone.name)) : [];
-    
+
     // Split for better display in sidebar
     const zonePersonnel = zoneResources.filter(r => r.type === ResourceType.PERSONNEL);
     const zoneEquipment = zoneResources.filter(r => r.type === ResourceType.EQUIPMENT);
     const zoneMaterials = zoneResources.filter(r => r.type === ResourceType.MATERIAL);
+    const zoneAssignedAssets = zonePersonnel.flatMap(worker =>
+      (worker.assignedAssets || []).map(asset => ({
+        ...asset,
+        workerId: worker.id,
+        workerName: worker.name,
+      }))
+    );
 
     // Summary Calculations for Header
     const totalArea = zonesToUse.reduce((acc, z) => acc + (z.area || 0), 0);
@@ -4335,6 +4425,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           const zP = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.assignedZones?.includes(zone.name)).length;
                           const zE = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT && r.assignedZones?.includes(zone.name)).length;
                           const zM = unit.resources.filter(r => r.type === ResourceType.MATERIAL && r.assignedZones?.includes(zone.name)).length;
+                          const zA = unit.resources
+                            .filter(r => r.type === ResourceType.PERSONNEL && r.assignedZones?.includes(zone.name))
+                            .reduce((count, r) => count + (r.assignedAssets || []).length, 0);
                           
                           // Defaults if no layout
                           const layout = zone.layout || { x: 1, y: 1, w: 2, h: 2, color: '#94a3b8' };
@@ -4391,6 +4484,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                   <span className={`font-bold bg-white/40 rounded-full ${
                                                     isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
                                                   }`}>{zM}</span>
+                                              </div>
+                                          )}
+                                          {zA > 0 && (
+                                              <div className="flex flex-col items-center">
+                                                  <Briefcase size={isMobile ? 12 : 24} className={`opacity-80 ${isMobile ? 'mb-0' : 'mb-0.5'}`} />
+                                                  <span className={`font-bold bg-white/40 rounded-full ${
+                                                    isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
+                                                  }`}>{zA}</span>
                                               </div>
                                           )}
                                       </div>
@@ -4492,7 +4593,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             <h5 className="font-bold text-slate-600 text-sm mb-3 flex items-center"><ClipboardList className="mr-2" size={16}/> Recursos Asignados</h5>
                             
                             <div className="overflow-y-auto pr-1 custom-scrollbar space-y-4 flex-1">
-                                {zoneResources.length === 0 && (
+                                {zoneResources.length === 0 && zoneAssignedAssets.length === 0 && (
                                     <div className="text-center py-6 text-slate-400 text-sm italic border-2 border-dashed border-slate-100 rounded-lg">
                                         Zona libre de recursos asignados.
                                     </div>
@@ -4521,6 +4622,40 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                         </div>
                                                     </div>
                                                     <div className={`w-2 h-2 rounded-full ${res.status === 'Activo' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                                </div>
+                                            )})}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ASSIGNED ASSETS GROUP */}
+                                {zoneAssignedAssets.length > 0 && (
+                                    <div>
+                                        <h6 className="text-[10px] font-bold text-orange-500 uppercase mb-2">Dotación / EPP ({zoneAssignedAssets.length})</h6>
+                                        <div className="space-y-2">
+                                            {zoneAssignedAssets.map(asset => {
+                                                const assetDate = asset.dateAssigned || (asset as any).date_assigned;
+                                                const serialNumber = asset.serialNumber || (asset as any).serial_number;
+                                                const phoneNumber = asset.phoneNumber || (asset as any).phone_number;
+                                                return (
+                                                <div key={`${asset.workerId}-${asset.id}`} className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center justify-between">
+                                                    <div className="flex items-center min-w-0">
+                                                        <div className="p-1 rounded-full mr-2 bg-orange-100 text-orange-600 shrink-0">
+                                                            {getAssetIcon(asset.type)}
+                                                        </div>
+                                                        <div className="truncate">
+                                                            <p className="text-xs font-bold text-slate-700 truncate">{asset.name}</p>
+                                                            <p className="text-[9px] text-slate-500 truncate">
+                                                                {asset.workerName}
+                                                                {assetDate ? ` • ${assetDate}` : ''}
+                                                                {serialNumber ? ` • SN: ${serialNumber}` : ''}
+                                                                {phoneNumber ? ` • Tel: ${phoneNumber}` : ''}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 shrink-0">
+                                                        {asset.type}
+                                                    </span>
                                                 </div>
                                             )})}
                                         </div>
@@ -5257,6 +5392,35 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     </div>
   );
 
+  const renderPersonnelSortHeader = (
+    key: PersonnelSortKey,
+    label: string,
+    className: string,
+    align: 'left' | 'center' | 'right' = 'left'
+  ) => {
+    const isActive = personnelSort?.key === key;
+    const nextDirection = isActive && personnelSort.direction === 'asc' ? 'descendente' : 'ascendente';
+    const justifyClass = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start';
+
+    return (
+      <button
+        type="button"
+        onClick={() => handlePersonnelSort(key)}
+        className={`${className} group inline-flex items-center gap-1 ${justifyClass} whitespace-nowrap hover:text-slate-800 transition-colors`}
+        title={`Ordenar ${label} de forma ${nextDirection}`}
+      >
+        <span>{label}</span>
+        {isActive ? (
+          personnelSort.direction === 'asc'
+            ? <ChevronUp size={12} className="text-blue-600" />
+            : <ChevronDown size={12} className="text-blue-600" />
+        ) : (
+          <ChevronDown size={12} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+        )}
+      </button>
+    );
+  };
+
   const renderPersonnel = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -5474,15 +5638,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === filteredPersonnel.length && filteredPersonnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                )}
             </div>
-            <div className="col-span-3 md:col-span-2 lg:col-span-2 whitespace-nowrap">Colaborador</div>
-            <div className="col-span-2 hidden md:block lg:col-span-1 text-center whitespace-nowrap">DNI</div>
-            <div className="col-span-2 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Cumpleaños</div>
-            <div className="col-span-2 md:col-span-1 lg:col-span-1 text-center whitespace-nowrap">Estado</div>
-            <div className="col-span-2 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Fechas</div>
-            <div className="col-span-1 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Turno</div>
-            <div className="col-span-1 hidden md:block lg:col-span-1 text-center whitespace-nowrap">Cumpl.</div>
-            <div className="col-span-1 hidden lg:block text-center whitespace-nowrap">Salario</div>
-            <div className="col-span-1 hidden lg:block text-center whitespace-nowrap">Zona/Grupo</div>
+            {renderPersonnelSortHeader('name', 'Colaborador', 'col-span-3 md:col-span-2 lg:col-span-2')}
+            {renderPersonnelSortHeader('dni', 'DNI', 'col-span-2 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('birthDate', 'Cumpleaños', 'col-span-2 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('status', 'Estado', 'col-span-2 md:col-span-1 lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('dates', 'Fechas', 'col-span-2 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('shift', 'Turno', 'col-span-1 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('compliance', 'Cumpl.', 'col-span-1 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('salary', 'Salario', 'col-span-1 hidden lg:inline-flex', 'center')}
+            {renderPersonnelSortHeader('zones', 'Zona/Grupo', 'col-span-1 hidden lg:inline-flex', 'center')}
             <div className="col-span-3 md:col-span-2 lg:col-span-2 text-right whitespace-nowrap">Acciones</div>
          </div>
 
@@ -5555,15 +5719,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          <div className="text-center">
                            <div className="whitespace-nowrap">{formatDateFromString(worker.birthDate)}</div>
                            {(() => {
-                             const today = new Date();
-                             today.setHours(0, 0, 0, 0);
-                             const birthDate = new Date(worker.birthDate);
-                             const birthdayThisYear = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
-                             const daysUntil = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                             if (daysUntil === 0) {
+                             const birthdayStatus = getBirthdayStatus(worker.birthDate);
+                             if (!birthdayStatus) return null;
+
+                             if (birthdayStatus.daysUntil === 0) {
                                return <div className="text-pink-600 font-bold text-[10px] mt-0.5">🎉 Hoy</div>;
-                             } else if (daysUntil > 0 && daysUntil <= 7) {
-                               return <div className="text-pink-500 text-[10px] mt-0.5">En {daysUntil} día{daysUntil !== 1 ? 's' : ''}</div>;
+                             } else if (birthdayStatus.daysUntil > 0 && birthdayStatus.daysUntil <= 7) {
+                               return <div className="text-pink-500 text-[10px] mt-0.5">En {birthdayStatus.daysUntil} día{birthdayStatus.daysUntil !== 1 ? 's' : ''}</div>;
                              }
                              return null;
                            })()}
