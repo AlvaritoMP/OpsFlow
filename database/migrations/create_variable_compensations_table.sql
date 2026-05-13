@@ -30,7 +30,8 @@ COMMENT ON COLUMN public.variable_compensations.period_month IS 'Mes del pago va
 COMMENT ON COLUMN public.variable_compensations.amount IS 'Monto pagado por comisión o remuneración variable';
 COMMENT ON COLUMN public.variable_compensations.source IS 'Origen del registro: manual o import';
 
-ALTER TABLE public.variable_compensations DISABLE ROW LEVEL SECURITY;
+-- RLS: no deshabilitar; la migración global opsflow_rls_permissive_for_app.sql
+-- habilita RLS y políticas para anon/authenticated en todas las tablas public.
 
 CREATE INDEX IF NOT EXISTS idx_variable_compensations_unit_month
     ON public.variable_compensations(unit_id, period_month);
