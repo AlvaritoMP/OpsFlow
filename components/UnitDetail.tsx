@@ -8,6 +8,7 @@ import { nightSupervisionService } from '../services/nightSupervisionService';
 import { requestsService, requestCommentIsFromViewer } from '../services/requestsService';
 import { variableCompensationsService } from '../services/variableCompensationsService';
 import { SafeImage } from './SafeImage';
+import { AttendanceReportsTab } from './AttendanceReportsTab';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 
 interface UnitDetailProps {
@@ -209,7 +210,7 @@ const getMonday = (d: Date) => {
   return new Date(date.setDate(diff));
 }
 
-type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation';
+type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation' | 'attendance';
 type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones';
 type SortDirection = 'asc' | 'desc';
 
@@ -7272,6 +7273,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {checkPermission(userRole, 'PERSONNEL', 'view') && (
               <button onClick={() => setActiveTab('personnel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'personnel' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Personal</button>
           )}
+          {canViewPersonnel && (
+              <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'attendance' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Asistencia</button>
+          )}
           {checkPermission(userRole, 'PERSONNEL', 'view') && (
               <button onClick={() => setActiveTab('compensation')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'compensation' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Variables</button>
           )}
@@ -7310,6 +7314,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'blueprint' && renderBlueprint()}
         {activeTab === 'requests' && renderClientRequests()}
         {activeTab === 'documents' && renderDocuments()}
+        {activeTab === 'attendance' && (
+          <AttendanceReportsTab unit={unit} canUpload={canEditPersonnel} />
+        )}
       </div>
       
       {/* --- MODALS SECTION --- */}
