@@ -5,7 +5,7 @@ import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
-import { requestsService } from '../services/requestsService';
+import { requestsService, requestCommentIsFromViewer } from '../services/requestsService';
 import { variableCompensationsService } from '../services/variableCompensationsService';
 import { SafeImage } from './SafeImage';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
@@ -149,11 +149,11 @@ const RequestDiscussionThread: React.FC<{
           sorted.map((comment, idx) => (
             <div
               key={`${comment.id}-${idx}`}
-              className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}
+              className={`flex flex-col ${requestCommentIsFromViewer(comment.role, userRole) ? 'items-end' : 'items-start'}`}
             >
               <div
                 className={`relative px-3 py-2 rounded-lg text-xs max-w-[90%] ${
-                  comment.role === userRole
+                  requestCommentIsFromViewer(comment.role, userRole)
                     ? 'bg-blue-100 text-blue-900 rounded-br-none'
                     : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm'
                 }`}
@@ -179,11 +179,11 @@ const RequestDiscussionThread: React.FC<{
       {sorted.map((comment, idx) => (
         <div
           key={`${comment.id}-${idx}`}
-          className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}
+          className={`flex flex-col ${requestCommentIsFromViewer(comment.role, userRole) ? 'items-end' : 'items-start'}`}
         >
           <div
             className={`max-w-[85%] rounded-lg p-3 text-sm ${
-              comment.role === userRole
+              requestCommentIsFromViewer(comment.role, userRole)
                 ? 'bg-blue-100 text-blue-900 rounded-br-none'
                 : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
             }`}

@@ -1,5 +1,30 @@
 import { supabase, handleSupabaseError } from './supabase';
-import { ClientRequest, RequestComment } from '../types';
+import { ClientRequest, RequestComment, UserRole } from '../types';
+
+/**
+ * La tabla `request_comments` usa un CHECK en `role` (típicamente CLIENT, ADMIN, OPERATIONS).
+ * En la app existen SUPER_ADMIN y OPERATIONS_SUPERVISOR, que hay que colapsar antes del INSERT.
+ */
+export function mapUserRoleToRequestCommentDbRole(role: UserRole | string): 'CLIENT' | 'ADMIN' | 'OPERATIONS' {
+  const r = String(role);
+  if (r === 'CLIENT') return 'CLIENT';
+  if (r === 'OPERATIONS' || r === 'OPERATIONS_SUPERVISOR') return 'OPERATIONS';
+  if (r === 'ADMIN' || r === 'SUPER_ADMIN') return 'ADMIN';
+  return 'OPERATIONS';
+}
+
+/** Comparar si el comentario es “del usuario actual” en burbuja (tras mapeo a rol BD). */
+export function requestCommentIsFromViewer(commentRole: UserRole | string, viewerRole: UserRole): boolean {
+  return mapUserRoleToRequestCommentDbRole(commentRole) === mapUserRoleToRequestCommentDbRole(viewerRole);
+}
+
+function mapDbRequestCommentRoleToUserRole(db: string): UserRole {
+  const r = String(db);
+  if (r === 'CLIENT') return 'CLIENT';
+  if (r === 'OPERATIONS') return 'OPERATIONS';
+  if (r === 'ADMIN') return 'ADMIN';
+  return 'OPERATIONS';
+}
 
 // ============================================
 // CRUD PARA CLIENT_REQUESTS
@@ -204,7 +229,7 @@ export const requestsService = {
         .insert({
           client_request_id: requestId,
           author: comment.author,
-          role: comment.role,
+          role: mapUserRoleToRequestCommentDbRole(comment.role),
           date: comment.date,
           text: comment.text,
         });
@@ -222,7 +247,7 @@ export const requestsService = {
       comments.map(c => ({
         client_request_id: requestId,
         author: c.author,
-        role: c.role,
+        role: mapUserRoleToRequestCommentDbRole(c.role),
         date: c.date,
         text: c.text,
       }))
@@ -292,7 +317,7 @@ function transformRequestFromDB(data: any): ClientRequest {
       (data.request_comments?.map((c: any) => ({
         id: c.id,
         author: c.author,
-        role: c.role as any,
+        role: mapDbRequestCommentRoleToUserRole(c.role),
         date: c.date,
         text: c.text,
       })) || []).sort(
