@@ -228,6 +228,42 @@ export const requestsService = {
       }))
     );
   },
+
+  /**
+   * Suscripción a cambios en la tabla de comentarios para los requerimientos dados.
+   * Requiere que en Supabase la tabla `request_comments` esté en la publicación Realtime.
+   * Si Realtime no está habilitado, la app puede seguir sincronizando vía polling.
+   */
+  subscribeToRequestComments(requestIds: string[], onChange: () => void): () => void {
+    const unique = [...new Set(requestIds)].filter(Boolean);
+    if (unique.length === 0) return () => {};
+
+    const channelName =
+      `request_comments:${unique.sort().join('|').slice(0, 180)}:${unique.length}`;
+    let channel = supabase.channel(channelName);
+    for (const requestId of unique) {
+      channel = channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'request_comments',
+          filter: `client_request_id=eq.${requestId}`,
+        },
+        () => onChange()
+      );
+    }
+    channel.subscribe((status) => {
+      if (status === 'CHANNEL_ERROR') {
+        console.warn(
+          '[requestsService] Realtime (request_comments) no disponible; se usará solo polling si está activo.'
+        );
+      }
+    });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
 };
 
 // ============================================

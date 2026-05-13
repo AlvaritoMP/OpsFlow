@@ -1669,6 +1669,89 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
   };
 
+  // Refs para que la recarga de comentarios desde Realtime/polling no capture un `unit` obsoleto
+  const unitForRequestsSyncRef = useRef(unit);
+  const onUpdateForRequestsSyncRef = useRef(onUpdate);
+  unitForRequestsSyncRef.current = unit;
+  onUpdateForRequestsSyncRef.current = onUpdate;
+
+  // Actualiza lista de requerimientos desde el servidor (comentarios / discusión en vivo entre usuarios)
+  useEffect(() => {
+    const shouldSync =
+      typeof onUpdate === 'function' &&
+      canViewRequests &&
+      (activeTab === 'requests' || editingRequest !== null);
+
+    if (!shouldSync) return;
+
+    const ids = [
+      ...new Set(
+        [...(unit.requests || []).map((r) => r.id), editingRequest?.id].filter((id): id is string =>
+          Boolean(id)
+        )
+      ),
+    ];
+    if (ids.length === 0) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const refreshFromServer = async () => {
+      const u = unitForRequestsSyncRef.current;
+      const ou = onUpdateForRequestsSyncRef.current;
+      if (!ou) return;
+      try {
+        const allRequests = await requestsService.getByUnitId(u.id);
+        await Promise.resolve(ou({ ...u, requests: allRequests }));
+        setEditingRequest((prev) => {
+          if (!prev) return prev;
+          const next = allRequests.find((r) => r.id === prev.id);
+          return next ?? prev;
+        });
+      } catch (e) {
+        console.error('[request_comments] No se pudo sincronizar discusión:', e);
+      }
+    };
+
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void refreshFromServer();
+      }, 400);
+    };
+
+    void refreshFromServer();
+    const unsubRealtime = requestsService.subscribeToRequestComments(ids, scheduleRefresh);
+
+    const pollMs = 8000;
+    const pollId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void refreshFromServer();
+    }, pollMs);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshFromServer();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      unsubRealtime();
+      window.clearInterval(pollId);
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+  }, [
+    activeTab,
+    editingRequest?.id,
+    unit.id,
+    canViewRequests,
+    onUpdate,
+    (unit.requests || [])
+      .map((r) => r.id)
+      .filter(Boolean)
+      .sort()
+      .join(','),
+  ]);
+
 
   // --- BLUEPRINT INTERACTION LOGIC ---
 
@@ -4135,21 +4218,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias Cliente ({req.attachments!.length})</p>
                                             <div className="flex gap-2 overflow-x-auto pb-2">
                                                 {req.attachments!.map((img, i) => (
-                                                    <div key={i} className="w-24 h-24 shrink-0 rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer group relative">
+                                                    <button
+                                                      key={i}
+                                                      type="button"
+                                                      className="w-24 h-24 shrink-0 rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer group relative p-0 block"
+                                                      onClick={() => {
+                                                        setImageModalUrl(img);
+                                                        setShowImageModal(true);
+                                                      }}
+                                                      title="Ver evidencia en grande"
+                                                    >
                                                         <SafeImage 
                                                           src={img} 
-                                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none" 
                                                           alt={`Evidencia ${i + 1}`}
                                                           bucket="unit-images"
-                                                          onClick={() => {
-                                                            setImageModalUrl(img);
-                                                            setShowImageModal(true);
-                                                          }}
                                                         />
-                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                                                            <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+                                                            <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
                                                         </div>
-                                                    </div>
+                                                    </button>
                                                 ))}
                                             </div>
                                          </div>
@@ -4174,21 +4262,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias de Respuesta ({req.responseAttachments.length})</p>
                                             <div className="flex gap-2 overflow-x-auto pb-2">
                                                 {req.responseAttachments.map((img, i) => (
-                                                    <div key={i} className="w-24 h-24 shrink-0 rounded-lg border-2 border-green-200 overflow-hidden bg-slate-100 hover:border-green-400 transition-colors cursor-pointer group relative">
+                                                    <button
+                                                      key={i}
+                                                      type="button"
+                                                      className="w-24 h-24 shrink-0 rounded-lg border-2 border-green-200 overflow-hidden bg-slate-100 hover:border-green-400 transition-colors cursor-pointer group relative p-0 block"
+                                                      onClick={() => {
+                                                        setImageModalUrl(img);
+                                                        setShowImageModal(true);
+                                                      }}
+                                                      title="Ver evidencia en grande"
+                                                    >
                                                         <SafeImage 
                                                           src={img} 
-                                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none" 
                                                           alt={`Evidencia respuesta ${i + 1}`}
                                                           bucket="unit-images"
-                                                          onClick={() => {
-                                                            setImageModalUrl(img);
-                                                            setShowImageModal(true);
-                                                          }}
                                                         />
-                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                                                            <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+                                                            <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
                                                         </div>
-                                                    </div>
+                                                    </button>
                                                 ))}
                                             </div>
                                          </div>
@@ -5825,7 +5918,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              </span>
                            )}
                          </div>
-                         <p className="text-xs min-w-0">
+                         {/* Zona/Grupo: solo en columna dedicada (lg+). En <lg la columna está oculta: mostrar aquí */}
+                         <p className="text-xs min-w-0 lg:hidden">
                            <span className="text-slate-500">
                              {worker.puesto ? `${worker.puesto} • ` : ''}
                            </span>
@@ -5835,6 +5929,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              <span className="text-slate-400 italic">Sin zona</span>
                            )}
                          </p>
+                         {worker.puesto ? (
+                           <p className="hidden lg:block text-xs min-w-0 text-slate-500 truncate">{worker.puesto}</p>
+                         ) : null}
                        </button>
                     </div>
                     <div className="col-span-2 hidden md:flex lg:col-span-1 items-center justify-center text-sm text-slate-500 font-mono">
@@ -7289,21 +7386,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  <p className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Adjuntos del Cliente ({editingRequest.attachments.length})</p>
                                  <div className="flex gap-2 overflow-x-auto pb-2">
                                      {editingRequest.attachments.map((img, i) => (
-                                         <div key={i} className="w-24 h-24 shrink-0 rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer group relative">
+                                         <button
+                                           key={i}
+                                           type="button"
+                                           className="w-24 h-24 shrink-0 rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer group relative p-0 block"
+                                           onClick={() => {
+                                             setImageModalUrl(img);
+                                             setShowImageModal(true);
+                                           }}
+                                           title="Ver evidencia en grande"
+                                         >
                                              <SafeImage 
                                                src={img} 
-                                               className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                               className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none" 
                                                alt={`Evidencia cliente ${i + 1}`}
                                                bucket="unit-images"
-                                               onClick={() => {
-                                                 setImageModalUrl(img);
-                                                 setShowImageModal(true);
-                                               }}
                                              />
-                                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                                                 <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+                                                 <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
                                              </div>
-                                         </div>
+                                         </button>
                                      ))}
                                  </div>
                              </div>
@@ -7386,29 +7488,36 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                    <p className="text-xs text-slate-500 mb-2">Evidencias de respuesta ({resolveAttachments.length}):</p>
                                                    <div className="flex gap-2 overflow-x-auto pb-2">
                                                        {resolveAttachments.map((img, i) => (
-                                                           <div key={i} className="w-24 h-24 shrink-0 relative group rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer">
+                                                           <div key={i} className="w-24 h-24 shrink-0 relative group rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors">
                                                                <SafeImage 
                                                                   src={img} 
-                                                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none relative z-0" 
                                                                   alt={`Evidencia respuesta ${i + 1}`}
                                                                   bucket="unit-images"
-                                                                  onClick={() => {
-                                                                    setImageModalUrl(img);
-                                                                    setShowImageModal(true);
-                                                                  }}
                                                                 />
+                                                               <button
+                                                                 type="button"
+                                                                 className="absolute inset-0 z-10 w-full h-full cursor-pointer bg-transparent"
+                                                                 onClick={() => {
+                                                                   setImageModalUrl(img);
+                                                                   setShowImageModal(true);
+                                                                 }}
+                                                                 title="Ver evidencia en grande"
+                                                                 aria-label="Ver evidencia en grande"
+                                                               />
                                                                <button 
+                                                                  type="button"
                                                                   onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     handleRemoveResolveImage(i);
                                                                   }} 
-                                                                  className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 z-10"
+                                                                  className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 z-20 pointer-events-auto"
                                                                   title="Eliminar evidencia"
                                                                 >
                                                                   <X size={12} />
                                                                 </button>
-                                                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                                                                   <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none z-[11]">
+                                                                   <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
                                                                </div>
                                                            </div>
                                                        ))}
@@ -7444,21 +7553,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             <p className="text-xs font-bold text-green-700 mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias de Respuesta ({editingRequest.responseAttachments.length})</p>
                                             <div className="flex gap-2 overflow-x-auto pb-2">
                                                 {editingRequest.responseAttachments.map((att, i) => (
-                                                    <div key={i} className="w-24 h-24 shrink-0 rounded-lg border-2 border-green-200 overflow-hidden bg-slate-100 hover:border-green-400 transition-colors cursor-pointer group relative">
+                                                    <button
+                                                      key={i}
+                                                      type="button"
+                                                      className="w-24 h-24 shrink-0 rounded-lg border-2 border-green-200 overflow-hidden bg-slate-100 hover:border-green-400 transition-colors cursor-pointer group relative p-0 block"
+                                                      onClick={() => {
+                                                        setImageModalUrl(att);
+                                                        setShowImageModal(true);
+                                                      }}
+                                                      title="Ver evidencia en grande"
+                                                    >
                                                       <SafeImage 
                                                         src={att} 
-                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none"
                                                         alt={`Evidencia respuesta ${i + 1}`}
                                                         bucket="unit-images"
-                                                        onClick={() => {
-                                                          setImageModalUrl(att);
-                                                          setShowImageModal(true);
-                                                        }}
                                                       />
-                                                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                                                          <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+                                                          <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
                                                       </div>
-                                                    </div>
+                                                    </button>
                                                 ))}
                                             </div>
                                          </div>
@@ -9005,7 +9119,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* Este modal tiene z-index más alto porque puede abrirse desde otros modales */}
       {showImageModal && imageModalUrl && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[60]" 
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[220]" 
           onClick={() => {
             closeAllModalsExcept();
             setShowImageModal(false);
