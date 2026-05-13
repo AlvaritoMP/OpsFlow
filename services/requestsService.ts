@@ -2,13 +2,16 @@ import { supabase, handleSupabaseError } from './supabase';
 import { ClientRequest, RequestComment, UserRole } from '../types';
 
 /**
- * La tabla `request_comments` usa un CHECK en `role` (típicamente CLIENT, ADMIN, OPERATIONS).
- * En la app existen SUPER_ADMIN y OPERATIONS_SUPERVISOR, que hay que colapsar antes del INSERT.
+ * Coincide con el CHECK en BD: role IN ('ADMIN','OPERATIONS','OPERATIONS_SUPERVISOR','CLIENT').
+ * SUPER_ADMIN no existe en la tabla → se guarda como ADMIN.
  */
-export function mapUserRoleToRequestCommentDbRole(role: UserRole | string): 'CLIENT' | 'ADMIN' | 'OPERATIONS' {
+export function mapUserRoleToRequestCommentDbRole(
+  role: UserRole | string
+): 'CLIENT' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' {
   const r = String(role);
   if (r === 'CLIENT') return 'CLIENT';
-  if (r === 'OPERATIONS' || r === 'OPERATIONS_SUPERVISOR') return 'OPERATIONS';
+  if (r === 'OPERATIONS_SUPERVISOR') return 'OPERATIONS_SUPERVISOR';
+  if (r === 'OPERATIONS') return 'OPERATIONS';
   if (r === 'ADMIN' || r === 'SUPER_ADMIN') return 'ADMIN';
   return 'OPERATIONS';
 }
@@ -21,6 +24,7 @@ export function requestCommentIsFromViewer(commentRole: UserRole | string, viewe
 function mapDbRequestCommentRoleToUserRole(db: string): UserRole {
   const r = String(db);
   if (r === 'CLIENT') return 'CLIENT';
+  if (r === 'OPERATIONS_SUPERVISOR') return 'OPERATIONS_SUPERVISOR';
   if (r === 'OPERATIONS') return 'OPERATIONS';
   if (r === 'ADMIN') return 'ADMIN';
   return 'OPERATIONS';

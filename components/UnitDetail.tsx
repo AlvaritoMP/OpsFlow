@@ -18,6 +18,8 @@ interface UnitDetailProps {
   availableClients?: { id: string; name: string }[]; // Lista de clientes disponibles
   onBack: () => void;
   onUpdate?: (updatedUnit: Unit) => void | Promise<void>;
+  /** Solo estado React: usar para requests/comentarios sin disparar persistencia de toda la unidad (evita re-guardar cientos de recursos). */
+  replaceUnitInState?: (updatedUnit: Unit) => void;
   googleMapsApiKey?: string;
 }
 
@@ -211,7 +213,7 @@ type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'bl
 type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones';
 type SortDirection = 'asc' | 'desc';
 
-export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, googleMapsApiKey }) => {
+export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, replaceUnitInState, googleMapsApiKey }) => {
   // Cargar activos estándar al montar el componente
   React.useEffect(() => {
     const loadStandardAssets = async () => {
@@ -672,6 +674,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canManageZones = canEditGeneral || canEditBlueprint;
   const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
+
+  /** Solo lista de requerimientos: evita `onUpdate` → persistir toda la unidad y re-guardar todos los recursos. */
+  const applyUnitRequestsInUI = (requests: ClientRequest[]): void | Promise<void> => {
+    const next = { ...unit, requests };
+    if (replaceUnitInState) {
+      replaceUnitInState(next);
+      return;
+    }
+    if (onUpdate) return onUpdate(next);
+  };
 
   // Helper para cerrar todos los modales excepto el especificado (útil en móvil)
   const closeAllModalsExcept = (keepOpen?: string) => {
@@ -1429,7 +1441,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleCreateRequest = async () => {
-      if(!onUpdate) return;
+      if (!onUpdate && !replaceUnitInState) return;
       
       // Validar campos requeridos
       if (!newRequestForm.title?.trim()) {
@@ -1508,7 +1520,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const allRequests = await requestsService.getByUnitId(unit.id);
         
         // Actualizar la unidad con los requests recargados
-        onUpdate({ ...unit, requests: allRequests });
+        applyUnitRequestsInUI(allRequests);
         
         // Limpiar el formulario y cerrar el modal
         setShowRequestModal(false);
@@ -1527,7 +1539,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleUpdateRequestStatus = async (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[], title?: string) => {
-      if(!onUpdate || !editingRequest) return;
+      if ((!onUpdate && !replaceUnitInState) || !editingRequest) return;
       
       setIsSavingRequest(true);
       setNotification({ type: 'info', message: 'Subiendo evidencias y guardando cambios...' });
@@ -1603,7 +1615,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const allRequests = await requestsService.getByUnitId(unit.id);
         
         // Actualizar la unidad con los requests recargados
-        onUpdate({ ...unit, requests: allRequests });
+        applyUnitRequestsInUI(allRequests);
         
         // Actualizar el request en edición con los datos recargados
         const updatedRequest = allRequests.find(r => r.id === editingRequest.id);
@@ -1637,7 +1649,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Eliminar requerimiento (solo para administradores)
   const handleDeleteRequest = async (requestId: string) => {
-    if (!onUpdate) return;
+    if (!onUpdate && !replaceUnitInState) return;
     
     // Verificar permisos: solo ADMIN y SUPER_ADMIN pueden eliminar requerimientos
     if (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
@@ -1662,7 +1674,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Actualizar estado local
       const updatedRequests = (unit.requests || []).filter(r => r.id !== requestId);
-      const result = onUpdate({ ...unit, requests: updatedRequests });
+      const result = applyUnitRequestsInUI(updatedRequests);
       if (result instanceof Promise) {
         await result;
       }
@@ -1704,72 +1716,88 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // INLINE COMMENTS HANDLER
   const handleInlineCommentSubmit = async (reqId: string) => {
       const text = commentDrafts[reqId];
-      if (!onUpdate || !text || !text.trim()) return;
+      if ((!onUpdate && !replaceUnitInState) || !text?.trim()) return;
+
+      const draftText = text.trim();
 
       try {
-        // Obtener el nombre real del usuario
         const { authService } = await import('../services/authService');
         const currentUserData = await authService.getCurrentUser();
         const authorName = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
-        
-        console.log('💬 Agregando comentario - Usuario actual:', {
-          name: currentUserData?.name,
-          email: currentUserData?.email,
-          role: userRole,
-          authorName
-        });
-        
+
         const newComment = {
           id: `c-${Date.now()}`,
           author: authorName,
           role: userRole,
           date: new Date().toISOString(),
-          text: text
+          text: draftText
         };
 
-        // Actualización optimista: agregar el comentario inmediatamente a la UI
         const updatedRequests = (unit.requests || []).map(req => {
           if (req.id === reqId) {
             return { ...req, comments: [...(req.comments || []), newComment] };
           }
           return req;
         });
-        
-        // Actualizar la unidad inmediatamente para feedback rápido
-        onUpdate({ ...unit, requests: updatedRequests });
-        
-        // Limpiar el draft del comentario inmediatamente
+
+        applyUnitRequestsInUI(updatedRequests);
         setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
 
-        // Guardar el comentario en la base de datos en segundo plano
         await requestsService.addComment(reqId, newComment);
 
-        // Recargar todos los requests desde la BD para asegurar consistencia
-        const allRequests = await requestsService.getByUnitId(unit.id);
-        
-        // Actualizar la unidad con los requests recargados (con el ID real del comentario de la BD)
-        onUpdate({ ...unit, requests: allRequests });
+        try {
+          const allRequests = await requestsService.getByUnitId(unit.id);
+          applyUnitRequestsInUI(allRequests);
+        } catch (refreshErr) {
+          console.warn('Refresco de requerimientos tras comentario (fallback por requerimiento):', refreshErr);
+          try {
+            const one = await requestsService.getById(reqId);
+            if (one) {
+              applyUnitRequestsInUI(
+                (unit.requests || []).map((r) => (r.id === reqId ? one : r))
+              );
+            } else {
+              setNotification({
+                type: 'success',
+                message: 'Comentario enviado. Si no aparece de inmediato, actualice la vista en unos segundos.',
+              });
+              setTimeout(() => setNotification(null), 4000);
+            }
+          } catch {
+            setNotification({
+              type: 'success',
+              message: 'Comentario enviado. Si no aparece, recargue la página.',
+            });
+            setTimeout(() => setNotification(null), 4000);
+          }
+        }
       } catch (error) {
         console.error('Error al agregar comentario:', error);
+        setCommentDrafts(prev => ({ ...prev, [reqId]: draftText }));
         setNotification({ type: 'error', message: 'Error al agregar el comentario. Por favor, intente nuevamente.' });
         setTimeout(() => setNotification(null), 3000);
-        
-        // Revertir la actualización optimista en caso de error
-        const allRequests = await requestsService.getByUnitId(unit.id);
-        onUpdate({ ...unit, requests: allRequests });
+
+        try {
+          const allRequests = await requestsService.getByUnitId(unit.id);
+          applyUnitRequestsInUI(allRequests);
+        } catch {
+          /* ignore */
+        }
       }
   };
 
   // Refs para que la recarga de comentarios desde Realtime/polling no capture un `unit` obsoleto
   const unitForRequestsSyncRef = useRef(unit);
   const onUpdateForRequestsSyncRef = useRef(onUpdate);
+  const replaceUnitInStateForSyncRef = useRef(replaceUnitInState);
   unitForRequestsSyncRef.current = unit;
   onUpdateForRequestsSyncRef.current = onUpdate;
+  replaceUnitInStateForSyncRef.current = replaceUnitInState;
 
   // Actualiza lista de requerimientos desde el servidor (comentarios / discusión en vivo entre usuarios)
   useEffect(() => {
     const shouldSync =
-      typeof onUpdate === 'function' &&
+      (!!replaceUnitInState || typeof onUpdate === 'function') &&
       canViewRequests &&
       (activeTab === 'requests' || editingRequest !== null);
 
@@ -1788,15 +1816,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
     const refreshFromServer = async () => {
       const u = unitForRequestsSyncRef.current;
+      const ru = replaceUnitInStateForSyncRef.current;
       const ou = onUpdateForRequestsSyncRef.current;
-      if (!ou) return;
+      if (!ru && !ou) return;
       try {
         const allRequests = await requestsService.getByUnitId(u.id);
-        await Promise.resolve(ou({ ...u, requests: allRequests }));
+        const next = { ...u, requests: allRequests };
+        if (ru) {
+          ru(next);
+        } else if (ou) {
+          await Promise.resolve(ou(next));
+        }
         setEditingRequest((prev) => {
           if (!prev) return prev;
-          const next = allRequests.find((r) => r.id === prev.id);
-          return next ?? prev;
+          const nextReq = allRequests.find((r) => r.id === prev.id);
+          return nextReq ?? prev;
         });
       } catch (e) {
         console.error('[request_comments] No se pudo sincronizar discusión:', e);
@@ -1836,6 +1870,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     unit.id,
     canViewRequests,
     onUpdate,
+    replaceUnitInState,
     (unit.requests || [])
       .map((r) => r.id)
       .filter(Boolean)
@@ -4402,10 +4437,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                  placeholder="Escribir comentario..."
                                                  value={commentDrafts[req.id] || ''}
                                                  onChange={(e) => setCommentDrafts({...commentDrafts, [req.id]: e.target.value})}
-                                                 onKeyDown={(e) => e.key === 'Enter' && handleInlineCommentSubmit(req.id)}
+                                                 onKeyDown={(e) => {
+                                                   if (e.key === 'Enter') {
+                                                     e.preventDefault();
+                                                     void handleInlineCommentSubmit(req.id);
+                                                   }
+                                                 }}
                                              />
                                              <button 
-                                                 onClick={() => handleInlineCommentSubmit(req.id)} 
+                                                 type="button"
+                                                 onClick={() => void handleInlineCommentSubmit(req.id)} 
                                                  disabled={!commentDrafts[req.id]?.trim()} 
                                                  className="bg-slate-800 text-white p-1.5 rounded-md hover:bg-slate-900 disabled:opacity-50 transition-colors"
                                              >

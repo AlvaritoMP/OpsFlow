@@ -222,6 +222,10 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     }
   };
 
+  const replaceUnitInState = (replacement: Unit) => {
+    setUnits((prev) => prev.map((u) => (u.id === replacement.id ? replacement : u)));
+  };
+
   const deleteUnit = async (id: string) => {
     try {
       await unitsService.delete(id);
@@ -250,6 +254,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     createUnit,
     updateUnit,
     deleteUnit,
+    replaceUnitInState,
     releaseManagementStaffFromUnits,
   };
 };
