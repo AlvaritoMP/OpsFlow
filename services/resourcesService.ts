@@ -776,11 +776,32 @@ export const resourcesService = {
     try {
       const { data, error } = await supabase
         .from('resource_zone_assignments')
-        .select('zones(name)')
+        .select('zone_id, zones(name)')
         .eq('resource_id', resourceId);
-      
+
       if (error) throw error;
-      return data?.map((item: any) => item.zones.name) || [];
+
+      const fromEmbed = (data || [])
+        .map((item: any) => item.zones?.name)
+        .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0);
+
+      if (fromEmbed.length > 0) {
+        return fromEmbed;
+      }
+
+      const zoneIds = (data || [])
+        .map((row: any) => row.zone_id)
+        .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+
+      if (zoneIds.length === 0) return [];
+
+      const { data: zoneRows, error: zoneErr } = await supabase
+        .from('zones')
+        .select('name')
+        .in('id', zoneIds);
+
+      if (zoneErr) throw zoneErr;
+      return zoneRows?.map((z: { name: string }) => z.name) || [];
     } catch (error: any) {
       if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
         console.warn(`⚠️ Error de red al obtener asignaciones de zonas para ${resourceId}`);
@@ -794,9 +815,9 @@ export const resourcesService = {
   async createZoneAssignments(resourceId: string, zoneNames: string[]): Promise<void> {
     if (zoneNames.length === 0) return;
 
-    const uniqueZoneNames = [...new Set(zoneNames)];
+    const uniqueRequested = [...new Set(zoneNames.map((z) => z.trim()).filter(Boolean))];
+    if (uniqueRequested.length === 0) return;
 
-    // Primero obtener la unidad del recurso para evitar tomar zonas homónimas de otra unidad.
     const { data: resource, error: resourceError } = await supabase
       .from('resources')
       .select('unit_id')
@@ -805,24 +826,46 @@ export const resourcesService = {
 
     if (resourceError) throw resourceError;
 
-    const { data: zones, error: zonesError } = await supabase
+    const { data: allZones, error: zonesError } = await supabase
       .from('zones')
       .select('id, name')
-      .eq('unit_id', resource.unit_id)
-      .in('name', uniqueZoneNames);
+      .eq('unit_id', resource.unit_id);
 
     if (zonesError) throw zonesError;
 
-    if (zones && zones.length > 0) {
-      const { error } = await supabase.from('resource_zone_assignments').insert(
-        zones.map(z => ({
-          resource_id: resourceId,
-          zone_id: z.id,
-        }))
-      );
+    const zonesList = allZones || [];
+    const normalize = (s: string) => s.trim().toLocaleLowerCase('es');
 
-      if (error) throw error;
+    const matchedIds: string[] = [];
+    const unmatched: string[] = [];
+
+    for (const requested of uniqueRequested) {
+      const n = normalize(requested);
+      const found = zonesList.find((z) => normalize(z.name) === n);
+      if (found) {
+        matchedIds.push(found.id);
+      } else {
+        unmatched.push(requested);
+      }
     }
+
+    if (unmatched.length > 0) {
+      const available = zonesList.map((z) => z.name).join(', ') || '(ninguna)';
+      throw new Error(
+        `No se encontraron zonas para: ${unmatched.join(', ')}. Zonas de la unidad: ${available}`
+      );
+    }
+
+    const uniqueIds = [...new Set(matchedIds)];
+
+    const { error } = await supabase.from('resource_zone_assignments').insert(
+      uniqueIds.map((zone_id) => ({
+        resource_id: resourceId,
+        zone_id,
+      }))
+    );
+
+    if (error) throw error;
   },
 };
 
