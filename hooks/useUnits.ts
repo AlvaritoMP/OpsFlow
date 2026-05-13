@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { unitsService } from '../services/unitsService';
 import { Unit, User } from '../types';
 
@@ -7,10 +7,13 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadUnits = async () => {
+  const loadUnits = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
       // Log reducido - solo en desarrollo
       if (process.env.NODE_ENV === 'development') {
         console.log('🔄 useUnits: Iniciando carga de unidades...', {
@@ -148,14 +151,40 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
       if (err.message?.includes('JWT') || err.message?.includes('auth') || err.message?.includes('session') || err.code === 'PGRST301') {
         setUnits([]);
         setError(null);
-      } else {
+      } else if (!silent) {
         setError(err.message || 'Error al cargar unidades');
         console.error('Error loading units:', err);
+      } else {
+        console.warn('useUnits: refresco en segundo plano falló; se mantienen los datos actuales.', err);
       }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
+
+  const loadUnitsRef = useRef(loadUnits);
+  loadUnitsRef.current = loadUnits;
+
+  // Al volver a la pestaña, refrescar datos desde Supabase (otros usuarios / otras pestañas).
+  // silent: no activa el spinner global de carga.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        void loadUnitsRef.current({ silent: true });
+      }, 500);
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [isAuthenticated]);
 
   const checkAndLoad = async () => {
     if (isAuthenticated) {
@@ -174,7 +203,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
   const createUnit = async (unit: Partial<Unit>) => {
     try {
       const newUnit = await unitsService.create(unit);
-      setUnits([...units, newUnit]);
+      setUnits((prev) => [...prev, newUnit]);
       return newUnit;
     } catch (err: any) {
       setError(err.message || 'Error al crear unidad');
@@ -185,7 +214,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
   const updateUnit = async (id: string, unit: Partial<Unit>) => {
     try {
       const updatedUnit = await unitsService.update(id, unit);
-      setUnits(units.map(u => u.id === id ? updatedUnit : u));
+      setUnits((prev) => prev.map((u) => (u.id === id ? updatedUnit : u)));
       return updatedUnit;
     } catch (err: any) {
       setError(err.message || 'Error al actualizar unidad');
@@ -196,7 +225,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
   const deleteUnit = async (id: string) => {
     try {
       await unitsService.delete(id);
-      setUnits(units.filter(u => u.id !== id));
+      setUnits((prev) => prev.filter((u) => u.id !== id));
     } catch (err: any) {
       setError(err.message || 'Error al eliminar unidad');
       throw err;
