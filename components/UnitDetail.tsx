@@ -45,6 +45,69 @@ const PRIORITY_STYLES = {
     'HIGH': 'bg-red-100 text-red-600 font-bold'
 };
 
+/** Mismo gris por defecto que el plano cuando una zona no tiene layout */
+const DEFAULT_ZONE_PLAN_COLOR = '#94a3b8';
+
+function normalizeZoneNameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/** Color `layout.color` de la zona en el plano (hex), o gris por defecto */
+function getZoneHexColorForAssignedName(unitZones: Zone[] | undefined, assignedName: string): string {
+  const t = assignedName.trim();
+  if (!t || !unitZones?.length) return DEFAULT_ZONE_PLAN_COLOR;
+  let z = unitZones.find((x) => x.name === t);
+  if (!z) z = unitZones.find((x) => normalizeZoneNameKey(x.name) === normalizeZoneNameKey(t));
+  const c = z?.layout?.color?.trim();
+  if (c && /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(c)) return c;
+  return DEFAULT_ZONE_PLAN_COLOR;
+}
+
+function foregroundForHexBackground(hex: string): string {
+  const raw = hex.replace('#', '');
+  const expanded =
+    raw.length === 3
+      ? raw.split('').map((ch) => ch + ch).join('')
+      : raw.length >= 6
+        ? raw.slice(0, 6)
+        : '949494';
+  const r = parseInt(expanded.slice(0, 2), 16) / 255;
+  const g = parseInt(expanded.slice(2, 4), 16) / 255;
+  const b = parseInt(expanded.slice(4, 6), 16) / 255;
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.55 ? '#0f172a' : '#f8fafc';
+}
+
+interface ZoneNameBadgesProps {
+  unitZones: Zone[] | undefined;
+  zoneNames: string[];
+  className?: string;
+  size?: 'sm' | 'xs';
+}
+
+const ZoneNameBadges: React.FC<ZoneNameBadgesProps> = ({ unitZones, zoneNames, className = '', size = 'sm' }) => {
+  if (!zoneNames.length) return null;
+  const pad = size === 'xs' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs';
+  return (
+    <span className={`inline-flex flex-wrap items-center gap-1 max-w-full ${className}`}>
+      {zoneNames.map((zn, i) => {
+        const bg = getZoneHexColorForAssignedName(unitZones, zn);
+        const fg = foregroundForHexBackground(bg);
+        return (
+          <span
+            key={`${zn}-${i}`}
+            className={`rounded-full font-medium max-w-[160px] truncate border border-black/10 shadow-sm ${pad}`}
+            style={{ backgroundColor: bg, color: fg }}
+            title={zn}
+          >
+            {zn}
+          </span>
+        );
+      })}
+    </span>
+  );
+};
+
 // Helper to start weeks on Monday
 const getMonday = (d: Date) => {
   const date = new Date(d);
@@ -5762,8 +5825,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              </span>
                            )}
                          </div>
-                         <p className="text-xs text-slate-500 truncate">
-                           {worker.puesto ? `${worker.puesto} • ` : ''}{worker.assignedZones?.join(', ') || 'Sin zona'}
+                         <p className="text-xs min-w-0">
+                           <span className="text-slate-500">
+                             {worker.puesto ? `${worker.puesto} • ` : ''}
+                           </span>
+                           {(worker.assignedZones?.length ?? 0) > 0 ? (
+                             <ZoneNameBadges unitZones={unit.zones} zoneNames={worker.assignedZones!} size="xs" />
+                           ) : (
+                             <span className="text-slate-400 italic">Sin zona</span>
+                           )}
                          </p>
                        </button>
                     </div>
@@ -5827,11 +5897,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-700 font-medium">
                        {worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-300 italic">-</span>}
                     </div>
-                    <div className="col-span-1 hidden lg:flex items-center justify-center text-xs text-slate-600">
-                       {worker.assignedZones && worker.assignedZones.length > 0 ? (
-                         <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100 max-w-full truncate" title={worker.assignedZones.join(', ')}>
-                           {worker.assignedZones.join(', ')}
-                         </span>
+                    <div className="col-span-1 hidden lg:flex items-center justify-center text-xs">
+                       {(worker.assignedZones?.length ?? 0) > 0 ? (
+                         <ZoneNameBadges
+                           unitZones={unit.zones}
+                           zoneNames={worker.assignedZones!}
+                           className="justify-center"
+                         />
                        ) : (
                          <span className="text-slate-300 italic">Sin zona</span>
                        )}
