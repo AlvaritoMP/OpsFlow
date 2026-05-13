@@ -1,5 +1,5 @@
 import { supabase, handleSupabaseError } from './supabase';
-import { Unit, ResourceType } from '../types';
+import { Resource, Unit, ResourceType } from '../types';
 import {
   parseAttendanceExcelFile,
   deriveRowFields,
@@ -37,6 +37,72 @@ export interface AttendanceReportRowDTO {
   punch_departure: string | null;
 }
 
+/** Fila con metadatos de la importación (para evolución y cruces por fecha). */
+export interface AttendanceRowWithImportMeta extends AttendanceReportRowDTO {
+  import_report_date: string;
+  source_filename: string;
+  uploaded_at: string;
+}
+
+/** Misma idea de «activos» que la pestaña Personal: no archivado y no cesado/archivado. */
+export function isPersonnelActiveForUnitView(r: Resource): boolean {
+  if (r.type !== ResourceType.PERSONNEL) return false;
+  if (r.archived === true) return false;
+  if (r.personnelStatus === 'cesado' || r.personnelStatus === 'archivado') return false;
+  return true;
+}
+
+export function effectiveAttendanceDate(row: AttendanceReportRowDTO, importReportDate: string): string {
+  if (row.mark_date && /^\d{4}-\d{2}-\d{2}$/.test(row.mark_date)) return row.mark_date;
+  return importReportDate;
+}
+
+export type AttendanceClassification = 'complete' | 'partial' | 'none' | 'other';
+
+export function classifyAttendanceStatus(attendanceStatus: string | null): AttendanceClassification {
+  const s = (attendanceStatus || '').toLowerCase();
+  if (s.includes('marcación incompleta') || s.includes('marcacion incompleta')) return 'partial';
+  if (s.includes('marcación completa') || s.includes('marcacion completa')) return 'complete';
+  if (s.includes('sin marcas') || /ausenc|inasist/.test(s)) return 'none';
+  return 'other';
+}
+
+export function workerRangeStats(rows: AttendanceReportRowDTO[]) {
+  const n = rows.length;
+  let complete = 0;
+  let partial = 0;
+  let none = 0;
+  let other = 0;
+  for (const r of rows) {
+    const c = classifyAttendanceStatus(r.attendance_status);
+    if (c === 'complete') complete++;
+    else if (c === 'partial') partial++;
+    else if (c === 'none') none++;
+    else other++;
+  }
+  const pct = (x: number) => (n ? Math.round((x / n) * 1000) / 10 : 0);
+  return {
+    daysWithReport: n,
+    complete,
+    partial,
+    none,
+    other,
+    pctComplete: pct(complete),
+    pctPartial: pct(partial),
+    pctNone: pct(none),
+  };
+}
+
+/** Solo filas cuyo `matched_resource_id` es personal activo en la unidad (estado actual). */
+export function filterRowsMatchedActivePersonnel(unit: Unit, rows: AttendanceReportRowDTO[]): AttendanceReportRowDTO[] {
+  const byId = new Map((unit.resources || []).filter((x) => x.type === ResourceType.PERSONNEL).map((x) => [x.id, x]));
+  return rows.filter((row) => {
+    if (!row.matched_resource_id) return false;
+    const res = byId.get(row.matched_resource_id);
+    return res !== undefined && isPersonnelActiveForUnitView(res);
+  });
+}
+
 function matchResourceIdForRow(unit: Unit, normalizedDni: string): string | null {
   if (!normalizedDni || !unit.resources?.length) return null;
   const r = unit.resources.find(
@@ -67,6 +133,59 @@ export const attendanceReportService = {
       uploaded_by: r.uploaded_by,
       column_mapping: (r.column_mapping || {}) as Record<string, string>,
     }));
+  },
+
+  /**
+   * Todas las filas de asistencia de la unidad con metadatos de importación.
+   * Útil para la vista de evolución (varios días / archivos).
+   */
+  async getUnitAttendanceRowsWithMeta(unitId: string): Promise<AttendanceRowWithImportMeta[]> {
+    const imports = await this.listImports(unitId);
+    if (!imports.length) return [];
+
+    const importMeta = new Map(imports.map((i) => [i.id, i]));
+    const ids = imports.map((i) => i.id);
+    const batchSize = 100;
+    const raw: any[] = [];
+
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const chunk = ids.slice(i, i + batchSize);
+      const { data, error } = await supabase
+        .from('attendance_report_rows')
+        .select('*')
+        .in('import_id', chunk)
+        .order('row_index', { ascending: true });
+      if (error) throw error;
+      raw.push(...(data || []));
+    }
+
+    return raw.map((r: any) => {
+      const imp = importMeta.get(r.import_id as string);
+      const base: AttendanceReportRowDTO = {
+        id: r.id,
+        import_id: r.import_id,
+        row_index: r.row_index,
+        worker_name: r.worker_name,
+        dni: r.dni,
+        normalized_dni: r.normalized_dni,
+        attendance_status: r.attendance_status,
+        minutes_late: r.minutes_late,
+        notes: r.notes,
+        matched_resource_id: r.matched_resource_id,
+        raw: r.raw || {},
+        mark_date: r.mark_date ?? null,
+        punch_arrival: r.punch_arrival ?? null,
+        punch_lunch_out: r.punch_lunch_out ?? null,
+        punch_lunch_in: r.punch_lunch_in ?? null,
+        punch_departure: r.punch_departure ?? null,
+      };
+      return {
+        ...base,
+        import_report_date: imp?.report_date ?? '',
+        source_filename: imp?.source_filename ?? '',
+        uploaded_at: imp?.uploaded_at ?? '',
+      };
+    });
   },
 
   async getRows(importId: string): Promise<AttendanceReportRowDTO[]> {

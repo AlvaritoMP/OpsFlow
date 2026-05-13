@@ -12,15 +12,18 @@ import {
   Clock,
   UserX,
   Link2,
+  TrendingUp,
 } from 'lucide-react';
 import { Unit, ResourceType, Resource } from '../types';
 import {
   attendanceReportService,
   AttendanceReportImportDTO,
   AttendanceReportRowDTO,
+  filterRowsMatchedActivePersonnel,
 } from '../services/attendanceReportService';
 import { punchDisplay } from '../services/attendanceReportExcelParser';
 import { SafeImage } from './SafeImage';
+import { AttendanceEvolutionView } from './AttendanceEvolutionView';
 
 interface AttendanceReportsTabProps {
   unit: Unit;
@@ -28,6 +31,7 @@ interface AttendanceReportsTabProps {
 }
 
 type ViewMode = 'cards' | 'table';
+type ScreenMode = 'byImport' | 'evolution';
 
 function punchChipClasses(label: string): string {
   if (label === 'Sin marca' || label === 'No marco')
@@ -61,6 +65,7 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [screenMode, setScreenMode] = useState<ScreenMode>('byImport');
 
   const loadImports = useCallback(async () => {
     setLoading(true);
@@ -105,21 +110,21 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
     };
   }, [selectedId]);
 
-  const summary = attendanceReportService.summarize(rows);
+  const visibleRows = useMemo(() => filterRowsMatchedActivePersonnel(unit, rows), [unit, rows]);
+  const hiddenRowCount = rows.length - visibleRows.length;
+
+  const summary = attendanceReportService.summarize(visibleRows);
   const selectedImport = imports.find((i) => i.id === selectedId);
 
   const sortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      const ma = a.matched_resource_id ? 0 : 1;
-      const mb = b.matched_resource_id ? 0 : 1;
-      if (ma !== mb) return ma - mb;
+    return [...visibleRows].sort((a, b) => {
       const ra = resourceForRow(unit, a);
       const rb = resourceForRow(unit, b);
       const na = (ra?.name || a.worker_name || '').toLocaleLowerCase('es');
       const nb = (rb?.name || b.worker_name || '').toLocaleLowerCase('es');
       return na.localeCompare(nb, 'es');
     });
-  }, [rows, unit]);
+  }, [visibleRows, unit]);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -173,9 +178,9 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
             <Table2 size={22} /> Asistencia ({unit.name})
           </h3>
           <p className="text-sm text-slate-500 mt-1 max-w-3xl">
-            Los datos que ves aquí provienen <strong>solo</strong> de Excel subidos para esta unidad: no se inventan marcaciones para
-            días sin archivo. Por cada persona se muestra la fecha del día y las cuatro marcas (llegada, salida / regreso almuerzo y
-            salida). El número de columna «Documento» se cruza con el personal cargado en la unidad.
+            Los datos provienen <strong>solo</strong> de Excel subidos para esta unidad: no se rellenan días sin archivo.
+            Tras cada importación <strong>solo se muestran trabajadores activos en Personal</strong> (no archivados ni
+            cesados) cuyo documento coincide con el personal de la unidad; el resto de filas del Excel no se listan.
           </p>
         </div>
       </div>
@@ -240,7 +245,31 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="flex flex-wrap rounded-lg border border-slate-200 bg-slate-100 p-1 w-full md:w-fit gap-1">
+        <button
+          type="button"
+          onClick={() => setScreenMode('byImport')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium ${
+            screenMode === 'byImport' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <LayoutGrid size={16} /> Detalle por importación
+        </button>
+        <button
+          type="button"
+          onClick={() => setScreenMode('evolution')}
+          disabled={!imports.length}
+          title={!imports.length ? 'Sube primero un reporte Excel' : undefined}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium disabled:opacity-45 disabled:cursor-not-allowed ${
+            screenMode === 'evolution' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <TrendingUp size={16} /> Evolución por trabajador
+        </button>
+      </div>
+
+      {screenMode === 'byImport' && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
           <div className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1">
             <CheckCircle size={14} /> Marcación OK
@@ -271,14 +300,17 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
           <div className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1">
-            <Users size={14} /> En personal
+            <Users size={14} /> Activos en planilla
           </div>
-          <div className="text-2xl font-bold text-blue-700">
-            {summary.matched}
-            <span className="text-xs font-normal text-slate-500"> / {summary.total}</span>
-          </div>
+          <div className="text-2xl font-bold text-blue-700">{summary.total}</div>
+          {hiddenRowCount > 0 ? (
+            <div className="text-[11px] text-slate-500 mt-1">
+              Sin mostrar del archivo: {hiddenRowCount} (sin cruce o no activos)
+            </div>
+          ) : null}
         </div>
       </div>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="lg:w-72 shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -321,7 +353,15 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         </div>
 
         <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[320px]">
-          {!selectedImport ? (
+          {screenMode === 'evolution' ? (
+            imports.length ? (
+              <AttendanceEvolutionView unit={unit} />
+            ) : (
+              <div className="p-10 text-center text-slate-500 text-sm">
+                Sube al menos un Excel para usar la evolución por trabajador.
+              </div>
+            )
+          ) : !selectedImport ? (
             <div className="p-10 text-center text-slate-500 text-sm space-y-2">
               <p>Elegí un reporte importado para ver marcaciones por trabajador.</p>
               {!imports.length && canUpload ? (
@@ -362,6 +402,13 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
 
               {viewMode === 'cards' ? (
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[min(70vh,980px)] overflow-y-auto">
+                  {sortedRows.length === 0 ? (
+                    <div className="col-span-full p-12 text-center text-slate-500 text-sm border border-dashed border-slate-200 rounded-xl bg-slate-50/80">
+                      {rows.length > 0
+                        ? 'Ningún trabajador activo de la unidad con documento coincidente en este archivo. Las demás filas no se muestran.'
+                        : 'Sin filas en este reporte.'}
+                    </div>
+                  ) : null}
                   {sortedRows.map((r) => {
                     const res = resourceForRow(unit, r);
                     const dispName = res?.type === ResourceType.PERSONNEL ? res.name : r.worker_name || 'Sin nombre';
@@ -467,6 +514,15 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
+                      {sortedRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="px-4 py-12 text-center text-slate-500 text-sm">
+                            {rows.length > 0
+                              ? 'Ningún trabajador activo con cruce por documento en este archivo.'
+                              : 'Sin filas.'}
+                          </td>
+                        </tr>
+                      ) : null}
                       {sortedRows.map((r) => {
                         const res = resourceForRow(unit, r);
                         const dispName =
@@ -483,7 +539,7 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
                             <td className="px-3 py-2 font-mono text-xs">{punchDisplay(r.punch_lunch_in)}</td>
                             <td className="px-3 py-2 font-mono text-xs">{punchDisplay(r.punch_departure)}</td>
                             <td className="px-3 py-2 text-xs">{r.attendance_status || '—'}</td>
-                            <td className="px-3 py-2 text-center">{r.matched_resource_id ? '✓' : '—'}</td>
+                            <td className="px-3 py-2 text-center">✓</td>
                           </tr>
                         );
                       })}
