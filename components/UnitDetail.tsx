@@ -6,6 +6,7 @@ import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
 import { requestsService } from '../services/requestsService';
+import { variableCompensationsService } from '../services/variableCompensationsService';
 import { SafeImage } from './SafeImage';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 
@@ -3699,18 +3700,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const formatMoney = (amount: number) => `S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const loadVariableCompensations = async () => {
-    setIsLoadingCompensations(true);
+  const loadVariableCompensations = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent) setIsLoadingCompensations(true);
     try {
-      const { variableCompensationsService } = await import('../services/variableCompensationsService');
       const data = await variableCompensationsService.getByUnitAndMonth(unit.id, compensationMonth);
       setVariableCompensations(data);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error al cargar comisiones variables:', error);
-      setNotification({ type: 'error', message: 'Error al cargar comisiones/remuneraciones variables.' });
-      setTimeout(() => setNotification(null), 5000);
+      const msg =
+        error instanceof Error
+          ? error.message
+          : 'Error al cargar comisiones/remuneraciones variables. Revise permisos (RLS) o la conexión.';
+      setNotification({ type: 'error', message: msg });
+      setTimeout(() => setNotification(null), 6000);
     } finally {
-      setIsLoadingCompensations(false);
+      if (!silent) setIsLoadingCompensations(false);
     }
   };
 
@@ -3737,8 +3742,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
     setIsSavingCompensation(true);
     try {
-      const { variableCompensationsService } = await import('../services/variableCompensationsService');
-      await variableCompensationsService.create({
+      const created = await variableCompensationsService.create({
         unitId: unit.id,
         resourceId: compensationForm.resourceId,
         periodMonth: compensationMonth,
@@ -3749,8 +3753,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         source: 'manual'
       });
 
-      const data = await variableCompensationsService.getByUnitAndMonth(unit.id, compensationMonth);
-      setVariableCompensations(data);
+      setVariableCompensations((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
       setCompensationForm({
         resourceId: '',
         amount: '',
@@ -3775,7 +3778,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     if (!confirm('¿Eliminar este registro variable?')) return;
 
     try {
-      const { variableCompensationsService } = await import('../services/variableCompensationsService');
       await variableCompensationsService.delete(id);
       setVariableCompensations(prev => prev.filter(item => item.id !== id));
       setNotification({ type: 'success', message: 'Registro eliminado.' });
@@ -3793,7 +3795,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
     try {
       const { excelService } = await import('../services/excelService');
-      const { variableCompensationsService } = await import('../services/variableCompensationsService');
       const { data, result } = await excelService.importVariableCompensationsFromExcel(file);
       const unmatched: string[] = [];
 
@@ -3822,10 +3823,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       });
 
       if (rowsToCreate.length > 0) {
-        await variableCompensationsService.createMany(rowsToCreate);
+        const inserted = await variableCompensationsService.createMany(rowsToCreate);
+        setVariableCompensations((prev) => {
+          const next = [...inserted, ...prev];
+          const byId = new Map(next.map((row) => [row.id, row]));
+          return Array.from(byId.values());
+        });
       }
-
-      await loadVariableCompensations();
       const skippedText = unmatched.length > 0 ? ` ${unmatched.length} fila(s) no coincidieron con trabajadores de esta unidad.` : '';
       const failedText = result.failed > 0 ? ` ${result.failed} fila(s) tenían errores de formato.` : '';
       setNotification({

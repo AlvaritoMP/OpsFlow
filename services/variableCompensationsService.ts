@@ -14,21 +14,18 @@ type VariableCompensationInput = {
 
 export const variableCompensationsService = {
   async getByUnitAndMonth(unitId: string, periodMonth: string): Promise<VariableCompensation[]> {
-    try {
-      const { data, error } = await supabase
-        .from('variable_compensations')
-        .select('*')
-        .eq('unit_id', unitId)
-        .eq('period_month', normalizePeriodMonth(periodMonth))
-        .order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('variable_compensations')
+      .select('*')
+      .eq('unit_id', unitId)
+      .eq('period_month', normalizePeriodMonth(periodMonth))
+      .order('created_at', { ascending: false });
 
-      if (error) throw error;
-
-      return (data || []).map(transformFromDB);
-    } catch (error) {
+    if (error) {
       handleSupabaseError(error);
-      return [];
     }
+
+    return (data || []).map(transformFromDB);
   },
 
   async create(compensation: VariableCompensationInput): Promise<VariableCompensation> {
