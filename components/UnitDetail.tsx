@@ -438,6 +438,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   
   // Add Logistics Resource State
   const [showAddResourceModal, setShowAddResourceModal] = useState(false);
+  const [isAddingLogisticsResource, setIsAddingLogisticsResource] = useState(false);
   const [newResourceType, setNewResourceType] = useState<ResourceType>(ResourceType.EQUIPMENT);
   const [newResourceForm, setNewResourceForm] = useState<Partial<Resource>>({ name: '', quantity: 1, status: 'Operativo', assignedZones: [] });
   const [equipmentResponsibleWorkerId, setEquipmentResponsibleWorkerId] = useState<string>('');
@@ -2993,88 +2994,115 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const handleAddResource = async () => {
     if (!onUpdate) return;
-    const newResource: Resource = {
-      id: `r-${Date.now()}`,
-      name: newResourceForm.name || 'Nuevo Recurso',
-      type: newResourceType,
-      quantity: newResourceForm.quantity || 1,
-      status: newResourceType === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo',
-      unitOfMeasure: newResourceForm.unitOfMeasure,
-      assignedZones: newResourceForm.assignedZones || [],
-      nextMaintenance: newResourceForm.nextMaintenance,
-      lastRestock: newResourceForm.lastRestock,
-      image: newResourceForm.image,
-      externalId: newResourceForm.externalId // SKU
-    };
-
-    // Si es equipo y se solicita generar constancia
-    if (newResourceType === ResourceType.EQUIPMENT && generateEquipmentConstancy && equipmentResponsibleWorkerId) {
-      try {
-        const responsibleWorker = unit.resources.find(r => r.id === equipmentResponsibleWorkerId && r.type === ResourceType.PERSONNEL);
-        
-        if (!responsibleWorker) {
-          setNotification({ type: 'error', message: 'Trabajador responsable no encontrado' });
-          setTimeout(() => setNotification(null), 3000);
-          return;
-        }
-
-        if (!responsibleWorker.dni) {
-          setNotification({ 
-            type: 'error', 
-            message: `El trabajador ${responsibleWorker.name} no tiene DNI registrado. Se requiere DNI para generar constancia.` 
-          });
-          setTimeout(() => setNotification(null), 5000);
-          return;
-        }
-
-        const { constancyService } = await import('../services/constancyService');
-        const { pdfConstancyService } = await import('../services/pdfConstancyService');
-        const { authService } = await import('../services/authService');
-        
-        const currentUser = await authService.getCurrentUser();
-
-        // Generar constancia de maquinaria
-        const constancy = await constancyService.generateEquipmentConstancy(
-          responsibleWorker.id,
-          responsibleWorker.name,
-          responsibleWorker.dni,
-          unit.id,
-          unit.name,
-          newResource,
-          currentUser?.name || currentUser?.email || 'Sistema'
-        );
-
-        // Generar y descargar PDF
-        pdfConstancyService.downloadPDF({
-          code: constancy.code,
-          workerName: responsibleWorker.name,
-          workerDni: responsibleWorker.dni,
-          unitName: unit.name,
-          date: constancy.date,
-          items: constancy.items,
-          constancyType: 'EQUIPMENT',
-        }, `constancia-maquinaria-${constancy.code}-${responsibleWorker.name.replace(/\s+/g, '-')}.pdf`);
-
-        setNotification({ 
-          type: 'success', 
-          message: `Constancia de maquinaria generada y descargada` 
-        });
-        setTimeout(() => setNotification(null), 5000);
-      } catch (error) {
-        console.error('Error al generar constancia de maquinaria:', error);
-        setNotification({ 
-          type: 'error', 
-          message: 'Error al generar constancia. El equipo se registró pero la constancia no se generó.' 
-        });
-        setTimeout(() => setNotification(null), 5000);
-      }
+    const name = (newResourceForm.name || '').trim();
+    if (!name) {
+      setNotification({ type: 'error', message: 'Ingrese el nombre del recurso.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
     }
 
-    onUpdate({ ...unit, resources: [...unit.resources, newResource] });
-    setShowAddResourceModal(false);
-    setNewResourceForm({ name: '', quantity: 1, status: 'Operativo', externalId: '', assignedZones: [] });
-    setEquipmentResponsibleWorkerId('');
-    setGenerateEquipmentConstancy(false);
+    setIsAddingLogisticsResource(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+
+      const created = await resourcesService.create(
+        {
+          name,
+          type: newResourceType,
+          quantity: newResourceForm.quantity || 1,
+          status: newResourceType === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo',
+          unitOfMeasure: newResourceForm.unitOfMeasure,
+          assignedZones: newResourceForm.assignedZones || [],
+          nextMaintenance: newResourceForm.nextMaintenance,
+          lastRestock: newResourceForm.lastRestock,
+          image: newResourceForm.image,
+          externalId: newResourceForm.externalId || undefined,
+        },
+        unit.id
+      );
+
+      onUpdate({ ...unit, resources: [...unit.resources, created] });
+
+      let constancyOk = false;
+      if (newResourceType === ResourceType.EQUIPMENT && generateEquipmentConstancy && equipmentResponsibleWorkerId) {
+        const responsibleWorker = unit.resources.find(
+          r => r.id === equipmentResponsibleWorkerId && r.type === ResourceType.PERSONNEL
+        );
+
+        if (!responsibleWorker) {
+          setNotification({
+            type: 'warning',
+            message: 'Recurso guardado. No se encontró el trabajador seleccionado para la constancia.',
+          });
+          setTimeout(() => setNotification(null), 5000);
+        } else if (!responsibleWorker.dni) {
+          setNotification({
+            type: 'warning',
+            message: `Recurso guardado. ${responsibleWorker.name} no tiene DNI; no se generó la constancia.`,
+          });
+          setTimeout(() => setNotification(null), 5000);
+        } else {
+          try {
+            const { constancyService } = await import('../services/constancyService');
+            const { pdfConstancyService } = await import('../services/pdfConstancyService');
+            const { authService } = await import('../services/authService');
+
+            const currentUser = await authService.getCurrentUser();
+
+            const constancy = await constancyService.generateEquipmentConstancy(
+              responsibleWorker.id,
+              responsibleWorker.name,
+              responsibleWorker.dni,
+              unit.id,
+              unit.name,
+              created,
+              currentUser?.name || currentUser?.email || 'Sistema'
+            );
+
+            pdfConstancyService.downloadPDF(
+              {
+                code: constancy.code,
+                workerName: responsibleWorker.name,
+                workerDni: responsibleWorker.dni,
+                unitName: unit.name,
+                date: constancy.date,
+                items: constancy.items,
+                constancyType: 'EQUIPMENT',
+              },
+              `constancia-maquinaria-${constancy.code}-${responsibleWorker.name.replace(/\s+/g, '-')}.pdf`
+            );
+            constancyOk = true;
+          } catch (error) {
+            console.error('Error al generar constancia de maquinaria:', error);
+            setNotification({
+              type: 'warning',
+              message: 'Recurso guardado. No se pudo generar el PDF de constancia.',
+            });
+            setTimeout(() => setNotification(null), 5000);
+          }
+        }
+      }
+
+      if (!constancyOk && !(newResourceType === ResourceType.EQUIPMENT && generateEquipmentConstancy && equipmentResponsibleWorkerId)) {
+        setNotification({ type: 'success', message: 'Recurso registrado correctamente.' });
+        setTimeout(() => setNotification(null), 3000);
+      } else if (constancyOk) {
+        setNotification({ type: 'success', message: 'Recurso registrado y constancia generada.' });
+        setTimeout(() => setNotification(null), 5000);
+      }
+
+      setShowAddResourceModal(false);
+      setNewResourceForm({ name: '', quantity: 1, status: 'Operativo', externalId: '', assignedZones: [] });
+      setEquipmentResponsibleWorkerId('');
+      setGenerateEquipmentConstancy(false);
+    } catch (error: unknown) {
+      console.error('Error al registrar recurso de logística:', error);
+      const msg = error instanceof Error ? error.message : 'Error al registrar el recurso. Verifique permisos y conexión.';
+      setNotification({ type: 'error', message: msg });
+      setTimeout(() => setNotification(null), 6000);
+    } finally {
+      setIsAddingLogisticsResource(false);
+    }
   };
 
   const openAddResourceModal = (type: ResourceType) => {
@@ -3695,7 +3723,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setIsSavingCompensation(true);
     try {
       const { variableCompensationsService } = await import('../services/variableCompensationsService');
-      const created = await variableCompensationsService.create({
+      await variableCompensationsService.create({
         unitId: unit.id,
         resourceId: compensationForm.resourceId,
         periodMonth: compensationMonth,
@@ -3706,7 +3734,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         source: 'manual'
       });
 
-      setVariableCompensations(prev => [created, ...prev]);
+      const data = await variableCompensationsService.getByUnitAndMonth(unit.id, compensationMonth);
+      setVariableCompensations(data);
       setCompensationForm({
         resourceId: '',
         amount: '',
@@ -3718,7 +3747,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       console.error('Error al guardar comisión variable:', error);
-      setNotification({ type: 'error', message: 'Error al guardar la comisión/remuneración variable.' });
+      const msg =
+        error instanceof Error ? error.message : 'Error al guardar la comisión/remuneración variable.';
+      setNotification({ type: 'error', message: msg });
       setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsSavingCompensation(false);
@@ -8466,7 +8497,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </>
                 )}
 
-                <button onClick={handleAddResource} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Registrar</button>
+                <button
+                  type="button"
+                  disabled={isAddingLogisticsResource}
+                  onClick={handleAddResource}
+                  className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isAddingLogisticsResource ? 'Guardando…' : 'Registrar'}
+                </button>
              </div>
           </div>
         </div>

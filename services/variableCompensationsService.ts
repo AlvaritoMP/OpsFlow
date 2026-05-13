@@ -82,7 +82,11 @@ export const variableCompensationsService = {
 };
 
 function normalizePeriodMonth(periodMonth: string): string {
-  return `${periodMonth.slice(0, 7)}-01`;
+  const base = (periodMonth || '').trim();
+  if (base.length < 7) {
+    throw new Error('El mes de período no es válido (use formato AAAA-MM).');
+  }
+  return `${base.slice(0, 7)}-01`;
 }
 
 function formatPeriodMonth(periodMonth: string): string {
