@@ -288,13 +288,16 @@ function transformRequestFromDB(data: any): ClientRequest {
     response: data.response,
     responseAttachments,
     resolvedDate: data.resolved_date,
-    comments: data.request_comments?.map((c: any) => ({
-      id: c.id,
-      author: c.author,
-      role: c.role as any,
-      date: c.date,
-      text: c.text,
-    })) || [],
+    comments:
+      (data.request_comments?.map((c: any) => ({
+        id: c.id,
+        author: c.author,
+        role: c.role as any,
+        date: c.date,
+        text: c.text,
+      })) || []).sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      ),
   };
 }
 

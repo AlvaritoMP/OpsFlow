@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation } from '../types';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation } from '../types';
 import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
@@ -105,6 +105,97 @@ const ZoneNameBadges: React.FC<ZoneNameBadgesProps> = ({ unitZones, zoneNames, c
         );
       })}
     </span>
+  );
+};
+
+/** Hilo de discusión de requerimientos: scroll interno fiable (min-h-0 + flex) y orden cronológico */
+const RequestDiscussionThread: React.FC<{
+  comments: RequestComment[] | undefined;
+  userRole: UserRole;
+  variant: 'inline' | 'modal';
+}> = ({ comments, userRole, variant }) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sorted = useMemo(
+    () =>
+      [...(comments || [])].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      ),
+    [comments]
+  );
+
+  const scrollSig = useMemo(
+    () => sorted.map((c) => `${c.id}:${String(c.date)}:${(c.text || '').length}`).join('|'),
+    [sorted]
+  );
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [scrollSig, variant]);
+
+  if (variant === 'inline') {
+    return (
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 p-3 overflow-y-auto overscroll-y-contain custom-scrollbar space-y-3 max-h-[min(22rem,55vh)] sm:max-h-[min(24rem,50vh)]"
+      >
+        {sorted.length === 0 ? (
+          <div className="min-h-[100px] flex flex-col items-center justify-center text-slate-300">
+            <MessageSquarePlus size={24} className="mb-1 opacity-50" />
+            <span className="text-xs">Sin comentarios</span>
+          </div>
+        ) : (
+          sorted.map((comment, idx) => (
+            <div
+              key={`${comment.id}-${idx}`}
+              className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}
+            >
+              <div
+                className={`relative px-3 py-2 rounded-lg text-xs max-w-[90%] ${
+                  comment.role === userRole
+                    ? 'bg-blue-100 text-blue-900 rounded-br-none'
+                    : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm'
+                }`}
+              >
+                <p className="whitespace-pre-wrap break-words">{comment.text}</p>
+              </div>
+              <span className="text-[9px] text-slate-400 mt-1 px-1">{comment.author}</span>
+            </div>
+          ))
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={scrollRef}
+      className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100 max-h-[min(18rem,45vh)] min-h-0 overflow-y-auto overscroll-y-contain custom-scrollbar"
+    >
+      {sorted.length === 0 && (
+        <p className="text-xs text-slate-400 italic text-center">No hay comentarios aún.</p>
+      )}
+      {sorted.map((comment, idx) => (
+        <div
+          key={`${comment.id}-${idx}`}
+          className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}
+        >
+          <div
+            className={`max-w-[85%] rounded-lg p-3 text-sm ${
+              comment.role === userRole
+                ? 'bg-blue-100 text-blue-900 rounded-br-none'
+                : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
+            }`}
+          >
+            <p className="whitespace-pre-wrap break-words">{comment.text}</p>
+          </div>
+          <span className="text-[10px] text-slate-400 mt-1 px-1">
+            {comment.author} • {new Date(comment.date).toLocaleDateString()}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 };
 
@@ -4289,37 +4380,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  </div>
 
                                  {/* RIGHT COLUMN: INLINE CHAT */}
-                                 <div className="bg-slate-50/50 flex flex-col h-full min-h-[250px] lg:h-auto border-l border-slate-100">
-                                     <div className="p-3 border-b border-slate-200 bg-slate-50">
+                                 <div className="bg-slate-50/50 flex flex-col h-full min-h-[280px] lg:min-h-0 border-l border-slate-100">
+                                     <div className="p-3 border-b border-slate-200 bg-slate-50 flex-shrink-0">
                                          <h6 className="text-[10px] uppercase font-bold text-slate-500 flex items-center">
                                              <MessageCircle size={12} className="mr-1.5" /> Discusión / Chat
                                          </h6>
                                      </div>
                                      
-                                     {/* Scrollable Messages */}
-                                     <div className="flex-1 p-3 overflow-y-auto custom-scrollbar space-y-3 max-h-60 lg:max-h-80">
-                                        {(!req.comments || req.comments.length === 0) ? (
-                                            <div className="h-full flex flex-col items-center justify-center text-slate-300">
-                                                <MessageSquarePlus size={24} className="mb-1 opacity-50"/>
-                                                <span className="text-xs">Sin comentarios</span>
-                                            </div>
-                                        ) : (
-                                            req.comments.map(comment => (
-                                                <div key={comment.id} className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}>
-                                                    <div className={`relative px-3 py-2 rounded-lg text-xs max-w-[90%] ${
-                                                        comment.role === userRole 
-                                                        ? 'bg-blue-100 text-blue-900 rounded-br-none' 
-                                                        : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm'
-                                                    }`}>
-                                                        <p>{comment.text}</p>
-                                                    </div>
-                                                    <span className="text-[9px] text-slate-400 mt-1 px-1">
-                                                    {comment.author}
-                                                    </span>
-                                                </div>
-                                            ))
-                                        )}
-                                     </div>
+                                     <RequestDiscussionThread
+                                       comments={req.comments}
+                                       userRole={userRole}
+                                       variant="inline"
+                                     />
 
                                      {/* Input Area */}
                                      <div className="p-3 border-t border-slate-200 bg-white">
@@ -7366,7 +7438,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       <button onClick={() => setEditingRequest(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
                   </div>
                   
-                  <div className="p-4 md:p-6 overflow-y-auto flex-1 custom-scrollbar">
+                  <div className="p-4 md:p-6 overflow-y-auto flex-1 min-h-0 custom-scrollbar">
                       {/* Original Request Info */}
                       <div className="mb-6">
                           <div className="flex justify-between items-start mb-2">
@@ -7412,24 +7484,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           )}
                       </div>
 
-                      {/* Comment Thread (Chat) - Kept for legacy/detail view, but now primarily inline */}
+                      {/* Comment Thread (Chat) */}
                       <div className="mb-6 border-t border-slate-100 pt-4">
                           <h4 className="font-bold text-slate-700 text-sm mb-3 flex items-center"><MessageCircle size={16} className="mr-2"/> Historial de Comentarios</h4>
-                          <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100 max-h-60 overflow-y-auto custom-scrollbar">
-                              {(!editingRequest.comments || editingRequest.comments.length === 0) && (
-                                  <p className="text-xs text-slate-400 italic text-center">No hay comentarios aún.</p>
-                              )}
-                              {editingRequest.comments?.map(comment => (
-                                  <div key={comment.id} className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}>
-                                      <div className={`max-w-[85%] rounded-lg p-3 text-sm ${comment.role === userRole ? 'bg-blue-100 text-blue-900 rounded-br-none' : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'}`}>
-                                          <p>{comment.text}</p>
-                                      </div>
-                                      <span className="text-[10px] text-slate-400 mt-1 px-1">
-                                          {comment.author} • {new Date(comment.date).toLocaleDateString()}
-                                      </span>
-                                  </div>
-                              ))}
-                          </div>
+                          <RequestDiscussionThread
+                            comments={editingRequest.comments}
+                            userRole={userRole}
+                            variant="modal"
+                          />
                       </div>
 
                       {/* Admin Resolution Section (Only visible to non-clients or if resolved) */}

@@ -224,17 +224,6 @@ export const resourcesService = {
     try {
       const resourceData = transformResourceToDB(resource, newUnitId);
       
-      // Log detallado para debugging de ceses
-      if (resource.personnelStatus) {
-        console.log('🔍 [resourcesService.update] Actualizando trabajador:', {
-          id,
-          personnelStatus: resource.personnelStatus,
-          archived: resource.archived,
-          endDate: resource.endDate,
-          resourceData: resourceData
-        });
-      }
-
       if (Object.keys(resourceData).length > 0) {
         const { data: updateResult, error } = await supabase
           .from('resources')
@@ -247,22 +236,13 @@ export const resourcesService = {
           throw error;
         }
         
-        // Verificar que se actualizó correctamente
-        if (updateResult && updateResult.length > 0) {
-          console.log('✅ [resourcesService.update] Recurso actualizado en BD:', {
-            id: updateResult[0].id,
-            personnel_status: updateResult[0].personnel_status,
-            archived: updateResult[0].archived,
-            end_date: updateResult[0].end_date
-          });
-        } else {
+        if (!updateResult || updateResult.length === 0) {
           console.warn('⚠️ [resourcesService.update] No se encontró el recurso después de actualizar');
         }
       }
 
       // Actualizar workSchedule (turnos) si se proporcionan
       if (resource.workSchedule !== undefined) {
-        console.log(`🔄 Actualizando ${resource.workSchedule.length} turnos para recurso ${id}`);
         
         // Eliminar turnos existentes
         const { error: deleteError } = await supabase.from('daily_shifts').delete().eq('resource_id', id);
@@ -273,18 +253,12 @@ export const resourcesService = {
         
         // Insertar nuevos turnos
         if (resource.workSchedule.length > 0) {
-          console.log('📅 Insertando turnos:', resource.workSchedule.map(s => ({ 
-            date: s.date, 
-            type: s.type,
-            hours: s.hours
-          })));
           await this.createDailyShifts(id, resource.workSchedule);
         }
       }
 
       // Actualizar assignedAssets si se proporcionan
       if (resource.assignedAssets !== undefined) {
-        console.log(`🔄 Actualizando ${resource.assignedAssets.length} activos para recurso ${id}`);
         
         // Eliminar activos existentes
         const { error: deleteError } = await supabase.from('assigned_assets').delete().eq('resource_id', id);
@@ -295,17 +269,12 @@ export const resourcesService = {
         
         // Insertar nuevos activos
         if (resource.assignedAssets.length > 0) {
-          console.log('📦 Insertando activos:', resource.assignedAssets.map(a => ({ 
-            name: a.name, 
-            constancyCode: a.constancyCode 
-          })));
           await this.createAssignedAssets(id, resource.assignedAssets);
         }
       }
 
       // Actualizar trainings (capacitaciones) si se proporcionan
       if (resource.trainings !== undefined) {
-        console.log(`🔄 Actualizando ${resource.trainings.length} capacitaciones para recurso ${id}`);
         
         // Eliminar capacitaciones existentes
         const { error: deleteError } = await supabase.from('trainings').delete().eq('resource_id', id);
@@ -316,11 +285,6 @@ export const resourcesService = {
         
         // Insertar nuevas capacitaciones
         if (resource.trainings.length > 0) {
-          console.log('📚 Insertando capacitaciones:', resource.trainings.map(t => ({ 
-            topic: t.topic, 
-            date: t.date,
-            status: t.status
-          })));
           await this.createTrainings(id, resource.trainings);
         }
       }
