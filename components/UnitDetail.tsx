@@ -5678,7 +5678,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                            src={worker.image}
                            alt={worker.name}
                            bucket="unit-images"
-                           className="w-16 h-16 rounded-full object-cover mr-4 shrink-0 bg-slate-200"
+                           className="w-16 h-16 rounded-full object-cover mr-4 shrink-0 bg-slate-200 cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition"
+                           onClick={() => {
+                             closeAllModalsExcept('image');
+                             setImageModalUrl(worker.image!);
+                             setShowImageModal(true);
+                           }}
+                           title="Click para ver foto en tamaño completo"
                            fallback={
                              <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 mr-4 shrink-0">
                                {getWorkerInitial(worker.name)}
@@ -6271,7 +6277,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                     src={worker.image}
                                                     alt={worker.name}
                                                     bucket="unit-images"
-                                                    className="w-16 h-16 rounded-full object-cover mr-4 shrink-0 bg-slate-200"
+                                                    className="w-16 h-16 rounded-full object-cover mr-4 shrink-0 bg-slate-200 cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition"
+                                                    onClick={() => {
+                                                        closeAllModalsExcept('image');
+                                                        setImageModalUrl(worker.image!);
+                                                        setShowImageModal(true);
+                                                    }}
+                                                    title="Click para ver foto en tamaño completo"
                                                     fallback={
                                                         <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 mr-4 shrink-0">
                                                             {getWorkerInitial(worker.name)}
