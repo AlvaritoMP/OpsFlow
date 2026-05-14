@@ -4000,6 +4000,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const getWorkerById = (resourceId: string) => allUnitPersonnel.find(worker => worker.id === resourceId);
 
   const handleSaveVariableCompensation = async () => {
+    if (!canEditPersonnel) return;
     if (!compensationForm.resourceId || !compensationForm.amount) {
       setNotification({ type: 'error', message: 'Seleccione un trabajador e ingrese un monto.' });
       setTimeout(() => setNotification(null), 3000);
@@ -4048,6 +4049,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleDeleteVariableCompensation = async (id: string) => {
+    if (!canEditPersonnel) return;
     if (!confirm('¿Eliminar este registro variable?')) return;
 
     try {
@@ -4063,6 +4065,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleImportVariableCompensations = async (file: File | null) => {
+    if (!canEditPersonnel) return;
     if (!file) return;
     setIsSavingCompensation(true);
 
@@ -6852,27 +6855,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             <p className="text-sm text-slate-500">Registre y consulte pagos variables por trabajador y mes.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={async () => {
-                const { excelService } = await import('../services/excelService');
-                await excelService.generateVariableCompensationsTemplate();
-              }}
-              className="px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 flex items-center text-sm"
-            >
-              <FileSpreadsheet size={16} className="mr-2" /> Plantilla
-            </button>
-            <label className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center text-sm cursor-pointer">
-              <Upload size={16} className="mr-2" /> Importar Excel
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={(e) => {
-                  handleImportVariableCompensations(e.target.files?.[0] || null);
-                  e.target.value = '';
-                }}
-              />
-            </label>
+            {canEditPersonnel && (
+              <>
+                <button
+                  onClick={async () => {
+                    const { excelService } = await import('../services/excelService');
+                    await excelService.generateVariableCompensationsTemplate();
+                  }}
+                  className="px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 flex items-center text-sm"
+                >
+                  <FileSpreadsheet size={16} className="mr-2" /> Plantilla
+                </button>
+                <label className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center text-sm cursor-pointer">
+                  <Upload size={16} className="mr-2" /> Importar Excel
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleImportVariableCompensations(e.target.files?.[0] || null);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </>
+            )}
             <button
               onClick={handleExportVariableCompensations}
               disabled={variableCompensations.length === 0}
@@ -6903,62 +6910,68 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-          <h3 className="font-bold text-slate-800 mb-4 flex items-center">
-            <Plus size={18} className="mr-2 text-green-600" />
-            Registro manual
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
-            <select
-              className="lg:col-span-2 border border-slate-300 rounded-lg p-2 outline-none"
-              value={compensationForm.resourceId}
-              onChange={(e) => setCompensationForm({ ...compensationForm, resourceId: e.target.value })}
-            >
-              <option value="">Seleccionar trabajador...</option>
-              {allUnitPersonnel.map(worker => (
-                <option key={worker.id} value={worker.id}>
-                  {worker.name}{worker.dni ? ` - ${worker.dni}` : ''}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              className="border border-slate-300 rounded-lg p-2 outline-none"
-              placeholder="Monto"
-              value={compensationForm.amount}
-              onChange={(e) => setCompensationForm({ ...compensationForm, amount: e.target.value })}
-            />
+        {canEditPersonnel ? (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center">
+              <Plus size={18} className="mr-2 text-green-600" />
+              Registro manual
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+              <select
+                className="lg:col-span-2 border border-slate-300 rounded-lg p-2 outline-none"
+                value={compensationForm.resourceId}
+                onChange={(e) => setCompensationForm({ ...compensationForm, resourceId: e.target.value })}
+              >
+                <option value="">Seleccionar trabajador...</option>
+                {allUnitPersonnel.map(worker => (
+                  <option key={worker.id} value={worker.id}>
+                    {worker.name}{worker.dni ? ` - ${worker.dni}` : ''}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="border border-slate-300 rounded-lg p-2 outline-none"
+                placeholder="Monto"
+                value={compensationForm.amount}
+                onChange={(e) => setCompensationForm({ ...compensationForm, amount: e.target.value })}
+              />
+              <input
+                type="text"
+                className="border border-slate-300 rounded-lg p-2 outline-none"
+                placeholder="Concepto"
+                value={compensationForm.concept}
+                onChange={(e) => setCompensationForm({ ...compensationForm, concept: e.target.value })}
+              />
+              <input
+                type="date"
+                className="border border-slate-300 rounded-lg p-2 outline-none"
+                value={compensationForm.paymentDate}
+                onChange={(e) => setCompensationForm({ ...compensationForm, paymentDate: e.target.value })}
+              />
+              <button
+                onClick={handleSaveVariableCompensation}
+                disabled={isSavingCompensation}
+                className="bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700 disabled:bg-slate-300 flex items-center justify-center"
+              >
+                <Save size={16} className="mr-2" /> Guardar
+              </button>
+            </div>
             <input
               type="text"
-              className="border border-slate-300 rounded-lg p-2 outline-none"
-              placeholder="Concepto"
-              value={compensationForm.concept}
-              onChange={(e) => setCompensationForm({ ...compensationForm, concept: e.target.value })}
+              className="mt-3 w-full border border-slate-300 rounded-lg p-2 outline-none"
+              placeholder="Notas u observaciones (opcional)"
+              value={compensationForm.notes}
+              onChange={(e) => setCompensationForm({ ...compensationForm, notes: e.target.value })}
             />
-            <input
-              type="date"
-              className="border border-slate-300 rounded-lg p-2 outline-none"
-              value={compensationForm.paymentDate}
-              onChange={(e) => setCompensationForm({ ...compensationForm, paymentDate: e.target.value })}
-            />
-            <button
-              onClick={handleSaveVariableCompensation}
-              disabled={isSavingCompensation}
-              className="bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700 disabled:bg-slate-300 flex items-center justify-center"
-            >
-              <Save size={16} className="mr-2" /> Guardar
-            </button>
           </div>
-          <input
-            type="text"
-            className="mt-3 w-full border border-slate-300 rounded-lg p-2 outline-none"
-            placeholder="Notas u observaciones (opcional)"
-            value={compensationForm.notes}
-            onChange={(e) => setCompensationForm({ ...compensationForm, notes: e.target.value })}
-          />
-        </div>
+        ) : (
+          <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
+            Solo lectura: no tiene permisos de edición en Personal para registrar o importar pagos variables.
+          </div>
+        )}
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -6975,7 +6988,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <th className="text-right px-4 py-3">Monto</th>
                     <th className="text-left px-4 py-3">Fecha pago</th>
                     <th className="text-left px-4 py-3">Origen</th>
-                    <th className="px-4 py-3"></th>
+                    {canEditPersonnel && <th className="px-4 py-3"></th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -6998,21 +7011,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             {item.source === 'import' ? 'Importado' : 'Manual'}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => handleDeleteVariableCompensation(item.id)}
-                            className="text-slate-400 hover:text-red-600 p-1"
-                            title="Eliminar"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
+                        {canEditPersonnel && (
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              onClick={() => handleDeleteVariableCompensation(item.id)}
+                              className="text-slate-400 hover:text-red-600 p-1"
+                              title="Eliminar"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
                   {variableCompensations.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                      <td colSpan={canEditPersonnel ? 6 : 5} className="px-4 py-10 text-center text-slate-400">
                         No hay comisiones o remuneraciones variables registradas para este mes.
                       </td>
                     </tr>

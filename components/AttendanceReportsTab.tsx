@@ -177,11 +177,13 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
           <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
             <Table2 size={22} /> Asistencia ({unit.name})
           </h3>
-          <p className="text-sm text-slate-500 mt-1 max-w-3xl">
-            Los datos provienen <strong>solo</strong> de Excel subidos para esta unidad: no se rellenan días sin archivo.
-            Tras cada importación <strong>solo se muestran trabajadores activos en Personal</strong> (no archivados ni
-            cesados) cuyo documento coincide con el personal de la unidad; el resto de filas del Excel no se listan.
-          </p>
+          {canUpload && (
+            <p className="text-sm text-slate-500 mt-1 max-w-3xl">
+              Los datos provienen <strong>solo</strong> de Excel subidos para esta unidad: no se rellenan días sin archivo.
+              Tras cada importación <strong>solo se muestran trabajadores activos en Personal</strong> (no archivados ni
+              cesados) cuyo documento coincide con el personal de la unidad; el resto de filas del Excel no se listan.
+            </p>
+          )}
         </div>
       </div>
 
