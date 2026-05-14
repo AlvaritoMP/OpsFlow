@@ -26,7 +26,10 @@ export interface AttendanceReportRowDTO {
   normalized_dni: string | null;
   attendance_status: string | null;
   minutes_late: number | null;
+  /** Texto proveniente del Excel (observaciones del archivo). */
   notes: string | null;
+  /** Comentario añadido en la app tras la importación (explicación de marca, p. ej. incompleta). */
+  userComment: string | null;
   matched_resource_id: string | null;
   raw: Record<string, unknown>;
   /** Día de la marca (columna Dia del Excel cuando existe). */
@@ -171,6 +174,7 @@ export const attendanceReportService = {
         attendance_status: r.attendance_status,
         minutes_late: r.minutes_late,
         notes: r.notes,
+        userComment: r.user_comment ?? null,
         matched_resource_id: r.matched_resource_id,
         raw: r.raw || {},
         mark_date: r.mark_date ?? null,
@@ -206,6 +210,7 @@ export const attendanceReportService = {
       attendance_status: r.attendance_status,
       minutes_late: r.minutes_late,
       notes: r.notes,
+      userComment: r.user_comment ?? null,
       matched_resource_id: r.matched_resource_id,
       raw: r.raw || {},
       mark_date: r.mark_date ?? null,
@@ -214,6 +219,17 @@ export const attendanceReportService = {
       punch_lunch_in: r.punch_lunch_in ?? null,
       punch_departure: r.punch_departure ?? null,
     }));
+  },
+
+  async updateRowUserComment(rowId: string, userComment: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('attendance_report_rows')
+      .update({ user_comment: userComment })
+      .eq('id', rowId);
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
   },
 
   async deleteImport(importId: string): Promise<void> {

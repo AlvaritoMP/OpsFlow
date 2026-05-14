@@ -29,9 +29,12 @@ import {
 } from '../services/attendanceReportService';
 import { punchDisplay } from '../services/attendanceReportExcelParser';
 import { SafeImage } from './SafeImage';
+import { AttendanceMarkCommentBlock } from './AttendanceMarkCommentBlock';
 
 interface AttendanceEvolutionViewProps {
   unit: Unit;
+  /** Permite editar comentarios en cada marca (mismo permiso que importar). */
+  canComment?: boolean;
 }
 
 function resourceById(unit: Unit, id: string | null): Resource | undefined {
@@ -46,7 +49,10 @@ function activePersonnelList(unit: Unit): Resource[] {
   );
 }
 
-export const AttendanceEvolutionView: React.FC<AttendanceEvolutionViewProps> = ({ unit }) => {
+export const AttendanceEvolutionView: React.FC<AttendanceEvolutionViewProps> = ({
+  unit,
+  canComment = false,
+}) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<AttendanceRowWithImportMeta[]>([]);
@@ -346,43 +352,55 @@ export const AttendanceEvolutionView: React.FC<AttendanceEvolutionViewProps> = (
                   const dLabel =
                     m && m[3] && m[2] && m[1] ? `${m[3]}/${m[2]}/${m[1]}` : dIso;
                   return (
-                    <div key={r.id} className="p-4 grid grid-cols-1 lg:grid-cols-[140px_1fr] gap-3 hover:bg-slate-50/80">
-                      <div>
-                        <div className="font-mono text-sm font-semibold text-slate-900">{dLabel}</div>
-                        <div className="text-[11px] text-slate-500 truncate mt-1" title={r.source_filename}>
-                          {r.source_filename}
+                    <div key={r.id} className="p-4 hover:bg-slate-50/80 space-y-3">
+                      <div className="grid grid-cols-1 lg:grid-cols-[140px_1fr] gap-3">
+                        <div>
+                          <div className="font-mono text-sm font-semibold text-slate-900">{dLabel}</div>
+                          <div className="text-[11px] text-slate-500 truncate mt-1" title={r.source_filename}>
+                            {r.source_filename}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <span
+                            className={`text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full border shrink-0 ${
+                              classifyAttendanceStatus(r.attendance_status) === 'complete'
+                                ? 'bg-emerald-50 text-emerald-900 border-emerald-100'
+                                : classifyAttendanceStatus(r.attendance_status) === 'partial'
+                                  ? 'bg-amber-50 text-amber-900 border-amber-100'
+                                  : classifyAttendanceStatus(r.attendance_status) === 'none'
+                                    ? 'bg-slate-100 text-slate-700 border-slate-200'
+                                    : 'bg-blue-50 text-blue-900 border-blue-100'
+                            }`}
+                          >
+                            {r.attendance_status || '—'}
+                          </span>
+                          {(
+                            [
+                              ['Llegada', punchDisplay(r.punch_arrival)],
+                              ['S. almuerzo', punchDisplay(r.punch_lunch_out)],
+                              ['R. almuerzo', punchDisplay(r.punch_lunch_in)],
+                              ['Salida', punchDisplay(r.punch_departure)],
+                            ] as const
+                          ).map(([label, val]) => (
+                            <div
+                              key={label}
+                              className="text-xs rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5 min-w-[100px]"
+                            >
+                              <span className="text-slate-500 font-medium">{label}</span>
+                              <div className="font-mono text-slate-900">{val}</div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <span
-                          className={`text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full border shrink-0 ${
-                            classifyAttendanceStatus(r.attendance_status) === 'complete'
-                              ? 'bg-emerald-50 text-emerald-900 border-emerald-100'
-                              : classifyAttendanceStatus(r.attendance_status) === 'partial'
-                                ? 'bg-amber-50 text-amber-900 border-amber-100'
-                                : classifyAttendanceStatus(r.attendance_status) === 'none'
-                                  ? 'bg-slate-100 text-slate-700 border-slate-200'
-                                  : 'bg-blue-50 text-blue-900 border-blue-100'
-                          }`}
-                        >
-                          {r.attendance_status || '—'}
-                        </span>
-                        {(
-                          [
-                            ['Llegada', punchDisplay(r.punch_arrival)],
-                            ['S. almuerzo', punchDisplay(r.punch_lunch_out)],
-                            ['R. almuerzo', punchDisplay(r.punch_lunch_in)],
-                            ['Salida', punchDisplay(r.punch_departure)],
-                          ] as const
-                        ).map(([label, val]) => (
-                          <div
-                            key={label}
-                            className="text-xs rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5 min-w-[100px]"
-                          >
-                            <span className="text-slate-500 font-medium">{label}</span>
-                            <div className="font-mono text-slate-900">{val}</div>
-                          </div>
-                        ))}
+                      <div className="min-w-0">
+                        <AttendanceMarkCommentBlock
+                          rowId={r.id}
+                          fileNotes={r.notes}
+                          userComment={r.userComment}
+                          canEdit={canComment}
+                          attendanceStatus={r.attendance_status}
+                          onSaved={() => void load()}
+                        />
                       </div>
                     </div>
                   );

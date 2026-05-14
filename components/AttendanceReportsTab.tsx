@@ -13,6 +13,7 @@ import {
   UserX,
   Link2,
   TrendingUp,
+  Grid3x3,
 } from 'lucide-react';
 import { Unit, ResourceType, Resource } from '../types';
 import {
@@ -24,6 +25,8 @@ import {
 import { punchDisplay } from '../services/attendanceReportExcelParser';
 import { SafeImage } from './SafeImage';
 import { AttendanceEvolutionView } from './AttendanceEvolutionView';
+import { AttendanceConsolidatedView } from './AttendanceConsolidatedView';
+import { AttendanceMarkCommentBlock } from './AttendanceMarkCommentBlock';
 
 interface AttendanceReportsTabProps {
   unit: Unit;
@@ -31,7 +34,7 @@ interface AttendanceReportsTabProps {
 }
 
 type ViewMode = 'cards' | 'table';
-type ScreenMode = 'byImport' | 'evolution';
+type ScreenMode = 'byImport' | 'evolution' | 'consolidated';
 
 function punchChipClasses(label: string): string {
   if (label === 'Sin marca' || label === 'No marco')
@@ -108,6 +111,19 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
     return () => {
       cancel = true;
     };
+  }, [selectedId]);
+
+  const reloadSelectedRows = useCallback(async () => {
+    if (!selectedId) return;
+    setRowsLoading(true);
+    try {
+      const r = await attendanceReportService.getRows(selectedId);
+      setRows(r);
+    } catch (e: any) {
+      setMessage({ type: 'err', text: e?.message || 'Error al cargar filas' });
+    } finally {
+      setRowsLoading(false);
+    }
   }, [selectedId]);
 
   const visibleRows = useMemo(() => filterRowsMatchedActivePersonnel(unit, rows), [unit, rows]);
@@ -268,6 +284,17 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         >
           <TrendingUp size={16} /> Evolución por trabajador
         </button>
+        <button
+          type="button"
+          onClick={() => setScreenMode('consolidated')}
+          disabled={!imports.length}
+          title={!imports.length ? 'Sube primero un reporte Excel' : undefined}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium disabled:opacity-45 disabled:cursor-not-allowed ${
+            screenMode === 'consolidated' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <Grid3x3 size={16} /> Consolidado
+        </button>
       </div>
 
       {screenMode === 'byImport' && (
@@ -355,9 +382,21 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         </div>
 
         <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[320px]">
-          {screenMode === 'evolution' ? (
+          {screenMode === 'consolidated' ? (
             imports.length ? (
-              <AttendanceEvolutionView unit={unit} />
+              <AttendanceConsolidatedView
+                unit={unit}
+                importsKey={imports.map((i) => `${i.id}:${i.uploaded_at}`).join('|')}
+                canComment={canUpload}
+              />
+            ) : (
+              <div className="p-10 text-center text-slate-500 text-sm">
+                Sube al menos un Excel para ver el consolidado.
+              </div>
+            )
+          ) : screenMode === 'evolution' ? (
+            imports.length ? (
+              <AttendanceEvolutionView unit={unit} canComment={canUpload} />
             ) : (
               <div className="p-10 text-center text-slate-500 text-sm">
                 Sube al menos un Excel para usar la evolución por trabajador.
@@ -495,6 +534,15 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
                             </div>
                           ))}
                         </div>
+
+                        <AttendanceMarkCommentBlock
+                          rowId={r.id}
+                          fileNotes={r.notes}
+                          userComment={r.userComment}
+                          canEdit={canUpload}
+                          attendanceStatus={r.attendance_status}
+                          onSaved={() => void reloadSelectedRows()}
+                        />
                       </div>
                     );
                   })}
@@ -512,13 +560,14 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
                         <th className="text-left px-3 py-2">R. almuerzo</th>
                         <th className="text-left px-3 py-2">Salida</th>
                         <th className="text-left px-3 py-2">Estado</th>
+                        <th className="text-left px-3 py-2 min-w-[200px]">Comentario</th>
                         <th className="text-center px-3 py-2">Planilla</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {sortedRows.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="px-4 py-12 text-center text-slate-500 text-sm">
+                          <td colSpan={10} className="px-4 py-12 text-center text-slate-500 text-sm">
                             {rows.length > 0
                               ? 'Ningún trabajador activo con cruce por documento en este archivo.'
                               : 'Sin filas.'}
@@ -540,7 +589,19 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
                             <td className="px-3 py-2 font-mono text-xs">{punchDisplay(r.punch_lunch_out)}</td>
                             <td className="px-3 py-2 font-mono text-xs">{punchDisplay(r.punch_lunch_in)}</td>
                             <td className="px-3 py-2 font-mono text-xs">{punchDisplay(r.punch_departure)}</td>
-                            <td className="px-3 py-2 text-xs">{r.attendance_status || '—'}</td>
+                            <td className="px-3 py-2 text-xs align-top">{r.attendance_status || '—'}</td>
+                            <td className="px-2 py-2 align-top max-w-[260px]">
+                              <div className="max-h-44 overflow-y-auto">
+                                <AttendanceMarkCommentBlock
+                                  rowId={r.id}
+                                  fileNotes={r.notes}
+                                  userComment={r.userComment}
+                                  canEdit={canUpload}
+                                  attendanceStatus={r.attendance_status}
+                                  onSaved={() => void reloadSelectedRows()}
+                                />
+                              </div>
+                            </td>
                             <td className="px-3 py-2 text-center">✓</td>
                           </tr>
                         );
