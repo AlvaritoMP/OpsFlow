@@ -286,8 +286,14 @@ export function inferPunchAttendanceStatus(
   const p = [llegada, salidaAlm, regresoAlm, salida];
   const allEmpty = p.every(isEmptyOrNoMarco);
   if (allEmpty) return 'Sin marcas';
-  const someEmpty = p.some(isEmptyOrNoMarco);
-  if (!someEmpty) return 'Marcación completa';
+
+  const llegadaEmpty = isEmptyOrNoMarco(llegada);
+  const salidaEmpty = isEmptyOrNoMarco(salida);
+
+  if (!llegadaEmpty && !salidaEmpty) {
+    return 'Marcación completa';
+  }
+
   return 'Marcación incompleta';
 }
 
