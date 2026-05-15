@@ -234,17 +234,18 @@ export const attendanceReportService = {
         dni: r.dni,
         normalized_dni: r.normalized_dni,
         attendance_status: dynamicStatus,
-      minutes_late: r.minutes_late,
-      notes: r.notes,
-      userComment: r.user_comment ?? null,
-      matched_resource_id: r.matched_resource_id,
-      raw: r.raw || {},
-      mark_date: r.mark_date ?? null,
-      punch_arrival: r.punch_arrival ?? null,
-      punch_lunch_out: r.punch_lunch_out ?? null,
-      punch_lunch_in: r.punch_lunch_in ?? null,
-      punch_departure: r.punch_departure ?? null,
-    }));
+        minutes_late: r.minutes_late,
+        notes: r.notes,
+        userComment: r.user_comment ?? null,
+        matched_resource_id: r.matched_resource_id,
+        raw: r.raw || {},
+        mark_date: r.mark_date ?? null,
+        punch_arrival: r.punch_arrival ?? null,
+        punch_lunch_out: r.punch_lunch_out ?? null,
+        punch_lunch_in: r.punch_lunch_in ?? null,
+        punch_departure: r.punch_departure ?? null,
+      };
+    });
   },
 
   async updateRowUserComment(rowId: string, userComment: string | null): Promise<void> {
