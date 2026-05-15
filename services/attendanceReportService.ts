@@ -164,6 +164,19 @@ export const attendanceReportService = {
 
     return raw.map((r: any) => {
       const imp = importMeta.get(r.import_id as string);
+      
+      let dynamicStatus = r.attendance_status;
+      if (dynamicStatus === 'Marcación incompleta' || dynamicStatus === 'Marcación completa') {
+        const arrivalEmpty = !r.punch_arrival || String(r.punch_arrival).trim() === '' || /^no\s*marco$/i.test(String(r.punch_arrival).trim());
+        const departureEmpty = !r.punch_departure || String(r.punch_departure).trim() === '' || /^no\s*marco$/i.test(String(r.punch_departure).trim());
+        
+        if (!arrivalEmpty && !departureEmpty) {
+          dynamicStatus = 'Marcación completa';
+        } else {
+          dynamicStatus = 'Marcación incompleta';
+        }
+      }
+
       const base: AttendanceReportRowDTO = {
         id: r.id,
         import_id: r.import_id,
@@ -171,7 +184,7 @@ export const attendanceReportService = {
         worker_name: r.worker_name,
         dni: r.dni,
         normalized_dni: r.normalized_dni,
-        attendance_status: r.attendance_status,
+        attendance_status: dynamicStatus,
         minutes_late: r.minutes_late,
         notes: r.notes,
         userComment: r.user_comment ?? null,
@@ -200,14 +213,27 @@ export const attendanceReportService = {
       .order('row_index', { ascending: true });
 
     if (error) throw error;
-    return (data || []).map((r: any) => ({
-      id: r.id,
-      import_id: r.import_id,
-      row_index: r.row_index,
-      worker_name: r.worker_name,
-      dni: r.dni,
-      normalized_dni: r.normalized_dni,
-      attendance_status: r.attendance_status,
+    return (data || []).map((r: any) => {
+      let dynamicStatus = r.attendance_status;
+      if (dynamicStatus === 'Marcación incompleta' || dynamicStatus === 'Marcación completa') {
+        const arrivalEmpty = !r.punch_arrival || String(r.punch_arrival).trim() === '' || /^no\s*marco$/i.test(String(r.punch_arrival).trim());
+        const departureEmpty = !r.punch_departure || String(r.punch_departure).trim() === '' || /^no\s*marco$/i.test(String(r.punch_departure).trim());
+        
+        if (!arrivalEmpty && !departureEmpty) {
+          dynamicStatus = 'Marcación completa';
+        } else {
+          dynamicStatus = 'Marcación incompleta';
+        }
+      }
+
+      return {
+        id: r.id,
+        import_id: r.import_id,
+        row_index: r.row_index,
+        worker_name: r.worker_name,
+        dni: r.dni,
+        normalized_dni: r.normalized_dni,
+        attendance_status: dynamicStatus,
       minutes_late: r.minutes_late,
       notes: r.notes,
       userComment: r.user_comment ?? null,
