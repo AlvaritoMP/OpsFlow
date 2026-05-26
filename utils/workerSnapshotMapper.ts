@@ -1,4 +1,4 @@
-import type { InboundHandoffItem, Position, ResourceInboundSourceData } from '../types';
+import type { InboundHandoffItem, ResourceInboundSourceData } from '../types';
 
 export interface HandoffWorkerPrefill {
   name: string;
@@ -11,7 +11,7 @@ export interface HandoffWorkerPrefill {
   shift: string;
   monthlySalary?: number;
   externalId?: string;
-  /** Campos OpsFlow pre-completados desde el paquete ATS (localidad excluida: es operativa) */
+  /** Campos OpsFlow pre-completados desde ATS (puesto y localidad los elige el operador) */
   prefilledFields: string[];
 }
 
@@ -28,19 +28,6 @@ function parseSalary(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   const num = Number(String(value).replace(/[^\d.,]/g, '').replace(',', '.'));
   return Number.isFinite(num) && num > 0 ? num : undefined;
-}
-
-function matchPosition(processTitle: string | undefined, positions: Position[]): string {
-  if (!processTitle?.trim()) return '';
-  const normalized = processTitle.trim().toLowerCase();
-  const exact = positions.find((p) => p.name.trim().toLowerCase() === normalized);
-  if (exact) return exact.name;
-  const partial = positions.find(
-    (p) =>
-      p.name.trim().toLowerCase().includes(normalized) ||
-      normalized.includes(p.name.trim().toLowerCase()),
-  );
-  return partial?.name ?? processTitle.trim();
 }
 
 export function buildResourceInboundSourceData(
@@ -75,10 +62,7 @@ export function countStoredAtsFields(snapshot: InboundHandoffItem['workerSnapsho
   return identityCount + fieldKeys.length;
 }
 
-export function mapHandoffItemToWorkerPrefill(
-  item: InboundHandoffItem,
-  positions: Position[] = [],
-): HandoffWorkerPrefill {
+export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): HandoffWorkerPrefill {
   const identity = item.workerSnapshot.identity ?? {};
   const fields = item.workerSnapshot.fields ?? {};
   const prefilledFields: string[] = [];
@@ -88,11 +72,6 @@ export function mapHandoffItemToWorkerPrefill(
 
   const dni = identity.dni?.trim() ?? '';
   if (dni) prefilledFields.push('dni');
-
-  const processTitle =
-    typeof fields.processTitle === 'string' ? fields.processTitle.trim() : '';
-  const puesto = matchPosition(processTitle, positions);
-  if (puesto) prefilledFields.push('puesto');
 
   const startDate = normalizeDate(fields.hireDate);
   if (startDate) prefilledFields.push('startDate');
@@ -108,7 +87,7 @@ export function mapHandoffItemToWorkerPrefill(
   return {
     name,
     dni,
-    puesto,
+    puesto: '',
     localidad: '',
     birthDate,
     startDate,
@@ -123,7 +102,6 @@ export function mapHandoffItemToWorkerPrefill(
 export const HANDOFF_FIELD_LABELS: Record<string, string> = {
   name: 'Nombre',
   dni: 'DNI',
-  puesto: 'Puesto',
   birthDate: 'Fecha de nacimiento',
   startDate: 'Fecha de ingreso',
   monthlySalary: 'Salario mensual',

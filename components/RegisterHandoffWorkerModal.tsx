@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Building2, Loader2, Sparkles, UserPlus, X } from 'lucide-react';
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
-import { positionsService } from '../services/positionsService';
 import { resourcesService } from '../services/resourcesService';
 import {
   InboundHandoffItem,
@@ -16,6 +15,7 @@ import {
   countStoredAtsFields,
   mapHandoffItemToWorkerPrefill,
 } from '../utils/workerSnapshotMapper';
+import { getUnitRequiredPositionOptions } from '../utils/unitPositionOptions';
 
 interface RegisterHandoffWorkerModalProps {
   item: InboundHandoffItem;
@@ -43,39 +43,24 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
   onClose,
   onSuccess,
 }) => {
-  const [loadingPositions, setLoadingPositions] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [positions, setPositions] = useState<{ id: string; name: string }[]>([]);
   const [unitId, setUnitId] = useState(item.assignedWorkUnitId ?? '');
+  const [selectedPositionKey, setSelectedPositionKey] = useState('');
   const [form, setForm] = useState<HandoffWorkerPrefill>(() =>
     mapHandoffItemToWorkerPrefill(item),
   );
+  const [zones, setZones] = useState<string[]>([]);
 
   const selectedUnit = useMemo(
     () => units.find((u) => u.id === unitId) ?? null,
     [units, unitId],
   );
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      setLoadingPositions(true);
-      try {
-        const data = await positionsService.getAll(false);
-        if (!active) return;
-        setPositions(data.map((p) => ({ id: p.id, name: p.name })));
-        setForm(mapHandoffItemToWorkerPrefill(item, data));
-      } finally {
-        if (active) setLoadingPositions(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [item]);
-
-  const [zones, setZones] = useState<string[]>([]);
+  const unitPositionOptions = useMemo(
+    () => getUnitRequiredPositionOptions(selectedUnit),
+    [selectedUnit],
+  );
 
   const toggleZone = (zoneName: string) => {
     setZones((prev) =>
@@ -83,8 +68,29 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
     );
   };
 
+  const handleUnitChange = (nextUnitId: string) => {
+    setUnitId(nextUnitId);
+    setZones([]);
+    setSelectedPositionKey('');
+    setForm((current) => ({ ...current, puesto: '', shift: '' }));
+  };
+
+  const handlePositionChange = (positionKey: string) => {
+    setSelectedPositionKey(positionKey);
+    const option = unitPositionOptions.find((entry) => entry.key === positionKey);
+    setForm((current) => ({
+      ...current,
+      puesto: option?.positionName ?? '',
+      shift: option?.suggestedShift ?? current.shift,
+    }));
+  };
+
   const isPrefilled = (field: string) => form.prefilledFields.includes(field);
   const storedAtsFieldCount = countStoredAtsFields(item.workerSnapshot);
+  const atsProcessTitle =
+    typeof item.workerSnapshot.fields?.processTitle === 'string'
+      ? item.workerSnapshot.fields.processTitle.trim()
+      : '';
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -93,6 +99,10 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
     }
     if (!unitId) {
       setError('Selecciona la unidad de destino.');
+      return;
+    }
+    if (!form.puesto.trim()) {
+      setError('Selecciona un puesto requerido de la unidad.');
       return;
     }
 
@@ -184,10 +194,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
             </label>
             <select
               value={unitId}
-              onChange={(e) => {
-                setUnitId(e.target.value);
-                setZones([]);
-              }}
+              onChange={(e) => handleUnitChange(e.target.value)}
               className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
             >
               <option value="">Seleccionar unidad...</option>
@@ -197,6 +204,44 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Puesto en la unidad *
+            </label>
+            <select
+              value={selectedPositionKey}
+              onChange={(e) => handlePositionChange(e.target.value)}
+              disabled={!unitId}
+              className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-500"
+            >
+              <option value="">
+                {unitId ? 'Seleccionar puesto requerido...' : 'Primero elige la unidad'}
+              </option>
+              {unitPositionOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {!unitId && (
+              <p className="mt-1 text-xs text-slate-500">
+                El puesto depende de la unidad seleccionada.
+              </p>
+            )}
+            {unitId && unitPositionOptions.length === 0 && (
+              <p className="mt-1 text-xs text-amber-700">
+                Esta unidad no tiene puestos requeridos configurados. Defínalos en la ficha de la
+                unidad (pestaña Headcount / puestos requeridos) antes de registrar personal.
+              </p>
+            )}
+            {atsProcessTitle && (
+              <p className="mt-1 text-xs text-slate-500">
+                Referencia ATS (solo consulta):{' '}
+                <span className="font-medium">{atsProcessTitle}</span>
+              </p>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -224,36 +269,6 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 value={form.dni}
                 onChange={(e) => setForm({ ...form, dni: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Puesto
-                {isPrefilled('puesto') && <PrefillBadge field="puesto" />}
-              </label>
-              {loadingPositions ? (
-                <div className="text-sm text-slate-500">Cargando puestos...</div>
-              ) : (
-                <select
-                  value={form.puesto}
-                  onChange={(e) => setForm({ ...form, puesto: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
-                >
-                  <option value="">Seleccionar o escribir abajo...</option>
-                  {positions.map((p) => (
-                    <option key={p.id} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <input
-                type="text"
-                value={form.puesto}
-                onChange={(e) => setForm({ ...form, puesto: e.target.value })}
-                className="mt-2 w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
-                placeholder="Puesto manual si no está en catálogo"
               />
             </div>
 
@@ -374,7 +389,6 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
               </div>
             </div>
           )}
-
         </div>
 
         <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
@@ -389,7 +403,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !unitId || unitPositionOptions.length === 0}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
