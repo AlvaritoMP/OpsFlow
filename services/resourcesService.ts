@@ -916,6 +916,7 @@ function transformResourceFromDB(
     image: data.image,
     externalId: data.external_id,
     lastSync: data.last_sync,
+    inboundSourceData: data.inbound_source_data ?? undefined,
     trainings,
     assignedAssets: assets,
     workSchedule: shifts,
@@ -1028,6 +1029,7 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
   }
   setIfDefined('external_id', resource.externalId);
   setIfDefined('last_sync', resource.lastSync);
+  setIfDefined('inbound_source_data', resource.inboundSourceData);
 
   // Solo incluir unit_id si se proporciona (para actualizaciones que cambian de unidad)
   if (unitId !== undefined) {

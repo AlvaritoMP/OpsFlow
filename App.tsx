@@ -1650,6 +1650,8 @@ const App: React.FC = () => {
       return (
         <InboundWorkerHandoff
           canEdit={checkPermission(currentUser.role, 'ATS_RECEPTION', 'edit')}
+          units={visibleUnits}
+          onRegistered={loadUnits}
         />
       );
     }

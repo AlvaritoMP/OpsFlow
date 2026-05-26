@@ -43,6 +43,7 @@ function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem 
     itemStatus: data.item_status as InboundHandoffItemStatus,
     assignedWorkUnitId: (data.assigned_work_unit_id as string) ?? undefined,
     assignedAt: (data.assigned_at as string) ?? undefined,
+    createdResourceId: (data.created_resource_id as string) ?? undefined,
     createdAt: data.created_at as string,
   };
 }
@@ -159,7 +160,34 @@ export const inboundWorkerHandoffService = {
     }
   },
 
-  /** Fase 2: asignar trabajador recibido a una unidad OpsFlow */
+  /** Registra el ítem como colaborador creado en una unidad OpsFlow */
+  async registerItemAsResource(
+    itemId: string,
+    workUnitId: string,
+    resourceId: string,
+  ): Promise<InboundHandoffItem | null> {
+    try {
+      const { data, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .update({
+          assigned_work_unit_id: workUnitId,
+          created_resource_id: resourceId,
+          assigned_at: new Date().toISOString(),
+          item_status: 'assigned',
+        })
+        .eq('id', itemId)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      return data ? transformItemFromDB(data as Record<string, unknown>) : null;
+    } catch (error) {
+      handleSupabaseError(error);
+      return null;
+    }
+  },
+
+  /** Fase 2: asignar trabajador recibido a una unidad OpsFlow (sin crear recurso aún) */
   async assignItemToWorkUnit(itemId: string, workUnitId: string): Promise<InboundHandoffItem | null> {
     try {
       const { data, error } = await supabase

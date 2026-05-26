@@ -10,20 +10,25 @@ import {
   Package,
   RefreshCw,
   User,
+  UserPlus,
   XCircle,
 } from 'lucide-react';
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
+import { RegisterHandoffWorkerModal } from './RegisterHandoffWorkerModal';
 import {
   InboundHandoffItem,
   InboundHandoffItemStatus,
   InboundHandoffPackage,
   InboundHandoffPackageStatus,
   InboundHandoffPackageWithItems,
+  Unit,
   WorkerSnapshot,
 } from '../types';
 
 interface InboundWorkerHandoffProps {
   canEdit: boolean;
+  units: Unit[];
+  onRegistered?: () => void;
 }
 
 const PACKAGE_STATUS_LABELS: Record<InboundHandoffPackageStatus, string> = {
@@ -170,14 +175,19 @@ function SnapshotDetails({ snapshot }: { snapshot: WorkerSnapshot }) {
 function ItemRow({
   item,
   canEdit,
+  units,
   onStatusChange,
+  onRegister,
 }: {
   item: InboundHandoffItem;
   canEdit: boolean;
+  units: Unit[];
   onStatusChange: (itemId: string, status: InboundHandoffItemStatus) => Promise<void>;
+  onRegister: (item: InboundHandoffItem) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const assignedUnit = units.find((u) => u.id === item.assignedWorkUnitId);
 
   const handleStatus = async (status: InboundHandoffItemStatus) => {
     setUpdating(true);
@@ -209,6 +219,11 @@ function ItemRow({
                 Candidato ATS: {shortId(item.sourceCandidateId)}
               </p>
             )}
+            {item.itemStatus === 'assigned' && assignedUnit && (
+              <p className="truncate text-xs text-indigo-600">
+                Registrado en: {assignedUnit.name}
+              </p>
+            )}
           </div>
         </div>
         <span
@@ -222,7 +237,23 @@ function ItemRow({
         <div className="border-t border-slate-200 px-4 pb-4">
           <SnapshotDetails snapshot={item.workerSnapshot} />
 
-          {canEdit && item.itemStatus !== 'assigned' && (
+          {canEdit && item.itemStatus === 'accepted' && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => onRegister(item)}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                <UserPlus size={16} />
+                Registrar en unidad
+              </button>
+              <p className="mt-2 text-xs text-slate-500">
+                Se abrirá un formulario con los datos del ATS pre-completados. Solo completa lo que falte.
+              </p>
+            </div>
+          )}
+
+          {canEdit && item.itemStatus !== 'assigned' && item.itemStatus !== 'accepted' && (
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -250,11 +281,16 @@ function ItemRow({
   );
 }
 
-export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({ canEdit }) => {
+export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
+  canEdit,
+  units,
+  onRegistered,
+}) => {
   const [packages, setPackages] = useState<InboundHandoffPackage[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<InboundHandoffPackageWithItems | null>(
     null,
   );
+  const [registerItem, setRegisterItem] = useState<InboundHandoffItem | null>(null);
   const [statusFilter, setStatusFilter] = useState<InboundHandoffPackageStatus | 'all'>('all');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -486,11 +522,29 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({ canE
                 <ItemRow
                   key={item.id}
                   item={item}
+                  units={units}
                   canEdit={canEdit && selectedPackage.status === 'processing'}
                   onStatusChange={handleItemStatusChange}
+                  onRegister={setRegisterItem}
                 />
               ))}
             </div>
+
+            {registerItem && selectedPackage && (
+              <RegisterHandoffWorkerModal
+                item={registerItem}
+                units={units}
+                sourcePackageId={selectedPackage.sourcePackageId}
+                sourceApp={selectedPackage.sourceApp}
+                onClose={() => setRegisterItem(null)}
+                onSuccess={async () => {
+                  if (selectedPackage) {
+                    await loadPackageDetail(selectedPackage.id);
+                  }
+                  onRegistered?.();
+                }}
+              />
+            )}
           </>
         )}
       </div>

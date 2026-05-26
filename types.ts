@@ -229,6 +229,8 @@ export interface Resource {
   // Integration Fields
   externalId?: string; // SKU or External ID from Inventory App
   lastSync?: string; // Timestamp of last sync
+  /** Snapshot ATS + trazabilidad al registrar desde Recepción ATS */
+  inboundSourceData?: ResourceInboundSourceData;
   
   // Personnel-specific fields (only for type = PERSONNEL)
   dni?: string; // Documento Nacional de Identidad
@@ -607,9 +609,21 @@ export interface InboundHandoffItem {
   itemStatus: InboundHandoffItemStatus;
   assignedWorkUnitId?: string;
   assignedAt?: string;
+  createdResourceId?: string;
   createdAt: string;
 }
 
 export interface InboundHandoffPackageWithItems extends InboundHandoffPackage {
   items: InboundHandoffItem[];
+}
+
+/** Datos ATS persistidos en resources.inbound_source_data al registrar colaborador */
+export interface ResourceInboundSourceData {
+  sourceApp: string;
+  sourcePackageId?: string;
+  sourceCandidateId?: string;
+  sourceProcessId?: string;
+  handoffItemId?: string;
+  capturedAt?: string;
+  workerSnapshot: WorkerSnapshot;
 }
