@@ -38,7 +38,8 @@ export type AppFeature =
   | 'ASSETS_CATALOG'
   | 'DOCUMENTS'
   | 'ARCHIVE'
-  | 'SETTINGS';
+  | 'SETTINGS'
+  | 'ATS_RECEPTION';
 
 export interface PermissionRule {
   view: boolean;
@@ -542,4 +543,73 @@ export interface NightSupervisionReport {
   calls: NightSupervisionCall[];
   camera_reviews: NightSupervisionCameraReview[];
   alerts: NightSupervisionAlert[];
+}
+
+// --- INBOUND WORKER HANDOFF (Opalo ATS → OpsFlow) ---
+
+export type InboundHandoffPackageStatus =
+  | 'received'
+  | 'processing'
+  | 'completed'
+  | 'rejected'
+  | 'partially_completed';
+
+export type InboundHandoffItemStatus = 'pending' | 'accepted' | 'rejected' | 'assigned';
+
+export interface WorkerSnapshotIdentity {
+  fullName?: string;
+  dni?: string;
+  email?: string;
+  phone?: string;
+  phone2?: string;
+}
+
+export interface WorkerSnapshotMeta {
+  sourceCandidateId?: string;
+  sourceProcessId?: string;
+  sourceApp?: string;
+  snapshotVersion?: number;
+  includedFieldKeys?: string[];
+  capturedAt?: string;
+}
+
+export interface WorkerSnapshot {
+  identity?: WorkerSnapshotIdentity;
+  fields?: Record<string, string | number | boolean | null>;
+  meta?: WorkerSnapshotMeta;
+}
+
+export interface InboundHandoffPackage {
+  id: string;
+  sourceApp: string;
+  sourcePackageId: string;
+  status: InboundHandoffPackageStatus;
+  workerCount: number;
+  senderNote?: string;
+  sourceCreatedByName?: string;
+  sourceSentAt: string;
+  payloadVersion: number;
+  receivedAt: string;
+  processingStartedAt?: string;
+  completedAt?: string;
+  receiverNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InboundHandoffItem {
+  id: string;
+  packageId: string;
+  sourceCandidateId?: string;
+  sourceProcessId?: string;
+  workerName: string;
+  workerSnapshot: WorkerSnapshot;
+  itemStatus: InboundHandoffItemStatus;
+  assignedWorkUnitId?: string;
+  assignedAt?: string;
+  createdAt: string;
+}
+
+export interface InboundHandoffPackageWithItems extends InboundHandoffPackage {
+  items: InboundHandoffItem[];
 }

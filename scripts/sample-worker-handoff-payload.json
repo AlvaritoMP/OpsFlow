@@ -1,0 +1,88 @@
+{
+  "sourcePackageId": "a1b2c3d4-e5f6-4789-a012-3456789abc00",
+  "sourceApp": "Opalo ATS",
+  "payloadVersion": 1,
+  "sentAt": "2026-05-25T14:30:00.000Z",
+  "workerCount": 2,
+  "senderNote": "Prueba de ingesta OpsFlow - candidatos seleccionados manualmente",
+  "createdByName": "Usuario Prueba ATS",
+  "items": [
+    {
+      "sourceCandidateId": "b2c3d4e5-f6a7-4890-b123-456789ab0001",
+      "sourceProcessId": "c3d4e5f6-a7b8-4901-c234-56789abc0001",
+      "workerName": "Juan Pérez García",
+      "workerSnapshot": {
+        "identity": {
+          "fullName": "Juan Pérez García",
+          "dni": "12345678",
+          "email": "juan.perez@example.com",
+          "phone": "999888777"
+        },
+        "fields": {
+          "address": "Av. Los Olivos 456",
+          "province": "Lima",
+          "district": "San Isidro",
+          "processTitle": "Operario de almacén",
+          "serviceOrderCode": "OS-2026-001",
+          "clientName": "Cliente Demo SAC",
+          "agreedSalary": "1500",
+          "hireDate": "2026-06-01"
+        },
+        "meta": {
+          "sourceCandidateId": "b2c3d4e5-f6a7-4890-b123-456789ab0001",
+          "sourceProcessId": "c3d4e5f6-a7b8-4901-c234-56789abc0001",
+          "sourceApp": "Opalo ATS",
+          "snapshotVersion": 1,
+          "includedFieldKeys": [
+            "address",
+            "province",
+            "district",
+            "processTitle",
+            "serviceOrderCode",
+            "clientName",
+            "agreedSalary",
+            "hireDate"
+          ],
+          "capturedAt": "2026-05-25T14:30:00.000Z"
+        }
+      }
+    },
+    {
+      "sourceCandidateId": "d4e5f6a7-b8c9-4012-d345-6789abcdef02",
+      "sourceProcessId": "c3d4e5f6-a7b8-4901-c234-56789abc0001",
+      "workerName": "María López Torres",
+      "workerSnapshot": {
+        "identity": {
+          "fullName": "María López Torres",
+          "dni": "87654321",
+          "email": "maria.lopez@example.com",
+          "phone": "988776655",
+          "phone2": "011223344"
+        },
+        "fields": {
+          "address": "Jr. Las Flores 789",
+          "province": "Lima",
+          "processTitle": "Operario de almacén",
+          "clientName": "Cliente Demo SAC",
+          "stageName": "Contratación",
+          "psycholaboralSuitability": "Apto"
+        },
+        "meta": {
+          "sourceCandidateId": "d4e5f6a7-b8c9-4012-d345-6789abcdef02",
+          "sourceProcessId": "c3d4e5f6-a7b8-4901-c234-56789abc0001",
+          "sourceApp": "Opalo ATS",
+          "snapshotVersion": 1,
+          "includedFieldKeys": [
+            "address",
+            "province",
+            "processTitle",
+            "clientName",
+            "stageName",
+            "psycholaboralSuitability"
+          ],
+          "capturedAt": "2026-05-25T14:30:00.000Z"
+        }
+      }
+    }
+  ]
+}

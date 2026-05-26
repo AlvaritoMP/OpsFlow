@@ -22,6 +22,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     DOCUMENTS: { view: true, edit: true },
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
+    ATS_RECEPTION: { view: true, edit: true },
   },
   ADMIN: {
     DASHBOARD: { view: true, edit: true },
@@ -41,6 +42,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     DOCUMENTS: { view: true, edit: true },
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
+    ATS_RECEPTION: { view: true, edit: true },
   },
   OPERATIONS: {
     DASHBOARD: { view: true, edit: false },
@@ -60,6 +62,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     DOCUMENTS: { view: true, edit: true },
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
+    ATS_RECEPTION: { view: true, edit: true },
   },
   OPERATIONS_SUPERVISOR: {
     DASHBOARD: { view: true, edit: false },
@@ -79,6 +82,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     DOCUMENTS: { view: true, edit: true },
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
+    ATS_RECEPTION: { view: true, edit: true },
   },
   CLIENT: {
     DASHBOARD: { view: true, edit: false },
@@ -98,6 +102,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     DOCUMENTS: { view: true, edit: false },
     ARCHIVE: { view: false, edit: false },
     SETTINGS: { view: false, edit: false },
+    ATS_RECEPTION: { view: false, edit: false },
   }
 };
 
@@ -195,5 +200,6 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   ASSETS_CATALOG: 'Catálogo de Activos',
   DOCUMENTS: 'Documentos',
   ARCHIVE: 'Archivo de Personal',
-  SETTINGS: 'Configuración Sistema'
+  SETTINGS: 'Configuración Sistema',
+  ATS_RECEPTION: 'Recepción ATS'
 };

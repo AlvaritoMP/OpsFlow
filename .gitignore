@@ -16,6 +16,8 @@ dist-ssr
 .env
 .env.local
 .env.production
+.env.edge.local
+.handoff-secret.local
 
 # Editor directories and files
 .vscode/*
