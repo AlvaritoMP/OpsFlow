@@ -211,7 +211,7 @@ const getMonday = (d: Date) => {
 }
 
 type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation' | 'attendance';
-type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones' | 'localidad';
+type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones' | 'localidad' | 'phone';
 type SortDirection = 'asc' | 'desc';
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, replaceUnitInState, googleMapsApiKey }) => {
@@ -541,7 +541,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1, shift: '' as string | undefined });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -2384,6 +2384,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         dni: newWorkerForm.dni || undefined,
         puesto: newWorkerForm.puesto || undefined,
         localidad: newWorkerForm.localidad?.trim() || undefined,
+        phone: newWorkerForm.phone?.trim() || undefined,
         birthDate: newWorkerForm.birthDate || undefined,
         isShared: newWorkerForm.isShared || false,
         startDate: newWorkerForm.startDate || undefined,
@@ -2410,7 +2411,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
+      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -2498,6 +2499,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             dni: row.dni?.trim() || undefined,
             puesto: row.puesto?.trim() || undefined,
             localidad: row.localidad?.trim() || undefined,
+            phone: row.telefono?.trim() || undefined,
             isShared: row.compartido === true || row.compartido === 'true' || row.compartido === 'Sí' || row.compartido === 'Sí' || false,
             startDate: row.fechaInicio || undefined,
             endDate: row.fechaFin || undefined, // Solo para monitoreo, NO archiva automáticamente
@@ -3088,6 +3090,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'DNI',
         'Puesto',
         'Localidad',
+        'Teléfono',
         'Zonas Asignadas',
         'Estado',
         'Fecha Inicio',
@@ -3107,6 +3110,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'DNI': worker.dni || '',
         'Puesto': worker.puesto || '',
         'Localidad': worker.localidad || '',
+        'Teléfono': worker.phone || '',
         'Zonas Asignadas': worker.assignedZones?.join(', ') || 'Sin zona',
         'Estado': worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo'),
         'Fecha Inicio': (() => {
@@ -3917,6 +3921,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return (worker.assignedZones || []).join(', ').toLocaleLowerCase('es-PE');
       case 'localidad':
         return (worker.localidad || '').toLocaleLowerCase('es-PE');
+      case 'phone':
+        return worker.phone || '';
       default:
         return '';
     }
@@ -5961,7 +5967,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
          {/* Table Header */}
-         <div className={`grid grid-cols-12 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[1120px] ${
+         <div className={`grid grid-cols-12 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[1200px] ${
            showArchivedPersonnel ? 'bg-amber-50' : 'bg-slate-50'
          }`}>
             <div className="col-span-1 flex items-center justify-center">
@@ -5979,6 +5985,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             {renderPersonnelSortHeader('salary', 'Salario', 'col-span-1 hidden lg:inline-flex', 'center')}
             {renderPersonnelSortHeader('zones', 'Zona/Grupo', 'col-span-1 hidden lg:inline-flex', 'center')}
             {renderPersonnelSortHeader('localidad', 'Localidad', 'col-span-1 hidden lg:inline-flex', 'center')}
+            {renderPersonnelSortHeader('phone', 'Teléfono', 'col-span-1 hidden lg:inline-flex', 'center')}
             <div className="col-span-3 md:col-span-2 lg:col-span-2 text-right whitespace-nowrap">Acciones</div>
          </div>
 
@@ -5998,7 +6005,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               filteredPersonnel.map(worker => (
                 <div key={worker.id} className={`group transition-colors hover:bg-slate-50 ${showArchivedPersonnel ? 'bg-amber-50/30' : ''}`}>
                  {/* Main Row */}
-                 <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[1120px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
+                 <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[1200px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
                     <div className="col-span-1 flex items-center justify-center">
                        {!showArchivedPersonnel && (
                          <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
@@ -6137,6 +6144,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-600 min-w-0 px-1">
                        {worker.localidad?.trim() ? (
                          <span className="truncate max-w-full" title={worker.localidad.trim()}>{worker.localidad.trim()}</span>
+                       ) : (
+                         <span className="text-slate-300 italic">-</span>
+                       )}
+                    </div>
+                    <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-600 min-w-0 px-1">
+                       {worker.phone?.trim() ? (
+                         <span className="truncate max-w-full font-mono" title={worker.phone.trim()}>{worker.phone.trim()}</span>
                        ) : (
                          <span className="text-slate-300 italic">-</span>
                        )}
@@ -7843,6 +7857,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <li><strong>Nombre</strong> (requerido) - Nombre completo del trabajador</li>
                   <li><strong>DNI</strong> (opcional) - Documento Nacional de Identidad</li>
                   <li><strong>Puesto</strong> (opcional) - Cargo o puesto del trabajador</li>
+                  <li><strong>Localidad</strong> (opcional) - Distrito, ciudad u otro lugar de referencia</li>
+                  <li><strong>Teléfono</strong> (opcional) - Número de contacto del trabajador</li>
                   <li><strong>Zonas</strong> (opcional) - Zonas asignadas, separadas por coma o punto y coma</li>
                   <li><strong>Turno</strong> (opcional) - Diurno, Nocturno o Mixto</li>
                   <li><strong>Fecha Inicio</strong> (opcional) - Formato: YYYY-MM-DD o DD/MM/YYYY</li>
@@ -8083,6 +8099,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     value={newWorkerForm.localidad || ''}
                     onChange={e => setNewWorkerForm({ ...newWorkerForm, localidad: e.target.value })}
                     placeholder="Ej. distrito, ciudad"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
+                  <input
+                    type="tel"
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                    value={newWorkerForm.phone || ''}
+                    onChange={e => setNewWorkerForm({ ...newWorkerForm, phone: e.target.value })}
+                    placeholder="Ej. 987654321"
                   />
                 </div>
                 
@@ -8611,6 +8638,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       value={editingResource.localidad || ''}
                                       onChange={e => setEditingResource({ ...editingResource, localidad: e.target.value })}
                                       placeholder="Ej. distrito, ciudad"
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
+                                  <input
+                                      type="tel"
+                                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                      value={editingResource.phone || ''}
+                                      onChange={e => setEditingResource({ ...editingResource, phone: e.target.value })}
+                                      placeholder="Ej. 987654321"
                                   />
                               </div>
                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">

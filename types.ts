@@ -236,6 +236,8 @@ export interface Resource {
   dni?: string; // Documento Nacional de Identidad
   /** Lugar de residencia o localidad de referencia del trabajador (ej. distrito, ciudad) */
   localidad?: string;
+  /** Teléfono de contacto del trabajador */
+  phone?: string;
   puesto?: string; // Puesto o cargo del trabajador
   birthDate?: string; // Fecha de nacimiento (YYYY-MM-DD)
   startDate?: string; // Fecha de inicio de la relación laboral (YYYY-MM-DD): primer contrato; no se actualiza en renovaciones

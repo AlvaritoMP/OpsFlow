@@ -924,6 +924,7 @@ function transformResourceFromDB(
     // Nuevos campos para personal
     dni: data.dni,
     localidad: data.localidad || undefined,
+    phone: data.phone || undefined,
     puesto: data.puesto,
     birthDate: normalizeDateFromDB(data.birth_date),
     isShared: data.is_shared ?? false, // Por defecto false (único)
@@ -1051,6 +1052,7 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
   if (hasPersonnelFields) {
     if (resource.dni !== undefined) result.dni = resource.dni;
     if (resource.localidad !== undefined) result.localidad = resource.localidad;
+    if (resource.phone !== undefined) result.phone = resource.phone;
     if (resource.puesto !== undefined) result.puesto = resource.puesto;
     if (resource.birthDate !== undefined) result.birth_date = normalizeDateToDB(resource.birthDate);
     if (resource.isShared !== undefined) result.is_shared = resource.isShared;

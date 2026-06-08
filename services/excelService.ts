@@ -11,6 +11,7 @@ export interface PersonnelImportRow {
   dni?: string;
   puesto?: string;
   localidad?: string;
+  telefono?: string;
   zonas?: string; // Separadas por coma o punto y coma
   turno?: string; // Diurno, Nocturno, Mixto
   fechaInicio?: string; // YYYY-MM-DD o DD/MM/YYYY
@@ -318,6 +319,13 @@ export const excelService = {
         'locality': 'localidad',
         'distrito': 'localidad',
         'ciudad': 'localidad',
+        'telefono': 'telefono',
+        'teléfono': 'telefono',
+        'telefono de contacto': 'telefono',
+        'phone': 'telefono',
+        'celular': 'telefono',
+        'movil': 'telefono',
+        'móvil': 'telefono',
         'zonas': 'zonas',
         'zona': 'zonas',
         'zona asignada': 'zonas',
@@ -359,6 +367,7 @@ export const excelService = {
           dni: undefined,
           puesto: undefined,
           localidad: undefined,
+          telefono: undefined,
           zonas: undefined,
           turno: undefined,
           fechaInicio: undefined,
@@ -383,6 +392,9 @@ export const excelService = {
                 break;
               case 'localidad':
                 rowData.localidad = stringValue;
+                break;
+              case 'telefono':
+                rowData.telefono = stringValue;
                 break;
               case 'zonas':
                 rowData.zonas = stringValue;
@@ -565,11 +577,11 @@ export const excelService = {
       const XLSX = await import('xlsx');
       
       // Datos de ejemplo
-      const headers = ['Nombre', 'DNI', 'Puesto', 'Localidad', 'Zonas', 'Turno', 'Fecha Inicio', 'Fecha Fin'];
+      const headers = ['Nombre', 'DNI', 'Puesto', 'Localidad', 'Teléfono', 'Zonas', 'Turno', 'Fecha Inicio', 'Fecha Fin'];
       const exampleData = [
-        ['Juan Pérez García', '12345678', 'Guardia de Seguridad', 'San Isidro', 'Zona A, Zona B', 'Diurno', '2025-01-15', ''],
-        ['María López Sánchez', '87654321', 'Supervisor', 'Miraflores', 'Zona C', 'Nocturno', '2025-01-20', ''],
-        ['Carlos Rodríguez', '11223344', 'Guardia de Seguridad', 'La Molina', 'Zona A', 'Mixto', '2025-02-01', ''],
+        ['Juan Pérez García', '12345678', 'Guardia de Seguridad', 'San Isidro', '987654321', 'Zona A, Zona B', 'Diurno', '2025-01-15', ''],
+        ['María López Sánchez', '87654321', 'Supervisor', 'Miraflores', '912345678', 'Zona C', 'Nocturno', '2025-01-20', ''],
+        ['Carlos Rodríguez', '11223344', 'Guardia de Seguridad', 'La Molina', '', 'Zona A', 'Mixto', '2025-02-01', ''],
       ];
       
       // Crear workbook
@@ -583,6 +595,7 @@ export const excelService = {
         { wch: 12 }, // DNI
         { wch: 25 }, // Puesto
         { wch: 18 }, // Localidad
+        { wch: 14 }, // Teléfono
         { wch: 20 }, // Zonas
         { wch: 12 }, // Turno
         { wch: 15 }, // Fecha Inicio
@@ -599,6 +612,7 @@ export const excelService = {
         ['DNI (Opcional):', 'Documento Nacional de Identidad'],
         ['Puesto (Opcional):', 'Cargo o puesto del trabajador (ej: Guardia de Seguridad, Supervisor)'],
         ['Localidad (Opcional):', 'Distrito, ciudad u otro lugar de referencia del trabajador'],
+        ['Teléfono (Opcional):', 'Número de contacto del trabajador (ej: 987654321)'],
         ['Zonas (Opcional):', 'Zonas asignadas, separadas por coma o punto y coma (ej: Zona A, Zona B)'],
         ['Turno (Opcional):', 'Diurno, Nocturno o Mixto'],
         ['Fecha Inicio (Opcional):', 'Formato: YYYY-MM-DD o DD/MM/YYYY (ej: 2025-01-15 o 15/01/2025)'],

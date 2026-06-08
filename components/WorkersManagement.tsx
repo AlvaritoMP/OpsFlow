@@ -76,6 +76,8 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
         w.name.toLowerCase().includes(query) ||
         (w.dni && w.dni.toLowerCase().includes(query)) ||
         (w.puesto && w.puesto.toLowerCase().includes(query)) ||
+        (w.phone && w.phone.toLowerCase().includes(query)) ||
+        (w.localidad && w.localidad.toLowerCase().includes(query)) ||
         w.unitName.toLowerCase().includes(query) ||
         w.clientName.toLowerCase().includes(query)
       );
@@ -127,6 +129,8 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
       'Nombre': worker.name,
       'DNI': worker.dni || '-',
       'Puesto': worker.puesto || '-',
+      'Teléfono': worker.phone || '-',
+      'Localidad': worker.localidad || '-',
       'Unidad': worker.unitName,
       'Cliente': worker.clientName,
       'Estado': worker.archived ? 'Archivado' : (worker.personnelStatus === 'cesado' ? 'Cesado' : worker.personnelStatus === 'activo' ? 'Activo' : 'Sin estado'),
@@ -217,7 +221,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Buscar por nombre, DNI, puesto, unidad o cliente..."
+              placeholder="Buscar por nombre, DNI, puesto, teléfono, unidad o cliente..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -306,6 +310,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Nombre</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">DNI</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Puesto</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Teléfono</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Unidad</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Cliente</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Estado</th>
@@ -315,7 +320,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
             <tbody className="divide-y divide-slate-200">
               {filteredWorkers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     No se encontraron trabajadores con los filtros aplicados.
                   </td>
                 </tr>
@@ -346,6 +351,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.dni || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.puesto || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600 font-mono">{worker.phone || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.unitName}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.clientName}</td>
                     <td className="px-4 py-3">
@@ -393,6 +399,14 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                 <div>
                   <label className="text-sm font-medium text-slate-700">Puesto</label>
                   <div className="text-sm text-slate-900">{selectedWorker.puesto || '-'}</div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700">Teléfono</label>
+                  <div className="text-sm text-slate-900 font-mono">{selectedWorker.phone || '-'}</div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700">Localidad</label>
+                  <div className="text-sm text-slate-900">{selectedWorker.localidad || '-'}</div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700">Estado</label>
