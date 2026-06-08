@@ -3200,31 +3200,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      }
   };
 
-  const handlePersonnelPhoneSave = async (workerId: string, phone: string) => {
-    if (!onUpdate || !canEditPersonnel) return;
-
-    const worker = unit.resources.find(r => r.id === workerId);
-    if (!worker) return;
-
-    const trimmed = phone.trim();
-    if ((worker.phone || '').trim() === trimmed) return;
-
-    try {
-      const { resourcesService } = await import('../services/resourcesService');
-      const updatedResource = await resourcesService.update(workerId, { phone: trimmed || '' });
-      if (!updatedResource) return;
-
-      onUpdate({
-        ...unit,
-        resources: unit.resources.map(r => (r.id === workerId ? updatedResource : r)),
-      });
-    } catch (error) {
-      console.error('Error al guardar teléfono:', error);
-      setNotification({ type: 'error', message: 'Error al guardar el teléfono. Intente nuevamente.' });
-      setTimeout(() => setNotification(null), 4000);
-    }
-  };
-
   const handleUpdateResource = async () => {
     if (!onUpdate || !editingResource) return;
     setIsUpdatingResource(true);
@@ -3238,12 +3213,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Estos campos se manejan por separado y solo se actualizan si se modifican explícitamente
       const { assignedAssets, trainings, workSchedule, ...resourceData } = editingResource;
       const finalResourceImage = await uploadWorkerImageIfNeeded(editingResource.image, editingResource.id);
+      const originalWorker = unit.resources.find(r => r.id === editingResource.id);
+      const lockedPhone = originalWorker?.phone?.trim();
       
       // Asegurar que si el trabajador NO está archivado, el estado sea "activo"
       // endDate es solo referencial y NO debe cambiar el estado automáticamente
       const resourceToUpdate = {
         ...resourceData,
         image: finalResourceImage,
+        phone: lockedPhone || editingResource.phone?.trim() || undefined,
         // Si NO está archivado explícitamente, forzar estado "activo"
         // Esto previene que trabajadores con endDate sean marcados como "cesado"
         personnelStatus: editingResource.archived === true 
@@ -6099,27 +6077,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                        {worker.dni || <span className="text-slate-300 italic">-</span>}
                     </div>
                     <div className="col-span-1 hidden md:flex items-center justify-center min-w-0 px-1">
-                       {canEditPersonnel && !showArchivedPersonnel ? (
-                         <input
-                           type="tel"
-                           key={`phone-${worker.id}-${worker.phone || ''}`}
-                           defaultValue={worker.phone || ''}
-                           onBlur={(e) => handlePersonnelPhoneSave(worker.id, e.target.value)}
-                           onKeyDown={(e) => {
-                             if (e.key === 'Enter') {
-                               e.currentTarget.blur();
-                             }
-                           }}
-                           disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
-                           placeholder="-"
-                           className="w-full max-w-[120px] border border-slate-200 rounded px-2 py-1 text-sm text-slate-700 font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
-                         />
+                       {worker.phone?.trim() ? (
+                         <span className="truncate max-w-full font-mono text-sm text-slate-600" title={worker.phone.trim()}>{worker.phone.trim()}</span>
                        ) : (
-                         worker.phone?.trim() ? (
-                           <span className="truncate max-w-full font-mono text-sm text-slate-600" title={worker.phone.trim()}>{worker.phone.trim()}</span>
-                         ) : (
-                           <span className="text-slate-300 italic">-</span>
-                         )
+                         <span className="text-slate-300 italic">-</span>
                        )}
                     </div>
                     <div className="col-span-2 hidden md:flex lg:col-span-1 items-center justify-center text-xs text-slate-600">
@@ -8684,13 +8645,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
-                                  <input
-                                      type="tel"
-                                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
-                                      value={editingResource.phone || ''}
-                                      onChange={e => setEditingResource({ ...editingResource, phone: e.target.value })}
-                                      placeholder="Ej. 987654321"
-                                  />
+                                  {(() => {
+                                    const savedPhone = unit.resources.find(r => r.id === editingResource.id)?.phone?.trim();
+                                    if (savedPhone) {
+                                      return (
+                                        <>
+                                          <div className="w-full border border-slate-200 rounded-lg p-2 bg-slate-50 text-slate-700 font-mono">
+                                            {savedPhone}
+                                          </div>
+                                          <p className="text-xs text-slate-500 mt-1">El teléfono no puede modificarse una vez registrado.</p>
+                                        </>
+                                      );
+                                    }
+                                    return (
+                                      <input
+                                          type="tel"
+                                          className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                          value={editingResource.phone || ''}
+                                          onChange={e => setEditingResource({ ...editingResource, phone: e.target.value })}
+                                          placeholder="Ej. 987654321"
+                                      />
+                                    );
+                                  })()}
                               </div>
                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                                 <label className="flex items-center space-x-2 cursor-pointer">
