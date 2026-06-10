@@ -1,0 +1,576 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  Package,
+  RefreshCw,
+  Send,
+  XCircle,
+} from 'lucide-react';
+import { hrOutboundIngresoService } from '../services/hrOutboundIngresoService';
+import { listHrFieldWarnings } from '../utils/hrOpalosisMapper';
+import { toOpsflowDate } from '../utils/hrIntegration';
+import type {
+  HrOutboundIngresoPackage,
+  HrOutboundIngresoPackageWithItems,
+  HrOutboundIngresoQueueItem,
+  Unit,
+} from '../types';
+
+interface HrOpalosisIngresoProps {
+  canEdit: boolean;
+  units: Unit[];
+  currentUserName?: string;
+}
+
+type ViewTab = 'cola' | 'historial';
+
+const PACKAGE_STATUS_LABELS: Record<HrOutboundIngresoPackage['status'], string> = {
+  pendiente: 'Pendiente',
+  enviado: 'Enviado',
+  simulado: 'Simulado',
+  error: 'Error',
+  procesado: 'Procesado',
+  observado: 'Observado',
+  rechazado: 'Rechazado',
+  parcialmente_procesado: 'Parcial',
+};
+
+const PACKAGE_STATUS_STYLES: Record<HrOutboundIngresoPackage['status'], string> = {
+  pendiente: 'bg-slate-100 text-slate-700',
+  enviado: 'bg-blue-100 text-blue-800',
+  simulado: 'bg-purple-100 text-purple-800',
+  error: 'bg-red-100 text-red-900',
+  procesado: 'bg-green-100 text-green-800',
+  observado: 'bg-orange-100 text-orange-800',
+  rechazado: 'bg-red-100 text-red-800',
+  parcialmente_procesado: 'bg-amber-100 text-amber-800',
+};
+
+function todayIsoDate(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function formatDateTime(value?: string): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('es-PE', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatReportDate(iso: string): string {
+  return toOpsflowDate(iso);
+}
+
+export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
+  canEdit,
+  units,
+  currentUserName,
+}) => {
+  const [tab, setTab] = useState<ViewTab>('cola');
+  const [reportDate, setReportDate] = useState(todayIsoDate());
+  const [queueItems, setQueueItems] = useState<HrOutboundIngresoQueueItem[]>([]);
+  const [packages, setPackages] = useState<HrOutboundIngresoPackage[]>([]);
+  const [selectedPackage, setSelectedPackage] = useState<HrOutboundIngresoPackageWithItems | null>(
+    null,
+  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [senderNote, setSenderNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [simulatedNotice, setSimulatedNotice] = useState(false);
+
+  const unitNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    units.forEach((u) => map.set(u.id, u.name));
+    return map;
+  }, [units]);
+
+  const loadQueue = useCallback(async () => {
+    const items = await hrOutboundIngresoService.listQueueItems({ reportDate });
+    setQueueItems(items);
+    setSelectedIds(new Set(items.map((i) => i.id)));
+  }, [reportDate]);
+
+  const loadPackages = useCallback(async () => {
+    const list = await hrOutboundIngresoService.listPackages();
+    setPackages(list);
+  }, []);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await Promise.all([loadQueue(), loadPackages()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cargar datos');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadQueue, loadPackages]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === queueItems.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(queueItems.map((i) => i.id)));
+    }
+  };
+
+  const handleSendPackage = async () => {
+    if (!canEdit || selectedIds.size === 0) return;
+
+    setSending(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const result = await hrOutboundIngresoService.sendPackage({
+        queueItemIds: Array.from(selectedIds),
+        reportDate,
+        senderNote: senderNote.trim() || undefined,
+        sentByName: currentUserName,
+      });
+
+      setSimulatedNotice(result.simulated);
+      setSuccessMessage(
+        result.simulated
+          ? `Paquete simulado enviado (${result.package.workerCount} trabajador(es)). Configure Opalosis para envío real.`
+          : `Paquete enviado a Opalosis (${result.package.workerCount} trabajador(es)).`,
+      );
+      setSenderNote('');
+      await loadData();
+      setTab('historial');
+      const detail = await hrOutboundIngresoService.getPackageWithItems(result.package.id);
+      if (detail) setSelectedPackage(detail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al enviar paquete');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleExclude = async (itemId: string) => {
+    if (!canEdit) return;
+    const note = window.prompt('Motivo de exclusión (opcional):');
+    try {
+      await hrOutboundIngresoService.excludeQueueItem(itemId, note ?? undefined);
+      await loadQueue();
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo excluir');
+    }
+  };
+
+  const openPackageDetail = async (packageId: string) => {
+    const detail = await hrOutboundIngresoService.getPackageWithItems(packageId);
+    if (detail) setSelectedPackage(detail);
+  };
+
+  const handleCheckPackageStatus = async () => {
+    if (!selectedPackage) return;
+    setCheckingStatus(true);
+    setError(null);
+    try {
+      const result = await hrOutboundIngresoService.checkPackageStatus(selectedPackage.id);
+      if (result.simulated) setSimulatedNotice(true);
+      await loadPackages();
+      const refreshed = await hrOutboundIngresoService.getPackageWithItems(selectedPackage.id);
+      if (refreshed) setSelectedPackage(refreshed);
+      setSuccessMessage('Estado del paquete actualizado.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al consultar estado');
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  if (selectedPackage) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setSelectedPackage(null)}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-bold text-slate-800">Paquete enviado a Opalosis</h2>
+            <p className="truncate font-mono text-sm text-slate-500">
+              {selectedPackage.sourcePackageId}
+            </p>
+          </div>
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${PACKAGE_STATUS_STYLES[selectedPackage.status]}`}
+          >
+            {PACKAGE_STATUS_LABELS[selectedPackage.status]}
+          </span>
+        </div>
+
+        {error && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <AlertCircle size={18} className="mt-0.5 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="mb-4 font-semibold text-slate-800">Resumen</h3>
+            <dl className="space-y-3 text-sm">
+              <div>
+                <dt className="text-xs uppercase text-slate-500">Fecha reporte</dt>
+                <dd>{formatReportDate(selectedPackage.reportDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-slate-500">Trabajadores</dt>
+                <dd>{selectedPackage.workerCount}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-slate-500">Enviado</dt>
+                <dd>{formatDateTime(selectedPackage.sentAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-slate-500">Por</dt>
+                <dd>{selectedPackage.sentByName ?? '—'}</dd>
+              </div>
+              {selectedPackage.senderNote && (
+                <div>
+                  <dt className="text-xs uppercase text-slate-500">Nota</dt>
+                  <dd>{selectedPackage.senderNote}</dd>
+                </div>
+              )}
+            </dl>
+
+            {canEdit && ['enviado', 'simulado', 'observado', 'parcialmente_procesado'].includes(
+              selectedPackage.status,
+            ) && (
+              <button
+                type="button"
+                onClick={handleCheckPackageStatus}
+                disabled={checkingStatus}
+                className="mt-4 flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {checkingStatus ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={16} />
+                )}
+                Consultar estado en Opalosis
+              </button>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="mb-4 font-semibold text-slate-800">
+              Trabajadores ({selectedPackage.items.length})
+            </h3>
+            <ul className="max-h-96 space-y-3 overflow-y-auto text-sm">
+              {selectedPackage.items.map((item) => (
+                <li key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <div className="font-medium text-slate-800">{item.workerName}</div>
+                  <div className="mt-1 font-mono text-xs text-slate-500">{item.refOperaciones}</div>
+                  <div className="mt-1 text-xs text-slate-600">
+                    {unitNameById.get(item.workerSnapshot.opsflow.unitId) ??
+                      item.workerSnapshot.opsflow.unitName}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Reporte de ingresos → Opalosis</h2>
+          <p className="text-sm text-slate-500">
+            Asignaciones desde ATS que se acumulan aquí para envío batch a RRHH.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={loadData}
+          disabled={loading}
+          className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          Actualizar
+        </button>
+      </div>
+
+      {simulatedNotice && (
+        <div className="flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 p-4 text-sm text-purple-900">
+          <Clock size={18} className="mt-0.5 shrink-0" />
+          <div>
+            <strong>Modo simulación.</strong> Opalosis no está configurado. Los paquetes se registran
+            localmente hasta que RRHH entregue URL y API Key.
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <XCircle size={18} className="mt-0.5 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+          <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+          {successMessage}
+        </div>
+      )}
+
+      <div className="flex gap-2 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setTab('cola')}
+          className={`px-4 py-2 text-sm font-medium ${
+            tab === 'cola'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Cola pendiente ({queueItems.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('historial')}
+          className={`px-4 py-2 text-sm font-medium ${
+            tab === 'historial'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Paquetes enviados ({packages.length})
+        </button>
+      </div>
+
+      {tab === 'cola' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <label className="mb-1 flex items-center gap-1 text-sm font-medium text-slate-700">
+                <Calendar size={14} />
+                Fecha del reporte
+              </label>
+              <input
+                type="date"
+                value={reportDate}
+                onChange={(e) => setReportDate(e.target.value)}
+                className="rounded-lg border border-slate-300 p-2 text-sm"
+              />
+            </div>
+            {canEdit && queueItems.length > 0 && (
+              <>
+                <div className="min-w-[200px] flex-1">
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    Nota para Opalosis (opcional)
+                  </label>
+                  <input
+                    value={senderNote}
+                    onChange={(e) => setSenderNote(e.target.value)}
+                    placeholder="Ej. Ingresos del día — Lima Norte"
+                    className="w-full rounded-lg border border-slate-300 p-2 text-sm"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSendPackage}
+                  disabled={sending || selectedIds.size === 0}
+                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {sending ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Send size={16} />
+                  )}
+                  Enviar {selectedIds.size} a Opalosis
+                </button>
+              </>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 size={24} className="animate-spin text-slate-400" />
+            </div>
+          ) : queueItems.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-16 text-center">
+              <Package className="mx-auto mb-3 text-slate-400" size={40} />
+              <p className="font-medium text-slate-700">Sin ingresos pendientes para esta fecha</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Los trabajadores aparecen aquí al asignarlos desde Recepción ATS.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {canEdit && (
+                      <th className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.size === queueItems.length && queueItems.length > 0}
+                          onChange={toggleSelectAll}
+                        />
+                      </th>
+                    )}
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Colaborador</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Unidad</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Referencia</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Asignado</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Alertas</th>
+                    {canEdit && (
+                      <th className="px-4 py-3 text-left font-semibold text-slate-600">Acciones</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {queueItems.map((item) => {
+                    const warnings = item.hrFields ? listHrFieldWarnings(item.hrFields) : [];
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        {canEdit && (
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(item.id)}
+                              onChange={() => toggleSelect(item.id)}
+                            />
+                          </td>
+                        )}
+                        <td className="px-4 py-3 font-medium text-slate-800">{item.workerName}</td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {unitNameById.get(item.opsflowUnitId) ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                          {item.refOperaciones}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {formatDateTime(item.assignedAt)}
+                        </td>
+                        <td className="px-4 py-3">
+                          {warnings.length === 0 ? (
+                            <span className="text-xs text-green-600">OK</span>
+                          ) : (
+                            <span className="text-xs text-amber-600" title={warnings.join(', ')}>
+                              {warnings.length} alerta(s)
+                            </span>
+                          )}
+                        </td>
+                        {canEdit && (
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => handleExclude(item.id)}
+                              className="text-xs text-red-600 hover:text-red-800"
+                            >
+                              Excluir
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'historial' && (
+        <div className="space-y-4">
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 size={24} className="animate-spin text-slate-400" />
+            </div>
+          ) : packages.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-16 text-center text-slate-500">
+              Aún no se han enviado paquetes a Opalosis.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Fecha reporte</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Trabajadores</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Estado</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Enviado</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Por</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {packages.map((pkg) => (
+                    <tr
+                      key={pkg.id}
+                      onClick={() => openPackageDetail(pkg.id)}
+                      className="cursor-pointer hover:bg-slate-50"
+                    >
+                      <td className="px-4 py-3">{formatReportDate(pkg.reportDate)}</td>
+                      <td className="px-4 py-3">{pkg.workerCount}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${PACKAGE_STATUS_STYLES[pkg.status]}`}
+                        >
+                          {PACKAGE_STATUS_LABELS[pkg.status]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">{formatDateTime(pkg.sentAt)}</td>
+                      <td className="px-4 py-3 text-slate-500">{pkg.sentByName ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};

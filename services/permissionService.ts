@@ -23,6 +23,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
     ATS_RECEPTION: { view: true, edit: true },
+    HR_OPALOSIS: { view: true, edit: true },
   },
   ADMIN: {
     DASHBOARD: { view: true, edit: true },
@@ -43,6 +44,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
     ATS_RECEPTION: { view: true, edit: true },
+    HR_OPALOSIS: { view: true, edit: true },
   },
   OPERATIONS: {
     DASHBOARD: { view: true, edit: false },
@@ -63,6 +65,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
     ATS_RECEPTION: { view: true, edit: true },
+    HR_OPALOSIS: { view: true, edit: true },
   },
   OPERATIONS_SUPERVISOR: {
     DASHBOARD: { view: true, edit: false },
@@ -83,6 +86,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
     ATS_RECEPTION: { view: true, edit: true },
+    HR_OPALOSIS: { view: true, edit: true },
   },
   CLIENT: {
     DASHBOARD: { view: true, edit: false },
@@ -103,6 +107,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     ARCHIVE: { view: false, edit: false },
     SETTINGS: { view: false, edit: false },
     ATS_RECEPTION: { view: false, edit: false },
+    HR_OPALOSIS: { view: false, edit: false },
   }
 };
 
@@ -201,5 +206,6 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   DOCUMENTS: 'Documentos',
   ARCHIVE: 'Archivo de Personal',
   SETTINGS: 'Configuración Sistema',
-  ATS_RECEPTION: 'Recepción ATS'
+  ATS_RECEPTION: 'Recepción ATS',
+  HR_OPALOSIS: 'Envío Opalosis (RRHH)'
 };

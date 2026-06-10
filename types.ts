@@ -39,7 +39,8 @@ export type AppFeature =
   | 'DOCUMENTS'
   | 'ARCHIVE'
   | 'SETTINGS'
-  | 'ATS_RECEPTION';
+  | 'ATS_RECEPTION'
+  | 'HR_OPALOSIS';
 
 export interface PermissionRule {
   view: boolean;
@@ -628,4 +629,146 @@ export interface ResourceInboundSourceData {
   handoffItemId?: string;
   capturedAt?: string;
   workerSnapshot: WorkerSnapshot;
+}
+
+// --- HR OPALOSIS INTEGRATION (OpsFlow → Opalosis RRHH) ---
+
+export type HrOutboundQueueStatus = 'pendiente_envio' | 'incluido_paquete' | 'excluido';
+
+export type HrOutboundPackageStatus =
+  | 'pendiente'
+  | 'enviado'
+  | 'simulado'
+  | 'error'
+  | 'procesado'
+  | 'observado'
+  | 'rechazado'
+  | 'parcialmente_procesado';
+
+export type HrOutboundItemStatus = 'pendiente' | 'procesado' | 'observado' | 'rechazado';
+
+/** Campos mapeados al contrato Opalosis POST /api/empleados (referencial). */
+export interface HrOpalosisIngresoFields {
+  tipo: 'ingreso';
+  empresa_codigo: number;
+  tipo_documento: string;
+  documento: string;
+  apellido_paterno: string;
+  apellido_materno: string;
+  nombres: string;
+  sexo: string;
+  cargo: string;
+  unidad_id: number;
+  fecha_ingreso: string;
+  fecha_nacimiento: string;
+  estado_civil: string;
+  correo_personal: string;
+  telefono?: string;
+  direccion?: string;
+  pais?: string;
+  asignacion_familiar?: boolean;
+  ref_operaciones: string;
+}
+
+/** Snapshot completo enviado a Opalosis (todo lo disponible). */
+export interface HrOutboundWorkerSnapshot {
+  capturedAt: string;
+  opsflow: {
+    resourceId: string;
+    unitId: string;
+    unitName: string;
+    clientName: string;
+    name: string;
+    dni?: string;
+    puesto?: string;
+    localidad?: string;
+    phone?: string;
+    birthDate?: string;
+    startDate?: string;
+    endDate?: string;
+    assignedShift?: string;
+    assignedZones?: string[];
+    monthlySalary?: number;
+    personnelStatus?: string;
+    externalId?: string;
+  };
+  ats: {
+    sourceApp: string;
+    sourcePackageId?: string;
+    sourceCandidateId?: string;
+    sourceProcessId?: string;
+    handoffItemId?: string;
+    workerName: string;
+    identity?: WorkerSnapshotIdentity;
+    fields?: Record<string, string | number | boolean | null>;
+    meta?: WorkerSnapshotMeta;
+  };
+}
+
+export interface HrOutboundIngresoQueueItem {
+  id: string;
+  resourceId: string;
+  inboundHandoffItemId?: string;
+  opsflowUnitId: string;
+  workerName: string;
+  assignedAt: string;
+  reportDate: string;
+  workerSnapshot: HrOutboundWorkerSnapshot;
+  hrFields?: HrOpalosisIngresoFields;
+  refOperaciones: string;
+  queueStatus: HrOutboundQueueStatus;
+  packageId?: string;
+  exclusionNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrOutboundIngresoPackage {
+  id: string;
+  sourcePackageId: string;
+  reportDate: string;
+  workerCount: number;
+  status: HrOutboundPackageStatus;
+  senderNote?: string;
+  sentByName?: string;
+  sentAt?: string;
+  fechaRecepcion?: string;
+  opalosisResponse?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrOutboundIngresoPackageItem {
+  id: string;
+  packageId: string;
+  queueItemId?: string;
+  refOperaciones: string;
+  resourceId: string;
+  workerName: string;
+  workerSnapshot: HrOutboundWorkerSnapshot;
+  hrFields?: HrOpalosisIngresoFields;
+  itemStatus: HrOutboundItemStatus;
+  mensaje?: string;
+  empleadoIdRrhh?: number;
+  createdAt: string;
+}
+
+export interface HrOutboundIngresoPackageWithItems extends HrOutboundIngresoPackage {
+  items: HrOutboundIngresoPackageItem[];
+}
+
+export interface HrUnitCacheEntry {
+  opalosisUnidadId: number;
+  nombre: string;
+  activo: boolean;
+  fetchedAt: string;
+}
+
+export interface HrUnitMapping {
+  id: string;
+  opsflowUnitId: string;
+  opalosisUnidadId: number;
+  opalosisUnidadNombre?: string;
+  empresaCodigo?: number;
+  activo: boolean;
 }

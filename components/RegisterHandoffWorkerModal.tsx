@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Building2, Loader2, Sparkles, UserPlus, X } from 'lucide-react';
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
+import { hrOutboundIngresoService } from '../services/hrOutboundIngresoService';
 import { resourcesService } from '../services/resourcesService';
 import {
   InboundHandoffItem,
@@ -140,6 +141,18 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
       );
 
       await inboundWorkerHandoffService.registerItemAsResource(item.id, unitId, resource.id);
+
+      const unit = units.find((u) => u.id === unitId);
+      if (unit) {
+        await hrOutboundIngresoService.enqueueFromAssignment({
+          resource,
+          unit,
+          handoffItem: item,
+          sourcePackageId,
+          sourceApp,
+        });
+      }
+
       onSuccess();
       onClose();
     } catch (err) {

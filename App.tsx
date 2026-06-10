@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -24,7 +24,7 @@ import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
 import { Login } from './components/Login';
 import { authService } from './services/authService';
-import { LogOut, FileText, RefreshCw, Eye, Cake, X, Download } from 'lucide-react';
+import { LogOut, FileText, RefreshCw, Eye, Cake, Download } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
 import { PositionsManagementSection } from './components/PositionsManagement';
@@ -33,6 +33,7 @@ import { Archive } from './components/Archive';
 import { PasswordReset } from './components/PasswordReset';
 import { WorkersManagement } from './components/WorkersManagement';
 import { InboundWorkerHandoff } from './components/InboundWorkerHandoff';
+import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -40,7 +41,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'archive' | 'workers-management' | 'ats-reception'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'archive' | 'workers-management' | 'ats-reception' | 'hr-opalosis'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
   
@@ -1652,6 +1653,16 @@ const App: React.FC = () => {
           canEdit={checkPermission(currentUser.role, 'ATS_RECEPTION', 'edit')}
           units={visibleUnits}
           onRegistered={loadUnits}
+        />
+      );
+    }
+
+    if (currentView === 'hr-opalosis') {
+      return (
+        <HrOpalosisIngreso
+          canEdit={checkPermission(currentUser.role, 'HR_OPALOSIS', 'edit')}
+          units={visibleUnits}
+          currentUserName={currentUser?.name}
         />
       );
     }
@@ -3328,6 +3339,17 @@ const App: React.FC = () => {
                   >
                     <Inbox size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Recepción ATS</span>
+                  </button>
+              )}
+
+              {/* Envío Opalosis RRHH */}
+              {checkPermission(currentUser.role, 'HR_OPALOSIS', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('hr-opalosis'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'hr-opalosis' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Send size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Envío Opalosis</span>
                   </button>
               )}
 
