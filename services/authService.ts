@@ -42,14 +42,31 @@ export const authService = {
   // Obtener usuario actual desde la sesión
   async getCurrentUser(): Promise<User | null> {
     const session = this.getSession();
-    if (!session) return null;
+    if (!session) {
+      console.warn('⚠️ No hay sesión activa en getCurrentUser()');
+      return null;
+    }
+    
+    console.log('🔍 getCurrentUser() - Sesión encontrada:', {
+      userId: session.userId,
+      email: session.email,
+      timestamp: new Date(session.timestamp).toISOString(),
+    });
     
     try {
       // Intentar obtener de la BD
       const dbUser = await usersService.getById(session.userId);
       if (dbUser) {
+        console.log('✅ getCurrentUser() - Usuario obtenido de BD:', {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          role: dbUser.role,
+        });
         return dbUser;
       }
+      
+      console.warn('⚠️ getCurrentUser() - Usuario no encontrado en BD con ID:', session.userId);
       
       // Si no existe en BD, intentar obtener de Supabase Auth como fallback
       // Esto puede pasar si el usuario se autenticó pero no se creó en BD
@@ -103,8 +120,105 @@ export const authService = {
   // Iniciar sesión con email y contraseña
   async signIn(email: string, password: string) {
     try {
-      // Primero intentar Supabase Auth (para usuarios existentes, especialmente ADMIN)
-      // Esto evita problemas con RLS cuando el usuario aún no está autenticado
+      // PRIMERO: Intentar buscar usuario en la tabla users y verificar password_hash
+      // Esto es para usuarios creados directamente en la BD sin Supabase Auth
+      try {
+        const { data: dbUsers, error: dbError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', email.toLowerCase())
+          .limit(1);
+
+        if (!dbError && dbUsers && dbUsers.length > 0) {
+          const dbUser = dbUsers[0];
+          
+          // Verificar contraseña si existe password_hash
+          if (dbUser.password_hash) {
+            const isValidPassword = await verifyPassword(password, dbUser.password_hash);
+            
+            if (isValidPassword) {
+              // Contraseña válida, crear sesión
+              const session: Session = {
+                userId: dbUser.id,
+                email: dbUser.email,
+                timestamp: Date.now(),
+              };
+              localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+              // Intentar crear sesión de Supabase Auth para compatibilidad con Storage
+              // Esto es necesario para que Storage funcione
+              try {
+                const authResult = await supabase.auth.signInWithPassword({
+                  email: email.toLowerCase(),
+                  password: password,
+                });
+                
+                if (authResult.error) {
+                  // Si el usuario no existe en Auth, intentar crearlo
+                  if (authResult.error.message?.includes('Invalid login credentials') || 
+                      authResult.error.message?.includes('Email not confirmed')) {
+                    console.log('ℹ️ Usuario existe en Auth pero credenciales no coinciden o email no confirmado');
+                    // Intentar sign up (puede fallar si ya existe, pero lo intentamos)
+                    try {
+                      const signUpResult = await supabase.auth.signUp({
+                        email: email.toLowerCase(),
+                        password: password,
+                        options: {
+                          data: {
+                            name: dbUser.name,
+                            role: dbUser.role,
+                          }
+                        }
+                      });
+                      
+                      if (signUpResult.error && !signUpResult.error.message?.includes('already registered')) {
+                        console.warn('⚠️ No se pudo crear cuenta en Supabase Auth:', signUpResult.error.message);
+                      } else if (signUpResult.data?.user) {
+                        console.log('✅ Cuenta creada en Supabase Auth, intentando sign in...');
+                        // Esperar un momento y luego intentar sign in
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await supabase.auth.signInWithPassword({
+                          email: email.toLowerCase(),
+                          password: password,
+                        });
+                      }
+                    } catch (signUpErr) {
+                      console.warn('⚠️ Error al crear cuenta en Supabase Auth:', signUpErr);
+                    }
+                  } else {
+                    console.warn('⚠️ Error al autenticar con Supabase Auth:', authResult.error.message);
+                  }
+                } else {
+                  console.log('✅ Sesión de Supabase Auth creada correctamente');
+                }
+              } catch (authErr: any) {
+                // Si falla, la sesión local ya está activa, pero Storage no funcionará
+                console.warn('⚠️ No se pudo crear sesión de Supabase Auth:', authErr?.message || authErr);
+                console.warn('⚠️ La sesión local está activa, pero Storage requerirá re-autenticación');
+              }
+
+              // Registrar login en auditoría
+              try {
+                await auditService.log({
+                  actionType: 'LOGIN',
+                  entityType: 'USER',
+                  entityId: dbUser.id,
+                  entityName: dbUser.name,
+                  description: `Usuario "${dbUser.name}" inició sesión`,
+                });
+              } catch (auditErr) {
+                console.warn('No se pudo registrar en auditoría:', auditErr);
+              }
+
+              return { user: dbUser, dbUser };
+            }
+          }
+        }
+      } catch (dbErr) {
+        console.warn('Error al buscar usuario en BD:', dbErr);
+      }
+
+      // SEGUNDO: Intentar Supabase Auth (para usuarios existentes en Auth)
       let authData: any = null;
       let authError: any = null;
       
@@ -208,8 +322,8 @@ export const authService = {
         };
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 
-        // Cerrar sesión de Supabase Auth (ya no la necesitamos)
-        await supabase.auth.signOut();
+        // NO cerrar sesión de Supabase Auth - la necesitamos para Storage
+        // await supabase.auth.signOut(); // COMENTADO: Storage necesita la sesión activa
 
         // Registrar login en auditoría (solo si podemos)
         try {
@@ -240,6 +354,9 @@ export const authService = {
   // Cerrar sesión
   async signOut() {
     try {
+      // Cerrar sesión de Supabase Auth primero (para Storage)
+      await supabase.auth.signOut();
+      
       const session = this.getSession();
       let dbUser = null;
       
@@ -274,10 +391,19 @@ export const authService = {
   // Registrar nuevo usuario (solo para administradores)
   async signUp(email: string, password: string, userData: Partial<User>) {
     try {
-      // Verificar que el usuario actual es administrador
+      // Verificar que el usuario actual es administrador o super administrador
       const currentUser = await this.getCurrentUser();
-      if (!currentUser || currentUser.role !== 'ADMIN') {
+      if (!currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) {
         throw new Error('Solo los administradores pueden crear nuevos usuarios');
+      }
+      
+      // Verificar permisos para crear usuarios con roles específicos
+      if (userData.role === 'SUPER_ADMIN' && currentUser.role !== 'SUPER_ADMIN') {
+        throw new Error('Solo los superadministradores pueden crear usuarios con rol SUPER_ADMIN');
+      }
+      
+      if (userData.role === 'ADMIN' && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'ADMIN') {
+        throw new Error('Solo los administradores pueden crear usuarios con rol ADMIN');
       }
 
       // Verificar que el email no esté en uso
@@ -297,9 +423,15 @@ export const authService = {
       // Generar ID único
       const userId = crypto.randomUUID();
 
+      // NOTA: No podemos crear usuarios en Supabase Auth desde el cliente
+      // porque requiere service_role key. El usuario se creará solo en la tabla users.
+      // Cuando el usuario intente hacer login, se verificará el password_hash.
+      // Si en el futuro se necesita Supabase Auth, se debe crear una Edge Function.
+      const finalUserId = userId;
+
       // Crear el usuario en la tabla users
       const createdDbUser = await usersService.create({
-        id: userId,
+        id: finalUserId,
         name: userData.name || email,
         email: email.toLowerCase(),
         role: userData.role || 'OPERATIONS',
@@ -324,11 +456,34 @@ export const authService = {
         throw new Error('No hay usuario autenticado');
       }
 
-      // Verificar permisos: admin puede cambiar cualquier contraseña, usuario solo la suya
+      // Verificar permisos: super_admin puede cambiar cualquier contraseña (incluyendo admin)
+      // admin puede cambiar contraseñas excepto de otros admins y super_admins
+      // usuario solo puede cambiar su propia contraseña
+      const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
       const isAdmin = currentUser.role === 'ADMIN';
       const isOwnPassword = currentUser.id === userId;
 
-      if (!isAdmin && !isOwnPassword) {
+      // Obtener el usuario objetivo para verificar su rol
+      const targetUser = await usersService.getById(userId);
+      if (!targetUser) {
+        throw new Error('Usuario no encontrado');
+      }
+
+      const targetIsAdmin = targetUser.role === 'ADMIN';
+      const targetIsSuperAdmin = targetUser.role === 'SUPER_ADMIN';
+
+      // Super admin puede cambiar cualquier contraseña
+      if (isSuperAdmin) {
+        // Permitir
+      }
+      // Admin puede cambiar contraseñas excepto de otros admins y super_admins
+      else if (isAdmin) {
+        if (targetIsAdmin || targetIsSuperAdmin) {
+          throw new Error('Los administradores no pueden cambiar contraseñas de otros administradores o superadministradores');
+        }
+      }
+      // Usuario normal solo puede cambiar su propia contraseña
+      else if (!isOwnPassword) {
         throw new Error('Solo puedes cambiar tu propia contraseña');
       }
 
@@ -345,8 +500,11 @@ export const authService = {
         throw new Error(`Error al actualizar contraseña: ${updateError.message}`);
       }
 
+      // NOTA: No podemos actualizar la contraseña en Supabase Auth desde el cliente
+      // porque requiere service_role key. Si el usuario existe en Auth, necesitará
+      // usar "Olvidé mi contraseña" o se debe crear una Edge Function para sincronizar.
+
       // Registrar en auditoría
-      const targetUser = await usersService.getById(userId);
       if (targetUser) {
         await auditService.log({
           actionType: 'UPDATE',

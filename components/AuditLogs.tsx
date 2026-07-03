@@ -28,17 +28,31 @@ export const AuditLogs: React.FC = () => {
       const startDate = filterStartDate ? `${filterStartDate}T00:00:00Z` : undefined;
       const endDate = filterEndDate ? `${filterEndDate}T23:59:59Z` : undefined;
       
-      const data = await auditService.getAll({
+      // Obtener TODOS los logs sin limit (el servicio ya no aplica limit)
+      const allLogs = await auditService.getAll({
         actionType: filterActionType || undefined,
         entityType: filterEntityType || undefined,
         startDate,
         endDate,
-        limit: itemsPerPage,
-        offset: (currentPage - 1) * itemsPerPage,
+        // NO pasar limit ni offset - obtener todos y paginar en memoria
       });
       
-      setLogs(data);
-      setTotalCount(data.length); // En producción, esto vendría del backend
+      // Log para debugging
+      console.log('📋 AuditLogs component - Logs recibidos (TODOS):', allLogs.length);
+      if (allLogs.length > 0) {
+        const uniqueUsers = new Set(allLogs.map(log => log.userId));
+        console.log('👥 Usuarios únicos en los logs mostrados:', uniqueUsers.size, Array.from(uniqueUsers));
+        const userNames = new Set(allLogs.map(log => log.userName));
+        console.log('📝 Nombres de usuarios:', Array.from(userNames));
+      }
+      
+      // Aplicar paginación en memoria
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const endIndex = startIndex + itemsPerPage;
+      const paginatedLogs = allLogs.slice(startIndex, endIndex);
+      
+      setLogs(paginatedLogs);
+      setTotalCount(allLogs.length); // Total de todos los logs
     } catch (err: any) {
       setError(err.message || 'Error al cargar logs de auditoría');
       console.error('Error loading audit logs:', err);

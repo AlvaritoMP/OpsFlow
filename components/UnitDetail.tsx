@@ -1,16 +1,21 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
+import { nightSupervisionService } from '../services/nightSupervisionService';
+import { requestsService } from '../services/requestsService';
+import { SafeImage } from './SafeImage';
 
 interface UnitDetailProps {
   unit: Unit;
   userRole: UserRole;
   availableStaff: ManagementStaff[]; // GLOBAL REGISTRY PASSED DOWN
+  currentUser?: { role: UserRole; linkedClientNames?: string[] }; // Usuario actual para restricciones
+  availableClients?: { id: string; name: string }[]; // Lista de clientes disponibles
   onBack: () => void;
-  onUpdate?: (updatedUnit: Unit) => void;
+  onUpdate?: (updatedUnit: Unit) => void | Promise<void>;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -45,7 +50,7 @@ const getMonday = (d: Date) => {
   return new Date(date.setDate(diff));
 }
 
-export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, onBack, onUpdate }) => {
+export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, googleMapsApiKey }) => {
   // Cargar activos estándar al montar el componente
   React.useEffect(() => {
     const loadStandardAssets = async () => {
@@ -65,10 +70,73 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     loadStandardAssets();
   }, []);
 
+  // Cargar puestos predefinidos
+  React.useEffect(() => {
+    const loadPositions = async () => {
+      try {
+        const { positionsService } = await import('../services/positionsService');
+        const data = await positionsService.getAll(true); // Incluir inactivos para referencia
+        setPositions(data);
+      } catch (error) {
+        console.error('Error al cargar puestos:', error);
+      }
+    };
+    loadPositions();
+  }, []);
+
+  // Corregir trabajadores con endDate que no están marcados como cesados/archivados
+  React.useEffect(() => {
+    const fixCesadosWorkers = async () => {
+      if (!onUpdate) return;
+      
+      const workersToFix = unit.resources.filter(r => 
+        r.type === ResourceType.PERSONNEL && 
+        r.endDate && 
+        (r.personnelStatus !== 'cesado' || !r.archived)
+      );
+
+      if (workersToFix.length === 0) return;
+
+      try {
+        const { resourcesService } = await import('../services/resourcesService');
+        const updatePromises = workersToFix.map(worker => 
+          resourcesService.update(worker.id, {
+            personnelStatus: 'cesado' as const,
+            archived: true
+          })
+        );
+
+        await Promise.all(updatePromises);
+        
+        // Recargar la unidad para reflejar los cambios
+        const { unitsService } = await import('../services/unitsService');
+        const updatedUnit = await unitsService.getById(unit.id);
+        if (updatedUnit) {
+          onUpdate(updatedUnit);
+        }
+      } catch (error) {
+        console.error('Error al corregir trabajadores cesados:', error);
+      }
+    };
+
+    // Ejecutar solo una vez al cargar la unidad
+    fixCesadosWorkers();
+  }, [unit.id]); // Solo cuando cambia el ID de la unidad
+
   // Mantener el tab activo incluso cuando la unidad se actualiza
-  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
-  const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests'>('overview');
+  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
+  const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
   const previousUnitIdRef = useRef<string>(unit.id);
+
+  // Estados para modal de supervisión nocturna
+  const [showNightSupervisionModal, setShowNightSupervisionModal] = useState(false);
+  const [nightSupervisionShifts, setNightSupervisionShifts] = useState<NightSupervisionShift[]>([]);
+  const [selectedShift, setSelectedShift] = useState<NightSupervisionShift | null>(null);
+  const [shiftCalls, setShiftCalls] = useState<NightSupervisionCall[]>([]);
+  const [shiftCameraReviews, setShiftCameraReviews] = useState<NightSupervisionCameraReview[]>([]);
+  const [loadingNightSupervision, setLoadingNightSupervision] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [imageModalUrl, setImageModalUrl] = useState<string | null>(null);
   
   // Sincronizar el ref con el estado
   useEffect(() => {
@@ -94,23 +162,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Edit Unit General Info State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(unit);
+  
+  // Sincronizar editForm cuando unit cambia (importante para preservar recursos)
+  useEffect(() => {
+    setEditForm(unit);
+  }, [unit.id]); // Solo cuando cambia el ID de la unidad
   const [newZoneName, setNewZoneName] = useState('');
-  const [newZoneShifts, setNewZoneShifts] = useState('');
-  const [editImageUrl, setEditImageUrl] = useState('');
+  const [newZoneShifts, setNewZoneShifts] = useState<string[]>([]);
 
   // Personnel State
   const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>('list'); // New View Mode
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
+  const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado
   
   // Loading and notification states
   const [isSavingWorker, setIsSavingWorker] = useState(false);
   const [isUpdatingResource, setIsUpdatingResource] = useState(false);
   const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isSavingRequest, setIsSavingRequest] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   
-  // Roster State
+  // Roster State - Estado local optimizado para actualizaciones rápidas
   const [rosterStartDate, setRosterStartDate] = useState(getMonday(new Date()));
+  const [localResources, setLocalResources] = useState<Resource[]>(unit.resources);
+  const [rosterHasUnsavedChanges, setRosterHasUnsavedChanges] = useState(false);
+  const [isSavingRoster, setIsSavingRoster] = useState(false);
+  
+  // Sincronizar localResources cuando unit.resources cambia desde el padre
+  useEffect(() => {
+    setLocalResources(unit.resources);
+    setRosterHasUnsavedChanges(false); // Resetear cuando se carga nueva data
+  }, [unit.resources]);
 
   // Mass Training State
   const [showMassTrainingModal, setShowMassTrainingModal] = useState(false);
@@ -128,9 +211,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [generateConstancy, setGenerateConstancy] = useState(true); // Por defecto generar constancia
   const [standardAssets, setStandardAssets] = useState<Array<{ id: string; name: string; type: string; defaultSerialNumberPrefix?: string }>>([]);
   const [useStandardAsset, setUseStandardAsset] = useState(true); // Por defecto usar catálogo
+  
+  // Positions State
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [showRequiredPositionsModal, setShowRequiredPositionsModal] = useState(false);
+  const [editingRequiredPosition, setEditingRequiredPosition] = useState<RequiredPosition | null>(null);
+  const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1 });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; startDate?: string; endDate?: string }>({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string; isShared?: boolean }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '', isShared: false });
+  
+  // Bulk Import State
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ totalRows: number; successful: number; failed: number; errors: Array<{ row: number; error: string; data: any }>; warnings: Array<{ row: number; warning: string; data: any }> } | null>(null);
+  
+  // Image Upload State - Rastrea imágenes que se están subiendo
+  const [uploadingImages, setUploadingImages] = useState<Set<string>>(new Set()); // Set de blob URLs que se están subiendo
 
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -153,6 +250,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Log/Event State
   const [showEventModal, setShowEventModal] = useState(false);
+  const [showDocumentsModal, setShowDocumentsModal] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [newDocumentName, setNewDocumentName] = useState('');
+  const [newDocumentDescription, setNewDocumentDescription] = useState('');
+  const [selectedDocumentFile, setSelectedDocumentFile] = useState<File | null>(null);
   const [newEventForm, setNewEventForm] = useState({ type: 'Coordinacion', date: '', description: '' });
   const [newEventImages, setNewEventImages] = useState<string[]>([]);
   const [newEventImageUrl, setNewEventImageUrl] = useState('');
@@ -163,7 +265,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Client Requests State
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [newRequestForm, setNewRequestForm] = useState<{ category: string, description: string, priority: string, relatedResourceId: string }>({
+  const [newRequestForm, setNewRequestForm] = useState<{ title: string, category: string, description: string, priority: string, relatedResourceId: string }>({
+      title: '',
       category: 'GENERAL',
       description: '',
       priority: 'MEDIUM',
@@ -176,6 +279,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [editingRequest, setEditingRequest] = useState<ClientRequest | null>(null); // For tracking/discussion
   const [resolveAttachments, setResolveAttachments] = useState<string[]>([]);
   const [resolveImageUrl, setResolveImageUrl] = useState('');
+  const [resolveStatus, setResolveStatus] = useState<'PENDING' | 'IN_PROGRESS' | 'RESOLVED'>('PENDING');
+  const [resolveResponse, setResolveResponse] = useState<string>('');
+  const [resolveTitle, setResolveTitle] = useState<string>('');
   
   // Inline Comments State (Map requestId -> draft text)
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -196,10 +302,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       startGridY: number;
       startLayout: { x: number, y: number, w: number, h: number };
   }>({ type: 'idle', zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:1,y:1,w:1,h:1} });
+  
+  // Ref para mantener el estado de interacción actualizado en los closures
+  const interactionStateRef = useRef(interactionState);
+  useEffect(() => {
+    interactionStateRef.current = interactionState;
+  }, [interactionState]);
 
 
   // --- PERMISSIONS CHECKS ---
   const canEditGeneral = checkPermission(userRole, 'UNIT_OVERVIEW', 'edit');
+  const canViewPersonnel = checkPermission(userRole, 'PERSONNEL', 'view');
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
   const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
@@ -207,10 +320,89 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
 
+  // Helper para cerrar todos los modales excepto el especificado (útil en móvil)
+  const closeAllModalsExcept = (keepOpen?: string) => {
+    // Solo en móvil (ancho < 768px)
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      if (keepOpen !== 'nightSupervision') setShowNightSupervisionModal(false);
+      if (keepOpen !== 'image') setShowImageModal(false);
+      if (keepOpen !== 'request') setShowRequestModal(false);
+      if (keepOpen !== 'event') setShowEventModal(false);
+      if (keepOpen !== 'addWorker') setShowAddWorkerModal(false);
+      if (keepOpen !== 'bulkImport') setShowBulkImportModal(false);
+      if (keepOpen !== 'addResource') setShowAddResourceModal(false);
+      if (keepOpen !== 'massTraining') setShowMassTrainingModal(false);
+      if (keepOpen !== 'assetAssignment') setShowAssetAssignmentModal(false);
+      if (keepOpen !== 'editingResource') setEditingResource(null);
+      if (keepOpen !== 'maintenance') setMaintenanceResource(null);
+      if (keepOpen !== 'editingLog') setEditingLog(null);
+      if (keepOpen !== 'editingRequest') setEditingRequest(null);
+    }
+  };
+
+  // Función para formatear fecha desde string YYYY-MM-DD
+  const formatDateFromString = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('es-PE', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+  };
+
+  // Cargar turnos de supervisión nocturna para esta unidad
+  const loadNightSupervisionShifts = async () => {
+    setLoadingNightSupervision(true);
+    try {
+      const shifts = await nightSupervisionService.getAllShifts({
+        unitId: unit.id
+      });
+      setNightSupervisionShifts(shifts.sort((a, b) => {
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
+        return dateB.getTime() - dateA.getTime();
+      }));
+    } catch (error) {
+      console.error('Error cargando turnos de supervisión nocturna:', error);
+    } finally {
+      setLoadingNightSupervision(false);
+    }
+  };
+
+  // Cargar detalles de un turno específico
+  const loadShiftDetails = async (shift: NightSupervisionShift) => {
+    setLoadingNightSupervision(true);
+    try {
+      const calls = await nightSupervisionService.getCallsByShiftId(shift.id);
+      const reviews = await nightSupervisionService.getCameraReviewsByShiftId(shift.id);
+      setShiftCalls(calls);
+      setShiftCameraReviews(reviews);
+      setSelectedShift(shift);
+    } catch (error) {
+      console.error('Error cargando detalles del turno:', error);
+    } finally {
+      setLoadingNightSupervision(false);
+    }
+  };
+
+  // Abrir modal de supervisión nocturna
+  const openNightSupervisionModal = async () => {
+    closeAllModalsExcept('nightSupervision');
+    setShowNightSupervisionModal(true);
+    await loadNightSupervisionShifts();
+  };
+
   // CRITICAL FIX: Sync local edit state when parent unit prop changes
+  // Solo sincronizar cuando cambia el ID de la unidad, no en cada cambio de unit
+  // Esto evita loops infinitos cuando unit se actualiza desde el padre
   useEffect(() => {
-    setEditForm(unit);
-  }, [unit]);
+    if (!isEditing && previousUnitIdRef.current !== unit.id) {
+      setEditForm(unit);
+      previousUnitIdRef.current = unit.id;
+    }
+  }, [unit.id, isEditing]); // Solo cuando cambia el ID de la unidad o el estado de edición
 
   // Initial Layer Set
   useEffect(() => {
@@ -254,40 +446,254 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // --- General Unit Update ---
-  const handleSaveUnit = () => {
-    if (onUpdate) {
-      onUpdate(editForm);
+  const handleSaveUnit = async () => {
+    if (!onUpdate) return;
+    
+    // Verificar si hay imágenes subiéndose
+    if (uploadingImages.size > 0) {
+      setNotification({ 
+        type: 'error', 
+        message: `Espera a que terminen de subirse ${uploadingImages.size} imagen(es) antes de guardar.` 
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return;
+    }
+    
+    console.log('💾 Iniciando guardado de unidad:', unit.id);
+    console.log('📸 Imágenes en editForm:', editForm.images);
+    
+    // Verificar sesión de Supabase Auth antes de guardar
+    try {
+      const { supabase } = await import('../services/supabase');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.warn('⚠️ No hay sesión de Supabase Auth activa. Las imágenes pueden no guardarse correctamente.');
+        const { authService } = await import('../services/authService');
+        const localSession = authService.getSession();
+        if (localSession) {
+          setNotification({ 
+            type: 'error', 
+            message: 'No hay sesión de Supabase Auth activa. Por favor, cierra sesión y vuelve a iniciar sesión antes de guardar imágenes.' 
+          });
+          setTimeout(() => setNotification(null), 8000);
+          return; // No guardar si no hay sesión de Auth
+        }
+      } else {
+        console.log('✅ Sesión de Supabase Auth activa:', session.user.id);
+      }
+    } catch (authCheckError) {
+      console.warn('⚠️ Error al verificar sesión de Auth:', authCheckError);
+    }
+    
+    // Filtrar y limpiar cualquier blob URL que pueda quedar (por si acaso)
+    const cleanedImages = editForm.images.filter(img => {
+      if (img.startsWith('blob:')) {
+        console.warn('⚠️ Se encontró un blob URL en las imágenes. Omitiendo:', img);
+        return false; // NO mantener blob URLs, deben haberse subido a Storage
+      }
+      return true;
+    });
+    
+    console.log('✅ Imágenes limpiadas (sin blob URLs):', cleanedImages);
+    
+    // Geocodificar la dirección si cambió O si no hay coordenadas
+    let latitude = editForm.latitude;
+    let longitude = editForm.longitude;
+    
+    const addressChanged = editForm.address !== unit.address;
+    const hasNoCoordinates = !editForm.latitude || !editForm.longitude;
+    const hasAddress = editForm.address && editForm.address.trim().length > 0;
+    
+    // Geocodificar si: la dirección cambió O si no hay coordenadas pero hay dirección
+    if ((addressChanged || hasNoCoordinates) && hasAddress) {
+      console.log(`🗺️ Geocodificando dirección: "${editForm.address}" (cambió: ${addressChanged}, sin coordenadas: ${hasNoCoordinates})`);
+      try {
+        const { geocodingService } = await import('../services/geocodingService');
+        console.log('🗺️ Llamando a geocodingService.geocodeAddress...');
+        const geocodeResult = await geocodingService.geocodeAddress(editForm.address, googleMapsApiKey);
+        console.log('🗺️ Resultado de geocodificación:', geocodeResult);
+        if (geocodeResult) {
+          latitude = geocodeResult.latitude;
+          longitude = geocodeResult.longitude;
+          console.log(`✅ Coordenadas obtenidas para "${editForm.address}":`, { 
+            latitude: geocodeResult.latitude, 
+            longitude: geocodeResult.longitude 
+          });
+        } else {
+          console.warn(`⚠️ No se pudieron obtener coordenadas para "${editForm.address}"`);
+          // Si no se encuentran coordenadas y no había coordenadas previas, limpiarlas
+          if (!unit.latitude || !unit.longitude) {
+            latitude = undefined;
+            longitude = undefined;
+          }
+        }
+      } catch (geocodeError) {
+        console.error('❌ Error al geocodificar dirección:', geocodeError);
+        // Continuar sin actualizar coordenadas si falla la geocodificación
+      }
+    } else {
+      console.log(`ℹ️ No se geocodifica: dirección cambió=${addressChanged}, sin coordenadas=${hasNoCoordinates}, tiene dirección=${hasAddress}`);
+    }
+    
+    // IMPORTANTE: Preservar recursos, logs, requests, zones, etc. que no se están editando
+    // Solo actualizar los campos que están en editForm, pero mantener el resto de la unidad original
+    const cleanedForm = { 
+      ...unit, // Mantener todos los datos originales de la unidad
+      ...editForm, // Sobrescribir solo con los campos editados
+      images: cleanedImages, // Usar las imágenes limpiadas
+      latitude, // Coordenadas geocodificadas
+      longitude,
+      // Asegurar que resources, logs, requests, zones, etc. se mantengan
+      resources: editForm.resources !== undefined ? editForm.resources : unit.resources,
+      logs: editForm.logs !== undefined ? editForm.logs : unit.logs,
+      requests: editForm.requests !== undefined ? editForm.requests : unit.requests,
+      zones: editForm.zones !== undefined ? editForm.zones : unit.zones,
+      documents: editForm.documents !== undefined ? editForm.documents : unit.documents,
+      assignedStaff: editForm.assignedStaff !== undefined ? editForm.assignedStaff : unit.assignedStaff,
+    };
+    
+    try {
+      // Actualizar la unidad
+      console.log('🔄 Llamando a onUpdate con:', { 
+        id: cleanedForm.id, 
+        name: cleanedForm.name,
+        address: cleanedForm.address,
+        imagesCount: cleanedForm.images.length,
+        resourcesCount: cleanedForm.resources?.length || 0,
+        images: cleanedForm.images,
+        latitude: cleanedForm.latitude,
+        longitude: cleanedForm.longitude,
+        hasCoordinates: !!(cleanedForm.latitude && cleanedForm.longitude)
+      });
+      console.log('🔄 Coordenadas detalladas:', {
+        latitude: cleanedForm.latitude,
+        longitude: cleanedForm.longitude,
+        typeLat: typeof cleanedForm.latitude,
+        typeLon: typeof cleanedForm.longitude
+      });
+      onUpdate(cleanedForm);
       setIsEditing(false);
+      
+      setNotification({ type: 'success', message: 'Unidad actualizada correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: any) {
+      console.error('❌ Error al guardar unidad:', error);
+      console.error('❌ Detalles del error:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      let errorMessage = `Error al guardar: ${error.message || 'Error desconocido'}`;
+      
+      if (error.message?.includes('permission') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
+        errorMessage = `Error de permisos al guardar. Verifica que tengas permisos para editar unidades y que las políticas RLS estén configuradas correctamente.\n\nError: ${error.message}`;
+      }
+      
+      setNotification({ 
+        type: 'error', 
+        message: errorMessage
+      });
+      setTimeout(() => setNotification(null), 8000);
     }
   };
 
-  const handleAddZone = () => {
+  const handleAddZone = async () => {
     if (!newZoneName) return;
-    const newZone: Zone = {
-      id: `z-${Date.now()}`,
+    
+    // Validar que al menos un turno esté seleccionado
+    if (newZoneShifts.length === 0) {
+      setNotification({
+        type: 'error',
+        message: 'Debes seleccionar al menos un turno para la zona'
+      });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    try {
+      // Importar zonesService dinámicamente
+      const { zonesService } = await import('../services/zonesService');
+      
+      // Crear la zona en la base de datos inmediatamente
+      const newZone = await zonesService.create({
       name: newZoneName,
-      shifts: newZoneShifts.split(',').map(s => s.trim()).filter(s => s !== ''),
+        shifts: newZoneShifts, // Ya es un array de ShiftType
       layout: { 
           x: 1, y: 1, w: 2, h: 2, color: '#e2e8f0',
-          layerId: activeLayerId || undefined // Assign to current layer
+          layerId: activeLayerId || undefined
       }, 
       area: 0
-    };
-    if (newZone.shifts.length === 0) newZone.shifts = ['Diurno']; // Default
+      }, unit.id);
     
+      // Actualizar el estado local con la zona creada (que tiene el ID real de la BD)
     setEditForm({
       ...editForm,
       zones: [...editForm.zones, newZone]
     });
+      
+      // Actualizar también el estado de la unidad directamente (sin llamar a onUpdate para evitar recargas)
+      // La zona ya está guardada en la BD, así que solo actualizamos el estado local
+      const updatedUnit = {
+        ...unit,
+        zones: [...unit.zones, newZone]
+      };
+      // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
+
     setNewZoneName('');
-    setNewZoneShifts('');
+      setNewZoneShifts([]);
+      
+      setNotification({
+        type: 'success',
+        message: 'Zona agregada correctamente'
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: any) {
+      console.error('Error al crear zona:', error);
+      setNotification({
+        type: 'error',
+        message: `Error al crear zona: ${error.message || 'Error desconocido'}`
+      });
+      setTimeout(() => setNotification(null), 5000);
+    }
   };
 
-  const handleDeleteZone = (zoneId: string) => {
+  const handleDeleteZone = async (zoneId: string) => {
+    try {
+      // Importar zonesService dinámicamente
+      const { zonesService } = await import('../services/zonesService');
+      
+      // Eliminar la zona de la base de datos
+      await zonesService.delete(zoneId);
+      
+      // Actualizar el estado local
     setEditForm({
       ...editForm,
       zones: editForm.zones.filter(z => z.id !== zoneId)
     });
+      
+      // Actualizar también el estado de la unidad directamente (sin llamar a onUpdate para evitar recargas)
+      // La zona ya está eliminada en la BD, así que solo actualizamos el estado local
+      const updatedUnit = {
+        ...unit,
+        zones: unit.zones.filter(z => z.id !== zoneId)
+      };
+      // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
+      
+      setNotification({
+        type: 'success',
+        message: 'Zona eliminada correctamente'
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: any) {
+      console.error('Error al eliminar zona:', error);
+      setNotification({
+        type: 'error',
+        message: `Error al eliminar zona: ${error.message || 'Error desconocido'}`
+      });
+      setTimeout(() => setNotification(null), 5000);
+    }
   };
 
   // --- Blueprint Layer Management ---
@@ -308,6 +714,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           onUpdate({ ...unit, blueprintLayers: updatedLayers, zones: updatedZones });
           if (updatedLayers.length > 0) setActiveLayerId(updatedLayers[0].id);
           else setActiveLayerId(null);
+          
+          setNotification({ type: 'success', message: 'Nivel eliminado y cambios guardados' });
+          setTimeout(() => setNotification(null), 3000);
       }
   };
 
@@ -319,21 +728,173 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
 
   // --- Edit Unit Images ---
-  const handleAddImageToEdit = () => {
-    if (!editImageUrl) return;
-    setEditForm({ ...editForm, images: [...editForm.images, editImageUrl] });
-    setEditImageUrl('');
-  };
 
   const handleRemoveImageFromEdit = (index: number) => {
     setEditForm({ ...editForm, images: editForm.images.filter((_, i) => i !== index) });
   };
 
-  const handleFileUploadForEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUploadForEdit = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const imageUrl = URL.createObjectURL(file);
-      setEditForm({ ...editForm, images: [...editForm.images, imageUrl] });
+      const fileInput = e.target;
+      
+      console.log('📤 Iniciando subida de imagen:', file.name, file.size, 'bytes');
+      
+      // Verificar sesión de Supabase Auth ANTES de crear el blob URL
+      // Si no hay sesión, intentar crearla desde la sesión local
+      try {
+        const { supabase } = await import('../services/supabase');
+        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session) {
+          console.log('⚠️ No hay sesión de Supabase Auth, intentando crear desde sesión local...');
+          const { authService } = await import('../services/authService');
+          const localSession = authService.getSession();
+          
+          if (localSession) {
+            // El usuario tiene sesión local pero no de Supabase Auth
+            // Esto significa que el usuario inició sesión con password_hash pero no se creó la sesión de Auth
+            // La mejor solución es que el usuario cierre sesión y vuelva a iniciar sesión
+            // El código de signIn ya intenta crear la sesión de Auth, así que si el usuario
+            // cierra sesión y vuelve a iniciar, debería funcionar
+            
+            // Verificar de nuevo si ahora hay sesión
+            if (!session) {
+              const { data: { session: newSession } } = await supabase.auth.getSession();
+              session = newSession || undefined;
+            }
+            
+            if (!session) {
+              console.error('❌ No se pudo crear sesión de Supabase Auth');
+              setNotification({ 
+                type: 'error', 
+                message: 'No se pudo activar la sesión de Supabase Auth.\n\nPor favor, cierra sesión y vuelve a iniciar sesión.\n\nEsto activará la sesión necesaria para subir imágenes.' 
+              });
+              setTimeout(() => setNotification(null), 10000);
+              
+              // Limpiar el input
+              if (fileInput) {
+                fileInput.value = '';
+              }
+              return; // No continuar si no hay sesión de Auth
+            }
+          } else {
+            setNotification({ 
+              type: 'error', 
+              message: 'Debes estar autenticado para subir imágenes. Por favor, inicia sesión.' 
+            });
+            setTimeout(() => setNotification(null), 5000);
+            
+            // Limpiar el input
+            if (fileInput) {
+              fileInput.value = '';
+            }
+            return;
+          }
+        }
+        
+        console.log('✅ Sesión de Supabase Auth verificada:', session?.user?.id);
+      } catch (authCheckError) {
+        console.error('❌ Error al verificar sesión de Auth:', authCheckError);
+        setNotification({ 
+          type: 'error', 
+          message: 'Error al verificar autenticación. Por favor, intenta de nuevo.' 
+        });
+        setTimeout(() => setNotification(null), 5000);
+        
+        // Limpiar el input
+        if (fileInput) {
+          fileInput.value = '';
+        }
+        return;
+      }
+      
+      // Mostrar preview temporal mientras se sube
+      const tempUrl = URL.createObjectURL(file);
+      
+      // Agregar a la lista de imágenes que se están subiendo
+      setUploadingImages(prev => new Set(prev).add(tempUrl));
+      
+      setEditForm({ ...editForm, images: [...editForm.images, tempUrl] });
+      console.log('🖼️ Preview temporal creado:', tempUrl);
+      
+      try {
+        // Subir a Supabase Storage
+        const { storageService } = await import('../services/storageService');
+        const timestamp = Date.now();
+        const fileName = `unit-${unit.id}-${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        const path = `units/${unit.id}/${fileName}`;
+        
+        console.log('☁️ Subiendo a Storage:', { bucket: 'unit-images', path });
+        const permanentUrl = await storageService.uploadFile('unit-images', file, path);
+        console.log('✅ URL permanente obtenida:', permanentUrl);
+        
+        // Reemplazar el blob URL temporal con la URL permanente
+        setEditForm(prev => {
+          const updated = {
+            ...prev,
+            images: prev.images.map(img => img === tempUrl ? permanentUrl : img)
+          };
+          console.log('🔄 Estado actualizado con URL permanente. Total imágenes:', updated.images.length);
+          return updated;
+        });
+        
+        // Remover de la lista de imágenes que se están subiendo
+        setUploadingImages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(tempUrl);
+          return newSet;
+        });
+        
+        // Limpiar el blob URL temporal
+        URL.revokeObjectURL(tempUrl);
+        
+        setNotification({ type: 'success', message: 'Imagen subida correctamente' });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (error: any) {
+        console.error('❌ Error al subir imagen:', error);
+        console.error('❌ Detalles del error:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        });
+        
+        // Remover de la lista de imágenes que se están subiendo
+        setUploadingImages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(tempUrl);
+          return newSet;
+        });
+        
+        // Remover la imagen temporal si falló la subida
+        setEditForm(prev => {
+          const updated = {
+            ...prev,
+            images: prev.images.filter(img => img !== tempUrl)
+          };
+          console.log('🗑️ Imagen temporal removida. Total imágenes:', updated.images.length);
+          return updated;
+        });
+        URL.revokeObjectURL(tempUrl);
+        
+        // Mensaje de error más específico
+        let errorMessage = `Error al subir imagen: ${error.message || 'Error desconocido'}`;
+        
+        if (error.message?.includes('Supabase Auth') || error.message?.includes('sesión')) {
+          errorMessage = `No se puede subir la imagen.\n\n${error.message}\n\nPor favor, cierra sesión y vuelve a iniciar sesión para activar la sesión de Supabase Auth necesaria.`;
+        }
+        
+        setNotification({ 
+          type: 'error', 
+          message: errorMessage
+        });
+        setTimeout(() => setNotification(null), 10000); // Más tiempo para leer el mensaje
+      } finally {
+        // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
+        if (fileInput) {
+          fileInput.value = '';
+        }
+      }
     }
   };
 
@@ -373,46 +934,177 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleCreateRequest = () => {
+  const handleCreateRequest = async () => {
       if(!onUpdate) return;
       
-      const newRequest: ClientRequest = {
-          id: `req-${Date.now()}`,
+      // Validar campos requeridos
+      if (!newRequestForm.title?.trim()) {
+        setNotification({ type: 'error', message: 'Por favor, complete el título del requerimiento' });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+      if (!newRequestForm.description.trim()) {
+        setNotification({ type: 'error', message: 'Por favor, complete la descripción del requerimiento' });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+      
+      setIsSavingRequest(true);
+      setNotification({ type: 'info', message: 'Guardando requerimiento...' });
+      
+      try {
+        // Obtener el nombre real del usuario
+        const { authService } = await import('../services/authService');
+        const currentUserData = await authService.getCurrentUser();
+        const authorName = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
+        
+        console.log('📝 Creando requerimiento - Usuario actual:', {
+          name: currentUserData?.name,
+          email: currentUserData?.email,
+          role: userRole,
+          authorName
+        });
+        
+        // Crear el request en la base de datos
+        const savedRequest = await requestsService.create({
           date: new Date().toISOString().split('T')[0],
+          title: newRequestForm.title.trim(),
           category: newRequestForm.category as any,
           priority: newRequestForm.priority as any,
           status: 'PENDING',
           description: newRequestForm.description,
-          author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
+          author: authorName,
           relatedResourceId: newRequestForm.relatedResourceId || undefined,
           attachments: newRequestImages,
           comments: []
-      };
+        }, unit.id);
 
-      const updatedRequests = [...(unit.requests || []), newRequest];
-      onUpdate({ ...unit, requests: updatedRequests });
-      setShowRequestModal(false);
-      setNewRequestForm({ category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
-      setNewRequestImages([]);
+        // Recargar todos los requests desde la BD para asegurar consistencia
+        const allRequests = await requestsService.getByUnitId(unit.id);
+        
+        // Actualizar la unidad con los requests recargados
+        onUpdate({ ...unit, requests: allRequests });
+        
+        // Limpiar el formulario y cerrar el modal
+        setShowRequestModal(false);
+        setNewRequestForm({ title: '', category: 'GENERAL', description: '', priority: 'MEDIUM', relatedResourceId: '' });
+        setNewRequestImages([]);
+        
+        setNotification({ type: 'success', message: 'Requerimiento guardado correctamente' });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (error) {
+        console.error('Error al guardar requerimiento:', error);
+        setNotification({ type: 'error', message: 'Error al guardar el requerimiento. Por favor, intente nuevamente.' });
+        setTimeout(() => setNotification(null), 5000);
+      } finally {
+        setIsSavingRequest(false);
+      }
   };
 
-  const handleUpdateRequestStatus = (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[]) => {
+  const handleUpdateRequestStatus = async (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[], title?: string) => {
       if(!onUpdate || !editingRequest) return;
-      const updatedRequests = (unit.requests || []).map(req => {
-          if (req.id === editingRequest.id) {
-              return { 
-                  ...req, 
-                  status, 
-                  response: response || req.response,
-                  responseAttachments: attachments || req.responseAttachments,
-                  resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : req.resolvedDate
-              };
-          }
-          return req;
-      });
-      onUpdate({ ...unit, requests: updatedRequests });
-      setEditingRequest(null);
-      setResolveAttachments([]);
+      
+      setIsSavingRequest(true);
+      setNotification({ type: 'info', message: 'Guardando cambios...' });
+      
+      try {
+        // Obtener el nombre real del usuario para la respuesta si se proporciona
+        let responseAuthor = editingRequest.author;
+        if (response && !editingRequest.response) {
+          // Si es una nueva respuesta, obtener el nombre del usuario actual
+          const { authService } = await import('../services/authService');
+          const currentUserData = await authService.getCurrentUser();
+          responseAuthor = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
+        }
+        
+        // Actualizar el request en la base de datos
+        await requestsService.update(editingRequest.id, {
+          status,
+          title: title !== undefined ? (title.trim() || undefined) : editingRequest.title,
+          response: response || editingRequest.response,
+          responseAttachments: attachments || editingRequest.responseAttachments,
+          resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : editingRequest.resolvedDate
+        });
+
+        // Recargar todos los requests desde la BD para asegurar consistencia
+        const allRequests = await requestsService.getByUnitId(unit.id);
+        
+        // Actualizar la unidad con los requests recargados
+        onUpdate({ ...unit, requests: allRequests });
+        
+        // Actualizar el request en edición con los datos recargados
+        const updatedRequest = allRequests.find(r => r.id === editingRequest.id);
+        if (updatedRequest) {
+          setEditingRequest(updatedRequest);
+        } else {
+          setEditingRequest(null);
+        }
+        setResolveAttachments([]);
+        setResolveResponse('');
+        setResolveTitle('');
+        
+        const statusMessages = {
+          'PENDING': 'Requerimiento marcado como pendiente',
+          'IN_PROGRESS': 'Requerimiento en progreso',
+          'RESOLVED': 'Requerimiento resuelto correctamente'
+        };
+        setNotification({ type: 'success', message: statusMessages[status] });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (error) {
+        console.error('Error al actualizar requerimiento:', error);
+        setNotification({ type: 'error', message: 'Error al actualizar el requerimiento. Por favor, intente nuevamente.' });
+        setTimeout(() => setNotification(null), 5000);
+      } finally {
+        setIsSavingRequest(false);
+      }
+  };
+
+  // Eliminar requerimiento (solo para administradores)
+  const handleDeleteRequest = async (requestId: string) => {
+    if (!onUpdate) return;
+    
+    // Verificar permisos: solo ADMIN y SUPER_ADMIN pueden eliminar requerimientos
+    if (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
+      setNotification({ type: 'error', message: 'Solo los administradores pueden eliminar requerimientos.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    const requestToDelete = unit.requests?.find(r => r.id === requestId);
+    if (!requestToDelete) return;
+    
+    const requestTitle = requestToDelete.title || 'Sin título';
+    if (!confirm(`¿Está seguro de eliminar este requerimiento?\n\nTítulo: ${requestTitle}\nCategoría: ${requestToDelete.category}\nEstado: ${requestToDelete.status}\n\nEsta acción no se puede deshacer.`)) {
+      return;
+    }
+    
+    setIsSavingRequest(true);
+    setNotification({ type: 'info', message: 'Eliminando requerimiento...' });
+    
+    try {
+      await requestsService.delete(requestId);
+      
+      // Actualizar estado local
+      const updatedRequests = (unit.requests || []).filter(r => r.id !== requestId);
+      const result = onUpdate({ ...unit, requests: updatedRequests });
+      if (result instanceof Promise) {
+        await result;
+      }
+      
+      // Si el requerimiento eliminado estaba en edición, cerrar el modal
+      if (editingRequest?.id === requestId) {
+        setEditingRequest(null);
+      }
+      
+      setNotification({ type: 'success', message: 'Requerimiento eliminado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar requerimiento:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el requerimiento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingRequest(false);
+    }
   };
   
   const handleAddResolveImage = () => {
@@ -434,27 +1126,62 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // INLINE COMMENTS HANDLER
-  const handleInlineCommentSubmit = (reqId: string) => {
+  const handleInlineCommentSubmit = async (reqId: string) => {
       const text = commentDrafts[reqId];
       if (!onUpdate || !text || !text.trim()) return;
 
-      const newComment = {
+      try {
+        // Obtener el nombre real del usuario
+        const { authService } = await import('../services/authService');
+        const currentUserData = await authService.getCurrentUser();
+        const authorName = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
+        
+        console.log('💬 Agregando comentario - Usuario actual:', {
+          name: currentUserData?.name,
+          email: currentUserData?.email,
+          role: userRole,
+          authorName
+        });
+        
+        const newComment = {
           id: `c-${Date.now()}`,
-          author: userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops',
+          author: authorName,
           role: userRole,
           date: new Date().toISOString(),
           text: text
-      };
+        };
 
-      const updatedRequests = (unit.requests || []).map(req => {
+        // Actualización optimista: agregar el comentario inmediatamente a la UI
+        const updatedRequests = (unit.requests || []).map(req => {
           if (req.id === reqId) {
-              return { ...req, comments: [...(req.comments || []), newComment] };
+            return { ...req, comments: [...(req.comments || []), newComment] };
           }
           return req;
-      });
+        });
+        
+        // Actualizar la unidad inmediatamente para feedback rápido
+        onUpdate({ ...unit, requests: updatedRequests });
+        
+        // Limpiar el draft del comentario inmediatamente
+        setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
 
-      onUpdate({ ...unit, requests: updatedRequests });
-      setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
+        // Guardar el comentario en la base de datos en segundo plano
+        await requestsService.addComment(reqId, newComment);
+
+        // Recargar todos los requests desde la BD para asegurar consistencia
+        const allRequests = await requestsService.getByUnitId(unit.id);
+        
+        // Actualizar la unidad con los requests recargados (con el ID real del comentario de la BD)
+        onUpdate({ ...unit, requests: allRequests });
+      } catch (error) {
+        console.error('Error al agregar comentario:', error);
+        setNotification({ type: 'error', message: 'Error al agregar el comentario. Por favor, intente nuevamente.' });
+        setTimeout(() => setNotification(null), 3000);
+        
+        // Revertir la actualización optimista en caso de error
+        const allRequests = await requestsService.getByUnitId(unit.id);
+        onUpdate({ ...unit, requests: allRequests });
+      }
   };
 
 
@@ -474,48 +1201,57 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const startGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
       const startGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
 
-      setInteractionState({
+      const startLayout = { ...(zone.layout || {x:1,y:1,w:2,h:2,color:'#ccc', layerId: activeLayerId || undefined}) };
+      
+      const newInteractionState = {
           type,
           zoneId: zone.id,
           startGridX,
           startGridY,
-          startLayout: { ...(zone.layout || {x:1,y:1,w:2,h:2,color:'#ccc', layerId: activeLayerId || undefined}) }
-      });
+          startLayout
+      };
+      
+      setInteractionState(newInteractionState);
+      interactionStateRef.current = newInteractionState;
       setSelectedZoneId(zone.id);
-  };
-
-  const handleGridMouseMove = (e: React.MouseEvent) => {
-      if (interactionState.type === 'idle' || !gridRef.current || !interactionState.zoneId) return;
+      
+      // Agregar event listeners globales para capturar el movimiento del mouse incluso fuera del elemento
+      const handleGlobalMouseMove = (e: MouseEvent) => {
+        const currentState = interactionStateRef.current;
+        if (currentState.type === 'idle' || !gridRef.current || !currentState.zoneId) return;
 
       const gridRect = gridRef.current.getBoundingClientRect();
       const cellWidth = gridRect.width / 12;
-      const cellHeight = gridRect.height / gridRows; // DYNAMIC
+        const cellHeight = gridRect.height / gridRows;
       
       const currentGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
       const currentGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
 
-      const deltaX = currentGridX - interactionState.startGridX;
-      const deltaY = currentGridY - interactionState.startGridY;
+        const deltaX = currentGridX - currentState.startGridX;
+        const deltaY = currentGridY - currentState.startGridY;
 
-      const zonesCopy = [...unit.zones];
-      const zoneIndex = zonesCopy.findIndex(z => z.id === interactionState.zoneId);
-      if (zoneIndex === -1) return;
+        // Usar editForm.zones si está disponible, sino unit.zones
+        setEditForm(prev => {
+          const zonesToUse = prev.zones && prev.zones.length > 0 ? prev.zones : unit.zones;
+          const zonesCopy = [...zonesToUse];
+          const zoneIndex = zonesCopy.findIndex(z => z.id === currentState.zoneId);
+          if (zoneIndex === -1) return prev;
 
       const zone = { ...zonesCopy[zoneIndex] };
-      const baseLayout = interactionState.startLayout;
+          const baseLayout = currentState.startLayout;
 
-      if (interactionState.type === 'drag') {
+          if (currentState.type === 'drag') {
           // Update X/Y
           let newX = baseLayout.x + deltaX;
           let newY = baseLayout.y + deltaY;
           
           // Boundaries (12 columns, gridRows rows)
           newX = Math.max(1, Math.min(newX, 13 - baseLayout.w));
-          newY = Math.max(1, Math.min(newY, (gridRows + 1) - baseLayout.h)); // Use dynamic gridRows
+              newY = Math.max(1, Math.min(newY, (gridRows + 1) - baseLayout.h));
 
           zone.layout = { ...baseLayout, x: newX, y: newY };
 
-      } else if (interactionState.type === 'resize') {
+          } else if (currentState.type === 'resize') {
           // Update W/H
           let newW = baseLayout.w + deltaX;
           let newH = baseLayout.h + deltaY;
@@ -527,26 +1263,109 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           zone.layout = { ...baseLayout, w: newW, h: newH };
       }
 
-      // Optimistic update
       zonesCopy[zoneIndex] = zone;
-      if (onUpdate) onUpdate({ ...unit, zones: zonesCopy });
+          return {
+            ...prev,
+            zones: zonesCopy
+          };
+        });
+      };
+
+      const handleGlobalMouseUp = async () => {
+        const currentState = interactionStateRef.current;
+        
+        // Remover listeners globales
+        document.removeEventListener('mousemove', handleGlobalMouseMove);
+        document.removeEventListener('mouseup', handleGlobalMouseUp);
+        
+        // Guardar cambios en BD
+        if (currentState.type !== 'idle' && currentState.zoneId) {
+          setEditForm(prev => {
+            const zonesToUse = prev.zones && prev.zones.length > 0 ? prev.zones : unit.zones;
+            const updatedZone = zonesToUse.find(z => z.id === currentState.zoneId);
+            if (updatedZone && updatedZone.layout) {
+              // Guardar de forma asíncrona sin bloquear
+              (async () => {
+                try {
+                  const { zonesService } = await import('../services/zonesService');
+                  await zonesService.update(currentState.zoneId!, updatedZone);
+                } catch (error) {
+                  console.error('Error al guardar posición de zona:', error);
+                }
+              })();
+            }
+            return prev;
+          });
+        }
+        
+        // Resetear estado
+        const resetState = { type: 'idle' as const, zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:0,y:0,w:0,h:0} };
+        setInteractionState(resetState);
+        interactionStateRef.current = resetState;
+      };
+
+      // Agregar listeners globales
+      document.addEventListener('mousemove', handleGlobalMouseMove);
+      document.addEventListener('mouseup', handleGlobalMouseUp);
   };
 
+  // Esta función ya no se usa directamente, pero la mantenemos por compatibilidad
+  const handleGridMouseMove = (e: React.MouseEvent) => {
+      // El movimiento del mouse ahora se maneja con eventos globales en handleGridMouseDown
+      // Esta función se mantiene para evitar errores, pero no hace nada
+  };
+
+  // Esta función ya no se usa directamente, pero la mantenemos por compatibilidad
   const handleGridMouseUp = () => {
-      setInteractionState({ type: 'idle', zoneId: null, startGridX: 0, startGridY: 0, startLayout: {x:0,y:0,w:0,h:0} });
+      // El mouse up ahora se maneja con eventos globales en handleGridMouseDown
+      // Esta función se mantiene para evitar errores, pero no hace nada
   };
 
-  const updateSelectedZoneDetails = (key: string, value: any) => {
-      if (!selectedZoneId || !onUpdate) return;
-      const zonesCopy = unit.zones.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
+  const updateSelectedZoneDetails = async (key: string, value: any) => {
+      if (!selectedZoneId) return;
+      try {
+        // Usar editForm.zones si está disponible, sino unit.zones
+        const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+        const zonesCopy = zonesToUse.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
+        
       if (key === 'color') {
            // Color is nested in layout
-           const target = unit.zones.find(z => z.id === selectedZoneId);
+             const target = zonesToUse.find(z => z.id === selectedZoneId);
            if (target) {
-               zonesCopy.splice(zonesCopy.indexOf(target), 1, { ...target, layout: { ...target.layout!, color: value } });
-           }
+                 const targetIndex = zonesCopy.findIndex(z => z.id === selectedZoneId);
+                 if (targetIndex !== -1) {
+                     zonesCopy[targetIndex] = { ...target, layout: { ...target.layout!, color: value } };
+                 }
+             }
+        }
+        
+        // Actualizar editForm
+        setEditForm({
+          ...editForm,
+          zones: zonesCopy
+        });
+        
+        // Si es un cambio que requiere persistencia inmediata (nombre, área), guardar en BD
+        if (key === 'name' || key === 'area') {
+          const updatedZone = zonesCopy.find(z => z.id === selectedZoneId);
+          if (updatedZone) {
+            try {
+              const { zonesService } = await import('../services/zonesService');
+              await zonesService.update(selectedZoneId, updatedZone);
+              setNotification({ type: 'success', message: 'Cambios en plano guardados' });
+              setTimeout(() => setNotification(null), 2000);
+            } catch (error) {
+              console.error('Error al guardar zona:', error);
+              setNotification({ type: 'error', message: 'Error al guardar cambios en el plano' });
+              setTimeout(() => setNotification(null), 3000);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error al actualizar zona:', error);
+        setNotification({ type: 'error', message: 'Error al guardar cambios en el plano' });
+        setTimeout(() => setNotification(null), 3000);
       }
-      onUpdate({ ...unit, zones: zonesCopy });
   };
 
 
@@ -567,27 +1386,57 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleMassAssignTraining = () => {
+  const handleMassAssignTraining = async () => {
     if (!onUpdate) return;
+    
+    setIsSavingWorker(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      
     const newTraining: Training = {
       id: `t-${Date.now()}`,
       topic: massTrainingForm.topic,
       date: massTrainingForm.date,
       status: massTrainingForm.status as any,
     };
-    const updatedResources = unit.resources.map(res => {
+      
+      // Guardar capacitaciones en la base de datos para cada trabajador seleccionado
+      const updatePromises = unit.resources
+        .filter(res => res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id))
+        .map(async (res, index) => {
+          const trainingId = `t-${Date.now()}-${res.id}-${index}`;
+          const updatedTrainings = [...(res.trainings || []), { ...newTraining, id: trainingId }];
+          await resourcesService.update(res.id, { trainings: updatedTrainings });
+          return { ...res, trainings: updatedTrainings };
+        });
+      
+      await Promise.all(updatePromises);
+      
+      // Actualizar estado local después de guardar en BD (usar los mismos IDs que se guardaron)
+      const updatedResources = await Promise.all(
+        unit.resources.map(async (res) => {
       if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
-        return {
-          ...res,
-          trainings: [...(res.trainings || []), { ...newTraining, id: `t-${Date.now()}-${res.id}` }]
-        };
+            // Recargar el recurso desde BD para obtener los IDs correctos
+            const updatedResource = await resourcesService.getById(res.id);
+            return updatedResource || res;
       }
       return res;
-    });
+        })
+      );
+      
     onUpdate({ ...unit, resources: updatedResources });
     setShowMassTrainingModal(false);
     setSelectedPersonnelIds([]);
     setMassTrainingForm({ topic: '', date: '', status: 'Programado' });
+      setNotification({ type: 'success', message: 'Capacitaciones agregadas correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar capacitaciones:', error);
+      setNotification({ type: 'error', message: 'Error al guardar capacitaciones. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
   };
 
   const handleMassAssignAsset = async () => {
@@ -633,12 +1482,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           try {
             const assetForConstancy: AssignedAsset = {
               id: `a-${Date.now()}-${worker.id}`,
-              name: assetAssignmentForm.name,
-              type: assetAssignmentForm.type as any,
+        name: assetAssignmentForm.name,
+        type: assetAssignmentForm.type as any,
               dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
-              serialNumber: assetAssignmentForm.serialNumber
-            };
-
+        serialNumber: assetAssignmentForm.serialNumber
+    };
+    
             // Generar constancia (solo guardar en BD, no descargar PDF)
             console.log(`🔄 Generando constancia para trabajador ${worker.name} (DNI: ${worker.dni})`);
             const constancy = await constancyService.generateAssetConstancy(
@@ -669,8 +1518,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         console.log(`📊 Total de códigos generados: ${Object.keys(constancyCodes).length} de ${selectedWorkers.length} trabajadores`);
 
         // Asignar activos con códigos de constancia
-        const updatedResources = unit.resources.map(res => {
-          if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
+    const updatedResources = unit.resources.map(res => {
+        if (res.type === ResourceType.PERSONNEL && selectedPersonnelIds.includes(res.id)) {
             const constancyCode = constancyCodes[res.id];
             if (!constancyCode) {
               console.warn(`⚠️ No se generó código de constancia para trabajador ${res.id}`);
@@ -694,17 +1543,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             });
             
             return {
-              ...res,
+                ...res,
               assignedAssets: [...(res.assignedAssets || []), assetWithConstancy]
             };
-          }
-          return res;
-        });
+        }
+        return res;
+    });
 
         // Cerrar modal ANTES de actualizar para evitar que se recargue y cierre
-        setShowAssetAssignmentModal(false);
-        setSelectedPersonnelIds([]);
-        setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+    setShowAssetAssignmentModal(false);
+    setSelectedPersonnelIds([]);
+    setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
         setGenerateConstancy(true);
         
         // Actualizar unidad (esto guardará los activos con códigos de constancia)
@@ -771,20 +1620,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     try {
       const { resourcesService } = await import('../services/resourcesService');
       const newWorker = await resourcesService.create({
-        name: newWorkerForm.name,
-        type: ResourceType.PERSONNEL,
-        quantity: 1,
-        status: StaffStatus.ACTIVE,
+      name: newWorkerForm.name,
+      type: ResourceType.PERSONNEL,
+      quantity: 1,
+      status: StaffStatus.ACTIVE,
         assignedZones: newWorkerForm.zones,
-        assignedShift: newWorkerForm.shift,
-        compliancePercentage: 100,
+      assignedShift: newWorkerForm.shift,
+      compliancePercentage: 100,
         dni: newWorkerForm.dni || undefined,
+        puesto: newWorkerForm.puesto || undefined,
+        isShared: newWorkerForm.isShared || false,
         startDate: newWorkerForm.startDate || undefined,
         endDate: newWorkerForm.endDate || undefined,
         personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
-        archived: false,
-        trainings: [],
-        assignedAssets: []
+        archived: newWorkerForm.endDate ? true : false, // Archivar automáticamente si tiene fecha de fin
+      trainings: [],
+      assignedAssets: []
       }, unit.id);
       
       // Actualizar solo los recursos localmente para mantener el tab activo
@@ -800,7 +1651,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }, 100);
       
       // Cerrar modal y limpiar formulario
-      setShowAddWorkerModal(false);
+    setShowAddWorkerModal(false);
       setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
@@ -833,6 +1684,111 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
+  const handleBulkImport = async (file: File) => {
+    if (!onUpdate) return;
+    
+    setIsImporting(true);
+    setImportResult(null);
+    
+    try {
+      const { excelService } = await import('../services/excelService');
+      const { resourcesService } = await import('../services/resourcesService');
+      
+      // Importar datos del Excel
+      const { data: personnelData, result } = await excelService.importPersonnelFromExcel(file);
+      
+      setImportResult(result);
+      
+      if (personnelData.length === 0) {
+        setNotification({ 
+          type: 'error', 
+          message: 'No se encontraron datos válidos en el archivo Excel' 
+        });
+        setTimeout(() => setNotification(null), 5000);
+        return;
+      }
+      
+      // Crear trabajadores
+      const createdWorkers: Resource[] = [];
+      const errors: Array<{ row: number; error: string }> = [];
+      
+      for (let i = 0; i < personnelData.length; i++) {
+        const row = personnelData[i];
+        try {
+          // Parsear zonas (separadas por coma o punto y coma)
+          const zones = row.zonas 
+            ? row.zonas.split(/[,;]/).map(z => z.trim()).filter(z => z !== '')
+            : [];
+          
+          // Normalizar turno
+          let shift = row.turno?.trim() || '';
+          if (shift) {
+            const shiftLower = shift.toLowerCase();
+            if (shiftLower.includes('diurno')) shift = 'Diurno';
+            else if (shiftLower.includes('nocturno')) shift = 'Nocturno';
+            else if (shiftLower.includes('mixto')) shift = 'Mixto';
+          }
+          
+          const newWorker = await resourcesService.create({
+            name: row.nombre.trim(),
+            type: ResourceType.PERSONNEL,
+            quantity: 1,
+            status: StaffStatus.ACTIVE,
+            assignedZones: zones,
+            assignedShift: shift || undefined,
+            compliancePercentage: 100,
+            dni: row.dni?.trim() || undefined,
+            puesto: row.puesto?.trim() || undefined,
+            isShared: row.compartido === true || row.compartido === 'true' || row.compartido === 'Sí' || row.compartido === 'Sí' || false,
+            startDate: row.fechaInicio || undefined,
+            endDate: row.fechaFin || undefined,
+            personnelStatus: row.fechaFin ? 'cesado' : 'activo',
+            archived: row.fechaFin ? true : false, // Archivar automáticamente si tiene fecha de fin
+            trainings: [],
+            assignedAssets: []
+          }, unit.id);
+          
+          createdWorkers.push(newWorker);
+        } catch (error: any) {
+          errors.push({
+            row: i + 2, // +2 porque la primera fila es encabezados y empezamos desde 0
+            error: error.message || 'Error al crear trabajador'
+          });
+        }
+      }
+      
+      // Actualizar unidad con los nuevos trabajadores
+      const updatedResources = [...unit.resources, ...createdWorkers];
+      onUpdate({ ...unit, resources: updatedResources });
+      
+      // Mostrar resultado
+      if (createdWorkers.length > 0) {
+        setNotification({ 
+          type: 'success', 
+          message: `Se importaron ${createdWorkers.length} trabajador(es) correctamente${errors.length > 0 ? `. ${errors.length} error(es).` : '.'}` 
+        });
+        setTimeout(() => setNotification(null), 5000);
+      }
+      
+      if (errors.length > 0) {
+        setImportResult({
+          ...result,
+          failed: errors.length,
+          errors: [...result.errors, ...errors]
+        });
+      }
+    } catch (error: any) {
+      console.error('Error al importar trabajadores:', error);
+      setNotification({ 
+        type: 'error', 
+        message: `Error al importar: ${error.message || 'Error desconocido'}` 
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   // NEW: Helper to add single Training/Asset directly from expanded view
   const handleAddSingleTraining = (resourceId: string) => {
       setSelectedPersonnelIds([resourceId]);
@@ -844,15 +1800,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setShowAssetAssignmentModal(true);
   };
   
-  const handleDeleteTraining = (resourceId: string, trainingId: string) => {
+  const handleDeleteTraining = async (resourceId: string, trainingId: string) => {
       if(!onUpdate) return;
+      
+      try {
+          const { resourcesService } = await import('../services/resourcesService');
+          const resource = unit.resources.find(r => r.id === resourceId);
+          if (!resource) return;
+          
+          const updatedTrainings = resource.trainings?.filter(t => t.id !== trainingId) || [];
+          await resourcesService.update(resourceId, { trainings: updatedTrainings });
+          
+          // Actualizar estado local después de guardar en BD
       const updatedResources = unit.resources.map(r => {
           if (r.id === resourceId) {
-              return { ...r, trainings: r.trainings?.filter(t => t.id !== trainingId) };
+                  return { ...r, trainings: updatedTrainings };
           }
           return r;
       });
       onUpdate({ ...unit, resources: updatedResources });
+      } catch (error) {
+          console.error('Error al eliminar capacitación:', error);
+          setNotification({ type: 'error', message: 'Error al eliminar capacitación. Por favor, intente nuevamente.' });
+          setTimeout(() => setNotification(null), 5000);
+      }
   };
 
   const handleDeleteAsset = (resourceId: string, assetId: string) => {
@@ -956,17 +1927,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
-     if(!onUpdate) return;
+     // No permitir cambios si el usuario no tiene permiso de edición
+     if (!canEditPersonnel) return;
      
-     // Cycle: Day -> Night -> OFF -> Day
+     // Cycle: Day -> Afternoon -> Night -> OFF -> Day
+     // Leer el tipo actual desde el estado local para asegurar que tenemos el valor más reciente
+     let actualCurrentType: ShiftType = currentType;
      let nextType: ShiftType = 'Day';
      let hours = 8;
-     if (currentType === 'Day') { nextType = 'Night'; hours = 8; }
-     else if (currentType === 'Night') { nextType = 'OFF'; hours = 0; }
-     else if (currentType === 'OFF') { nextType = 'Day'; hours = 8; }
-     else { nextType = 'Day'; hours = 8; }
+     
+     setLocalResources(prevResources => {
+         const resource = prevResources.find(r => r.id === resourceId);
+         actualCurrentType = (resource?.workSchedule?.find(s => s.date === date)?.type as ShiftType) || currentType;
+         
+         if (actualCurrentType === 'Day') { 
+           nextType = 'Afternoon'; 
+           hours = 8; 
+         } else if (actualCurrentType === 'Afternoon') { 
+           nextType = 'Night'; 
+           hours = 8; 
+         } else if (actualCurrentType === 'Night') { 
+           nextType = 'OFF'; 
+           hours = 0; 
+         } else if (actualCurrentType === 'OFF') { 
+           nextType = 'Day'; 
+           hours = 8; 
+         } else { 
+           nextType = 'Day'; 
+           hours = 8; 
+         }
 
-     const updatedResources = unit.resources.map(r => {
+         // ACTUALIZACIÓN INSTANTÁNEA: Actualizar solo el estado local (SIN guardar en BD todavía)
+         return prevResources.map(r => {
          if (r.id === resourceId) {
              const schedule = r.workSchedule ? [...r.workSchedule] : [];
              const existingIdx = schedule.findIndex(s => s.date === date);
@@ -979,8 +1971,61 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          }
          return r;
      });
-     onUpdate({ ...unit, resources: updatedResources });
+     });
+     
+     // Marcar que hay cambios sin guardar (NO guardar automáticamente)
+     setRosterHasUnsavedChanges(true);
   };
+
+  // Función para guardar toda la planificación de rostering
+  const handleSaveRoster = async () => {
+     if (!onUpdate || isSavingRoster) return;
+     
+     setIsSavingRoster(true);
+     try {
+         const { resourcesService } = await import('../services/resourcesService');
+         
+         // Guardar todos los turnos de todos los recursos que tienen cambios
+         const savePromises: Promise<void>[] = [];
+         
+         localResources.forEach(resource => {
+             if (resource.type === ResourceType.PERSONNEL && resource.workSchedule && resource.workSchedule.length > 0) {
+                 // Guardar todos los turnos de este recurso
+                 resource.workSchedule.forEach(shift => {
+                     savePromises.push(
+                         resourcesService.upsertDailyShift(resource.id, shift).catch(error => {
+                             console.error(`❌ Error al guardar turno para ${resource.name} en ${shift.date}:`, error);
+                             throw error;
+                         })
+                     );
+                 });
+             }
+         });
+         
+         await Promise.all(savePromises);
+         
+         // Actualizar la unidad en el estado padre para sincronizar
+         const updatedResources = localResources.map(r => {
+             if (r.type === ResourceType.PERSONNEL) {
+                 return r; // Ya tiene workSchedule actualizado
+             }
+             return r;
+         });
+         
+     onUpdate({ ...unit, resources: updatedResources });
+         
+         setRosterHasUnsavedChanges(false);
+         setNotification({ type: 'success', message: 'Planificación guardada correctamente' });
+         setTimeout(() => setNotification(null), 3000);
+     } catch (error) {
+         console.error('❌ Error al guardar planificación:', error);
+         setNotification({ type: 'error', message: 'Error al guardar la planificación. Por favor, intente nuevamente.' });
+         setTimeout(() => setNotification(null), 5000);
+     } finally {
+         setIsSavingRoster(false);
+     }
+  };
+
 
   const handleReplicateWeek = () => {
       if (!onUpdate) return;
@@ -1024,6 +2069,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const getShiftColor = (type: string) => {
       switch(type) {
           case 'Day': return 'bg-blue-500 text-white hover:bg-blue-600';
+          case 'Afternoon': return 'bg-amber-500 text-white hover:bg-amber-600';
           case 'Night': return 'bg-indigo-600 text-white hover:bg-indigo-700';
           case 'OFF': return 'bg-slate-200 text-slate-500 hover:bg-slate-300';
           case 'Vacation': return 'bg-orange-400 text-white hover:bg-orange-500';
@@ -1072,10 +2118,35 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setIsUpdatingResource(true);
     try {
       const { resourcesService } = await import('../services/resourcesService');
-      await resourcesService.update(editingResource.id, editingResource);
       
-      // Actualizar solo el recurso localmente para mantener el tab activo
-      const updatedResources = unit.resources.map(r => r.id === editingResource.id ? editingResource : r);
+      // Si es personal y se establece endDate, marcarlo como cesado y archivarlo automáticamente
+      const hasEndDate = editingResource.type === ResourceType.PERSONNEL && editingResource.endDate;
+      const isCesado = editingResource.type === ResourceType.PERSONNEL && editingResource.personnelStatus === 'cesado';
+      const shouldArchive = hasEndDate || isCesado;
+      
+      const resourceToUpdate = shouldArchive 
+        ? { 
+            ...editingResource, 
+            archived: true, 
+            personnelStatus: hasEndDate ? 'cesado' as const : editingResource.personnelStatus 
+          }
+        : editingResource;
+      
+      // Guardar en la BD
+      await resourcesService.update(editingResource.id, resourceToUpdate);
+      
+      // Recargar el recurso desde la BD para asegurar sincronización completa
+      const updatedResourceFromDB = await resourcesService.getById(editingResource.id);
+      
+      if (!updatedResourceFromDB) {
+        throw new Error('No se pudo recargar el recurso actualizado');
+      }
+      
+      // Actualizar solo el recurso localmente con los datos de la BD
+      const updatedResources = unit.resources.map(r => 
+        r.id === editingResource.id ? updatedResourceFromDB : r
+      );
+      
       const currentTab = activeTabRef.current; // Guardar el tab actual
       onUpdate({ ...unit, resources: updatedResources });
       
@@ -1088,28 +2159,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y mostrar notificación
       setEditingResource(null);
-      setNotification({ type: 'success', message: 'Trabajador actualizado correctamente' });
+      const message = shouldArchive 
+        ? 'Trabajador cesado y archivado correctamente' 
+        : 'Cambios guardados correctamente';
+      setNotification({ type: 'success', message });
       setTimeout(() => setNotification(null), 3000);
-      
-      // Recargar en segundo plano para sincronizar con BD (sin afectar la UI)
-      setTimeout(async () => {
-        try {
-          const { unitsService } = await import('../services/unitsService');
-          const refreshedUnit = await unitsService.getById(unit.id);
-          if (refreshedUnit && onUpdate) {
-            const savedTab = activeTabRef.current; // Guardar el tab antes de actualizar
-            onUpdate({ ...refreshedUnit });
-            // Restaurar el tab activo después de la actualización
-            setTimeout(() => {
-              if (activeTab !== savedTab) {
-                setActiveTab(savedTab);
-              }
-            }, 50);
-          }
-        } catch (error) {
-          console.error('Error al sincronizar unidad:', error);
-        }
-      }, 500);
     } catch (error) {
       console.error('Error al actualizar trabajador:', error);
       setNotification({ type: 'error', message: 'Error al actualizar el trabajador. Por favor, intente nuevamente.' });
@@ -1219,6 +2273,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setNewResourceForm({ name: '', quantity: 1, status: type === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo', externalId: '', assignedZones: [] });
     setEquipmentResponsibleWorkerId('');
     setGenerateEquipmentConstancy(false);
+    closeAllModalsExcept('addResource');
     setShowAddResourceModal(true);
   }
 
@@ -1293,22 +2348,228 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleCreateEvent = () => {
+  const handleCreateEvent = async () => {
     if (!onUpdate) return;
-    const newLog: OperationalLog = {
-      id: `l-${Date.now()}`,
-      date: newEventForm.date,
+    
+    // Validar campos requeridos
+    if (!newEventForm.date || !newEventForm.description.trim()) {
+      setNotification({ type: 'error', message: 'Por favor, complete la fecha y descripción del evento' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    setIsSavingWorker(true);
+    setNotification({ type: 'info', message: 'Guardando evento...' });
+    
+    try {
+      // Importar servicios dinámicamente
+      const { logsService } = await import('../services/logsService');
+      const { storageService } = await import('../services/storageService');
+      
+      // Subir imágenes blob a storage ANTES de guardar el log (en paralelo)
+      let processedImages = newEventImages;
+      if (newEventImages.length > 0) {
+        const imageUploadPromises = newEventImages.map(async (imgUrl) => {
+          if (imgUrl.startsWith('blob:')) {
+            // Convertir blob URL a File
+            const response = await fetch(imgUrl);
+            const blob = await response.blob();
+            const file = new File([blob], `event-image-${Date.now()}.jpg`, { type: blob.type });
+            
+            // Subir a storage
+            const uploadedUrl = await storageService.uploadImage(file, 'unit-images');
+            return uploadedUrl;
+          }
+          return imgUrl; // Ya es una URL permanente
+        });
+        
+        processedImages = await Promise.all(imageUploadPromises);
+      }
+      
+      // Preparar responsables con información de tipo
+      // Necesitamos distinguir entre staff y resources para guardarlos correctamente
+      const staffIds = new Set(availableStaff.map(s => s.id));
+      const personnelIds = new Set(personnel.map(p => p.id));
+      
+      const responsibleData = newEventResponsibles.map(id => {
+        if (staffIds.has(id)) {
+          return { id, type: 'staff' as const };
+        } else if (personnelIds.has(id)) {
+          return { id, type: 'resource' as const };
+        }
+        // Por defecto, asumir que es resource
+        return { id, type: 'resource' as const };
+      });
+      
+      // Obtener nombre del usuario actual
+      let authorName = 'Admin';
+      try {
+        const { authService } = await import('../services/authService');
+        const currentUserData = await authService.getCurrentUser();
+        if (currentUserData?.name) {
+          authorName = currentUserData.name;
+        } else if (userRole === 'OPERATIONS') {
+          authorName = 'Operaciones';
+        }
+      } catch (e) {
+        // Si falla, usar el rol como fallback
+        authorName = userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin';
+      }
+      
+      // Asegurar que la fecha se guarde correctamente (sin problemas de timezone)
+      // La fecha viene en formato YYYY-MM-DD, mantenerla así
+      const eventDate = newEventForm.date;
+      
+      // Crear el log directamente en la base de datos (ahora con URLs permanentes)
+      const savedLog = await logsService.create({
+        date: eventDate,
       type: newEventForm.type as any,
       description: newEventForm.description,
-      author: userRole === 'OPERATIONS' ? 'Operaciones' : 'Admin',
-      images: newEventImages,
-      responsibleIds: newEventResponsibles
-    };
-    onUpdate({ ...unit, logs: [...unit.logs, newLog] });
+        author: authorName,
+        images: processedImages,
+        responsibleIds: newEventResponsibles,
+        responsibleData: responsibleData // Pasar información adicional sobre el tipo
+      }, unit.id);
+      
+      // Actualizar estado local directamente (sin recargar toda la unidad)
+      const updatedUnit = { ...unit, logs: [...unit.logs, savedLog] };
+      
+      // Actualizar solo el estado local, sin llamar a onUpdate que recarga todo
+      // Esto es más rápido porque no recarga recursos, imágenes, etc.
+      if (onUpdate) {
+        // Llamar a onUpdate pero no esperar (optimistic update)
+        onUpdate(updatedUnit);
+      }
+      
+      // Cerrar modal y limpiar formulario inmediatamente
     setShowEventModal(false);
     setNewEventForm({ type: 'Coordinacion', date: '', description: '' });
     setNewEventImages([]);
     setNewEventResponsibles([]);
+      
+      // Notificación de éxito
+      setNotification({ type: 'success', message: 'Evento guardado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar evento:', error);
+      setNotification({ type: 'error', message: 'Error al guardar el evento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
+  };
+
+  // Document Management Functions
+  const handleUploadDocument = async () => {
+    if (!onUpdate || !selectedDocumentFile) {
+      setNotification({ type: 'error', message: 'Por favor, seleccione un archivo' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    if (!newDocumentName.trim()) {
+      setNotification({ type: 'error', message: 'Por favor, ingrese un nombre para el documento' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    setUploadingDocument(true);
+    setNotification({ type: 'info', message: 'Subiendo documento...' });
+
+    try {
+      const { documentsService } = await import('../services/documentsService');
+      
+      const newDocument = await documentsService.create({
+        name: newDocumentName,
+        description: newDocumentDescription || undefined,
+      }, unit.id, selectedDocumentFile);
+
+      // Actualizar la unidad con el nuevo documento
+      const updatedUnit = {
+        ...unit,
+        documents: [...(unit.documents || []), newDocument]
+      };
+
+      if (onUpdate) {
+        await onUpdate(updatedUnit);
+      }
+
+      // Limpiar formulario
+      setNewDocumentName('');
+      setNewDocumentDescription('');
+      setSelectedDocumentFile(null);
+      
+      setNotification({ type: 'success', message: 'Documento subido correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al subir documento:', error);
+      setNotification({ type: 'error', message: 'Error al subir el documento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: string) => {
+    if (!onUpdate) return;
+
+    if (!confirm('¿Está seguro de que desea eliminar este documento?')) {
+      return;
+    }
+
+    setUploadingDocument(true);
+    setNotification({ type: 'info', message: 'Eliminando documento...' });
+
+    try {
+      const { documentsService } = await import('../services/documentsService');
+      await documentsService.delete(documentId);
+
+      // Actualizar la unidad eliminando el documento
+      const updatedUnit = {
+        ...unit,
+        documents: (unit.documents || []).filter(doc => doc.id !== documentId)
+      };
+
+      if (onUpdate) {
+        await onUpdate(updatedUnit);
+      }
+
+      setNotification({ type: 'success', message: 'Documento eliminado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar documento:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el documento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
+
+  const handleDownloadDocument = async (document: UnitDocument) => {
+    try {
+      const { documentsService } = await import('../services/documentsService');
+      const downloadUrl = await documentsService.getDownloadUrl(document.id);
+      
+      if (downloadUrl) {
+        // Abrir en nueva pestaña para descargar
+        window.open(downloadUrl, '_blank');
+      } else {
+        setNotification({ type: 'error', message: 'No se pudo obtener la URL de descarga' });
+        setTimeout(() => setNotification(null), 3000);
+      }
+    } catch (error) {
+      console.error('Error al descargar documento:', error);
+      setNotification({ type: 'error', message: 'Error al descargar el documento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   };
 
   const handleAddImageToNewEvent = () => {
@@ -1325,11 +2586,116 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleUpdateLog = () => {
+  const handleUpdateLog = async () => {
     if (!onUpdate || !editingLog) return;
-    const updatedLogs = unit.logs.map(l => l.id === editingLog.id ? editingLog : l);
-    onUpdate({ ...unit, logs: updatedLogs });
+    
+    setIsSavingWorker(true);
+    setNotification({ type: 'info', message: 'Guardando cambios...' });
+    
+    try {
+      // Importar logsService dinámicamente
+      const { logsService } = await import('../services/logsService');
+      
+      // Obtener nombre del usuario actual para el autor
+      let authorName = editingLog.author; // Mantener el autor original si no se cambia
+      try {
+        const { authService } = await import('../services/authService');
+        const currentUserData = await authService.getCurrentUser();
+        if (currentUserData?.name) {
+          authorName = currentUserData.name;
+        }
+      } catch (e) {
+        // Si falla, mantener el autor existente
+      }
+      
+      // Preparar responsables con información de tipo (igual que en handleCreateEvent)
+      const staffIds = new Set(availableStaff.map(s => s.id));
+      const personnelIds = new Set(personnel.map(p => p.id));
+      
+      const responsibleData = (editingLog.responsibleIds || []).map(id => {
+        if (staffIds.has(id)) {
+          return { id, type: 'staff' as const };
+        } else if (personnelIds.has(id)) {
+          return { id, type: 'resource' as const };
+        }
+        return { id, type: 'resource' as const };
+      });
+      
+      // Asegurar que la fecha se guarde correctamente (sin problemas de timezone)
+      // La fecha viene en formato YYYY-MM-DD, mantenerla así
+      const eventDate = editingLog.date;
+      
+      // Actualizar el log directamente en la base de datos
+      const savedLog = await logsService.update(editingLog.id, {
+        ...editingLog,
+        date: eventDate,
+        author: authorName,
+        responsibleData: responsibleData
+      });
+      
+      // Actualizar estado local con el log guardado
+      const updatedLogs = unit.logs.map(l => l.id === editingLog.id ? savedLog : l);
+      
+      // Actualizar la unidad en el estado
+      const result = onUpdate({ ...unit, logs: updatedLogs });
+      if (result instanceof Promise) {
+        await result;
+      }
+      
     setEditingLog(null);
+      
+      setNotification({ type: 'success', message: 'Evento actualizado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al actualizar evento:', error);
+      setNotification({ type: 'error', message: 'Error al actualizar el evento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
+  };
+
+  // Eliminar evento (solo para equipo operativo)
+  const handleDeleteLog = async (logId: string) => {
+    if (!onUpdate) return;
+    
+    // Verificar permisos: solo OPERATIONS puede eliminar eventos
+    if (userRole !== 'OPERATIONS' && userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
+      setNotification({ type: 'error', message: 'No tienes permisos para eliminar eventos.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    const logToDelete = unit.logs.find(l => l.id === logId);
+    if (!logToDelete) return;
+    
+    if (!confirm(`¿Está seguro de eliminar este evento?\n\nTipo: ${logToDelete.type}\nDescripción: ${logToDelete.description}\n\nEsta acción no se puede deshacer.`)) {
+      return;
+    }
+    
+    setIsSavingWorker(true);
+    setNotification({ type: 'info', message: 'Eliminando evento...' });
+    
+    try {
+      const { logsService } = await import('../services/logsService');
+      await logsService.delete(logId);
+      
+      // Actualizar estado local
+      const updatedLogs = unit.logs.filter(l => l.id !== logId);
+      const result = onUpdate({ ...unit, logs: updatedLogs });
+      if (result instanceof Promise) {
+        await result;
+      }
+      
+      setNotification({ type: 'success', message: 'Evento eliminado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar evento:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el evento. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingWorker(false);
+    }
   };
 
   const handleAddImageToLog = () => {
@@ -1353,7 +2719,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // --- Helper Data ---
-  const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
+  // Usar localResources para el rostering (actualizaciones rápidas), unit.resources para el resto
+  const resourcesForRoster = personnelViewMode === 'roster' ? localResources : unit.resources;
+  
+  // Calcular personal archivado usando useMemo para asegurar disponibilidad
+  // Incluye personal archivado explícitamente O personal cesado (que se archiva automáticamente)
+  const archivedPersonnel = useMemo(() => {
+    return unit.resources.filter(r => 
+      r.type === ResourceType.PERSONNEL && 
+      (r.archived === true || r.personnelStatus === 'cesado')
+    );
+  }, [unit.resources]);
+  
+  const personnel = useMemo(() => {
+    return resourcesForRoster.filter(r => {
+      if (r.type !== ResourceType.PERSONNEL) return false;
+      // Si estamos viendo archivados, mostrar solo los archivados o cesados
+      if (showArchivedPersonnel) {
+        return r.archived === true || r.personnelStatus === 'cesado';
+      }
+      // Si estamos viendo activos, excluir archivados y cesados
+      return !r.archived && r.personnelStatus !== 'cesado';
+    });
+  }, [resourcesForRoster, showArchivedPersonnel]);
+  
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
   const materials = unit.resources.filter(r => r.type === ResourceType.MATERIAL);
 
@@ -1427,7 +2816,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
                 {canCreateRequests && (
                     <button 
-                       onClick={() => setShowRequestModal(true)} 
+                       onClick={() => {
+                         closeAllModalsExcept('request');
+                         setShowRequestModal(true);
+                       }} 
                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center shadow-sm"
                     >
                         <Plus size={16} className="mr-1.5"/> Nueva Solicitud
@@ -1463,23 +2855,43 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                  </span>
                                                  <span className="text-xs text-slate-400 font-mono">{req.date}</span>
                                              </div>
+                                             {req.title && (
+                                                 <h4 className="font-bold text-slate-800 text-base mb-1">
+                                                     {req.title}
+                                                 </h4>
+                                             )}
                                              <h4 className="font-bold text-slate-800 text-sm">
                                                  {req.category === 'PERSONNEL' ? 'Personal' : req.category === 'LOGISTICS' ? 'Logística' : 'General'}
                                                  {relatedRes && <span className="font-normal text-slate-500 ml-1">sobre: {relatedRes.name}</span>}
                                              </h4>
                                          </div>
                                          
-                                         {/* Old Edit Button - Kept for Resolving/Changing Status */}
-                                         <button 
-                                            onClick={() => {
-                                                setEditingRequest(req);
-                                                setResolveAttachments(req.responseAttachments || []);
-                                            }} 
-                                            className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200"
-                                            title="Gestionar Estado / Resolver"
-                                         >
-                                             <Edit2 size={14}/>
-                                         </button>
+                                         <div className="flex items-center gap-1">
+                                             {/* Old Edit Button - Kept for Resolving/Changing Status */}
+                                             <button 
+                                                onClick={() => {
+                                                    setEditingRequest(req);
+                                                    setResolveAttachments(req.responseAttachments || []);
+                                                    setResolveStatus(req.status);
+                                                    setResolveResponse(req.response || '');
+                                                    setResolveTitle(req.title || '');
+                                                }} 
+                                                className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200"
+                                                title="Gestionar Estado / Resolver"
+                                             >
+                                                 <Edit2 size={14}/>
+                                             </button>
+                                             {/* Botón de eliminación: visible solo para administradores */}
+                                             {(userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') && (
+                                                 <button 
+                                                     onClick={() => handleDeleteRequest(req.id)} 
+                                                     className="text-xs bg-slate-50 hover:bg-red-50 text-slate-600 hover:text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200 hover:border-red-200"
+                                                     title="Eliminar requerimiento"
+                                                 >
+                                                     <Trash2 size={14}/>
+                                                 </button>
+                                             )}
+                                         </div>
                                      </div>
                                      
                                      <p className="text-slate-700 text-sm mb-4 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
@@ -1492,7 +2904,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             <div className="flex gap-2 overflow-x-auto pb-1">
                                                 {req.attachments!.map((img, i) => (
                                                     <div key={i} className="w-16 h-16 shrink-0 rounded border border-slate-200 overflow-hidden bg-slate-100">
-                                                        <img src={img} className="w-full h-full object-cover" alt="client attachment" />
+                                                        <SafeImage 
+                                                          src={img} 
+                                                          className="w-full h-full object-cover" 
+                                                          alt="client attachment"
+                                                          bucket="unit-images"
+                                                          onClick={() => {
+                                                            setImageModalUrl(img);
+                                                            setShowImageModal(true);
+                                                          }}
+                                                        />
                                                     </div>
                                                 ))}
                                             </div>
@@ -1577,9 +2998,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
 
+  // Hook para detectar si estamos en móvil
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // --- BLUEPRINT RENDERER ---
   const renderBlueprint = () => {
-    const selectedZone = unit.zones.find(z => z.id === selectedZoneId);
+    // Usar editForm.zones si está disponible (zonas agregadas localmente), sino usar unit.zones
+    const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+    
+    const selectedZone = zonesToUse.find(z => z.id === selectedZoneId);
     
     // Filter resources that have this zone in their assignedZones array
     const zoneResources = selectedZone ? unit.resources.filter(r => r.assignedZones?.includes(selectedZone.name)) : [];
@@ -1590,17 +3026,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     const zoneMaterials = zoneResources.filter(r => r.type === ResourceType.MATERIAL);
 
     // Summary Calculations for Header
-    const totalArea = unit.zones.reduce((acc, z) => acc + (z.area || 0), 0);
+    const totalArea = zonesToUse.reduce((acc, z) => acc + (z.area || 0), 0);
     const totalPersonnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
     const totalEquipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT).length;
     const totalMaterials = unit.resources.filter(r => r.type === ResourceType.MATERIAL).length;
     
     // Filter zones for current layer
     const activeLayers = unit.blueprintLayers || [];
-    const currentZones = unit.zones.filter(z => !activeLayerId || z.layout?.layerId === activeLayerId || (!z.layout?.layerId && activeLayers.length > 0 && activeLayerId === activeLayers[0].id));
+    const currentZones = zonesToUse.filter(z => !activeLayerId || z.layout?.layerId === activeLayerId || (!z.layout?.layerId && activeLayers.length > 0 && activeLayerId === activeLayers[0].id));
 
     return (
-    <div className="flex flex-col h-full animate-in fade-in duration-300 pb-10">
+    <div className="flex flex-col animate-in fade-in duration-300 pb-10">
        
        {/* 1. TOP SUMMARY HEADER */}
        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -1643,7 +3079,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                </div>
                {canEditBlueprint && (
                    <button 
-                      onClick={() => setIsEditingBlueprint(!isEditingBlueprint)} 
+                      onClick={() => {
+                        if (isEditingBlueprint) {
+                          // Al finalizar edición, confirmar que se guardaron los cambios
+                          setNotification({ type: 'success', message: 'Cambios en plano guardados correctamente' });
+                          setTimeout(() => setNotification(null), 3000);
+                        }
+                        setIsEditingBlueprint(!isEditingBlueprint);
+                      }} 
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center shadow-sm ${isEditingBlueprint ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                    >
                        {isEditingBlueprint ? <CheckSquare size={16} className="mr-2"/> : <Edit2 size={16} className="mr-2"/>} 
@@ -1688,26 +3131,65 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            </div>
        </div>
 
-       <div className="flex flex-col lg:flex-row gap-6 h-[700px] lg:h-[600px]">
+       <div className="flex flex-col lg:flex-row gap-6 w-full">
            {/* MAP CANVAS */}
            <div 
-              className="flex-1 bg-slate-900 rounded-xl relative overflow-hidden shadow-inner border border-slate-700 select-none flex flex-col"
+              className={`flex-1 bg-slate-900 rounded-xl relative shadow-inner border-2 border-slate-700 select-none flex flex-col overflow-hidden ${
+                isMobile ? 'aspect-square' : ''
+              }`}
+              style={{ 
+                // En móvil: mantener relación de aspecto 1:1 (cuadrado) para mostrar miniatura proporcional
+                // En desktop: altura flexible
+                width: '100%',
+                minHeight: isMobile ? 'auto' : '600px',
+                height: isMobile ? 'auto' : '600px',
+                maxHeight: isMobile ? '100vw' : 'none',
+                display: 'flex',
+                flexDirection: 'column'
+              }}
            >
               {/* Scrollable Container */}
               <div 
                   ref={gridRef}
                   className="flex-1 overflow-auto relative custom-scrollbar bg-slate-900"
+                  style={{ 
+                    minHeight: '0',
+                    position: 'relative',
+                    width: '100%',
+                    height: '100%',
+                    flex: '1 1 auto'
+                  }}
                   onMouseMove={handleGridMouseMove}
                   onMouseUp={handleGridMouseUp}
                   onMouseLeave={handleGridMouseUp}
               >
                   {/* Grid Background Pattern */}
-                  <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '8.33% 8.33%' }}></div>
+                  <div 
+                    className="absolute inset-0 opacity-20 pointer-events-none" 
+                    style={{ 
+                      backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', 
+                      backgroundSize: '8.33% 8.33%',
+                      zIndex: 1
+                    }}
+                  ></div>
                   
                   {/* Grid Container (12 cols x 12 rows fixed per page) */}
                   <div 
-                    className="grid grid-cols-12 gap-2 w-full p-8 min-h-[600px] min-w-[600px]"
-                    style={{ gridTemplateRows: `repeat(${gridRows}, minmax(60px, 1fr))` }} // Dynamic Rows
+                    className={`grid grid-cols-12 w-full relative ${
+                      isMobile ? 'gap-0.5 p-1' : 'gap-2 p-2 md:p-8'
+                    }`}
+                    style={{ 
+                      gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`,
+                      // En móvil: altura 100% para llenar el contenedor cuadrado y mantener proporción
+                      // En desktop: altura mínima fija
+                      height: isMobile ? '100%' : 'auto',
+                      minHeight: isMobile ? '100%' : '600px',
+                      minWidth: '100%',
+                      position: 'relative',
+                      zIndex: 2,
+                      // Asegurar que el grid mantenga la proporción en móvil
+                      aspectRatio: isMobile ? '1 / 1' : undefined
+                    }}
                   >
                       {currentZones.map(zone => {
                           // Count resources in this zone (checking inclusion in array)
@@ -1738,48 +3220,60 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     }}
                               >
                                   {/* Zone Header */}
-                                  <div className="flex justify-between items-center p-3 bg-white/20 backdrop-blur-sm">
-                                      <span className="font-bold text-xs md:text-sm leading-tight uppercase tracking-wide truncate">{zone.name}</span>
-                                      {isEditingBlueprint && <Move size={12} className="opacity-50"/>}
+                                  <div className={`flex justify-between items-center bg-white/20 backdrop-blur-sm ${isMobile ? 'p-1' : 'p-3'}`}>
+                                      <span className={`font-bold leading-tight uppercase tracking-wide truncate ${
+                                        isMobile ? 'text-[8px]' : 'text-xs md:text-sm'
+                                      }`}>{zone.name}</span>
+                                      {isEditingBlueprint && <Move size={isMobile ? 8 : 12} className="opacity-50"/>}
                                   </div>
                                   
                                   {/* Zone Content (Icons) */}
-                                  <div className="flex-1 p-2 flex flex-col justify-center items-center gap-2">
-                                      <div className="flex gap-4 items-center justify-center">
+                                  <div className={`flex-1 flex flex-col justify-center items-center ${isMobile ? 'p-0.5 gap-0.5' : 'p-2 gap-2'}`}>
+                                      <div className={`flex items-center justify-center ${isMobile ? 'gap-1' : 'gap-4'}`}>
                                           {zP > 0 && (
                                               <div className="flex flex-col items-center">
-                                                  <Users size={24} className="mb-0.5 opacity-80" />
-                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zP}</span>
+                                                  <Users size={isMobile ? 12 : 24} className={`opacity-80 ${isMobile ? 'mb-0' : 'mb-0.5'}`} />
+                                                  <span className={`font-bold bg-white/40 rounded-full ${
+                                                    isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
+                                                  }`}>{zP}</span>
                                               </div>
                                           )}
                                           {zE > 0 && (
                                               <div className="flex flex-col items-center">
-                                                  <Truck size={24} className="mb-0.5 opacity-80" />
-                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zE}</span>
+                                                  <Truck size={isMobile ? 12 : 24} className={`opacity-80 ${isMobile ? 'mb-0' : 'mb-0.5'}`} />
+                                                  <span className={`font-bold bg-white/40 rounded-full ${
+                                                    isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
+                                                  }`}>{zE}</span>
                                               </div>
                                           )}
                                             {zM > 0 && (
                                               <div className="flex flex-col items-center">
-                                                  <Package size={24} className="mb-0.5 opacity-80" />
-                                                  <span className="text-[10px] font-bold bg-white/40 px-1.5 rounded-full">{zM}</span>
+                                                  <Package size={isMobile ? 12 : 24} className={`opacity-80 ${isMobile ? 'mb-0' : 'mb-0.5'}`} />
+                                                  <span className={`font-bold bg-white/40 rounded-full ${
+                                                    isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
+                                                  }`}>{zM}</span>
                                               </div>
                                           )}
                                       </div>
                                   </div>
 
                                   {/* Zone Footer */}
-                                  <div className="p-2 flex justify-between items-end">
-                                      <div className="text-[10px] bg-white/50 px-2 py-0.5 rounded-full font-mono font-medium backdrop-blur-sm shadow-sm">
+                                  <div className={`flex justify-between items-end ${isMobile ? 'p-0.5' : 'p-2'}`}>
+                                      <div className={`bg-white/50 rounded-full font-mono font-medium backdrop-blur-sm shadow-sm ${
+                                        isMobile ? 'text-[7px] px-1 py-0' : 'text-[10px] px-2 py-0.5'
+                                      }`}>
                                           {zone.area || 0} m²
                                       </div>
                                       
                                       {/* Resize Handle (Only visible in edit mode) */}
                                       {isEditingBlueprint && (
                                           <div 
-                                              className="w-6 h-6 bg-white rounded-full shadow-md flex items-center justify-center cursor-se-resize hover:scale-110 transition-transform absolute bottom-1 right-1"
+                                              className={`bg-white rounded-full shadow-md flex items-center justify-center cursor-se-resize hover:scale-110 transition-transform absolute ${
+                                                isMobile ? 'w-4 h-4 bottom-0.5 right-0.5' : 'w-6 h-6 bottom-1 right-1'
+                                              }`}
                                               onMouseDown={(e) => handleGridMouseDown(e, zone, 'resize')}
                                           >
-                                              <Maximize2 size={12} className="text-slate-600"/>
+                                              <Maximize2 size={isMobile ? 8 : 12} className="text-slate-600"/>
                                           </div>
                                       )}
                                   </div>
@@ -1802,7 +3296,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            </div>
 
            {/* DYNAMIC SIDEBAR */}
-           <div className="w-full lg:w-96 flex flex-col gap-6 h-full">
+           <div className="w-full lg:w-96 flex flex-col gap-6">
                
                {/* 1. Edit Zone Details Panel */}
                {selectedZone ? (
@@ -1961,7 +3455,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 aspect-video md:aspect-auto md:h-80 rounded-xl overflow-hidden shadow-sm relative group bg-slate-200">
           {unit.images && unit.images.length > 0 ? (
-            <img src={unit.images[0]} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Main" />
+            <SafeImage 
+              src={unit.images[0]} 
+              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 cursor-pointer" 
+              alt="Imagen principal de la unidad"
+              bucket="unit-images"
+              fallback={<div className="w-full h-full flex items-center justify-center text-slate-400"><Camera size={48} /></div>}
+              onClick={() => {
+                closeAllModalsExcept('image');
+                setImageModalUrl(unit.images[0]);
+                setShowImageModal(true);
+              }}
+              onError={() => {
+                console.warn('⚠️ Imagen principal de unidad falló al cargar');
+              }}
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-slate-400"><Camera size={48} /></div>
           )}
@@ -1969,11 +3477,53 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
         <div className="hidden md:flex flex-col gap-4 h-80">
            <div className="flex-1 rounded-xl overflow-hidden shadow-sm relative bg-slate-100">
-             {unit.images && unit.images[1] ? <img src={unit.images[1]} className="w-full h-full object-cover" alt="Sec" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>}
+             {unit.images && unit.images[1] ? (
+               <SafeImage 
+                 src={unit.images[1]} 
+                 className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                 alt="Imagen secundaria de la unidad"
+                 bucket="unit-images"
+                 fallback={<div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>}
+                 onClick={() => {
+                  closeAllModalsExcept('image');
+                  setImageModalUrl(unit.images[1]);
+                  setShowImageModal(true);
+                 }}
+               />
+             ) : (
+               <div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>
+             )}
            </div>
            <div className="flex-1 rounded-xl overflow-hidden shadow-sm relative bg-slate-100">
-             {unit.images && unit.images[2] ? <img src={unit.images[2]} className="w-full h-full object-cover" alt="Ter" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>}
-             {unit.images && unit.images.length > 3 && <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold cursor-pointer hover:bg-black/70 transition-colors">+{unit.images.length - 3}</div>}
+             {unit.images && unit.images[2] ? (
+               <SafeImage 
+                 src={unit.images[2]} 
+                 className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                 alt="Imagen terciaria de la unidad"
+                 bucket="unit-images"
+                 fallback={<div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>}
+                 onClick={() => {
+                  closeAllModalsExcept('image');
+                  setImageModalUrl(unit.images[2]);
+                  setShowImageModal(true);
+                 }}
+               />
+             ) : (
+               <div className="w-full h-full flex items-center justify-center text-slate-300"><Camera size={24} /></div>
+             )}
+             {unit.images && unit.images.length > 3 && (
+               <div 
+                 className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold cursor-pointer hover:bg-black/70 transition-colors"
+                 onClick={() => {
+                   // Mostrar galería completa o la primera imagen adicional
+                  closeAllModalsExcept('image');
+                  setImageModalUrl(unit.images[3]);
+                  setShowImageModal(true);
+                 }}
+               >
+                 +{unit.images.length - 3}
+               </div>
+             )}
            </div>
         </div>
       </div>
@@ -1986,7 +3536,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 {/* Coordinator Card */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-blue-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
-                        {unit.coordinator?.photo ? <img src={unit.coordinator.photo} alt="Coord" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-blue-400 font-bold text-4xl">CO</div>}
+                        <SafeImage 
+                            src={unit.coordinator?.photo} 
+                            alt={unit.coordinator?.name || "Coordinador"} 
+                            className="w-full h-full object-cover"
+                            bucket="unit-images"
+                            fallback={<div className="w-full h-full flex items-center justify-center text-blue-400 font-bold text-4xl">CO</div>}
+                        />
                     </div>
                     <p className="text-base font-bold text-slate-800 mb-1">{unit.coordinator?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-blue-700 bg-blue-100 px-3 py-1 rounded-full font-medium mb-3">
@@ -2006,7 +3562,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 {/* Resident Supervisor */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-indigo-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
-                        {unit.residentSupervisor?.photo ? <img src={unit.residentSupervisor.photo} alt="Res" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
+                        <SafeImage 
+                            src={unit.residentSupervisor?.photo} 
+                            alt={unit.residentSupervisor?.name || "Supervisor Residente"} 
+                            className="w-full h-full object-cover"
+                            bucket="unit-images"
+                            fallback={<div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
+                        />
                     </div>
                     <p className="text-base font-bold text-slate-800 mb-1">{unit.residentSupervisor?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-indigo-700 bg-indigo-100 px-3 py-1 rounded-full font-medium mb-3">
@@ -2021,7 +3583,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 {/* Roving Supervisor */}
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
-                        {unit.rovingSupervisor?.photo ? <img src={unit.rovingSupervisor.photo} alt="Ronda" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
+                        <SafeImage 
+                            src={unit.rovingSupervisor?.photo} 
+                            alt={unit.rovingSupervisor?.name || "Supervisor de Ronda"} 
+                            className="w-full h-full object-cover"
+                            bucket="unit-images"
+                            fallback={<div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
+                        />
                     </div>
                     <p className="text-base font-bold text-slate-800 mb-1">{unit.rovingSupervisor?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-slate-700 bg-slate-200 px-3 py-1 rounded-full font-medium mb-3">
@@ -2034,6 +3602,42 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     )}
                 </div>
             </div>
+            
+            {/* Additional Staff Members */}
+            {unit.assignedStaff && unit.assignedStaff.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-slate-200">
+                <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center">
+                  <UserPlus size={16} className="mr-2 text-slate-500" /> Miembros Adicionales del Equipo
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {unit.assignedStaff.map(staffId => {
+                    const staff = availableStaff.find(s => s.id === staffId);
+                    if (!staff) return null;
+                    return (
+                      <div key={staffId} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 hover:shadow-sm transition-shadow">
+                        <div className="w-12 h-12 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 border-2 border-white">
+                          <SafeImage 
+                            src={staff.photo} 
+                            alt={staff.name} 
+                            className="w-full h-full object-cover"
+                            bucket="unit-images"
+                            fallback={<div className="w-full h-full flex items-center justify-center text-slate-400 font-bold text-sm">{staff.name.charAt(0)}</div>}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{staff.name}</p>
+                          <p className="text-xs text-slate-500">
+                            {staff.role === 'COORDINATOR' ? 'Coordinador' : 
+                             staff.role === 'RESIDENT_SUPERVISOR' ? 'Supervisor Residente' : 
+                             'Supervisor de Ronda'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
         </div>
       )}
       
@@ -2047,7 +3651,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     onClick={() => setIsEditing(!isEditing)}
                     className="flex items-center bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                   >
-                    {isEditing ? <><Save size={16} className="mr-1.5"/> Guardar</> : <><Edit2 size={16} className="mr-1.5"/> Editar Información</>}
+                    <Edit2 size={16} className="mr-1.5"/> {isEditing ? 'Cancelar Edición' : 'Editar Información'}
                   </button>
                 )}
              </div>
@@ -2059,7 +3663,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              {isEditing ? (
                <div className="space-y-4">
                   <div><label className="block text-sm font-medium text-slate-700">Nombre Unidad</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} /></div>
-                  <div><label className="block text-sm font-medium text-slate-700">Cliente</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.clientName} onChange={e => setEditForm({...editForm, clientName: e.target.value})} /></div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Cliente</label>
+                    {userRole === 'OPERATIONS' && currentUser?.linkedClientNames && currentUser.linkedClientNames.length > 0 ? (
+                      // Para OPERATIONS: solo puede seleccionar entre clientes asignados
+                      <select 
+                        className="w-full border border-slate-300 rounded p-2" 
+                        value={editForm.clientName} 
+                        onChange={e => setEditForm({...editForm, clientName: e.target.value})}
+                      >
+                        <option value="">Seleccionar cliente...</option>
+                        {currentUser.linkedClientNames.map(clientName => (
+                          <option key={clientName} value={clientName}>{clientName}</option>
+                        ))}
+                      </select>
+                    ) : (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') && availableClients.length > 0 ? (
+                      // Para ADMIN y SUPER_ADMIN: puede seleccionar entre todos los clientes
+                      <select 
+                        className="w-full border border-slate-300 rounded p-2" 
+                        value={editForm.clientName} 
+                        onChange={e => setEditForm({...editForm, clientName: e.target.value})}
+                      >
+                        <option value="">Seleccionar cliente...</option>
+                        {availableClients.map(client => (
+                          <option key={client.id} value={client.name}>{client.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      // Para otros roles o si no hay clientes: input deshabilitado o de solo lectura
+                      <input 
+                        type="text" 
+                        className="w-full border border-slate-300 rounded p-2 bg-slate-50" 
+                        value={editForm.clientName} 
+                        readOnly
+                        disabled
+                        title={userRole === 'OPERATIONS' ? 'No tienes clientes asignados. Contacta al administrador.' : 'No puedes modificar el cliente.'}
+                      />
+                    )}
+                  </div>
                   <div><label className="block text-sm font-medium text-slate-700">Dirección</label><input type="text" className="w-full border border-slate-300 rounded p-2" value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} /></div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Estado</label>
@@ -2082,19 +3723,154 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                    <div><label className="block text-sm font-medium text-slate-700">Supervisor Residente</label><select className="w-full border border-slate-300 rounded p-2" value={editForm.residentSupervisor?.id || ''} onChange={e => handleSelectStaff('residentSupervisor', e.target.value)}><option value="">Seleccionar...</option>{availableStaff.filter(s => s.role === 'RESIDENT_SUPERVISOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
                    <div><label className="block text-sm font-medium text-slate-700">Supervisor de Ronda</label><select className="w-full border border-slate-300 rounded p-2" value={editForm.rovingSupervisor?.id || ''} onChange={e => handleSelectStaff('rovingSupervisor', e.target.value)}><option value="">Seleccionar...</option>{availableStaff.filter(s => s.role === 'ROVING_SUPERVISOR').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
 
+                  {/* Additional Staff Management */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Miembros Adicionales del Equipo</label>
+                    <p className="text-xs text-slate-500 mb-3">Agregue miembros adicionales del equipo de gestión y supervisión a esta unidad</p>
+                    <div className="space-y-2 mb-3 max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50">
+                      {(editForm.assignedStaff || []).map(staffId => {
+                        const staff = availableStaff.find(s => s.id === staffId);
+                        if (!staff) return null;
+                        return (
+                          <div key={staffId} className="flex items-center justify-between bg-white p-2 rounded border border-slate-200">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+                                {staff.name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-slate-700">{staff.name}</p>
+                                <p className="text-xs text-slate-500">
+                                  {staff.role === 'COORDINATOR' ? 'Coordinador' : 
+                                   staff.role === 'RESIDENT_SUPERVISOR' ? 'Supervisor Residente' : 
+                                   'Supervisor de Ronda'}
+                                </p>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                const current = editForm.assignedStaff || [];
+                                setEditForm({...editForm, assignedStaff: current.filter(id => id !== staffId)});
+                              }}
+                              className="text-red-500 hover:text-red-700 p-1"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {(editForm.assignedStaff || []).length === 0 && (
+                        <p className="text-xs text-slate-400 text-center py-4">No hay miembros adicionales asignados</p>
+                      )}
+                    </div>
+                    <select 
+                      className="w-full border border-slate-300 rounded p-2 text-sm"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const current = editForm.assignedStaff || [];
+                          // Evitar duplicados y evitar agregar los que ya están en roles principales
+                          const mainStaffIds = [
+                            editForm.coordinator?.id,
+                            editForm.residentSupervisor?.id,
+                            editForm.rovingSupervisor?.id
+                          ].filter(Boolean);
+                          
+                          if (!current.includes(e.target.value) && !mainStaffIds.includes(e.target.value)) {
+                            setEditForm({...editForm, assignedStaff: [...current, e.target.value]});
+                          }
+                          e.target.value = '';
+                        }
+                      }}
+                    >
+                      <option value="">Agregar miembro del equipo...</option>
+                      {availableStaff
+                        .filter(s => {
+                          const current = editForm.assignedStaff || [];
+                          const mainStaffIds = [
+                            editForm.coordinator?.id,
+                            editForm.residentSupervisor?.id,
+                            editForm.rovingSupervisor?.id
+                          ].filter(Boolean);
+                          return !current.includes(s.id) && !mainStaffIds.includes(s.id);
+                        })
+                        .map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.role === 'COORDINATOR' ? 'Coordinador' : s.role === 'RESIDENT_SUPERVISOR' ? 'Supervisor Residente' : 'Supervisor de Ronda'})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
                   {/* Zones Management */}
                   <div className="pt-4 border-t border-slate-100">
                     <label className="block text-sm font-medium text-slate-700 mb-2">Gestión de Zonas y Turnos</label>
-                    {editForm.zones.map(z => (
+                    {editForm.zones.map(z => {
+                        const shiftLabels: Record<string, string> = {
+                            'Day': 'Día',
+                            'Afternoon': 'Tarde',
+                            'Night': 'Noche',
+                            'OFF': 'Descanso',
+                            'Vacation': 'Vacaciones',
+                            'Sick': 'Enfermedad'
+                        };
+                        const displayShifts = z.shifts.map(s => shiftLabels[s] || s).join(', ');
+                        return (
                         <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
-                            <div><span className="font-bold text-sm">{z.name}</span> <span className="text-xs text-slate-500">({z.shifts.join(', ')})</span></div>
+                                <div><span className="font-bold text-sm">{z.name}</span> <span className="text-xs text-slate-500">({displayShifts})</span></div>
                             <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
                         </div>
-                    ))}
-                    <div className="flex gap-2 mt-2">
-                        <input type="text" placeholder="Nombre Zona" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" value={newZoneName} onChange={e => setNewZoneName(e.target.value)} />
-                        <input type="text" placeholder="Turnos (sep. por coma)" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" value={newZoneShifts} onChange={e => setNewZoneShifts(e.target.value)} />
-                        <button onClick={handleAddZone} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">Agregar</button>
+                        );
+                    })}
+                    <div className="flex flex-col gap-2 mt-2">
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="Nombre Zona" 
+                                className="flex-1 border border-slate-300 rounded p-1.5 text-sm" 
+                                value={newZoneName} 
+                                onChange={e => setNewZoneName(e.target.value)} 
+                            />
+                            <button 
+                                onClick={handleAddZone} 
+                                className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"
+                            >
+                                Agregar
+                            </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="text-xs text-slate-600 self-center">Turnos:</span>
+                            {(['Day', 'Afternoon', 'Night', 'OFF', 'Vacation', 'Sick'] as const).map(shift => {
+                                const shiftLabels: Record<string, string> = {
+                                    'Day': 'Día',
+                                    'Afternoon': 'Tarde',
+                                    'Night': 'Noche',
+                                    'OFF': 'Descanso',
+                                    'Vacation': 'Vacaciones',
+                                    'Sick': 'Enfermedad'
+                                };
+                                const isSelected = newZoneShifts.includes(shift);
+                                return (
+                                    <button
+                                        key={shift}
+                                        type="button"
+                                        onClick={() => {
+                                            if (isSelected) {
+                                                setNewZoneShifts(newZoneShifts.filter(s => s !== shift));
+                                            } else {
+                                                setNewZoneShifts([...newZoneShifts, shift]);
+                                            }
+                                        }}
+                                        className={`px-3 py-1 rounded text-xs border transition-colors ${
+                                            isSelected
+                                                ? 'bg-blue-600 text-white border-blue-600'
+                                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        {shiftLabels[shift] || shift}
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
                   </div>
 
@@ -2102,21 +3878,57 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <div className="pt-4 border-t border-slate-100">
                      <label className="block text-sm font-medium text-slate-700 mb-2">Galería de Fotos</label>
                      <div className="flex gap-2 mb-2">
-                        <input type="text" className="flex-1 border border-slate-300 rounded p-1.5 text-sm" placeholder="URL Imagen" value={editImageUrl} onChange={e => setEditImageUrl(e.target.value)} />
-                        <label className="bg-slate-100 px-3 py-1.5 rounded cursor-pointer hover:bg-slate-200 border border-slate-200"><Camera size={18} className="text-slate-600"/><input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForEdit} /></label>
-                        <button onClick={handleAddImageToEdit} className="bg-slate-200 px-3 py-1.5 rounded text-sm hover:bg-slate-300">Añadir</button>
+                        <label className="flex-1 bg-slate-100 px-3 py-1.5 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 flex items-center justify-center gap-2">
+                          <Camera size={18} className="text-slate-600"/>
+                          <span className="text-sm text-slate-700">Seleccionar imagen</span>
+                          <input type="file" accept="image/*" className="hidden" onChange={handleFileUploadForEdit} />
+                        </label>
                      </div>
                      <div className="flex gap-2 overflow-x-auto pb-2">
                         {editForm.images.map((img, idx) => (
                             <div key={idx} className="relative shrink-0 w-20 h-20 group">
-                                <img src={img} alt="thumb" className="w-full h-full object-cover rounded border border-slate-200" />
-                                <button onClick={() => handleRemoveImageFromEdit(idx)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12}/></button>
+                                <img 
+                                  src={img} 
+                                  alt="thumb" 
+                                  className="w-full h-full object-cover rounded border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity" 
+                                  onClick={() => {
+                                    closeAllModalsExcept('image');
+                                    setImageModalUrl(img);
+                                    setShowImageModal(true);
+                                  }}
+                                  title="Click para ver en tamaño completo"
+                                />
+                                {isEditing && (
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveImageFromEdit(idx);
+                                    }} 
+                                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                                    title="Eliminar imagen"
+                                  >
+                                    <X size={12}/>
+                                  </button>
+                                )}
                             </div>
                         ))}
                      </div>
                   </div>
 
-                  <button onClick={handleSaveUnit} className="w-full bg-blue-600 text-white py-2.5 rounded font-medium hover:bg-blue-700">Guardar Cambios</button>
+                  <button 
+                    onClick={handleSaveUnit} 
+                    disabled={uploadingImages.size > 0}
+                    className={`w-full py-2.5 rounded font-medium transition-colors ${
+                      uploadingImages.size > 0 
+                        ? 'bg-slate-400 text-white cursor-not-allowed' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {uploadingImages.size > 0 
+                      ? `Subiendo ${uploadingImages.size} imagen(es)...` 
+                      : 'Guardar Cambios'
+                    }
+                  </button>
                </div>
              ) : (
                <div className="text-sm text-slate-600 space-y-3">
@@ -2153,7 +3965,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <h3 className="text-lg font-semibold text-slate-800 flex items-center">
                   <Calendar className="w-5 h-5 mr-2 text-slate-500" /> Agenda Operativa (30 Días)
                 </h3>
-                {canEditLogs && <button onClick={() => setShowEventModal(true)} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium hover:bg-blue-100 flex items-center"><Plus size={14} className="mr-1"/> Agendar Evento</button>}
+                {canEditLogs && <button onClick={() => {
+                  closeAllModalsExcept('event');
+                  setShowEventModal(true);
+                }} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium hover:bg-blue-100 flex items-center"><Plus size={14} className="mr-1"/> Agendar Evento</button>}
              </div>
              
              <div className="space-y-3">
@@ -2178,7 +3993,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              </h3>
              <div className="flex items-end space-x-2 h-32 w-full justify-between px-2">
                 {unit.complianceHistory.map((h, i) => (
-                    <div key={i} className="flex flex-col items-center flex-1 group relative">
+                    <div key={i} className="flex flex-col items-center flex-1 group relative overflow-hidden">
                         <div className="absolute -top-8 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">{h.score}%</div>
                         <div 
                            className={`w-full rounded-t transition-all duration-500 ${h.score >= 95 ? 'bg-green-500' : h.score >= 90 ? 'bg-yellow-400' : 'bg-red-500'}`} 
@@ -2189,6 +4004,135 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 ))}
              </div>
            </div>
+
+           {/* Required Positions Section */}
+           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+             <div className="flex justify-between items-center mb-4">
+               <h3 className="text-lg font-semibold text-slate-800 flex items-center">
+                 <Briefcase className="w-5 h-5 mr-2 text-slate-500" /> Puestos Requeridos
+               </h3>
+               {canEditGeneral && (
+                 <button
+                   onClick={() => {
+                     setShowRequiredPositionsModal(true);
+                     setEditingRequiredPosition(null);
+                     setRequiredPositionForm({ positionId: '', quantity: 1 });
+                   }}
+                   className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+                 >
+                   <Plus size={14} className="mr-1.5" /> Agregar Puesto
+                 </button>
+               )}
+             </div>
+             
+             {(() => {
+               const requiredPositions = unit.requiredPositions || [];
+               const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
+               
+               if (requiredPositions.length === 0) {
+                 return (
+                   <div className="text-center py-8 text-slate-400">
+                     <Briefcase size={48} className="mx-auto mb-4 opacity-20" />
+                     <p className="text-sm">No hay puestos requeridos definidos</p>
+                     {canEditGeneral && (
+                       <button
+                         onClick={() => {
+                           setShowRequiredPositionsModal(true);
+                           setEditingRequiredPosition(null);
+                           setRequiredPositionForm({ positionId: '', quantity: 1 });
+                         }}
+                         className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                       >
+                         Agregar el primer puesto requerido
+                       </button>
+                     )}
+                   </div>
+                 );
+               }
+
+               return (
+                 <div className="space-y-3">
+                   {requiredPositions.map((reqPos, index) => {
+                     const positionName = reqPos.positionName || positions.find(p => p.id === reqPos.positionId)?.name || 'Desconocido';
+                     const covered = personnel.filter(p => p.puesto === positionName || p.puesto === reqPos.positionId).length;
+                     const deficit = reqPos.quantity - covered;
+                     const coverage = reqPos.quantity > 0 ? (covered / reqPos.quantity) * 100 : 0;
+                     
+                     return (
+                       <div key={index} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                         <div className="flex items-center justify-between mb-2">
+                           <div className="flex-1">
+                             <h4 className="font-medium text-slate-800">{positionName}</h4>
+                             <div className="flex items-center space-x-4 mt-2 text-sm">
+                               <span className="text-slate-600">Requerido: <strong>{reqPos.quantity}</strong></span>
+                               <span className={covered >= reqPos.quantity ? 'text-green-600' : 'text-orange-600'}>
+                                 Cubierto: <strong>{covered}</strong>
+                               </span>
+                               {deficit > 0 && (
+                                 <span className="text-red-600 flex items-center">
+                                   <AlertCircle size={14} className="mr-1" /> Falta: <strong>{deficit}</strong>
+                                 </span>
+                               )}
+                               {deficit === 0 && (
+                                 <span className="text-green-600 flex items-center">
+                                   <CheckCircle size={14} className="mr-1" /> Completo
+                                 </span>
+                               )}
+                             </div>
+                           </div>
+                           {canEditGeneral && (
+                             <div className="flex items-center space-x-2">
+                               <button
+                                 onClick={() => {
+                                   setEditingRequiredPosition(reqPos);
+                                   setRequiredPositionForm({
+                                     positionId: reqPos.positionId,
+                                     quantity: reqPos.quantity,
+                                   });
+                                   setShowRequiredPositionsModal(true);
+                                 }}
+                                 className="text-blue-600 hover:text-blue-800 p-1"
+                                 title="Editar"
+                               >
+                                 <Edit2 size={16} />
+                               </button>
+                               <button
+                                 onClick={async () => {
+                                   if (confirm(`¿Eliminar el puesto requerido "${positionName}"?`)) {
+                                     const updated = (unit.requiredPositions || []).filter((_, i) => i !== index);
+                                     if (onUpdate) {
+                                       await onUpdate({ ...unit, requiredPositions: updated });
+                                       setNotification({ type: 'success', message: 'Puesto requerido eliminado' });
+                                       setTimeout(() => setNotification(null), 3000);
+                                     }
+                                   }
+                                 }}
+                                 className="text-red-600 hover:text-red-800 p-1"
+                                 title="Eliminar"
+                               >
+                                 <Trash2 size={16} />
+                               </button>
+                             </div>
+                           )}
+                         </div>
+                         <div className="mt-2">
+                           <div className="w-full bg-slate-200 rounded-full h-2">
+                             <div
+                               className={`h-2 rounded-full transition-all ${
+                                 coverage >= 100 ? 'bg-green-600' : coverage >= 80 ? 'bg-yellow-500' : 'bg-red-600'
+                               }`}
+                               style={{ width: `${Math.min(coverage, 100)}%` }}
+                             />
+                           </div>
+                           <p className="text-xs text-slate-500 mt-1">Cobertura: {coverage.toFixed(1)}%</p>
+                         </div>
+                       </div>
+                     );
+                   })}
+                 </div>
+               );
+             })()}
+           </div>
         </div>
       </div>
     </div>
@@ -2198,52 +4142,100 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800">Gestión de Personal ({personnel.length})</h3>
-          <p className="text-slate-500 text-sm">Administración de colaboradores, asistencias y capacitaciones.</p>
+          <h3 className="text-lg font-semibold text-slate-800">
+            Gestión de Personal ({showArchivedPersonnel ? archivedPersonnel.length : personnel.length})
+            {!showArchivedPersonnel && archivedPersonnel.length > 0 && (
+              <span className="text-sm font-normal text-slate-500 ml-2">
+                ({archivedPersonnel.length} archivado{archivedPersonnel.length > 1 ? 's' : ''})
+              </span>
+            )}
+          </h3>
+          <p className="text-slate-500 text-sm">
+            {showArchivedPersonnel ? 'Personal archivado' : 'Administración de colaboradores, asistencias y capacitaciones.'}
+          </p>
         </div>
-        {canEditPersonnel && (
+        {canViewPersonnel && (
           <div className="flex gap-2">
              <div className="bg-slate-100 rounded-lg p-1 flex">
                  <button 
                     onClick={() => setPersonnelViewMode('list')} 
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'list' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                    disabled={showArchivedPersonnel}
                  >
                      <Users size={14} className="mr-1.5"/> Lista
                  </button>
                  <button 
                     onClick={() => setPersonnelViewMode('roster')} 
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'roster' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                    disabled={showArchivedPersonnel}
                  >
                      <Calendar size={14} className="mr-1.5"/> Turnos / Rostering
                  </button>
              </div>
+             {/* Botón para mostrar/ocultar personal archivado */}
+             {archivedPersonnel.length > 0 && (
+               <button
+                 onClick={() => setShowArchivedPersonnel(!showArchivedPersonnel)}
+                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center ${
+                   showArchivedPersonnel 
+                     ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                 }`}
+               >
+                 <Archive size={16} className="mr-2"/>
+                 {showArchivedPersonnel ? 'Ver Activos' : `Ver Archivados (${archivedPersonnel.length})`}
+               </button>
+             )}
              
-            {selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
+            {canEditPersonnel && selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
               <>
-                <button onClick={() => setShowMassTrainingModal(true)} className="bg-indigo-50 text-indigo-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors flex items-center">
+                <button onClick={() => {
+                  closeAllModalsExcept('massTraining');
+                  setShowMassTrainingModal(true);
+                }} className="bg-indigo-50 text-indigo-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors flex items-center">
                    <Award size={16} className="mr-2"/> + Capacitación ({selectedPersonnelIds.length})
                 </button>
-                <button onClick={() => setShowAssetAssignmentModal(true)} className="bg-orange-50 text-orange-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors flex items-center">
+                <button onClick={() => {
+                  closeAllModalsExcept('assetAssignment');
+                  setShowAssetAssignmentModal(true);
+                }} className="bg-orange-50 text-orange-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors flex items-center">
                    <Briefcase size={16} className="mr-2"/> + Entrega EPP ({selectedPersonnelIds.length})
                 </button>
               </>
             )}
-            <button onClick={() => setShowAddWorkerModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+            {canEditPersonnel && (
+              <div className="flex gap-2">
+                <button onClick={() => {
+                  closeAllModalsExcept('bulkImport');
+                  setShowBulkImportModal(true);
+                }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center shadow-sm">
+                  <Upload size={18} className="mr-2" /> Carga Masiva
+                </button>
+                <button onClick={() => {
+                  closeAllModalsExcept('addWorker');
+                  setShowAddWorkerModal(true);
+                }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
               <UserPlus size={18} className="mr-2" /> Nuevo Colaborador
             </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Notification Toast */}
       {notification && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
-          notification.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'
+        <div className={`fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
+          notification.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 
+          notification.type === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
+          'bg-blue-50 border border-blue-200 text-blue-800'
         }`}>
           {notification.type === 'success' ? (
             <CheckCircle size={20} className="text-green-600" />
-          ) : (
+          ) : notification.type === 'error' ? (
             <AlertCircle size={20} className="text-red-600" />
+          ) : (
+            <Clock3 size={20} className="text-blue-600" />
           )}
           <span className="font-medium">{notification.message}</span>
           <button onClick={() => setNotification(null)} className="text-slate-400 hover:text-slate-600">
@@ -2253,37 +4245,60 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       )}
 
       {personnelViewMode === 'list' ? (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
          {/* Table Header */}
-         <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2">
+         <div className={`grid grid-cols-12 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[800px] ${
+           showArchivedPersonnel ? 'bg-amber-50' : 'bg-slate-50'
+         }`}>
             <div className="col-span-1 flex items-center justify-center">
-               <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+               {!showArchivedPersonnel && (
+                 <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+               )}
             </div>
-            <div className="col-span-3 md:col-span-2">Colaborador</div>
-            <div className="col-span-2 hidden md:block text-center">DNI</div>
-            <div className="col-span-2 text-center">Estado</div>
-            <div className="col-span-2 hidden md:block text-center">Fechas</div>
-            <div className="col-span-1 hidden md:block text-center">Turno</div>
-            <div className="col-span-1 hidden md:block text-center">Cumpl.</div>
-            <div className="col-span-3 md:col-span-2 text-right">Acciones</div>
+            <div className="col-span-3 md:col-span-2 whitespace-nowrap">Colaborador</div>
+            <div className="col-span-2 hidden md:block text-center whitespace-nowrap">DNI</div>
+            <div className="col-span-2 text-center whitespace-nowrap">Estado</div>
+            <div className="col-span-2 hidden md:block text-center whitespace-nowrap">Fechas</div>
+            <div className="col-span-1 hidden md:block text-center whitespace-nowrap">Turno</div>
+            <div className="col-span-1 hidden md:block text-center whitespace-nowrap">Cumpl.</div>
+            <div className="col-span-3 md:col-span-2 text-right whitespace-nowrap">Acciones</div>
          </div>
 
          <div className="divide-y divide-slate-100">
-            {personnel.map(worker => (
-              <div key={worker.id} className="group transition-colors hover:bg-slate-50">
+            {personnel.length === 0 ? (
+              <div className="p-12 text-center text-slate-400">
+                <Archive size={48} className="mx-auto mb-4 opacity-20"/>
+                <p className="font-medium">
+                  {showArchivedPersonnel ? 'No hay personal archivado' : 'No hay personal registrado'}
+                </p>
+              </div>
+            ) : (
+              personnel.map(worker => (
+                <div key={worker.id} className={`group transition-colors hover:bg-slate-50 ${showArchivedPersonnel ? 'bg-amber-50/30' : ''}`}>
                  {/* Main Row */}
-                 <div className={`grid grid-cols-12 p-4 items-center gap-2 ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
+                 <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[800px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
                     <div className="col-span-1 flex items-center justify-center">
-                       <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
+                       {!showArchivedPersonnel && (
+                         <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
+                       )}
                     </div>
                     <div className="col-span-3 md:col-span-2 flex items-center min-w-0">
                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
                           {worker.name.charAt(0)}
                        </div>
                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
                           <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
-                          <p className="text-xs text-slate-500 truncate">{worker.assignedZones?.join(', ') || 'Sin zona'}</p>
+                            {worker.inTraining && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 shrink-0">
+                                En Capacitación
+                              </span>
+                            )}
                        </div>
+                          <p className="text-xs text-slate-500 truncate">
+                            {worker.puesto ? `${worker.puesto} • ` : ''}{worker.assignedZones?.join(', ') || 'Sin zona'}
+                          </p>
+                    </div>
                     </div>
                     <div className="col-span-2 hidden md:flex items-center justify-center text-sm text-slate-500 font-mono">
                        {worker.dni || <span className="text-slate-300 italic">-</span>}
@@ -2299,21 +4314,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </div>
                     <div className="col-span-2 hidden md:flex flex-col items-center justify-center text-xs text-slate-500">
                        {worker.startDate && (
-                         <div className="whitespace-nowrap">Inicio: {new Date(worker.startDate).toLocaleDateString('es-ES')}</div>
+                         <div className="whitespace-nowrap">Inicio: {formatDateFromString(worker.startDate)}</div>
                        )}
                        {worker.endDate && (
-                         <div className="text-red-600 whitespace-nowrap">Fin: {new Date(worker.endDate).toLocaleDateString('es-ES')}</div>
+                         <div className="text-red-600 whitespace-nowrap">Fin: {formatDateFromString(worker.endDate)}</div>
                        )}
                        {!worker.startDate && !worker.endDate && <span className="text-slate-300 italic">-</span>}
-                    </div>
+                            </div>
                     <div className="col-span-1 hidden md:flex items-center justify-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
                     <div className="col-span-1 hidden md:flex items-center justify-center">
                         <div className="flex items-center">
                             <div className="w-12 bg-slate-200 rounded-full h-1.5 mr-1">
                                 <div className={`h-1.5 rounded-full ${worker.compliancePercentage && worker.compliancePercentage >= 90 ? 'bg-green-500' : 'bg-yellow-500'}`} style={{ width: `${worker.compliancePercentage || 0}%` }}></div>
-                            </div>
-                            <span className="text-xs font-medium">{worker.compliancePercentage || 0}%</span>
                         </div>
+                            <span className="text-xs font-medium">{worker.compliancePercentage || 0}%</span>
+                    </div>
                     </div>
                     <div className="col-span-3 md:col-span-2 flex justify-end items-center gap-2">
                         <button onClick={() => togglePersonnelExpand(worker.id)} className="text-slate-400 hover:text-blue-600 p-1" disabled={isArchivingPersonnel === worker.id}>
@@ -2325,13 +4340,62 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     {isUpdatingResource && editingResource?.id === worker.id ? (
                                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                                     ) : (
-                                      <Edit2 size={16} />
+                                <Edit2 size={16} />
                                     )}
-                                </button>
-                                {worker.personnelStatus === 'cesado' && (
+                            </button>
+                                {!showArchivedPersonnel && (
+                                  <>
                                     <button 
                                         onClick={async () => {
-                                            if (confirm('¿Archivar este trabajador? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
+                                            if (confirm(`¿Está seguro de eliminar a ${worker.name}? Esta acción no se puede deshacer.`)) {
+                                            if (!onUpdate) return;
+                                            try {
+                                                const { resourcesService } = await import('../services/resourcesService');
+                                                // Intentar eliminar desde el servicio
+                                                await resourcesService.delete(worker.id);
+                                                // Actualizar localmente
+                                                const currentTab = activeTabRef.current;
+                                                const updatedUnit = { ...unit };
+                                                updatedUnit.resources = updatedUnit.resources.filter(r => r.id !== worker.id);
+                                                onUpdate(updatedUnit);
+                                                // Asegurar que el tab se mantenga
+                                                setTimeout(() => {
+                                                    if (activeTab !== currentTab) {
+                                                        setActiveTab(currentTab);
+                                                    }
+                                                }, 100);
+                                                setNotification({ type: 'success', message: 'Trabajador eliminado correctamente' });
+                                                setTimeout(() => setNotification(null), 3000);
+                                            } catch (error) {
+                                                console.error('Error al eliminar trabajador:', error);
+                                                // Si falla el servicio, eliminar localmente de todas formas
+                                                const currentTab = activeTabRef.current;
+                                                const updatedUnit = { ...unit };
+                                                updatedUnit.resources = updatedUnit.resources.filter(r => r.id !== worker.id);
+                                                onUpdate(updatedUnit);
+                                                setTimeout(() => {
+                                                    if (activeTab !== currentTab) {
+                                                        setActiveTab(currentTab);
+                                                    }
+                                                }, 100);
+                                                setNotification({ type: 'success', message: 'Trabajador eliminado de la unidad' });
+                                                setTimeout(() => setNotification(null), 3000);
+                                            }
+                                        }
+                                    }}
+                                    className="text-red-600 hover:text-red-900 p-1" 
+                                    title="Eliminar trabajador"
+                                    disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                                {/* El botón de archivar manual ya no es necesario para cesados, 
+                                    ya que se archivan automáticamente. Pero lo mantenemos por si 
+                                    alguien quiere archivar manualmente antes de cesar */}
+                                {worker.personnelStatus === 'cesado' && !worker.archived && (
+                                    <button 
+                                        onClick={async () => {
+                                            if (confirm('¿Archivar este trabajador cesado? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
                                                 setIsArchivingPersonnel(worker.id);
                                                 try {
                                                     const { resourcesService } = await import('../services/resourcesService');
@@ -2361,7 +4425,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             }
                                         }}
                                         className="text-amber-600 hover:text-amber-900 p-1 disabled:opacity-50" 
-                                        title="Archivar trabajador"
+                                        title="Archivar trabajador cesado"
                                         disabled={isArchivingPersonnel === worker.id}
                                     >
                                         {isArchivingPersonnel === worker.id ? (
@@ -2371,6 +4435,46 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         )}
                                     </button>
                                 )}
+                              </>
+                            )}
+                            {showArchivedPersonnel && (
+                                <button 
+                                    onClick={async () => {
+                                        if (confirm(`¿Desarchivar a ${worker.name}? El trabajador volverá a aparecer en la lista de personal activo.`)) {
+                                            setIsArchivingPersonnel(worker.id);
+                                            try {
+                                                const { resourcesService } = await import('../services/resourcesService');
+                                                await resourcesService.update(worker.id, { archived: false });
+                                                // Recargar recursos desde BD
+                                                if (onUpdate) {
+                                                    const { unitsService } = await import('../services/unitsService');
+                                                    const refreshedUnit = await unitsService.getById(unit.id);
+                                                    if (refreshedUnit) {
+                                                        onUpdate(refreshedUnit);
+                                                    }
+                                                }
+                                                setNotification({ type: 'success', message: 'Trabajador desarchivado correctamente' });
+                                                setTimeout(() => setNotification(null), 3000);
+                                            } catch (error) {
+                                                console.error('Error al desarchivar trabajador:', error);
+                                                setNotification({ type: 'error', message: 'Error al desarchivar el trabajador. Por favor, intente nuevamente.' });
+                                                setTimeout(() => setNotification(null), 5000);
+                                            } finally {
+                                                setIsArchivingPersonnel(null);
+                                            }
+                                        }
+                                    }}
+                                    className="text-green-600 hover:text-green-900 p-1 disabled:opacity-50" 
+                                    title="Desarchivar trabajador"
+                                    disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
+                                >
+                                    {isArchivingPersonnel === worker.id ? (
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                                    ) : (
+                                      <Archive size={16} />
+                                    )}
+                                </button>
+                            )}
                             </>
                         )}
                     </div>
@@ -2452,7 +4556,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                     <Trash2 size={12}/>
                                                 </button>
                                             )}
-                                        </div>
+                                    </div>
                                     </div>
                                     );
                                 }) : <p className="text-xs text-slate-400 italic">Sin activos asignados.</p>}
@@ -2460,13 +4564,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </div>
                     </div>
                  )}
-              </div>
-            ))}
-            {personnel.length === 0 && (
-                <div className="p-8 text-center text-slate-400">
-                    <Users size={48} className="mx-auto mb-2 opacity-20"/>
-                    <p>No hay personal registrado en esta unidad.</p>
                 </div>
+              ))
             )}
          </div>
       </div>
@@ -2489,6 +4588,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
                 
                 <div className="flex items-center space-x-4">
+                    {rosterHasUnsavedChanges && (
+                        <div className="flex items-center space-x-2 text-amber-600 text-xs font-medium">
+                            <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
+                            <span>Cambios sin guardar</span>
+                        </div>
+                    )}
+                    {canEditPersonnel ? (
+                        <>
                     <div className="text-xs text-slate-400 font-medium">Click en turno para cambiar</div>
                     <button 
                         onClick={handleReplicateWeek}
@@ -2497,6 +4604,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     >
                         <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
                     </button>
+                            <button 
+                                onClick={handleSaveRoster}
+                                disabled={!rosterHasUnsavedChanges || isSavingRoster}
+                                className={`flex items-center px-4 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm ${
+                                    rosterHasUnsavedChanges && !isSavingRoster
+                                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                        : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                                }`}
+                                title={rosterHasUnsavedChanges ? 'Guardar todos los cambios de la planificación' : 'No hay cambios para guardar'}
+                            >
+                                {isSavingRoster ? (
+                                    <>
+                                        <RefreshCw size={14} className="mr-1.5 animate-spin"/> Guardando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Save size={14} className="mr-1.5"/> Guardar Planificación
+                                    </>
+                                )}
+                            </button>
+                        </>
+                    ) : (
+                        <div className="text-xs text-slate-500 font-medium italic">Modo consulta - Solo lectura</div>
+                    )}
                 </div>
              </div>
              
@@ -2547,12 +4678,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                          
                                          return (
                                              <td key={i} className="px-2 py-3 text-center relative group">
+                                                 {canEditPersonnel ? (
                                                  <button 
                                                      onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
                                                      className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
                                                  >
-                                                     {type === 'Day' ? 'Dia' : type === 'Night' ? 'Noc' : type}
+                                                         {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
                                                  </button>
+                                                 ) : (
+                                                     <div className={`w-full py-1.5 rounded text-xs font-bold ${getShiftColor(type)} opacity-75`}>
+                                                         {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
+                                                     </div>
+                                                 )}
                                              </td>
                                          );
                                      })}
@@ -2600,7 +4737,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div key={eq.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden group">
                          <div className="p-4 flex gap-4">
                              <div className="w-20 h-20 rounded-lg bg-slate-100 shrink-0 overflow-hidden">
-                                 {eq.image ? <img src={eq.image} alt={eq.name} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><Truck size={24}/></div>}
+                                 {eq.image ? (
+                                   <SafeImage 
+                                     src={eq.image} 
+                                     alt={eq.name} 
+                                     className="w-full h-full object-cover"
+                                     bucket="unit-images"
+                                     fallback={<div className="w-full h-full flex items-center justify-center text-slate-400"><Truck size={24}/></div>}
+                                   />
+                                 ) : (
+                                   <div className="w-full h-full flex items-center justify-center text-slate-400"><Truck size={24}/></div>
+                                 )}
                              </div>
                              <div className="flex-1 min-w-0">
                                  <div className="flex justify-between items-start">
@@ -2675,7 +4822,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  {materials.map(mat => (
                      <div key={mat.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex gap-4 items-center group">
                          <div className="w-12 h-12 rounded bg-purple-50 flex items-center justify-center text-purple-600 shrink-0 border border-purple-100">
-                             {mat.image ? <img src={mat.image} alt={mat.name} className="w-full h-full object-cover rounded"/> : <Package size={20}/>}
+                             {mat.image ? (
+                               <SafeImage 
+                                 src={mat.image} 
+                                 alt={mat.name} 
+                                 className="w-full h-full object-cover rounded"
+                                 bucket="unit-images"
+                                 fallback={<Package size={20}/>}
+                               />
+                             ) : (
+                               <Package size={20}/>
+                             )}
                          </div>
                          <div className="flex-1 min-w-0">
                              <div className="flex justify-between items-start">
@@ -2712,6 +4869,82 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     </div>
   );
 
+  const renderDocuments = () => (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center">
+              <FileText className="w-5 h-5 mr-2 text-slate-500" /> Documentos del Servicio
+            </h3>
+            <p className="text-slate-500 text-sm mt-1">Documentos relacionados al servicio disponibles para descarga</p>
+          </div>
+          {canEditGeneral && (
+            <button
+              onClick={() => {
+                closeAllModalsExcept('documents');
+                setShowDocumentsModal(true);
+              }}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm"
+            >
+              <Upload size={18} className="mr-2" /> Gestionar Documentos
+            </button>
+          )}
+        </div>
+        <div className="p-6">
+          {unit.documents && unit.documents.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {unit.documents.map((doc) => (
+                <div key={doc.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <FileText size={24} className="text-blue-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-slate-800 truncate">{doc.name}</h4>
+                        {doc.description && (
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">{doc.description}</p>
+                        )}
+                      </div>
+                    </div>
+                    {canEditGeneral && (
+                      <button
+                        onClick={() => handleDeleteDocument(doc.id)}
+                        className="text-red-500 hover:text-red-700 p-1 flex-shrink-0"
+                        title="Eliminar documento"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-3">
+                    <span>{formatFileSize(doc.fileSize)}</span>
+                    <span>{new Date(doc.uploadedAt).toLocaleDateString('es-PE')}</span>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadDocument(doc)}
+                    className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-colors"
+                  >
+                    <Download size={16} className="mr-2" /> Descargar
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-slate-400">
+              <FileText size={48} className="mx-auto mb-4 opacity-20" />
+              <p>No hay documentos disponibles</p>
+              {canEditGeneral && (
+                <p className="text-sm mt-2">Haga clic en "Gestionar Documentos" para agregar documentos</p>
+              )}
+            </div>
+          )}
+         </div>
+      </div>
+    </div>
+  );
+
   const renderManagement = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
        <div className="flex justify-between items-center">
@@ -2720,7 +4953,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           <p className="text-slate-500 text-sm">Registro de eventos, incidencias y visitas.</p>
         </div>
         {canEditLogs && (
-          <button onClick={() => setShowEventModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
+              <button onClick={() => {
+                closeAllModalsExcept('event');
+                setShowEventModal(true);
+              }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm">
              <Plus size={18} className="mr-2" /> Registrar Evento
           </button>
         )}
@@ -2728,13 +4964,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="divide-y divide-slate-100">
-              {[...unit.logs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
+              {[...unit.logs].sort((a,b) => {
+                // Parsear fechas manualmente para evitar problemas de timezone
+                const parseDate = (dateStr: string) => {
+                  const [year, month, day] = dateStr.split('-').map(Number);
+                  return new Date(year, month - 1, day).getTime();
+                };
+                return parseDate(b.date) - parseDate(a.date);
+              }).map(log => {
+                // Parsear fecha manualmente para evitar problemas de timezone
+                const parseDate = (dateStr: string) => {
+                  const [year, month, day] = dateStr.split('-').map(Number);
+                  return new Date(year, month - 1, day);
+                };
+                const logDate = parseDate(log.date);
+                return (
                   <div key={log.id} className="p-6 hover:bg-slate-50 transition-colors">
                       <div className="flex flex-col md:flex-row gap-4">
                           <div className="flex-shrink-0 flex flex-col items-center">
                               <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs mb-2">
-                                  {new Date(log.date).getDate()}
-                                  <span className="block text-[8px] uppercase">{new Date(log.date).toLocaleString('default', { month: 'short' })}</span>
+                                  {logDate.getDate()}
+                                  <span className="block text-[8px] uppercase">{logDate.toLocaleString('default', { month: 'short' })}</span>
                               </div>
                               <div className={`h-full w-0.5 bg-slate-200 my-2`}></div>
                           </div>
@@ -2749,28 +4999,43 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       </span>
                                       <h4 className="text-base font-bold text-slate-800">{log.description}</h4>
                                   </div>
-                                  {canEditLogs && (
-                                      <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-2 hover:bg-slate-100 rounded-lg transition-colors">
-                                          <Edit2 size={16}/>
-                                      </button>
-                                  )}
+                                  <div className="flex items-center gap-1">
+                                      {canEditLogs && (
+                                          <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 p-2 hover:bg-slate-100 rounded-lg transition-colors" title="Editar evento">
+                                              <Edit2 size={16}/>
+                                          </button>
+                                      )}
+                                      {/* Botón de eliminación: visible para equipo operativo */}
+                                      {(userRole === 'OPERATIONS' || userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') && (
+                                          <button 
+                                              onClick={() => handleDeleteLog(log.id)} 
+                                              className="text-slate-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors" 
+                                              title="Eliminar evento"
+                                          >
+                                              <Trash2 size={16}/>
+                                          </button>
+                                      )}
+                                  </div>
                               </div>
                               
                               <div className="flex flex-wrap gap-4 text-sm text-slate-500 mb-3">
                                   <span className="flex items-center"><UserCheck size={14} className="mr-1.5"/> Autor: {log.author}</span>
                                   {log.responsibleIds && log.responsibleIds.length > 0 && (
-                                      <span className="flex items-center"><Users size={14} className="mr-1.5"/> {log.responsibleIds.length} Involucrados</span>
+                                      <span className="flex items-center"><Users size={14} className="mr-1.5"/> {log.responsibleIds.length} Involucrado{log.responsibleIds.length > 1 ? 's' : ''}</span>
                                   )}
                               </div>
                               
-                              {/* Responsible avatars if any */}
+                              {/* Responsible avatars and names if any */}
                               {log.responsibleIds && log.responsibleIds.length > 0 && (
-                                  <div className="flex -space-x-2 mb-3">
+                                  <div className="flex flex-wrap items-center gap-2 mb-3">
                                       {log.responsibleIds.map(rid => {
                                           const name = getPersonName(rid);
                                           return (
-                                              <div key={rid} className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[10px] font-bold text-slate-600" title={name}>
+                                              <div key={rid} className="flex items-center gap-2 bg-slate-50 rounded-lg px-2 py-1 border border-slate-200">
+                                                  <div className="w-7 h-7 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[10px] font-bold text-slate-600 shrink-0">
                                                   {name.charAt(0)}
+                                                  </div>
+                                                  <span className="text-sm text-slate-700 font-medium">{name}</span>
                                               </div>
                                           );
                                       })}
@@ -2782,7 +5047,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   <div className="flex gap-2 overflow-x-auto pb-2">
                                       {log.images.map((img, i) => (
                                           <div key={i} className="h-20 w-20 shrink-0 rounded-lg overflow-hidden border border-slate-200">
-                                              <img src={img} alt="Evidence" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" />
+                                              <SafeImage 
+                                                src={img} 
+                                                alt="Evidence" 
+                                                className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" 
+                                                bucket="unit-images"
+                                                onClick={() => {
+                                                  setImageModalUrl(img);
+                                                  setShowImageModal(true);
+                                                }}
+                                              />
                                           </div>
                                       ))}
                                   </div>
@@ -2790,7 +5064,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           </div>
                       </div>
                   </div>
-              ))}
+                );
+              })}
               {unit.logs.length === 0 && (
                   <div className="p-12 text-center text-slate-400">
                       <ClipboardList size={48} className="mx-auto mb-4 opacity-20"/>
@@ -2816,25 +5091,36 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             </div>
           </div>
         </div>
-        <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-full md:w-fit overflow-x-auto">
+        <div className="flex flex-nowrap gap-1 bg-slate-100 p-1 rounded-lg w-full md:w-fit overflow-x-auto">
           {checkPermission(userRole, 'UNIT_OVERVIEW', 'view') && (
-              <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'overview' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>General</button>
+              <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'overview' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>General</button>
           )}
           {checkPermission(userRole, 'PERSONNEL', 'view') && (
-              <button onClick={() => setActiveTab('personnel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'personnel' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Personal</button>
+              <button onClick={() => setActiveTab('personnel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'personnel' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Personal</button>
           )}
           {checkPermission(userRole, 'LOGISTICS', 'view') && (
-              <button onClick={() => setActiveTab('logistics')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'logistics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Logística</button>
+              <button onClick={() => setActiveTab('logistics')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'logistics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Logística</button>
           )}
           {checkPermission(userRole, 'LOGS', 'view') && (
-              <button onClick={() => setActiveTab('management')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'management' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Supervisión</button>
+              <button onClick={() => setActiveTab('management')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'management' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Supervisión</button>
           )}
           {checkPermission(userRole, 'BLUEPRINT', 'view') && (
-              <button onClick={() => setActiveTab('blueprint')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'blueprint' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Plano</button>
+              <button onClick={() => setActiveTab('blueprint')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'blueprint' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Plano</button>
           )}
           {checkPermission(userRole, 'CLIENT_REQUESTS', 'view') && (
-              <button onClick={() => setActiveTab('requests')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize ${activeTab === 'requests' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Requerimientos</button>
+              <button onClick={() => setActiveTab('requests')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'requests' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Requerimientos</button>
           )}
+          {canViewPersonnel && (
+              <button onClick={() => setActiveTab('documents')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'documents' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Documentos</button>
+          )}
+          <button 
+            onClick={openNightSupervisionModal}
+            className="px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap text-blue-600 hover:text-blue-800 hover:bg-blue-50 flex items-center gap-2 shrink-0"
+            title="Ver reportes de supervisión nocturna"
+          >
+            <Moon className="w-4 h-4" />
+            Supervisión Nocturna
+          </button>
         </div>
       </div>
 
@@ -2845,20 +5131,32 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'management' && renderManagement()}
         {activeTab === 'blueprint' && renderBlueprint()}
         {activeTab === 'requests' && renderClientRequests()}
+        {activeTab === 'documents' && renderDocuments()}
       </div>
       
       {/* --- MODALS SECTION --- */}
       
       {/* 1. Client Request Modal (Updated with Photos) */}
       {showRequestModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                  <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                      <h3 className="font-bold text-lg flex items-center"><MessageSquarePlus className="mr-2" size={20}/> Nuevo Requerimiento</h3>
-                      <button onClick={() => setShowRequestModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+                  {/* Header fijo para móvil */}
+                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                      <h3 className="font-bold text-base md:text-lg flex items-center"><MessageSquarePlus className="mr-2" size={18} /><span className="hidden sm:inline">Nuevo Requerimiento</span><span className="sm:hidden">Nuevo</span></h3>
+                      <button onClick={() => setShowRequestModal(false)} className="text-white/80 hover:text-white shrink-0"><X size={20} /></button>
                   </div>
-                  <div className="p-6 space-y-4">
+                  <div className="p-6 space-y-4 md:pt-0 overflow-y-auto flex-1">
                       <p className="text-sm text-slate-600">Por favor, detalle su observación o solicitud para que nuestro equipo pueda atenderla.</p>
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Título <span className="text-red-500">*</span></label>
+                          <input 
+                            type="text"
+                            className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Ej: Solicitud de memorándum - Inasistencia"
+                            value={newRequestForm.title}
+                            onChange={(e) => setNewRequestForm({...newRequestForm, title: e.target.value})}
+                          />
+                      </div>
                       <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Categoría</label>
                           <select 
@@ -2942,7 +5240,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                                    {newRequestImages.map((img, i) => (
                                        <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                           <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                           <SafeImage 
+                              src={img} 
+                              className="w-full h-full object-cover rounded border border-slate-200" 
+                              alt="ev"
+                              bucket="unit-images"
+                              onClick={() => {
+                                setImageModalUrl(img);
+                                setShowImageModal(true);
+                              }}
+                            />
                                            <button onClick={() => setNewRequestImages(newRequestImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                                        </div>
                                    ))}
@@ -2952,10 +5259,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                       <button 
                         onClick={handleCreateRequest} 
-                        disabled={!newRequestForm.description}
-                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50"
+                        disabled={!newRequestForm.title?.trim() || !newRequestForm.description.trim() || isSavingRequest}
+                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
                       >
-                          Enviar Solicitud
+                          {isSavingRequest ? (
+                            <>
+                              <RefreshCw size={16} className="animate-spin" />
+                              <span>Guardando...</span>
+                            </>
+                          ) : (
+                            <span>Enviar Solicitud</span>
+                          )}
                       </button>
                   </div>
               </div>
@@ -2964,14 +5278,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 2. Tracking / Resolution / Comment Modal (Replaces old Admin Resolve Modal) */}
       {editingRequest && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-lg flex flex-col animate-in fade-in zoom-in-95 duration-200 max-h-[90vh]">
-                  <div className="bg-slate-800 text-white px-6 py-4 rounded-t-xl flex justify-between items-center shrink-0">
-                      <h3 className="font-bold text-lg flex items-center"><Edit2 className="mr-2" size={20}/> Seguimiento de Solicitud</h3>
-                      <button onClick={() => setEditingRequest(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-lg flex flex-col animate-in fade-in zoom-in-95 duration-200 relative md:max-h-[90vh]">
+                  {/* Header fijo para móvil */}
+                  <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                      <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18} /><span className="truncate">Seguimiento de Solicitud</span></h3>
+                      <button onClick={() => setEditingRequest(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
                   </div>
                   
-                  <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+                  <div className="p-4 md:p-6 overflow-y-auto flex-1 custom-scrollbar">
                       {/* Original Request Info */}
                       <div className="mb-6">
                           <div className="flex justify-between items-start mb-2">
@@ -2980,6 +5295,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               </span>
                               <span className="text-xs text-slate-400">{editingRequest.date}</span>
                           </div>
+                          {editingRequest.title && (
+                              <h4 className="font-bold text-slate-800 text-base mb-2">{editingRequest.title}</h4>
+                          )}
                           <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-100 italic mb-3">"{editingRequest.description}"</p>
                           
                           {/* Client Attachments Display */}
@@ -2989,7 +5307,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  <div className="flex gap-2 overflow-x-auto pb-1">
                                      {editingRequest.attachments.map((img, i) => (
                                          <div key={i} className="w-20 h-20 shrink-0 rounded border border-slate-200 overflow-hidden">
-                                             <img src={img} className="w-full h-full object-cover" alt="client attachment" />
+                                             <SafeImage 
+                                               src={img} 
+                                               className="w-full h-full object-cover" 
+                                               alt="client attachment"
+                                               bucket="unit-images"
+                                               onClick={() => {
+                                                 setImageModalUrl(img);
+                                                 setShowImageModal(true);
+                                               }}
+                                             />
                                          </div>
                                      ))}
                                  </div>
@@ -3025,11 +5352,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               {userRole !== 'CLIENT' ? (
                                   <div className="space-y-4">
                                       <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Título (Opcional)</label>
+                                          <input 
+                                            type="text"
+                                            className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Agregar o editar título del requerimiento"
+                                            value={resolveTitle}
+                                            onChange={(e) => setResolveTitle(e.target.value)}
+                                          />
+                                      </div>
+                                      <div>
                                           <label className="block text-sm font-medium text-slate-700 mb-1">Nuevo Estado</label>
                                           <select 
                                             className="w-full border border-slate-300 rounded-lg p-2 outline-none"
-                                            defaultValue={editingRequest.status}
-                                            id="resolve-status"
+                                            value={resolveStatus}
+                                            onChange={(e) => setResolveStatus(e.target.value as 'PENDING' | 'IN_PROGRESS' | 'RESOLVED')}
                                           >
                                               <option value="PENDING">Pendiente</option>
                                               <option value="IN_PROGRESS">En Proceso</option>
@@ -3042,8 +5379,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           <textarea 
                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none h-20" 
                                              placeholder="Indique las acciones tomadas..."
-                                             defaultValue={editingRequest.response || ''}
-                                             id="resolve-response"
+                                             value={resolveResponse}
+                                             onChange={(e) => setResolveResponse(e.target.value)}
                                           />
                                       </div>
 
@@ -3062,7 +5399,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                                                    {resolveAttachments.map((img, i) => (
                                                        <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                                           <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="admin ev" />
+                                                           <SafeImage 
+                                                             src={img} 
+                                                             className="w-full h-full object-cover rounded border border-slate-200" 
+                                                             alt="admin ev"
+                                                             bucket="unit-images"
+                                                             onClick={() => {
+                                                               setImageModalUrl(img);
+                                                               setShowImageModal(true);
+                                                             }}
+                                                           />
                                                            <button onClick={() => handleRemoveResolveImage(i)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                                                        </div>
                                                    ))}
@@ -3072,13 +5418,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                                       <button 
                                         onClick={() => {
-                                            const status = (document.getElementById('resolve-status') as HTMLSelectElement).value as any;
-                                            const response = (document.getElementById('resolve-response') as HTMLTextAreaElement).value;
-                                            handleUpdateRequestStatus(status, response, resolveAttachments);
-                                        }} 
-                                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                                            handleUpdateRequestStatus(resolveStatus, resolveResponse, resolveAttachments, resolveTitle);
+                                        }}
+                                        disabled={isSavingRequest}
+                                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                       >
-                                          Actualizar Estado
+                                          {isSavingRequest ? (
+                                            <>
+                                              <RefreshCw size={16} className="animate-spin" />
+                                              <span>Guardando...</span>
+                                            </>
+                                          ) : (
+                                            <span>Actualizar Estado</span>
+                                          )}
                                       </button>
                                   </div>
                               ) : (
@@ -3089,7 +5441,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       {editingRequest.responseAttachments && editingRequest.responseAttachments.length > 0 && (
                                          <div className="flex gap-2 mt-2 pt-2 border-t border-green-200/50">
                                             {editingRequest.responseAttachments.map((att, i) => (
-                                                <div key={i} className="w-12 h-12 rounded border border-green-200 overflow-hidden"><img src={att} className="w-full h-full object-cover"/></div>
+                                                <div key={i} className="w-12 h-12 rounded border border-green-200 overflow-hidden">
+                                                  <SafeImage 
+                                                    src={att} 
+                                                    className="w-full h-full object-cover"
+                                                    alt="attachment"
+                                                    bucket="unit-images"
+                                                    onClick={() => {
+                                                      setImageModalUrl(att);
+                                                      setShowImageModal(true);
+                                                    }}
+                                                  />
+                                                </div>
                                             ))}
                                          </div>
                                      )}
@@ -3104,13 +5467,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* 3. New Event Modal */}
       {showEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center"><Plus className="mr-2" size={20}/> Nuevo Evento</h3>
-                <button onClick={() => setShowEventModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center"><Plus className="mr-2 shrink-0" size={18} /><span className="truncate">Nuevo Evento</span></h3>
+                <button onClick={() => setShowEventModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Evento</label>
                     <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newEventForm.type} onChange={e => setNewEventForm({...newEventForm,type: e.target.value})}>
@@ -3158,7 +5522,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                        {newEventImages.map((img, i) => (
                          <div key={i} className="w-12 h-12 shrink-0 relative group">
-                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <SafeImage 
+                              src={img} 
+                              className="w-full h-full object-cover rounded border border-slate-200" 
+                              alt="ev"
+                              bucket="unit-images"
+                              onClick={() => {
+                                setImageModalUrl(img);
+                                setShowImageModal(true);
+                              }}
+                            />
                             <button onClick={() => setNewEventImages(newEventImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                          </div>
                        ))}
@@ -3166,21 +5539,190 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                    )}
                 </div>
 
-                <button onClick={handleCreateEvent} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Guardar Evento</button>
+                <button 
+                  onClick={handleCreateEvent} 
+                  disabled={isSavingWorker}
+                  className={`w-full py-2.5 rounded-lg font-medium transition-colors mt-2 ${
+                    isSavingWorker 
+                      ? 'bg-slate-400 text-white cursor-not-allowed' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {isSavingWorker ? 'Guardando...' : 'Guardar Evento'}
+                </button>
              </div>
           </div>
         </div>
       )}
       
-      {/* 4. Add Worker Modal */}
+      {/* 4. Bulk Import Modal */}
+      {showBulkImportModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-2xl md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+            {/* Header fijo para móvil */}
+            <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+              <h3 className="font-bold text-base md:text-lg flex items-center min-w-0">
+                <FileSpreadsheet className="mr-2 shrink-0" size={18}/> <span className="truncate">Carga Masiva</span>
+              </h3>
+              <button onClick={() => { setShowBulkImportModal(false); setImportResult(null); }} className="text-white/80 hover:text-white shrink-0 ml-2">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 mb-2">Formato del archivo Excel</h4>
+                <p className="text-sm text-blue-800 mb-3">
+                  El archivo debe tener las siguientes columnas (la primera fila debe ser encabezados):
+                </p>
+                <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
+                  <li><strong>Nombre</strong> (requerido) - Nombre completo del trabajador</li>
+                  <li><strong>DNI</strong> (opcional) - Documento Nacional de Identidad</li>
+                  <li><strong>Puesto</strong> (opcional) - Cargo o puesto del trabajador</li>
+                  <li><strong>Zonas</strong> (opcional) - Zonas asignadas, separadas por coma o punto y coma</li>
+                  <li><strong>Turno</strong> (opcional) - Diurno, Nocturno o Mixto</li>
+                  <li><strong>Fecha Inicio</strong> (opcional) - Formato: YYYY-MM-DD o DD/MM/YYYY</li>
+                  <li><strong>Fecha Fin</strong> (opcional) - Formato: YYYY-MM-DD o DD/MM/YYYY</li>
+                </ul>
+                <p className="text-xs text-blue-600 mt-3">
+                  <strong>Nota:</strong> Los encabezados pueden estar en español o inglés y no son case-sensitive.
+                </p>
+              </div>
+
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={async () => {
+                    try {
+                      const { excelService } = await import('../services/excelService');
+                      await excelService.generatePersonnelTemplate();
+                      setNotification({ 
+                        type: 'success', 
+                        message: 'Plantilla descargada correctamente' 
+                      });
+                      setTimeout(() => setNotification(null), 3000);
+                    } catch (error: any) {
+                      setNotification({ 
+                        type: 'error', 
+                        message: `Error al generar plantilla: ${error.message}` 
+                      });
+                      setTimeout(() => setNotification(null), 5000);
+                    }
+                  }}
+                  className="flex-1 bg-slate-100 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors flex items-center justify-center"
+                >
+                  <FileSpreadsheet size={18} className="mr-2" /> Descargar Plantilla
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Seleccionar archivo Excel (.xlsx, .xls)
+                </label>
+                <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-green-500 transition-colors">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        handleBulkImport(file);
+                      }
+                    }}
+                    className="hidden"
+                    id="bulk-import-file"
+                    disabled={isImporting}
+                  />
+                  <label
+                    htmlFor="bulk-import-file"
+                    className={`cursor-pointer flex flex-col items-center ${isImporting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <Upload size={48} className="text-slate-400 mb-2" />
+                    <span className="text-sm font-medium text-slate-700">
+                      {isImporting ? 'Procesando...' : 'Haz clic para seleccionar archivo'}
+                    </span>
+                    <span className="text-xs text-slate-500 mt-1">
+                      Solo archivos Excel (.xlsx, .xls)
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {isImporting && (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                  <span className="ml-3 text-slate-600">Procesando archivo...</span>
+                </div>
+              )}
+
+              {importResult && (
+                <div className="border border-slate-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-slate-800 mb-3">Resultado de la importación</h4>
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-slate-600">{importResult.totalRows}</div>
+                      <div className="text-xs text-slate-500">Total</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-green-600">{importResult.successful}</div>
+                      <div className="text-xs text-slate-500">Exitosos</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-red-600">{importResult.failed}</div>
+                      <div className="text-xs text-slate-500">Errores</div>
+                    </div>
+                  </div>
+
+                  {importResult.errors.length > 0 && (
+                    <div className="mt-4">
+                      <h5 className="font-medium text-red-700 mb-2">Errores:</h5>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {importResult.errors.map((error, idx) => (
+                          <div key={idx} className="text-xs bg-red-50 border border-red-200 rounded p-2">
+                            <span className="font-medium">Fila {error.row}:</span> {error.error}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {importResult.warnings.length > 0 && (
+                    <div className="mt-4">
+                      <h5 className="font-medium text-yellow-700 mb-2">Advertencias:</h5>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {importResult.warnings.map((warning, idx) => (
+                          <div key={idx} className="text-xs bg-yellow-50 border border-yellow-200 rounded p-2">
+                            <span className="font-medium">Fila {warning.row}:</span> {warning.warning}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-4">
+                <button
+                  onClick={() => { setShowBulkImportModal(false); setImportResult(null); }}
+                  className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
+                  disabled={isImporting}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Add Worker Modal */}
       {showAddWorkerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center"><UserPlus className="mr-2" size={20}/> Nuevo Colaborador</h3>
-                <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><UserPlus className="mr-2 shrink-0" size={18}/> <span className="truncate">Nuevo Colaborador</span></h3>
+                <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo *</label>
                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} required />
@@ -3189,6 +5731,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.dni || ''} onChange={e => setNewWorkerForm({...newWorkerForm, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
+                  <select 
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                    value={newWorkerForm.puesto || ''} 
+                    onChange={e => setNewWorkerForm({...newWorkerForm, puesto: e.target.value})}
+                  >
+                    <option value="">Seleccionar puesto...</option>
+                    {positions.filter(p => p.isActive).map(position => (
+                      <option key={position.id} value={position.name}>{position.name}</option>
+                    ))}
+                  </select>
+                  {positions.length === 0 && (
+                    <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
+                  )}
                 </div>
                 
                 <div>
@@ -3204,16 +5763,34 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.shift} onChange={e => setNewWorkerForm({...newWorkerForm, shift: e.target.value})}>
                         <option value="">Seleccionar...</option>
                         <option value="Diurno">Diurno</option>
+                        <option value="Tarde">Tarde</option>
                         <option value="Nocturno">Nocturno</option>
                         <option value="Mixto">Mixto</option>
                     </select>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newWorkerForm.isShared || false}
+                      onChange={(e) => setNewWorkerForm({...newWorkerForm, isShared: e.target.checked})}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-slate-700">Trabajador Compartido</span>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Marque esta opción si el trabajador puede trabajar en múltiples unidades. Los trabajadores compartidos solo se contarán una vez en los totales del sistema.
+                      </p>
+                    </div>
+                  </label>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
                     <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.startDate || ''} onChange={e => setNewWorkerForm({...newWorkerForm, startDate: e.target.value})} />
-                  </div>
+             </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
                     <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.endDate || ''} onChange={e => {
@@ -3221,7 +5798,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       setNewWorkerForm({...newWorkerForm, endDate});
                     }} />
                     {newWorkerForm.endDate && (
-                      <p className="text-xs text-amber-600 mt-1">El trabajador pasará a estado "Cesado"</p>
+                      <p className="text-xs text-amber-600 mt-1">El trabajador será cesado y archivado automáticamente</p>
                     )}
                   </div>
                 </div>
@@ -3245,15 +5822,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 5. Mass Training Modal */}
+      {/* 6. Mass Training Modal */}
       {showMassTrainingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center"><Award className="mr-2" size={20}/> Registrar Capacitación</h3>
-                <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Award className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Capacitación</span></h3>
+                <button onClick={() => setShowMassTrainingModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Tema / Curso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.topic} onChange={e => setMassTrainingForm({...massTrainingForm, topic: e.target.value})} /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.date} onChange={e => setMassTrainingForm({...massTrainingForm, date: e.target.value})} /></div>
@@ -3270,15 +5848,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 6. Mass Asset Assignment Modal (Was missing in previous provided text) */}
+      {/* 7. Mass Asset Assignment Modal (Was missing in previous provided text) */}
       {showAssetAssignmentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-orange-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center"><Briefcase className="mr-2" size={20}/> Asignar EPP / Activo</h3>
-                <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-orange-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Briefcase className="mr-2 shrink-0" size={18}/> <span className="truncate">Asignar EPP / Activo</span></h3>
+                <button onClick={() => setShowAssetAssignmentModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
                 
                 {/* Opción: Usar catálogo o texto libre */}
@@ -3343,8 +5922,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         </p>
                       )}
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
                       <select 
                         className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-100" 
                         value={assetAssignmentForm.type} 
@@ -3381,8 +5960,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         <option value="Tecnologia">Tecnología (Celular/Laptop)</option>
                         <option value="Herramienta">Herramienta</option>
                         <option value="Otro">Otro</option>
-                      </select>
-                    </div>
+                    </select>
+                </div>
                   </>
                 )}
                 
@@ -3428,15 +6007,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 7. Edit Resource Modal */}
+      {/* 8. Edit Resource Modal */}
       {editingResource && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                  <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                      <h3 className="font-bold text-lg flex items-center"><Edit2 className="mr-2" size={20}/> Editar Recurso</h3>
-                      <button onClick={() => setEditingResource(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+                  {/* Header fijo para móvil */}
+                  <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                      <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18}/> <span className="truncate">Editar Recurso</span></h3>
+                      <button onClick={() => setEditingResource(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
                   </div>
-                  <div className="p-6 space-y-4">
+                  <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                       <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.name} onChange={e => setEditingResource({...editingResource, name: e.target.value})} /></div>
                       
                       {editingResource.type === ResourceType.PERSONNEL && (
@@ -3445,25 +6025,58 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
                                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.dni || ''} onChange={e => setEditingResource({...editingResource, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
                               </div>
-                              <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                      <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
-                                      <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}>
-                                          <option value="">Seleccionar...</option>
-                                          <option value="Diurno">Diurno</option>
-                                          <option value="Nocturno">Nocturno</option>
-                                          <option value="Mixto">Mixto</option>
-                                      </select>
-                                  </div>
-                                  <div>
-                                      <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
-                                      <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}>
-                                          <option value="Activo">Activo</option>
-                                          <option value="De Licencia">De Licencia</option>
-                                          <option value="Reemplazo Temporal">Reemplazo Temporal</option>
-                                      </select>
-                                  </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
+                                  <select 
+                                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                                    value={editingResource.puesto || ''} 
+                                    onChange={e => setEditingResource({...editingResource, puesto: e.target.value})}
+                                  >
+                                    <option value="">Seleccionar puesto...</option>
+                                    {positions.filter(p => p.isActive).map(position => (
+                                      <option key={position.id} value={position.name}>{position.name}</option>
+                                    ))}
+                                  </select>
+                                  {positions.length === 0 && (
+                                    <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
+                                  )}
                               </div>
+                              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={editingResource.isShared || false}
+                                    onChange={(e) => setEditingResource({...editingResource, isShared: e.target.checked})}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <div>
+                                    <span className="text-sm font-medium text-slate-700">Trabajador Compartido</span>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                      Marque esta opción si el trabajador puede trabajar en múltiples unidades. Los trabajadores compartidos solo se contarán una vez en los totales del sistema.
+                                    </p>
+                                  </div>
+                                </label>
+                              </div>
+                          <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
+                                  <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.assignedShift} onChange={e => setEditingResource({...editingResource, assignedShift: e.target.value})}>
+                                          <option value="">Seleccionar...</option>
+                                      <option value="Diurno">Diurno</option>
+                                          <option value="Tarde">Tarde</option>
+                                      <option value="Nocturno">Nocturno</option>
+                                      <option value="Mixto">Mixto</option>
+                                  </select>
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
+                                  <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.status} onChange={e => setEditingResource({...editingResource, status: e.target.value})}>
+                                      <option value="Activo">Activo</option>
+                                      <option value="De Licencia">De Licencia</option>
+                                      <option value="Reemplazo Temporal">Reemplazo Temporal</option>
+                                  </select>
+                              </div>
+                          </div>
                               <div className="grid grid-cols-2 gap-4">
                                   <div>
                                       <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
@@ -3476,13 +6089,47 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         setEditingResource({
                                           ...editingResource, 
                                           endDate,
-                                          // El trigger de la BD cambiará automáticamente el personnelStatus a 'cesado'
+                                          personnelStatus: endDate ? 'cesado' as const : 'activo' as const,
+                                          // Se archivará automáticamente al guardar si tiene endDate
                                         });
                                       }} />
                                       {editingResource.endDate && (
-                                        <p className="text-xs text-amber-600 mt-1">El trabajador pasará a estado "Cesado"</p>
+                                        <p className="text-xs text-amber-600 mt-1">El trabajador será cesado y archivado automáticamente al guardar</p>
                                       )}
                                   </div>
+                              </div>
+                              <div className="border-t border-slate-200 pt-4 mt-4">
+                                  <div className="flex items-center space-x-2 mb-3">
+                                      <input 
+                                          type="checkbox" 
+                                          id="inTraining"
+                                          checked={editingResource.inTraining || false} 
+                                          onChange={e => {
+                                              const newValue = e.target.checked;
+                                              setEditingResource({
+                                                  ...editingResource, 
+                                                  inTraining: newValue,
+                                                  trainingStartDate: newValue && !editingResource.trainingStartDate ? new Date().toISOString().split('T')[0] : editingResource.trainingStartDate
+                                              });
+                                          }}
+                                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                      />
+                                      <label htmlFor="inTraining" className="text-sm font-medium text-slate-700">
+                                          En Periodo de Capacitación
+                                      </label>
+                                  </div>
+                                  {editingResource.inTraining && (
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio de Capacitación</label>
+                                          <input 
+                                              type="date" 
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                                              value={editingResource.trainingStartDate || ''} 
+                                              onChange={e => setEditingResource({...editingResource, trainingStartDate: e.target.value})} 
+                                          />
+                                          <p className="text-xs text-slate-500 mt-1">Después de 3 días se generará una alerta para crear el contrato de trabajo</p>
+                                      </div>
+                                  )}
                               </div>
                           </>
                       )}
@@ -3532,18 +6179,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           </div>
       )}
       
-      {/* 8. Add Resource Modal (Logistics) */}
+      {/* 9. Add Resource Modal (Logistics) */}
       {showAddResourceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center">
-                    {newResourceType === ResourceType.EQUIPMENT ? <Truck className="mr-2" size={20}/> : <Package className="mr-2" size={20}/>} 
-                    Nuevo {newResourceType === ResourceType.EQUIPMENT ? 'Equipo' : 'Material'}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0">
+                    {newResourceType === ResourceType.EQUIPMENT ? <Truck className="mr-2 shrink-0" size={18}/> : <Package className="mr-2 shrink-0" size={18}/>} 
+                    <span className="truncate">Nuevo {newResourceType === ResourceType.EQUIPMENT ? 'Equipo' : 'Material'}</span>
                 </h3>
-                <button onClick={() => setShowAddResourceModal(false)} className="text-white/80 hover:text-white"><X size={20} /></button>
+                <button onClick={() => setShowAddResourceModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newResourceForm.name} onChange={e => setNewResourceForm({...newResourceForm, name: e.target.value})} /></div>
                 
                 <div className="grid grid-cols-2 gap-4">
@@ -3618,15 +6266,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
       
-      {/* 9. Maintenance Modal (Triggered by maintenanceResource state) */}
+      {/* 10. Maintenance Modal (Triggered by maintenanceResource state) */}
       {maintenanceResource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-orange-500 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center"><Wrench className="mr-2" size={20}/> Registrar Mantenimiento</h3>
-                <button onClick={() => setMaintenanceResource(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-orange-500 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Wrench className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Mantenimiento</span></h3>
+                <button onClick={() => setMaintenanceResource(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Equipo: <span className="font-bold">{maintenanceResource.name}</span></p>
                 <div className="grid grid-cols-2 gap-4">
                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.date} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, date: e.target.value})} /></div>
@@ -3671,7 +6320,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                        {newMaintenanceImages.map((img, i) => (
                          <div key={i} className="w-12 h-12 shrink-0 relative group">
-                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <SafeImage 
+                              src={img} 
+                              className="w-full h-full object-cover rounded border border-slate-200" 
+                              alt="ev"
+                              bucket="unit-images"
+                              onClick={() => {
+                                setImageModalUrl(img);
+                                setShowImageModal(true);
+                              }}
+                            />
                             <button onClick={() => setNewMaintenanceImages(newMaintenanceImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                          </div>
                        ))}
@@ -3685,15 +6343,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 10. Edit Log Modal */}
+      {/* 11. Edit Log Modal */}
       {editingLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
-             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center"><Edit2 className="mr-2" size={20}/> Editar Registro</h3>
-                <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><Edit2 className="mr-2 shrink-0" size={18}/> <span className="truncate">Editar Registro</span></h3>
+                <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
-             <div className="p-6 space-y-4">
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingLog.date} onChange={e => setEditingLog({...editingLog, date: e.target.value})} /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={editingLog.description} onChange={e => setEditingLog({...editingLog, description: e.target.value})} /></div>
                 
@@ -3732,14 +6391,601 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                        {editingLog.images.map((img, i) => (
                          <div key={i} className="w-12 h-12 shrink-0 relative group">
-                            <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                            <SafeImage 
+                              src={img} 
+                              className="w-full h-full object-cover rounded border border-slate-200" 
+                              alt="ev"
+                              bucket="unit-images"
+                              onClick={() => {
+                                setImageModalUrl(img);
+                                setShowImageModal(true);
+                              }}
+                            />
                             <button onClick={() => setEditingLog({...editingLog, images: editingLog.images?.filter((_, idx) => idx !== i)})} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                          </div>
                        ))}
                      </div>
                    )}
                 </div>
-                <button onClick={handleUpdateLog} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Guardar Cambios</button>
+                <button 
+                  onClick={handleUpdateLog} 
+                  disabled={isSavingWorker}
+                  className={`w-full py-2.5 rounded-lg font-medium transition-colors mt-2 ${
+                    isSavingWorker 
+                      ? 'bg-slate-400 text-white cursor-not-allowed' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {isSavingWorker ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Supervisión Nocturna */}
+      {showNightSupervisionModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-lg p-0 md:p-6 max-w-6xl w-full h-full md:h-auto md:max-h-[90vh] flex flex-col">
+            {/* Header fijo para móvil */}
+            <div className="flex justify-between items-center p-4 md:p-0 mb-4 md:mb-6 shrink-0 sticky top-0 bg-white z-10 border-b md:border-b-0 pb-4 md:pb-0">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg md:text-2xl font-bold text-gray-900 flex items-center gap-2">
+                  <Moon className="w-5 h-5 md:w-6 md:h-6 shrink-0" />
+                  <span className="truncate">Supervisión Nocturna{window.innerWidth >= 768 ? ` - ${unit.name}` : ''}</span>
+                </h2>
+                <p className="text-xs md:text-sm text-gray-600 mt-1 hidden md:block">Reportes de supervisión nocturna para esta unidad</p>
+                <p className="text-xs text-gray-600 mt-1 md:hidden truncate">{unit.name}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowNightSupervisionModal(false);
+                  setSelectedShift(null);
+                  setShiftCalls([]);
+                  setShiftCameraReviews([]);
+                }}
+                className="text-gray-400 hover:text-gray-600 shrink-0 ml-2"
+              >
+                <X className="w-5 h-5 md:w-6 md:h-6" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto px-4 md:px-0">
+
+            {loadingNightSupervision ? (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="mt-2 text-gray-600">Cargando...</p>
+              </div>
+            ) : selectedShift ? (
+              <div className="space-y-6">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => {
+                      setSelectedShift(null);
+                      setShiftCalls([]);
+                      setShiftCameraReviews([]);
+                    }}
+                    className="text-blue-600 hover:text-blue-800 flex items-center gap-2"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Volver a lista
+                  </button>
+                </div>
+
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Turno del {formatDateFromString(selectedShift.date)}
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Supervisor:</span>
+                      <p className="font-medium">{selectedShift.supervisor_name}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Horario:</span>
+                      <p className="font-medium">{selectedShift.shift_start} - {selectedShift.shift_end}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Completitud:</span>
+                      <p className="font-medium">{selectedShift.completion_percentage}%</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Estado:</span>
+                      <p className="font-medium">{selectedShift.status}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Llamadas a Trabajadores */}
+                <div className="bg-white border rounded-lg p-4">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Phone className="w-5 h-5" />
+                    Llamadas a Trabajadores ({shiftCalls.length})
+                  </h4>
+                  {shiftCalls.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4">No hay llamadas registradas</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Trabajador</th>
+                            <th className="px-3 py-2 text-left">Llamada #</th>
+                            <th className="px-3 py-2 text-left">Hora Programada</th>
+                            <th className="px-3 py-2 text-left">Hora Real</th>
+                            <th className="px-3 py-2 text-center">Contestó</th>
+                            <th className="px-3 py-2 text-center">Foto Recibida</th>
+                            <th className="px-3 py-2 text-left">Observaciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shiftCalls.map((call) => (
+                            <tr key={call.id} className="border-b">
+                              <td className="px-3 py-2">{call.worker_name}</td>
+                              <td className="px-3 py-2">{call.call_number}</td>
+                              <td className="px-3 py-2">{call.scheduled_time}</td>
+                              <td className="px-3 py-2">{call.actual_time || '-'}</td>
+                              <td className="px-3 py-2 text-center">
+                                {call.answered ? (
+                                  <CheckCircle className="w-5 h-5 text-green-600 mx-auto" />
+                                ) : (
+                                  <XCircle className="w-5 h-5 text-red-600 mx-auto" />
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                {call.photo_received ? (
+                                  <CheckCircle className="w-5 h-5 text-green-600 mx-auto" />
+                                ) : (
+                                  <XCircle className="w-5 h-5 text-red-600 mx-auto" />
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-600">{call.notes || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Revisiones de Cámaras */}
+                <div className="bg-white border rounded-lg p-4">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Camera className="w-5 h-5" />
+                    Revisiones de Cámaras ({shiftCameraReviews.length}/3)
+                  </h4>
+                  {shiftCameraReviews.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4">No hay revisiones registradas</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {shiftCameraReviews.map((review) => (
+                        <div key={review.id} className="border rounded-lg p-4">
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <h5 className="font-semibold text-gray-900">Revisión #{review.review_number}</h5>
+                              <p className="text-sm text-gray-600">
+                                Programada: {review.scheduled_time} | 
+                                Real: {review.actual_time || 'No registrada'}
+                              </p>
+                            </div>
+                          </div>
+                          {review.screenshot_url && (
+                            <div className="mt-3">
+                              <img
+                                src={review.screenshot_url}
+                                alt={`Revisión ${review.review_number}`}
+                                className="w-full max-w-md h-auto rounded cursor-pointer hover:opacity-90 transition-opacity"
+                                onClick={() => {
+                                  closeAllModalsExcept('image');
+                                  setImageModalUrl(review.screenshot_url || null);
+                                  setShowImageModal(true);
+                                }}
+                                title="Click para ver en tamaño completo"
+                              />
+                              <button
+                                onClick={() => {
+                                  closeAllModalsExcept('image');
+                                  setImageModalUrl(review.screenshot_url || null);
+                                  setShowImageModal(true);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800 mt-1 flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                Ver foto completa
+                              </button>
+                            </div>
+                          )}
+                          {review.notes && (
+                            <div className="mt-3">
+                              <p className="text-sm font-medium text-gray-700">Observaciones:</p>
+                              <p className="text-sm text-gray-600 mt-1">{review.notes}</p>
+                            </div>
+                          )}
+                          {review.non_conformity && (
+                            <div className="mt-3 bg-red-50 border border-red-200 rounded p-2">
+                              <p className="text-sm font-medium text-red-800">No Conformidad</p>
+                              {review.non_conformity_description && (
+                                <p className="text-sm text-red-700 mt-1">{review.non_conformity_description}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div>
+                {nightSupervisionShifts.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Moon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No hay turnos de supervisión nocturna registrados para esta unidad</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Turnos Registrados</h3>
+                    {nightSupervisionShifts.map((shift) => (
+                      <div
+                        key={shift.id}
+                        className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                        onClick={() => loadShiftDetails(shift)}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h4 className="font-semibold text-gray-900">
+                              Turno del {formatDateFromString(shift.date)}
+                            </h4>
+                            <p className="text-sm text-gray-600">
+                              Supervisor: {shift.supervisor_name} | 
+                              Completitud: {shift.completion_percentage}% | 
+                              Estado: {shift.status}
+                            </p>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-gray-400" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Ver Imagen Completa - Funciona para imágenes de unidad y fotos de supervisión */}
+      {/* Este modal tiene z-index más alto porque puede abrirse desde otros modales */}
+      {showImageModal && imageModalUrl && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[60]" 
+          onClick={() => {
+            closeAllModalsExcept();
+            setShowImageModal(false);
+          }}
+        >
+          <div className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center p-4">
+            {/* Botón cerrar */}
+            <button
+              className="absolute top-4 right-4 bg-white/90 text-black rounded-full p-2 hover:bg-white z-10 shadow-lg transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowImageModal(false);
+              }}
+            >
+              <X size={24} />
+            </button>
+            
+            {/* Navegación entre imágenes (solo si hay múltiples imágenes de la unidad) */}
+            {unit.images && unit.images.length > 1 && unit.images.includes(imageModalUrl) && (
+              <>
+                <button
+                  className="absolute left-4 bg-white/90 text-black rounded-full p-3 hover:bg-white z-10 shadow-lg transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const currentIndex = unit.images.findIndex(img => img === imageModalUrl);
+                    const prevIndex = currentIndex > 0 ? currentIndex - 1 : unit.images.length - 1;
+                    setImageModalUrl(unit.images[prevIndex]);
+                  }}
+                  title="Imagen anterior"
+                >
+                  <ChevronLeft size={24} />
+                </button>
+                <button
+                  className="absolute right-4 bg-white/90 text-black rounded-full p-3 hover:bg-white z-10 shadow-lg transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const currentIndex = unit.images.findIndex(img => img === imageModalUrl);
+                    const nextIndex = currentIndex < unit.images.length - 1 ? currentIndex + 1 : 0;
+                    setImageModalUrl(unit.images[nextIndex]);
+                  }}
+                  title="Imagen siguiente"
+                >
+                  <ChevronRight size={24} />
+                </button>
+                
+                {/* Indicador de imagen actual */}
+                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/70 text-white px-4 py-2 rounded-full text-sm z-10 backdrop-blur-sm">
+                  {unit.images.findIndex(img => img === imageModalUrl) + 1} / {unit.images.length}
+                </div>
+              </>
+            )}
+            
+            {/* Imagen */}
+            <SafeImage
+              src={imageModalUrl}
+              alt="Imagen completa"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-default"
+              bucket="unit-images"
+              onClick={(e) => e.stopPropagation()}
+              fallback={
+                <div className="max-w-full max-h-full flex items-center justify-center bg-slate-800 rounded-lg p-8">
+                  <div className="text-white text-center">
+                    <Camera size={48} className="mx-auto mb-4 opacity-50" />
+                    <p className="text-lg">Imagen no disponible</p>
+                  </div>
+                </div>
+              }
+              onError={() => {
+                console.error('Error al cargar imagen en modal:', imageModalUrl);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Required Positions Modal */}
+      {showRequiredPositionsModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center">
+                <Briefcase className="mr-2" size={20} />
+                {editingRequiredPosition ? 'Editar Puesto Requerido' : 'Agregar Puesto Requerido'}
+              </h3>
+              <button onClick={() => setShowRequiredPositionsModal(false)} className="text-white/80 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Puesto <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={requiredPositionForm.positionId}
+                  onChange={(e) => {
+                    const position = positions.find(p => p.id === e.target.value);
+                    setRequiredPositionForm({
+                      ...requiredPositionForm,
+                      positionId: e.target.value,
+                    });
+                  }}
+                >
+                  <option value="">Seleccionar puesto...</option>
+                  {positions.filter(p => p.isActive).map(position => (
+                    <option key={position.id} value={position.id}>{position.name}</option>
+                  ))}
+                </select>
+                {positions.length === 0 && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Cantidad Requerida <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={requiredPositionForm.quantity}
+                  onChange={(e) => setRequiredPositionForm({
+                    ...requiredPositionForm,
+                    quantity: parseInt(e.target.value) || 1,
+                  })}
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowRequiredPositionsModal(false)}
+                className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!requiredPositionForm.positionId || !requiredPositionForm.quantity || requiredPositionForm.quantity < 1) {
+                    setNotification({ type: 'error', message: 'Por favor, complete todos los campos requeridos' });
+                    setTimeout(() => setNotification(null), 3000);
+                    return;
+                  }
+
+                  const position = positions.find(p => p.id === requiredPositionForm.positionId);
+                  if (!position) {
+                    setNotification({ type: 'error', message: 'Puesto no encontrado' });
+                    setTimeout(() => setNotification(null), 3000);
+                    return;
+                  }
+
+                  const currentRequired = unit.requiredPositions || [];
+                  let updated: RequiredPosition[];
+
+                  if (editingRequiredPosition) {
+                    // Editar existente
+                    updated = currentRequired.map((req, index) => {
+                      const existingIndex = currentRequired.findIndex(
+                        r => r.positionId === editingRequiredPosition.positionId
+                      );
+                      if (index === existingIndex) {
+                        return {
+                          positionId: requiredPositionForm.positionId,
+                          positionName: position.name,
+                          quantity: requiredPositionForm.quantity,
+                        };
+                      }
+                      return req;
+                    });
+                  } else {
+                    // Verificar si ya existe
+                    const exists = currentRequired.some(r => r.positionId === requiredPositionForm.positionId);
+                    if (exists) {
+                      setNotification({ type: 'error', message: 'Este puesto ya está en la lista de requeridos' });
+                      setTimeout(() => setNotification(null), 3000);
+                      return;
+                    }
+                    // Agregar nuevo
+                    updated = [
+                      ...currentRequired,
+                      {
+                        positionId: requiredPositionForm.positionId,
+                        positionName: position.name,
+                        quantity: requiredPositionForm.quantity,
+                      },
+                    ];
+                  }
+
+                  if (onUpdate) {
+                    await onUpdate({ ...unit, requiredPositions: updated });
+                    setNotification({ type: 'success', message: editingRequiredPosition ? 'Puesto requerido actualizado' : 'Puesto requerido agregado' });
+                    setTimeout(() => setNotification(null), 3000);
+                    setShowRequiredPositionsModal(false);
+                    setEditingRequiredPosition(null);
+                    setRequiredPositionForm({ positionId: '', quantity: 1 });
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              >
+                <Save size={16} className="mr-2" /> {editingRequiredPosition ? 'Guardar Cambios' : 'Agregar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Documents Management Modal */}
+      {showDocumentsModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-2xl md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+            {/* Header */}
+            <div className="bg-blue-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+              <h3 className="font-bold text-base md:text-lg flex items-center min-w-0">
+                <FileText className="mr-2 shrink-0" size={18}/> 
+                <span className="truncate">Gestionar Documentos</span>
+              </h3>
+              <button onClick={() => setShowDocumentsModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+              {/* Upload Form */}
+              <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                <h4 className="font-semibold text-slate-800 mb-3 flex items-center">
+                  <Upload size={16} className="mr-2" /> Subir Nuevo Documento
+                </h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Documento *</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      value={newDocumentName}
+                      onChange={(e) => setNewDocumentName(e.target.value)}
+                      placeholder="Ej: Contrato de Servicio 2024"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Descripción (opcional)</label>
+                    <textarea
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none h-20"
+                      value={newDocumentDescription}
+                      onChange={(e) => setNewDocumentDescription(e.target.value)}
+                      placeholder="Descripción del documento..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Archivo *</label>
+                    <input
+                      type="file"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setSelectedDocumentFile(e.target.files[0]);
+                        }
+                      }}
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png"
+                    />
+                    {selectedDocumentFile && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        Archivo seleccionado: {selectedDocumentFile.name} ({formatFileSize(selectedDocumentFile.size)})
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleUploadDocument}
+                    disabled={uploadingDocument || !selectedDocumentFile || !newDocumentName.trim()}
+                    className={`w-full py-2.5 rounded-lg font-medium transition-colors ${
+                      uploadingDocument || !selectedDocumentFile || !newDocumentName.trim()
+                        ? 'bg-slate-400 text-white cursor-not-allowed'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {uploadingDocument ? 'Subiendo...' : 'Subir Documento'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Existing Documents */}
+              <div>
+                <h4 className="font-semibold text-slate-800 mb-3 flex items-center">
+                  <FileText size={16} className="mr-2" /> Documentos Existentes ({unit.documents?.length || 0})
+                </h4>
+                {unit.documents && unit.documents.length > 0 ? (
+                  <div className="space-y-2">
+                    {unit.documents.map((doc) => (
+                      <div key={doc.id} className="border border-slate-200 rounded-lg p-3 bg-white flex items-center justify-between">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <FileText size={20} className="text-blue-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-slate-800 truncate">{doc.name}</p>
+                            <p className="text-xs text-slate-500">
+                              {formatFileSize(doc.fileSize)} • {new Date(doc.uploadedAt).toLocaleDateString('es-PE')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleDownloadDocument(doc)}
+                            className="text-blue-600 hover:text-blue-700 p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Descargar"
+                          >
+                            <Download size={18} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDocument(doc.id)}
+                            className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400 text-center py-4">No hay documentos subidos aún</p>
+                )}
+              </div>
              </div>
           </div>
         </div>

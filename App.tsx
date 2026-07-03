@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck, Moon, Search, Palmtree } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -10,8 +10,9 @@ import { Reports } from './components/Reports';
 import { OperationsDashboard } from './components/OperationsDashboard';
 import { StandardAssetsCatalog } from './components/StandardAssetsCatalog';
 import { Retenes } from './components/Retenes';
+import { NightSupervision } from './components/NightSupervision';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
-import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative } from './types';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
 import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission } from './services/permissionService';
@@ -23,8 +24,12 @@ import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
 import { Login } from './components/Login';
 import { authService } from './services/authService';
-import { LogOut, FileText } from 'lucide-react';
+import { LogOut, FileText, RefreshCw } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
+import { SafeImage } from './components/SafeImage';
+import { PositionsManagementSection } from './components/PositionsManagement';
+import { Headcount } from './components/Headcount';
+import { Vacations } from './components/Vacations';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -32,8 +37,24 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'vacations'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
+  
+  // Settings accordion state
+  const [settingsSections, setSettingsSections] = useState<Record<string, boolean>>({
+    permissions: true, // Abierto por defecto
+    branding: false,
+    users: false,
+    staff: false,
+    clients: false,
+    integrations: false,
+    positions: false,
+  });
+  
+  const toggleSettingsSection = (section: string) => {
+    setSettingsSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
   const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits } = useUnits(isAuthenticated);
@@ -65,6 +86,7 @@ const App: React.FC = () => {
   // New Unit Images State
   const [newUnitImages, setNewUnitImages] = useState<string[]>([]);
   const [newUnitImageUrl, setNewUnitImageUrl] = useState('');
+  const [isCreatingUnit, setIsCreatingUnit] = useState(false);
 
   // User Management State
   const [showUserModal, setShowUserModal] = useState(false);
@@ -89,7 +111,10 @@ const App: React.FC = () => {
   // API Config State
   const [apiConfig, setApiConfig] = useState<InventoryApiConfig>(() => {
     const config = getApiConfig();
-    console.log('📦 Cargando configuración de inventario al iniciar:', config);
+    // Log reducido - solo en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📦 Cargando configuración de inventario al iniciar:', config);
+    }
     return config;
   });
   const [isInventoryConfigSaved, setIsInventoryConfigSaved] = useState(false);
@@ -97,10 +122,20 @@ const App: React.FC = () => {
   // Gemini API Config State
   const [geminiKey, setGeminiKey] = useState<string>(() => {
     const key = getGeminiApiKey() || '';
-    console.log('📦 Cargando API Key de Gemini al iniciar:', key ? '***' + key.slice(-4) : 'no configurada');
+    // Log reducido - solo en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📦 Cargando API Key de Gemini al iniciar:', key ? '***' + key.slice(-4) : 'no configurada');
+    }
     return key;
   });
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
+
+  // Google Maps Geocoding API Config State
+  const [googleMapsKey, setGoogleMapsKey] = useState<string>(() => {
+    const key = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
+    return key;
+  });
+  const [isGoogleMapsSaved, setIsGoogleMapsSaved] = useState(false);
 
 
   // Branding State
@@ -146,7 +181,10 @@ const App: React.FC = () => {
   // Permissions State
   const [permissions, setPermissions] = useState<PermissionConfig>(() => {
     const perms = getPermissions();
-    console.log('📦 Cargando permisos al iniciar');
+    // Log reducido - solo en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📦 Cargando permisos al iniciar');
+    }
     return perms;
   });
   const [isPermsSaved, setIsPermsSaved] = useState(false);
@@ -239,15 +277,41 @@ const App: React.FC = () => {
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
+  const handleDeleteUnit = async (unitId: string, unitName: string) => {
+    if (!confirm(`¿Está seguro de eliminar la unidad "${unitName}"?\n\nEsta acción no se puede deshacer y eliminará todos los datos asociados (personal, equipos, eventos, documentos, etc.).`)) {
+      return;
+    }
+
+    try {
+      await deleteUnit(unitId);
+      // Si la unidad eliminada estaba seleccionada, volver a la lista
+      if (selectedUnitId === unitId) {
+        setSelectedUnitId(null);
+      }
+      // Recargar unidades para actualizar la lista
+      await loadUnits();
+      alert(`✅ Unidad "${unitName}" eliminada correctamente`);
+    } catch (error: any) {
+      console.error('Error al eliminar unidad:', error);
+      alert(`Error al eliminar la unidad: ${error.message || 'Error desconocido'}`);
+    }
+  };
+
   const handleUpdateUnit = async (updatedUnit: Unit) => {
     try {
+      // Guardar en la base de datos
       await updateUnit(updatedUnit.id, updatedUnit);
-      // No recargar inmediatamente para evitar cerrar modales
-      // Los datos se actualizarán cuando el usuario navegue o recargue manualmente
-      // await loadUnits(); // Comentado para evitar que se cierren modales
+      
+      // NO recargar automáticamente todas las unidades para evitar interrupciones
+      // El estado local ya se actualiza con updateUnit, y los cambios se reflejan inmediatamente
+      // Solo recargar si es realmente necesario (por ejemplo, cuando se guarda la unidad completa)
+      // await loadUnits(); // Comentado para evitar recargas que interrumpen la edición
+      
+      // Notificación de éxito se maneja en el componente que llama
     } catch (error) {
       console.error('Error al actualizar unidad:', error);
-      alert('Error al actualizar la unidad. Por favor, intente nuevamente.');
+      // El error se propaga para que el componente pueda mostrar su propia notificación
+      throw error;
     }
   };
 
@@ -379,29 +443,94 @@ const App: React.FC = () => {
   const handleAddUnit = async () => {
     if (!newUnitForm.name || !newUnitForm.clientName) return;
 
+    setIsCreatingUnit(true);
+    
     try {
+      // Geocodificar la dirección para obtener coordenadas
+      let latitude: number | undefined;
+      let longitude: number | undefined;
+      
+      if (newUnitForm.address && newUnitForm.address.trim().length > 0) {
+        try {
+          const { geocodingService } = await import('./services/geocodingService');
+          const geocodeResult = await geocodingService.geocodeAddress(newUnitForm.address, googleMapsKey);
+          if (geocodeResult) {
+            latitude = geocodeResult.latitude;
+            longitude = geocodeResult.longitude;
+            console.log(`✅ Coordenadas obtenidas para "${newUnitForm.address}":`, { latitude, longitude });
+          } else {
+            console.warn(`⚠️ No se pudieron obtener coordenadas para "${newUnitForm.address}"`);
+          }
+        } catch (geocodeError) {
+          console.error('Error al geocodificar dirección:', geocodeError);
+          // Continuar sin coordenadas si falla la geocodificación
+        }
+      }
+
+      // Subir imágenes blob a Supabase Storage antes de crear la unidad
+      const uploadedImages: string[] = [];
+      
+      for (const imgUrl of newUnitImages) {
+        if (imgUrl.startsWith('blob:')) {
+          // Convertir blob URL a File y subirlo
+          try {
+            const response = await fetch(imgUrl);
+            const blob = await response.blob();
+            const file = new File([blob], `unit-image-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`, { type: blob.type });
+            
+            // Subir a Supabase Storage
+            const { storageService } = await import('./services/storageService');
+            const uploadedUrl = await storageService.uploadFile('unit-images', file, `units/temp-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`);
+            
+            if (uploadedUrl) {
+              uploadedImages.push(uploadedUrl);
+              // Limpiar el blob URL para liberar memoria
+              URL.revokeObjectURL(imgUrl);
+            }
+          } catch (uploadError: any) {
+            console.error('Error al subir imagen:', uploadError);
+            // Si falla la subida, omitir esta imagen pero continuar con las demás
+            URL.revokeObjectURL(imgUrl);
+          }
+        } else {
+          // Si ya es una URL válida (no blob), agregarla directamente
+          uploadedImages.push(imgUrl);
+        }
+      }
+
       const newUnitData: Partial<Unit> = {
         name: newUnitForm.name!,
         clientName: newUnitForm.clientName!,
         address: newUnitForm.address || '',
         status: newUnitForm.status as UnitStatus || UnitStatus.ACTIVE,
         description: 'Nueva unidad registrada. Configure zonas y recursos.',
-        images: newUnitImages,
+        images: uploadedImages,
         zones: [],
+        latitude,
+        longitude,
         resources: [],
         logs: [],
         requests: [],
         complianceHistory: [{ month: 'Actual', score: 100 }] // Default start
       };
 
+      // Crear la unidad en la base de datos
       await createUnit(newUnitData);
+      
+      // Recargar todas las unidades desde la BD para asegurar consistencia
+      await loadUnits();
+      
+      // Limpiar el formulario y cerrar el modal
       setShowAddUnitModal(false);
       setNewUnitForm({ name: '', clientName: '', address: '', status: UnitStatus.ACTIVE });
       setNewUnitImages([]);
       setNewUnitImageUrl('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al crear unidad:', error);
-      alert('Error al crear la unidad. Por favor, intente nuevamente.');
+      const errorMessage = error?.message || 'Error al crear la unidad. Por favor, intente nuevamente.';
+      alert(errorMessage);
+    } finally {
+      setIsCreatingUnit(false);
     }
   };
 
@@ -484,6 +613,19 @@ const App: React.FC = () => {
       setUserOperationLoading({ type: editingUser ? 'update' : 'create', userId: editingUser?.id });
       
       const isRestrictedRole = ['CLIENT', 'OPERATIONS', 'OPERATIONS_SUPERVISOR'].includes(userForm.role);
+      
+      // Verificar permisos para crear/editar usuarios con roles específicos
+      if (userForm.role === 'SUPER_ADMIN' && currentUser?.role !== 'SUPER_ADMIN') {
+        alert('Solo los superadministradores pueden crear o editar usuarios con rol SUPER_ADMIN');
+        setUserOperationLoading({ type: null });
+        return;
+      }
+      
+      if (userForm.role === 'ADMIN' && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.role !== 'ADMIN') {
+        alert('Solo los administradores pueden crear o editar usuarios con rol ADMIN');
+        setUserOperationLoading({ type: null });
+        return;
+      }
 
       if (editingUser) {
         // Update existing user (sin crear cuenta de Auth si ya existe)
@@ -603,15 +745,49 @@ const App: React.FC = () => {
     }
 
     try {
+      // Limpiar fechas vacías antes de guardar
+      const cleanedForm = {
+        ...newStaffForm,
+        startDate: (newStaffForm.startDate && newStaffForm.startDate.trim() !== '') ? newStaffForm.startDate : undefined,
+        endDate: (newStaffForm.endDate && newStaffForm.endDate.trim() !== '') ? newStaffForm.endDate : undefined,
+      };
+
+      // Si hay una nueva foto (blob URL), subirla a Supabase Storage primero
+      let finalPhotoUrl = newStaffPhotoUrl || editingStaff?.photo;
+      
+      if (newStaffPhotoUrl && newStaffPhotoUrl.startsWith('blob:')) {
+        // Convertir blob URL a File y subirlo
+        try {
+          const response = await fetch(newStaffPhotoUrl);
+          const blob = await response.blob();
+          const file = new File([blob], `staff-${editingStaff?.id || Date.now()}.jpg`, { type: blob.type });
+          
+          // Subir a Supabase Storage (bucket, file, path)
+          // Usar 'unit-images' como bucket ya que 'staff-photos' puede no existir
+          const { storageService } = await import('./services/storageService');
+          const uploadedUrl = await storageService.uploadFile('unit-images', file, `staff/${editingStaff?.id || Date.now()}-${Date.now()}.jpg`);
+          
+          if (uploadedUrl) {
+            finalPhotoUrl = uploadedUrl;
+            // Limpiar el blob URL para liberar memoria
+            URL.revokeObjectURL(newStaffPhotoUrl);
+          }
+        } catch (uploadError: any) {
+          console.error('Error al subir foto:', uploadError);
+          alert(`Error al subir la foto: ${uploadError.message || 'Error desconocido'}. Se guardará sin foto.`);
+          finalPhotoUrl = editingStaff?.photo || undefined;
+        }
+      }
+
       if (editingStaff) {
         await updateStaff(editingStaff.id, {
-          ...newStaffForm,
-          photo: newStaffPhotoUrl || editingStaff.photo
+          ...cleanedForm,
+          photo: finalPhotoUrl
         });
       } else {
         await createStaff({
-          ...newStaffForm,
-          photo: newStaffPhotoUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2U1ZTdlYiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IiM5Y2EzYjgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj4/PC90ZXh0Pjwvc3ZnPg=='
+          ...cleanedForm,
+          photo: finalPhotoUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2U1ZTdlYiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNDgiIGZpbGw9IiM5Y2EzYjgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj4/PC90ZXh0Pjwvc3ZnPg=='
         });
       }
       
@@ -864,20 +1040,35 @@ const App: React.FC = () => {
   const visibleUnits = React.useMemo(() => {
       if (!currentUser) return [];
       
-      if (currentUser.role === 'ADMIN') return units;
+      let filtered: Unit[];
       
-      // If user has linked clients, filter by them
-      if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
-          return units.filter(u => currentUser.linkedClientNames?.includes(u.clientName));
+      // First, filter by user permissions
+      if (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') {
+          filtered = units;
+      } else if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
+          // If user has linked clients, filter by them
+          filtered = units.filter(u => currentUser.linkedClientNames?.includes(u.clientName));
+      } else {
+          // If no linked clients (and not admin), behavior depends on role.
+          // Usually Operations sees ALL if not restricted.
+          // Client sees NONE if not linked.
+          if (currentUser.role === 'CLIENT') return [];
+          filtered = units;
       }
       
-      // If no linked clients (and not admin), behavior depends on role.
-      // Usually Operations sees ALL if not restricted.
-      // Client sees NONE if not linked.
-      if (currentUser.role === 'CLIENT') return [];
+      // Then, apply search filter if there's a query
+      if (unitSearchQuery.trim()) {
+          const query = unitSearchQuery.toLowerCase().trim();
+          filtered = filtered.filter(unit => 
+              unit.name.toLowerCase().includes(query) ||
+              unit.clientName?.toLowerCase().includes(query) ||
+              unit.address?.toLowerCase().includes(query) ||
+              unit.status?.toLowerCase().includes(query)
+          );
+      }
       
-      return units;
-  }, [units, currentUser]);
+      return filtered;
+  }, [units, currentUser, unitSearchQuery]);
 
   // Extract unique client names for the dropdown
   const availableClients = React.useMemo(() => {
@@ -957,7 +1148,8 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'control-center') {
-      return <ControlCenter units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
+      // Force remount when view or user role changes
+      return <ControlCenter key={`control-center-${currentView}-${currentUser.role}-${currentUser.id}`} units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'client-control-center') {
@@ -984,8 +1176,20 @@ const App: React.FC = () => {
       return <StandardAssetsCatalog currentUserRole={currentUser.role} />;
     }
 
+    if (currentView === 'night-supervision') {
+      return <NightSupervision units={visibleUnits} currentUser={currentUser} managementStaff={managementStaff} />;
+    }
+
     if (currentView === 'retenes') {
       return <Retenes units={visibleUnits} currentUserRole={currentUser.role} />;
+    }
+
+    if (currentView === 'headcount') {
+      return <Headcount units={visibleUnits} />;
+    }
+
+    if (currentView === 'vacations') {
+      return <Vacations units={visibleUnits} currentUser={currentUser} />;
     }
 
     if (currentView === 'units') {
@@ -995,7 +1199,7 @@ const App: React.FC = () => {
         
         // Security check: Ensure user can see this unit
         const isLinked = currentUser.linkedClientNames?.includes(unit.clientName);
-        if (currentUser.role !== 'ADMIN' && currentUser.linkedClientNames?.length && !isLinked) {
+        if (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN' && currentUser.linkedClientNames?.length && !isLinked) {
              return <div className="p-8 text-red-600 font-bold">Acceso Denegado a esta Unidad.</div>;
         }
 
@@ -1004,22 +1208,52 @@ const App: React.FC = () => {
             unit={unit} 
             userRole={currentUser.role}
             availableStaff={managementStaff} // Pass global staff registry
+            currentUser={currentUser} // Pass current user for restrictions
+            availableClients={clients.map(c => ({ id: c.id, name: c.name }))} // Pass available clients
             onBack={() => setSelectedUnitId(null)} 
-            onUpdate={handleUpdateUnit} 
+            onUpdate={handleUpdateUnit}
+            googleMapsApiKey={googleMapsKey}
           />
         );
       }
 
       return (
         <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500">
-          <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-slate-800">Gestión de Unidades</h1>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">Gestión de Unidades</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                {visibleUnits.length} {visibleUnits.length === 1 ? 'unidad encontrada' : 'unidades encontradas'}
+                {unitSearchQuery && ` para "${unitSearchQuery}"`}
+              </p>
+            </div>
             {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
               <button 
                 onClick={() => setShowAddUnitModal(true)}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 transition-colors shadow-sm"
               >
                 <Plus size={20} className="mr-2" /> Nueva Unidad
+              </button>
+            )}
+          </div>
+          
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+            <input
+              type="text"
+              placeholder="Buscar unidades por nombre, cliente, dirección o estado..."
+              value={unitSearchQuery}
+              onChange={(e) => setUnitSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+            />
+            {unitSearchQuery && (
+              <button
+                onClick={() => setUnitSearchQuery('')}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                title="Limpiar búsqueda"
+              >
+                <X size={18} />
               </button>
             )}
           </div>
@@ -1033,8 +1267,27 @@ const App: React.FC = () => {
               return (
                 <div 
                   key={unit.id} 
-                  onClick={() => handleSelectUnit(unit.id)}
-                  className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all cursor-pointer group overflow-hidden relative ${pendingRequestsCount > 0 ? 'ring-2 ring-orange-500 shadow-md' : 'border border-slate-200'}`}
+                  className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all group overflow-hidden relative ${
+                    pendingRequestsCount > 0 ? 'ring-2 ring-orange-500 shadow-md' : 
+                    (() => {
+                      // Check for contract alerts (workers with 3+ days in training)
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const hasContractAlerts = unit.resources.some(resource => {
+                        if (resource.type === ResourceType.PERSONNEL && 
+                            resource.inTraining && 
+                            resource.trainingStartDate && 
+                            !resource.contractGenerated) {
+                          const startDate = new Date(resource.trainingStartDate);
+                          startDate.setHours(0, 0, 0, 0);
+                          const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+                          return daysDiff >= 3;
+                        }
+                        return false;
+                      });
+                      return hasContractAlerts ? 'ring-2 ring-red-500 shadow-md' : 'border border-slate-200';
+                    })()
+                  }`}
                 >
                   <div className="h-40 w-full overflow-hidden relative bg-slate-200">
                     {unit.images && unit.images.length > 0 ? (
@@ -1064,10 +1317,55 @@ const App: React.FC = () => {
                         </span>
                       </div>
                     )}
+                    
+                    {/* Contract Alerts Badge */}
+                    {(() => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const contractAlertsCount = unit.resources.filter(resource => {
+                        if (resource.type === ResourceType.PERSONNEL && 
+                            resource.inTraining && 
+                            resource.trainingStartDate && 
+                            !resource.contractGenerated) {
+                          const startDate = new Date(resource.trainingStartDate);
+                          startDate.setHours(0, 0, 0, 0);
+                          const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+                          return daysDiff >= 3;
+                        }
+                        return false;
+                      }).length;
+                      
+                      return contractAlertsCount > 0 ? (
+                        <div className={`absolute ${pendingRequestsCount > 0 ? 'top-14' : 'top-3'} left-3 z-10 animate-pulse`}>
+                          <span className="bg-red-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full shadow-md flex items-center border border-white">
+                             <FileText size={12} className="mr-1.5 fill-white"/> {contractAlertsCount} Contrato{contractAlertsCount > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
 
                   <div className="p-5">
-                    <h3 className="font-bold text-lg text-slate-800 mb-1">{unit.name}</h3>
+                    <div className="flex justify-between items-start mb-1">
+                      <h3 
+                        className="font-bold text-lg text-slate-800 cursor-pointer hover:text-blue-600 transition-colors flex-1"
+                        onClick={() => handleSelectUnit(unit.id)}
+                      >
+                        {unit.name}
+                      </h3>
+                      {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteUnit(unit.id, unit.name);
+                          }}
+                          className="text-red-400 hover:text-red-600 p-1.5 rounded hover:bg-red-50 transition-colors ml-2"
+                          title="Eliminar unidad"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
                     <p className="text-sm text-slate-500 mb-3">{unit.clientName}</p>
                     
                     <div className="flex items-center text-slate-500 text-sm mb-4">
@@ -1104,7 +1402,22 @@ const App: React.FC = () => {
             {visibleUnits.length === 0 && (
                 <div className="col-span-1 md:col-span-3 p-12 text-center text-slate-400 bg-white rounded-xl border border-dashed border-slate-300">
                     <Building size={48} className="mx-auto mb-4 opacity-20"/>
-                    <p>No se encontraron unidades asignadas a su cuenta.</p>
+                    <h3 className="text-lg font-semibold text-slate-600 mb-2">
+                      {unitSearchQuery ? 'No se encontraron unidades' : 'No hay unidades'}
+                    </h3>
+                    <p>
+                      {unitSearchQuery 
+                        ? `No hay unidades que coincidan con "${unitSearchQuery}". Intenta con otros términos.`
+                        : 'No se encontraron unidades asignadas a su cuenta.'}
+                    </p>
+                    {unitSearchQuery && (
+                      <button
+                        onClick={() => setUnitSearchQuery('')}
+                        className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium underline"
+                      >
+                        Limpiar búsqueda
+                      </button>
+                    )}
                 </div>
             )}
           </div>
@@ -1135,7 +1448,7 @@ const App: React.FC = () => {
                             <option key={client.id} value={client.name}>{client.name}</option>
                           ))}
                         </select>
-                        {currentUser.role === 'ADMIN' && (
+                        {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1151,7 +1464,7 @@ const App: React.FC = () => {
                       </div>
                       {clients.length === 0 && (
                         <p className="text-xs text-slate-500 mt-1">
-                          {currentUser.role === 'ADMIN' 
+                          {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')
                             ? 'No hay clientes. Cree uno primero.' 
                             : 'No hay clientes disponibles. Contacte al administrador.'}
                         </p>
@@ -1210,10 +1523,17 @@ const App: React.FC = () => {
 
                     <button 
                       onClick={handleAddUnit} 
-                      disabled={!newUnitForm.name || !newUnitForm.clientName}
-                      className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                      disabled={!newUnitForm.name || !newUnitForm.clientName || isCreatingUnit}
+                      className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center justify-center gap-2"
                     >
-                      Crear Unidad
+                      {isCreatingUnit ? (
+                        <>
+                          <RefreshCw size={16} className="animate-spin" />
+                          <span>Creando unidad...</span>
+                        </>
+                      ) : (
+                        <span>Crear Unidad</span>
+                      )}
                     </button>
                 </div>
               </div>
@@ -1235,10 +1555,17 @@ const App: React.FC = () => {
 
            {/* --- PERMISSIONS MANAGEMENT (NEW) --- */}
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 flex items-center"><Shield className="mr-2" size={18} /> Control de Accesos y Permisos</h3>
+                <button
+                  onClick={() => toggleSettingsSection('permissions')}
+                  className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+                >
+                  <h3 className="font-bold text-slate-700 flex items-center"><Shield className="mr-2" size={18} /> Control de Accesos y Permisos</h3>
+                  <div className="flex items-center gap-2">
                     {isPermsSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-                </div>
+                    <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.permissions ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+                {settingsSections.permissions && (
                 <div className="p-6">
                     <p className="text-sm text-slate-600 mb-6">Defina qué pueden ver y editar los diferentes roles en la plataforma.</p>
                     
@@ -1303,14 +1630,22 @@ const App: React.FC = () => {
                         </button>
                     </div>
                 </div>
+                )}
            </div>
 
             {/* --- Branding Configuration --- */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 flex items-center"><Palette className="mr-2" size={18} /> Personalización de Marca</h3>
+                <button
+                  onClick={() => toggleSettingsSection('branding')}
+                  className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+                >
+                  <h3 className="font-bold text-slate-700 flex items-center"><Palette className="mr-2" size={18} /> Personalización de Marca</h3>
+                  <div className="flex items-center gap-2">
                     {isLogoSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-                </div>
+                    <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.branding ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+                {settingsSections.branding && (
                 <div className="p-6">
                     <p className="text-sm text-slate-600 mb-4">Actualice el logotipo que aparece en el menú lateral y en los reportes.</p>
                     <div className="flex flex-col md:flex-row gap-6 items-start">
@@ -1355,16 +1690,30 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                )}
             </div>
 
            {/* --- Users Management --- */}
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+             <button
+               onClick={() => toggleSettingsSection('users')}
+               className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+             >
                <h3 className="font-bold text-slate-700 flex items-center"><Users className="mr-2" size={18} /> Usuarios Registrados</h3>
-               <button onClick={openAddUserModal} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
-                  <UserPlus size={14} className="mr-1.5" /> Nuevo Usuario
-               </button>
-             </div>
+               <div className="flex items-center gap-2">
+                 {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); openAddUserModal(); }} 
+                     className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center"
+                   >
+                      <UserPlus size={14} className="mr-1.5" /> Nuevo Usuario
+                   </button>
+                 )}
+                 <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.users ? 'rotate-180' : ''}`} />
+               </div>
+             </button>
+             {settingsSections.users && (
+             <div className="p-6">
              <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-white">
                   <tr>
@@ -1388,7 +1737,7 @@ const App: React.FC = () => {
                      </tr>
                    ) : users.length === 0 ? (
                      <tr>
-                       <td colSpan={6} className="px-6 py-8 text-center text-slate-400">No hay usuarios registrados</td>
+                       <td colSpan={(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') ? 6 : 5} className="px-6 py-8 text-center text-slate-400">No hay usuarios registrados</td>
                      </tr>
                    ) : (
                      users.map(u => {
@@ -1424,45 +1773,77 @@ const App: React.FC = () => {
                                     <span className="text-slate-300 italic">Global / Sin asignar</span>
                                 )}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right">
-                               <button 
-                                 onClick={() => openEditUserModal(u)} 
-                                 disabled={isProcessing}
-                                 className="text-blue-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
-                                 title="Editar usuario">
-                                 <Edit2 size={16}/>
-                               </button>
-                               <button 
-                                 onClick={() => openChangePasswordModal(u)} 
-                                 disabled={isProcessing}
-                                 className="text-amber-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
-                                 title="Cambiar contraseña">
-                                 <Shield size={16}/>
-                               </button>
-                               <button 
-                                 onClick={() => handleDeleteUser(u.id)} 
-                                 disabled={isProcessing}
-                                 className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" 
-                                 title="Eliminar usuario">
-                                 <Trash2 size={16}/>
-                               </button>
-                            </td>
+                            {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+                              <td className="px-6 py-4 whitespace-nowrap text-right">
+                                 <button 
+                                   onClick={() => openEditUserModal(u)} 
+                                   disabled={isProcessing}
+                                   className="text-blue-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                   title="Editar usuario">
+                                   <Edit2 size={16}/>
+                                 </button>
+                                 {/* Botón de cambio de password: solo visible si el usuario actual puede cambiar passwords de este usuario */}
+                                 {(() => {
+                                   const canChangePassword = 
+                                     currentUser?.role === 'SUPER_ADMIN' || // Super admin puede cambiar cualquier password
+                                     (currentUser?.role === 'ADMIN' && u.role !== 'ADMIN' && u.role !== 'SUPER_ADMIN') || // Admin puede cambiar passwords excepto de otros admins/super_admins
+                                     (currentUser?.id === u.id); // Cualquier usuario puede cambiar su propia password
+                                   
+                                   if (!canChangePassword) return null;
+                                   
+                                   return (
+                                     <button 
+                                       onClick={() => openChangePasswordModal(u)} 
+                                       disabled={isProcessing}
+                                       className="text-amber-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                       title={
+                                         currentUser?.role === 'SUPER_ADMIN' 
+                                           ? 'Cambiar contraseña (Super Administrador)' 
+                                           : currentUser?.role === 'ADMIN'
+                                           ? 'Cambiar contraseña (Administrador)'
+                                           : 'Cambiar mi contraseña'
+                                       }>
+                                       <Shield size={16}/>
+                                     </button>
+                                   );
+                                 })()}
+                                 <button 
+                                   onClick={() => handleDeleteUser(u.id)} 
+                                   disabled={isProcessing}
+                                   className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                   title="Eliminar usuario">
+                                   <Trash2 size={16}/>
+                                 </button>
+                              </td>
+                            )}
                          </tr>
                        );
                      })
                    )}
                 </tbody>
              </table>
+             </div>
+             )}
            </div>
 
            {/* --- Management Staff Registry --- */}
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+             <button
+               onClick={() => toggleSettingsSection('staff')}
+               className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+             >
                <h3 className="font-bold text-slate-700 flex items-center"><Briefcase className="mr-2" size={18} /> Gestión de Equipo de Supervisión (Global)</h3>
-               <button onClick={() => { setEditingStaff(null); setNewStaffForm({ name: '', role: 'COORDINATOR', email: '', status: 'activo', archived: false }); setNewStaffPhotoUrl(''); setShowAddStaffModal(true); }} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
-                  <Plus size={14} className="mr-1.5" /> Agregar Personal
-               </button>
-             </div>
+               <div className="flex items-center gap-2">
+                 <button 
+                   onClick={(e) => { e.stopPropagation(); setEditingStaff(null); setNewStaffForm({ name: '', role: 'COORDINATOR', email: '', status: 'activo', archived: false }); setNewStaffPhotoUrl(''); setShowAddStaffModal(true); }} 
+                   className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center"
+                 >
+                    <Plus size={14} className="mr-1.5" /> Agregar Personal
+                 </button>
+                 <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.staff ? 'rotate-180' : ''}`} />
+               </div>
+             </button>
+             {settingsSections.staff && (
              <div className="p-6">
                <table className="min-w-full divide-y divide-slate-200">
                  <thead className="bg-slate-50">
@@ -1494,13 +1875,15 @@ const App: React.FC = () => {
                        <tr key={staff.id} className="hover:bg-slate-50">
                          <td className="px-4 py-4 whitespace-nowrap">
                            <div className="flex items-center">
-                             <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex-shrink-0 mr-3">
-                               {staff.photo ? (
-                                 <img src={staff.photo} alt={staff.name} className="w-full h-full object-cover"/>
-                               ) : (
-                                 <div className="w-full h-full flex items-center justify-center font-bold text-slate-400 text-sm">?</div>
-                               )}
-                             </div>
+                            <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex-shrink-0 mr-3">
+                              <SafeImage 
+                                src={staff.photo} 
+                                alt={staff.name} 
+                                className="w-full h-full object-cover"
+                                bucket="unit-images"
+                                fallback={<div className="w-full h-full flex items-center justify-center font-bold text-slate-400 text-sm">?</div>}
+                              />
+                            </div>
                              <div>
                                <div className="text-sm font-medium text-slate-900">{staff.name}</div>
                                <div className="text-xs text-slate-500">{staff.email || 'Sin email'}</div>
@@ -1567,17 +1950,28 @@ const App: React.FC = () => {
                  </tbody>
                </table>
              </div>
+             )}
            </div>
 
-           {/* --- Clients Management (solo admin) --- */}
-           {currentUser.role === 'ADMIN' && (
+           {/* --- Clients Management (admin y superadmin) --- */}
+           {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-               <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+               <button
+                 onClick={() => toggleSettingsSection('clients')}
+                 className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+               >
                  <h3 className="font-bold text-slate-700 flex items-center"><Building className="mr-2" size={18} /> Gestión de Clientes</h3>
-                 <button onClick={openAddClientModal} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center">
-                   <Plus size={14} className="mr-1.5" /> Nuevo Cliente
-                 </button>
-               </div>
+                 <div className="flex items-center gap-2">
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); openAddClientModal(); }} 
+                     className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center"
+                   >
+                     <Plus size={14} className="mr-1.5" /> Nuevo Cliente
+                   </button>
+                   <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.clients ? 'rotate-180' : ''}`} />
+                 </div>
+               </button>
+               {settingsSections.clients && (
                <div className="p-6">
                  {clientsLoading ? (
                    <div className="text-center py-8 text-slate-500">
@@ -1637,17 +2031,29 @@ const App: React.FC = () => {
                    </div>
                  )}
                </div>
-             </div>
+             )}
+           </div>
            )}
 
-           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              {/* --- Google Gemini API Configuration --- */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 flex items-center"><Sparkles className="mr-2 text-purple-500" size={18} /> Google Gemini API (IA)</h3>
-                    {isGeminiSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-                </div>
-                <div className="p-6 space-y-4">
+           {/* --- Integrations & API Configuration --- */}
+           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+             <button
+               onClick={() => toggleSettingsSection('integrations')}
+               className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+             >
+               <h3 className="font-bold text-slate-700 flex items-center"><Globe className="mr-2" size={18} /> Integraciones y APIs</h3>
+               <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.integrations ? 'rotate-180' : ''}`} />
+             </button>
+             {settingsSections.integrations && (
+             <div className="p-6">
+               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                 {/* --- Google Gemini API Configuration --- */}
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                   <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50 flex justify-between items-center">
+                       <h3 className="font-bold text-slate-700 flex items-center"><Sparkles className="mr-2 text-purple-500" size={18} /> Google Gemini API (IA)</h3>
+                       {isGeminiSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                   </div>
+                   <div className="p-6 space-y-4">
                     <p className="text-sm text-slate-600">Configura tu clave API para habilitar la generación de reportes ejecutivos inteligentes.</p>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Key size={14} className="mr-1"/> API Key</label>
@@ -1665,16 +2071,47 @@ const App: React.FC = () => {
                           <Save size={16} className="mr-2"/> Guardar API Key
                        </button>
                     </div>
-                </div>
-              </div>
+                   </div>
+                 </div>
 
-              {/* --- API Configuration Section (Inventory) --- */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 flex items-center"><Globe className="mr-2" size={18} /> API Inventario (Integración)</h3>
-                    {isInventoryConfigSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
-                </div>
-                <div className="p-6">
+                 {/* --- Google Maps Geocoding API Configuration --- */}
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                   <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-green-50 flex justify-between items-center">
+                       <h3 className="font-bold text-slate-700 flex items-center"><MapPin className="mr-2 text-blue-500" size={18} /> Google Maps Geocoding API</h3>
+                       {isGoogleMapsSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                   </div>
+                   <div className="p-6 space-y-4">
+                    <p className="text-sm text-slate-600">Configura tu clave API para geocodificación de direcciones. Se usa como respaldo cuando OpenStreetMap no encuentra resultados.</p>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center"><Key size={14} className="mr-1"/> API Key</label>
+                      <input 
+                        type="password" 
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        value={googleMapsKey}
+                        onChange={e => setGoogleMapsKey(e.target.value)}
+                        placeholder="Pegar API Key de Google Cloud Console..."
+                      />
+                    </div>
+                    <div className="flex justify-between items-center mt-4">
+                       <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline">Obtener API Key</a>
+                       <button onClick={() => {
+                         localStorage.setItem('GOOGLE_MAPS_API_KEY', googleMapsKey);
+                         setIsGoogleMapsSaved(true);
+                         setTimeout(() => setIsGoogleMapsSaved(false), 3000);
+                       }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center">
+                          <Save size={16} className="mr-2"/> Guardar API Key
+                       </button>
+                    </div>
+                   </div>
+                 </div>
+
+                 {/* --- API Configuration Section (Inventory) --- */}
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                   <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                       <h3 className="font-bold text-slate-700 flex items-center"><Server className="mr-2" size={18} /> API Inventario (Integración)</h3>
+                       {isInventoryConfigSaved && <span className="text-green-600 text-xs font-bold flex items-center"><CheckCircle2 size={14} className="mr-1"/> Guardado</span>}
+                   </div>
+                   <div className="p-6">
                     <div className="space-y-4">
                         <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
                             <div>
@@ -1714,9 +2151,30 @@ const App: React.FC = () => {
                             </button>
                         </div>
                     </div>
-                </div>
-              </div>
+                   </div>
+                 </div>
+               </div>
+             </div>
+             )}
            </div>
+
+           {/* --- Positions Management --- */}
+           {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+               <button
+                 onClick={() => toggleSettingsSection('positions')}
+                 className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
+               >
+                 <h3 className="font-bold text-slate-700 flex items-center"><Briefcase className="mr-2" size={18} /> Gestión de Puestos Predefinidos</h3>
+                 <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.positions ? 'rotate-180' : ''}`} />
+               </button>
+               {settingsSections.positions && (
+               <div className="p-6">
+                 <PositionsManagementSection currentUserRole={currentUser?.role} />
+               </div>
+               )}
+             </div>
+           )}
 
 
            {/* Add/Edit User Modal */}
@@ -1752,7 +2210,13 @@ const App: React.FC = () => {
                           <option value="OPERATIONS_SUPERVISOR">Supervisor Operaciones</option>
                           <option value="CLIENT">Cliente</option>
                           <option value="ADMIN">Administrador</option>
+                          {currentUser?.role === 'SUPER_ADMIN' && (
+                            <option value="SUPER_ADMIN">Super Administrador</option>
+                          )}
                         </select>
+                        {userForm.role === 'SUPER_ADMIN' && currentUser?.role !== 'SUPER_ADMIN' && (
+                          <p className="text-xs text-red-600 mt-1">Solo los superadministradores pueden crear usuarios con este rol</p>
+                        )}
                       </div>
                       
                       {/* Linked Client Selection for ALL relevant roles */}
@@ -1771,7 +2235,7 @@ const App: React.FC = () => {
                                     if (allClientNames.length === 0) {
                                       return (
                                         <p className="text-xs text-slate-400 italic p-1">
-                                          {currentUser.role === 'ADMIN' 
+                                          {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')
                                             ? 'No hay clientes creados. Cree clientes primero en la sección "Gestión de Clientes".' 
                                             : 'No hay clientes disponibles.'}
                                         </p>
@@ -2012,7 +2476,7 @@ const App: React.FC = () => {
            )}
 
           {/* Client Management Modal (solo admin) */}
-          {showClientModal && currentUser.role === 'ADMIN' && (
+          {showClientModal && (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
               <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
                 <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center shrink-0">
@@ -2228,8 +2692,8 @@ const App: React.FC = () => {
                   </button>
               )}
 
-              {/* Operations Dashboard - Visible for ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
-              {(currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+              {/* Operations Dashboard - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
                     onClick={() => { setCurrentView('operations-dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'operations-dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -2239,14 +2703,47 @@ const App: React.FC = () => {
                   </button>
               )}
 
-              {/* Retenes - Visible for ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
-              {(currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+              {/* Retenes - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
                     onClick={() => { setCurrentView('retenes'); setSelectedUnitId(null); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'retenes' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Retenes</span>
+                  </button>
+              )}
+
+              {/* Headcount - Visible for SUPER_ADMIN, ADMIN, OPERATIONS */}
+              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS') && (
+                  <button 
+                    onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Users size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Headcount</span>
+                  </button>
+              )}
+
+              {/* Vacaciones */}
+              {checkPermission(currentUser.role, 'VACATIONS', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('vacations'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'vacations' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Palmtree size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Vacaciones</span>
+                  </button>
+              )}
+
+              {/* Supervisión Nocturna - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+                  <button 
+                    onClick={() => { setCurrentView('night-supervision'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'night-supervision' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Moon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Supervisión Nocturna</span>
                   </button>
               )}
               
@@ -2272,8 +2769,8 @@ const App: React.FC = () => {
                 </>
               )}
 
-              {/* Auditoría - Solo para administradores */}
-              {currentUser.role === 'ADMIN' && (
+              {/* Auditoría - Solo para administradores y super administradores */}
+              {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
                 <>
                   <div className="pt-3 md:pt-4 pb-1 md:pb-2 px-3 md:px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Administración

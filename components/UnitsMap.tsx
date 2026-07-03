@@ -1,202 +1,262 @@
-import React, { useMemo, useCallback } from 'react';
-import { APIProvider, Map, Marker, InfoWindow } from '@vis.gl/react-google-maps';
+import React, { useEffect, useState } from 'react';
 import { Unit, UnitStatus } from '../types';
-import { geocodeAddress, GeocodingResult } from '../services/geocodingService';
+import { Building2 } from 'lucide-react';
 
 interface UnitsMapProps {
   units: Unit[];
-  apiKey: string;
-  onUnitClick?: (unitId: string) => void;
-  height?: string;
+  onSelectUnit?: (unitId: string) => void;
 }
 
-interface UnitWithCoordinates extends Unit {
-  coordinates?: {
-    lat: number;
-    lng: number;
-  };
-  geocodingError?: boolean;
-}
+// Componente del mapa que se carga dinámicamente solo en el cliente
+const MapComponent: React.FC<{ units: Unit[]; onSelectUnit?: (unitId: string) => void }> = ({ units, onSelectUnit }) => {
+  const [MapContainer, setMapContainer] = useState<any>(null);
+  const [TileLayer, setTileLayer] = useState<any>(null);
+  const [Marker, setMarker] = useState<any>(null);
+  const [Popup, setPopup] = useState<any>(null);
+  const [Tooltip, setTooltip] = useState<any>(null);
+  const [useMap, setUseMap] = useState<any>(null);
+  const [L, setL] = useState<any>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-/**
- * Componente de mapa que muestra las unidades en Google Maps
- */
-export const UnitsMap: React.FC<UnitsMapProps> = ({
-  units,
-  apiKey,
-  onUnitClick,
-  height = '400px',
-}) => {
-  const [unitsWithCoords, setUnitsWithCoords] = React.useState<UnitWithCoordinates[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [selectedUnit, setSelectedUnit] = React.useState<string | null>(null);
-  const geocodingCacheRef = React.useRef<Map<string, GeocodingResult>>(new Map());
+  useEffect(() => {
+    // Cargar Leaflet solo en el cliente
+    if (typeof window !== 'undefined') {
+      Promise.all([
+        import('react-leaflet'),
+        import('leaflet'),
+        import('leaflet/dist/leaflet.css')
+      ]).then(([leaflet, leafletLib]) => {
+        // Fix para los iconos de Leaflet en React
+        delete (leafletLib.default.Icon.Default.prototype as any)._getIconUrl;
+        leafletLib.default.Icon.Default.mergeOptions({
+          iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+        });
 
-  // Geocodificar direcciones cuando cambien las unidades
-  React.useEffect(() => {
-    const geocodeUnits = async () => {
-      if (!apiKey || units.length === 0) {
-        setUnitsWithCoords(units);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      const unitsToProcess: UnitWithCoordinates[] = [];
-
-      for (const unit of units) {
-        // Verificar cache primero
-        const cached = geocodingCacheRef.current.get(unit.address);
-        if (cached) {
-          unitsToProcess.push({
-            ...unit,
-            coordinates: {
-              lat: cached.latitude,
-              lng: cached.longitude,
-            },
-          });
-          continue;
-        }
-
-        try {
-          const result = await geocodeAddress(unit.address, apiKey);
-          geocodingCacheRef.current.set(unit.address, result);
-          unitsToProcess.push({
-            ...unit,
-            coordinates: {
-              lat: result.latitude,
-              lng: result.longitude,
-            },
-          });
-        } catch (error) {
-          console.error(`Error geocodificando ${unit.name}:`, error);
-          unitsToProcess.push({
-            ...unit,
-            geocodingError: true,
-          });
-        }
-
-        // Pequeña pausa para evitar rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-
-      setUnitsWithCoords(unitsToProcess);
-      setLoading(false);
-    };
-
-    geocodeUnits();
-  }, [units, apiKey]);
-
-  // Calcular el centro del mapa basado en las unidades geocodificadas
-  const center = useMemo(() => {
-    const validUnits = unitsWithCoords.filter(u => u.coordinates && !u.geocodingError);
-    if (validUnits.length === 0) {
-      // Centro por defecto (Lima, Perú)
-      return { lat: -12.0464, lng: -77.0428 };
+        setMapContainer(() => leaflet.MapContainer);
+        setTileLayer(() => leaflet.TileLayer);
+        setMarker(() => leaflet.Marker);
+        setPopup(() => leaflet.Popup);
+        setTooltip(() => leaflet.Tooltip);
+        setUseMap(() => leaflet.useMap);
+        setL(leafletLib.default);
+        setIsLoaded(true);
+      }).catch((error) => {
+        console.error('Error al cargar Leaflet:', error);
+      });
     }
-
-    const avgLat = validUnits.reduce((sum, u) => sum + u.coordinates!.lat, 0) / validUnits.length;
-    const avgLng = validUnits.reduce((sum, u) => sum + u.coordinates!.lng, 0) / validUnits.length;
-
-    return { lat: avgLat, lng: avgLng };
-  }, [unitsWithCoords]);
-
-  const handleMarkerClick = useCallback(
-    (unitId: string) => {
-      setSelectedUnit(unitId);
-      if (onUnitClick) {
-        onUnitClick(unitId);
-      }
-    },
-    [onUnitClick]
-  );
-
-  const handleMapClick = useCallback(() => {
-    setSelectedUnit(null);
   }, []);
 
-  const selectedUnitData = unitsWithCoords.find(u => u.id === selectedUnit);
-
-  if (!apiKey) {
+  if (!isLoaded || !MapContainer || !L || !Tooltip) {
     return (
-      <div
-        className="flex items-center justify-center bg-slate-100 rounded-lg border border-slate-300"
-        style={{ height }}
-      >
-        <p className="text-slate-500 text-sm">
-          API Key de Google Maps no configurada. Por favor, configura VITE_GOOGLE_MAPS_API_KEY
-        </p>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div
-        className="flex items-center justify-center bg-slate-100 rounded-lg border border-slate-300"
-        style={{ height }}
-      >
+      <div className="h-96 w-full rounded-lg border border-slate-200 flex items-center justify-center bg-slate-50" style={{ minHeight: '384px' }}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <p className="text-slate-600 text-sm">Geocodificando direcciones...</p>
+          <p className="text-sm text-slate-500">Cargando mapa...</p>
         </div>
       </div>
     );
   }
 
-  const validUnits = unitsWithCoords.filter(u => u.coordinates && !u.geocodingError);
+  const unitsWithCoords = units.filter(u => u.latitude && u.longitude);
+
+  // Iconos personalizados según el estado de la unidad
+  const createCustomIcon = (status: UnitStatus) => {
+    let color = '#3b82f6'; // Azul por defecto (Activo)
+    if (status === UnitStatus.ISSUE) {
+      color = '#ef4444'; // Rojo (Con Incidencias)
+    } else if (status === UnitStatus.PENDING) {
+      color = '#f59e0b'; // Amarillo (Pendiente)
+    }
+
+    return L.divIcon({
+      className: 'custom-marker',
+      html: `
+        <div style="
+          background-color: ${color};
+          width: 24px;
+          height: 24px;
+          border-radius: 50% 50% 50% 0;
+          transform: rotate(-45deg);
+          border: 2px solid white;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        ">
+          <div style="
+            transform: rotate(45deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            color: white;
+            font-size: 12px;
+          ">📍</div>
+        </div>
+      `,
+      iconSize: [24, 24],
+      iconAnchor: [12, 24],
+      popupAnchor: [0, -24],
+    });
+  };
+
+  // Componente para ajustar el mapa al mostrar todas las unidades
+  const MapBounds = ({ units }: { units: Unit[] }) => {
+    const map = useMap();
+    const unitsWithCoords = units.filter(u => u.latitude && u.longitude);
+
+    useEffect(() => {
+      if (!map || !L) return;
+      
+      if (unitsWithCoords.length > 0) {
+        const bounds = L.latLngBounds(
+          unitsWithCoords.map(u => [u.latitude!, u.longitude!] as [number, number])
+        );
+        map.fitBounds(bounds, { padding: [50, 50] });
+      } else if (unitsWithCoords.length === 1) {
+        map.setView([unitsWithCoords[0].latitude!, unitsWithCoords[0].longitude!], 13);
+      } else {
+        map.setView([-12.0464, -77.0428], 12);
+      }
+    }, [map, unitsWithCoords, L]);
+
+    return null;
+  };
 
   return (
-    <div className="w-full rounded-lg overflow-hidden border border-slate-300 shadow-sm relative" style={{ height }}>
-      <APIProvider apiKey={apiKey}>
-        <Map
-          defaultCenter={center}
-          defaultZoom={validUnits.length > 1 ? 11 : 15}
-          gestureHandling="greedy"
-          disableDefaultUI={false}
-          onClick={handleMapClick}
-          style={{ width: '100%', height: '100%' }}
-        >
-          {validUnits.map(unit => (
-            <Marker
-              key={unit.id}
-              position={unit.coordinates!}
-              onClick={() => handleMarkerClick(unit.id)}
-              title={unit.name}
-            />
-          ))}
-
-          {selectedUnitData && selectedUnitData.coordinates && (
-            <InfoWindow
-              position={selectedUnitData.coordinates}
-              onCloseClick={() => setSelectedUnit(null)}
+    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
+      <style>{`
+        .leaflet-container {
+          height: 100% !important;
+          width: 100% !important;
+          z-index: 0;
+        }
+        .unit-label-tooltip {
+          background: rgba(255, 255, 255, 0.95) !important;
+          border: 1px solid #cbd5e1 !important;
+          border-radius: 6px !important;
+          padding: 4px 8px !important;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+          font-weight: 600 !important;
+          color: #1e293b !important;
+          pointer-events: none !important;
+        }
+        .unit-label-tooltip .leaflet-tooltip-arrow {
+          border-top-color: #cbd5e1 !important;
+        }
+      `}</style>
+      <MapContainer
+        center={[-12.0464, -77.0428]}
+        zoom={11}
+        style={{ height: '100%', width: '100%', zIndex: 0 }}
+        scrollWheelZoom={true}
+        key={`map-${unitsWithCoords.length}`}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <MapBounds units={units} />
+        {unitsWithCoords.map((unit) => (
+          <Marker
+            key={unit.id}
+            position={[unit.latitude!, unit.longitude!]}
+            icon={createCustomIcon(unit.status)}
+          >
+            <Tooltip 
+              permanent 
+              direction="top" 
+              offset={[0, -10]}
+              className="unit-label-tooltip"
             >
+              <span className="font-semibold text-slate-800 text-xs whitespace-nowrap">{unit.name}</span>
+            </Tooltip>
+            <Popup>
               <div className="p-2">
-                <h3 className="font-bold text-sm text-slate-800 mb-1">{selectedUnitData.name}</h3>
-                <p className="text-xs text-slate-600 mb-1">{selectedUnitData.clientName}</p>
-                <p className="text-xs text-slate-500 mb-2">{selectedUnitData.address}</p>
-                <span
-                  className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                    selectedUnitData.status === UnitStatus.ACTIVE
-                      ? 'bg-green-100 text-green-700'
-                      : selectedUnitData.status === UnitStatus.ISSUE
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  {selectedUnitData.status}
-                </span>
+                <h4 className="font-semibold text-slate-800 mb-1">{unit.name}</h4>
+                <p className="text-sm text-slate-600 mb-2">{unit.clientName}</p>
+                <p className="text-xs text-slate-500 mb-2">{unit.address}</p>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-xs px-2 py-1 rounded ${
+                      unit.status === UnitStatus.ACTIVE
+                        ? 'bg-green-100 text-green-700'
+                        : unit.status === UnitStatus.ISSUE
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-yellow-100 text-yellow-700'
+                    }`}
+                  >
+                    {unit.status}
+                  </span>
+                </div>
+                {onSelectUnit && (
+                  <button
+                    onClick={() => onSelectUnit(unit.id)}
+                    className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
+                  >
+                    Ver detalles
+                  </button>
+                )}
               </div>
-            </InfoWindow>
-          )}
-        </Map>
-      </APIProvider>
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+    </div>
+  );
+};
 
-      {validUnits.length < units.length && (
-        <div className="absolute bottom-2 left-2 bg-yellow-100 border border-yellow-400 text-yellow-700 px-3 py-2 rounded text-xs">
-          {units.length - validUnits.length} unidad(es) no pudieron ser geocodificadas
+export const UnitsMap: React.FC<UnitsMapProps> = ({ units, onSelectUnit }) => {
+  console.log('🗺️ UnitsMap - Recibidas', units.length, 'unidades');
+  const unitsWithCoords = units.filter(u => u.latitude && u.longitude);
+  console.log('🗺️ UnitsMap - Unidades con coordenadas:', unitsWithCoords.length);
+  console.log('🗺️ UnitsMap - Unidades con coordenadas detalle:', unitsWithCoords.map(u => ({ name: u.name, lat: u.latitude, lon: u.longitude })));
+
+  // Si no hay unidades con coordenadas, mostrar mensaje
+  if (unitsWithCoords.length === 0) {
+    console.log('🗺️ UnitsMap - Mostrando mensaje: no hay coordenadas');
+    return (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-3 mb-4">
+          <Building2 className="text-slate-600" size={20} />
+          <h3 className="text-lg font-semibold text-slate-800">Mapa de Unidades</h3>
         </div>
-      )}
+        <div className="text-center py-8">
+          <p className="text-slate-500 mb-2">No hay unidades con coordenadas geográficas registradas.</p>
+          <p className="text-sm text-slate-400">
+            Agrega coordenadas (latitud y longitud) a las unidades para visualizarlas en el mapa.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200">
+      <div className="flex items-center gap-3 mb-4">
+        <Building2 className="text-slate-600" size={20} />
+        <h3 className="text-base md:text-lg font-semibold text-slate-800">Mapa de Unidades</h3>
+        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+          {unitsWithCoords.length} {unitsWithCoords.length === 1 ? 'unidad' : 'unidades'}
+        </span>
+      </div>
+      <div className="h-96 w-full rounded-lg overflow-hidden border border-slate-200 relative" style={{ minHeight: '384px' }}>
+        <MapComponent units={units} onSelectUnit={onSelectUnit} />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+          <span>Activo</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+          <span>Pendiente</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-red-500"></div>
+          <span>Con Incidencias</span>
+        </div>
+      </div>
     </div>
   );
 };

@@ -4,6 +4,25 @@ import { AppFeature, PermissionConfig, UserRole } from "../types";
 const PERMISSION_STORAGE_KEY = 'OPSFLOW_PERMISSIONS';
 
 const DEFAULT_PERMISSIONS: PermissionConfig = {
+  SUPER_ADMIN: {
+    DASHBOARD: { view: true, edit: true },
+    UNIT_OVERVIEW: { view: true, edit: true },
+    PERSONNEL: { view: true, edit: true },
+    LOGISTICS: { view: true, edit: true },
+    LOGS: { view: true, edit: true },
+    BLUEPRINT: { view: true, edit: true },
+    CONTROL_CENTER: { view: true, edit: true },
+    REPORTS: { view: true, edit: true },
+    CLIENT_REQUESTS: { view: true, edit: true },
+    HEADCOUNT: { view: true, edit: true },
+    POSITIONS_MANAGEMENT: { view: true, edit: true },
+    NIGHT_SUPERVISION: { view: true, edit: true },
+    RETENES: { view: true, edit: true },
+    VACATIONS: { view: true, edit: true },
+    ASSETS_CATALOG: { view: true, edit: true },
+    DOCUMENTS: { view: true, edit: true },
+    SETTINGS: { view: true, edit: true },
+  },
   ADMIN: {
     DASHBOARD: { view: true, edit: true },
     UNIT_OVERVIEW: { view: true, edit: true },
@@ -13,7 +32,14 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     BLUEPRINT: { view: true, edit: true },
     CONTROL_CENTER: { view: true, edit: true },
     REPORTS: { view: true, edit: true },
-    CLIENT_REQUESTS: { view: true, edit: true }, // Admin can view and edit (resolve)
+    CLIENT_REQUESTS: { view: true, edit: true },
+    HEADCOUNT: { view: true, edit: true },
+    POSITIONS_MANAGEMENT: { view: true, edit: true },
+    NIGHT_SUPERVISION: { view: true, edit: true },
+    RETENES: { view: true, edit: true },
+    VACATIONS: { view: true, edit: true },
+    ASSETS_CATALOG: { view: true, edit: true },
+    DOCUMENTS: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
   },
   OPERATIONS: {
@@ -25,7 +51,14 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     BLUEPRINT: { view: true, edit: true },
     CONTROL_CENTER: { view: true, edit: true },
     REPORTS: { view: true, edit: true },
-    CLIENT_REQUESTS: { view: true, edit: true }, // Ops can view and edit (resolve)
+    CLIENT_REQUESTS: { view: true, edit: true },
+    HEADCOUNT: { view: true, edit: false },
+    POSITIONS_MANAGEMENT: { view: false, edit: false },
+    NIGHT_SUPERVISION: { view: true, edit: true },
+    RETENES: { view: true, edit: true },
+    VACATIONS: { view: true, edit: true },
+    ASSETS_CATALOG: { view: true, edit: true },
+    DOCUMENTS: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
   },
   OPERATIONS_SUPERVISOR: {
@@ -38,6 +71,13 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     CONTROL_CENTER: { view: true, edit: true },
     REPORTS: { view: true, edit: true },
     CLIENT_REQUESTS: { view: true, edit: true },
+    HEADCOUNT: { view: true, edit: false },
+    POSITIONS_MANAGEMENT: { view: false, edit: false },
+    NIGHT_SUPERVISION: { view: true, edit: true },
+    RETENES: { view: true, edit: true },
+    VACATIONS: { view: true, edit: true },
+    ASSETS_CATALOG: { view: true, edit: true },
+    DOCUMENTS: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
   },
   CLIENT: {
@@ -49,7 +89,14 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     BLUEPRINT: { view: true, edit: false },
     CONTROL_CENTER: { view: false, edit: false },
     REPORTS: { view: true, edit: false }, 
-    CLIENT_REQUESTS: { view: true, edit: true }, // Client can View and Edit (Create)
+    CLIENT_REQUESTS: { view: true, edit: true },
+    HEADCOUNT: { view: false, edit: false },
+    POSITIONS_MANAGEMENT: { view: false, edit: false },
+    NIGHT_SUPERVISION: { view: false, edit: false },
+    RETENES: { view: false, edit: false },
+    VACATIONS: { view: false, edit: false },
+    ASSETS_CATALOG: { view: false, edit: false },
+    DOCUMENTS: { view: true, edit: false },
     SETTINGS: { view: false, edit: false },
   }
 };
@@ -110,6 +157,13 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   BLUEPRINT: 'Planos y Mapas',
   CONTROL_CENTER: 'Centro de Control',
   REPORTS: 'Informes y Analítica',
-  CLIENT_REQUESTS: 'Requerimientos Cliente', // New Label
+  CLIENT_REQUESTS: 'Requerimientos Cliente',
+  HEADCOUNT: 'Headcount (Puestos)',
+  POSITIONS_MANAGEMENT: 'Gestión de Puestos',
+  NIGHT_SUPERVISION: 'Supervisión Nocturna',
+  RETENES: 'Retenes',
+  VACATIONS: 'Control de Vacaciones',
+  ASSETS_CATALOG: 'Catálogo de Activos',
+  DOCUMENTS: 'Documentos',
   SETTINGS: 'Configuración Sistema'
 };

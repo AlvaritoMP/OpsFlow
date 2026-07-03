@@ -1,113 +1,157 @@
 /**
- * Servicio de Geocodificación con Google Maps API
- * Convierte direcciones en coordenadas (latitud, longitud) usando Google Geocoding API
+ * Servicio de geocodificación usando Nominatim (OpenStreetMap)
+ * Convierte direcciones en coordenadas geográficas (latitud, longitud)
  */
 
-export interface GeocodingResult {
-  address: string;
+interface GeocodingResult {
   latitude: number;
   longitude: number;
-  formattedAddress: string;
-  placeId?: string;
+  displayName: string;
 }
 
-export interface GeocodingError {
-  message: string;
-  code?: string;
-}
-
-/**
- * Geocodifica una dirección usando Google Geocoding API
- * @param address Dirección a geocodificar
- * @param apiKey API Key de Google Maps
- * @returns Coordenadas y información de la dirección
- */
-export async function geocodeAddress(
-  address: string,
-  apiKey: string
-): Promise<GeocodingResult> {
-  if (!address || !address.trim()) {
-    throw new Error('La dirección no puede estar vacía');
-  }
-
-  if (!apiKey) {
-    throw new Error('API Key de Google Maps es requerida');
-  }
-
-  try {
-    const encodedAddress = encodeURIComponent(address.trim());
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${apiKey}`;
-
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      throw new Error(`Error en la solicitud: ${response.status} ${response.statusText}`);
+export const geocodingService = {
+  /**
+   * Geocodifica una dirección y retorna las coordenadas
+   * @param address Dirección completa (ej: "Av. Javier Prado 450, Lima, Perú")
+   * @param googleApiKey Opcional: API key de Google Maps para usar como fallback
+   * @returns Coordenadas o null si no se encuentra
+   */
+  async geocodeAddress(address: string, googleApiKey?: string): Promise<GeocodingResult | null> {
+    console.log('🗺️ geocodingService.geocodeAddress - Dirección recibida:', address);
+    if (!address || address.trim().length === 0) {
+      console.log('🗺️ geocodingService - Dirección vacía, retornando null');
+      return null;
     }
 
-    const data = await response.json();
-
-    if (data.status === 'OK' && data.results && data.results.length > 0) {
-      const result = data.results[0];
-      const location = result.geometry.location;
-
-      return {
-        address: address,
-        latitude: location.lat,
-        longitude: location.lng,
-        formattedAddress: result.formatted_address,
-        placeId: result.place_id,
-      };
-    } else if (data.status === 'ZERO_RESULTS') {
-      throw new Error(`No se encontraron resultados para la dirección: ${address}`);
-    } else if (data.status === 'OVER_QUERY_LIMIT') {
-      throw new Error('Se ha excedido el límite de consultas de la API');
-    } else if (data.status === 'REQUEST_DENIED') {
-      throw new Error('Solicitud denegada. Verifica tu API Key y las restricciones de dominio');
-    } else {
-      throw new Error(`Error en la geocodificación: ${data.status}`);
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Error desconocido en la geocodificación');
-  }
-}
-
-/**
- * Geocodifica múltiples direcciones
- * @param addresses Array de direcciones
- * @param apiKey API Key de Google Maps
- * @returns Array de resultados de geocodificación
- */
-export async function geocodeMultipleAddresses(
-  addresses: string[],
-  apiKey: string
-): Promise<GeocodingResult[]> {
-  // Procesar en paralelo con un límite para evitar exceder rate limits
-  const batchSize = 5; // Procesar 5 a la vez
-  const results: GeocodingResult[] = [];
-
-  for (let i = 0; i < addresses.length; i += batchSize) {
-    const batch = addresses.slice(i, i + batchSize);
-    const batchResults = await Promise.allSettled(
-      batch.map(addr => geocodeAddress(addr, apiKey))
-    );
-
-    batchResults.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        results.push(result.value);
-      } else {
-        console.error(`Error geocodificando "${batch[index]}":`, result.reason);
-        // Podrías agregar un resultado con coordenadas por defecto o lanzar error
+    try {
+      // Estrategia de búsqueda: intentar diferentes variaciones
+      const searchQueries: string[] = [];
+      const baseAddress = address.trim();
+      
+      // 1. Dirección completa con "Lima, Perú"
+      if (!baseAddress.toLowerCase().includes('lima')) {
+        searchQueries.push(`${baseAddress}, Lima, Perú`);
       }
-    });
+      
+      // 2. Dirección completa con "Perú"
+      if (!baseAddress.toLowerCase().includes('perú') && !baseAddress.toLowerCase().includes('peru')) {
+        searchQueries.push(`${baseAddress}, Perú`);
+      }
+      
+      // 3. Dirección original
+      searchQueries.push(baseAddress);
+      
+      // 4. Si tiene número, intentar sin el número (solo calle y distrito)
+      const numberMatch = baseAddress.match(/^(\d+[\s,.-]*)?(.+)$/);
+      if (numberMatch && numberMatch[1]) {
+        const streetPart = numberMatch[2].trim();
+        if (streetPart.length > 5) { // Solo si queda algo significativo
+          searchQueries.push(`${streetPart}, Lima, Perú`);
+        }
+      }
 
-    // Pequeña pausa entre lotes para evitar rate limiting
-    if (i + batchSize < addresses.length) {
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // Intentar cada variación hasta encontrar resultados
+      for (const searchQuery of searchQueries) {
+        const encodedAddress = encodeURIComponent(searchQuery);
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodedAddress}&format=json&limit=1&addressdetails=1`;
+
+        console.log('🗺️ geocodingService - Intentando búsqueda:', searchQuery);
+        console.log('🗺️ geocodingService - URL:', url);
+
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'OpsFlow/1.0' // Nominatim requiere User-Agent
+          }
+        });
+
+        console.log('🗺️ geocodingService - Respuesta:', response.status, response.statusText);
+
+        if (!response.ok) {
+          console.warn('⚠️ Error en geocodificación:', response.statusText);
+          continue; // Intentar siguiente variación
+        }
+
+        const data = await response.json();
+        console.log('🗺️ geocodingService - Resultados encontrados:', data?.length || 0);
+
+        if (Array.isArray(data) && data.length > 0) {
+          const result = data[0];
+          const coords = {
+            latitude: parseFloat(result.lat),
+            longitude: parseFloat(result.lon),
+            displayName: result.display_name || address
+          };
+          console.log('✅ geocodingService - Coordenadas obtenidas:', coords);
+          return coords;
+        }
+      }
+
+      console.log('⚠️ geocodingService - No se encontraron resultados en Nominatim');
+      
+      // Si hay API key de Google Maps, intentar con Google Geocoding API como fallback
+      if (googleApiKey && googleApiKey.trim().length > 0) {
+        console.log('🗺️ geocodingService - Intentando con Google Maps Geocoding API...');
+        try {
+          const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(baseAddress)}&key=${googleApiKey}`;
+          console.log('🗺️ geocodingService - Google Maps URL:', googleUrl.replace(googleApiKey, '***'));
+          
+          const googleResponse = await fetch(googleUrl);
+          const googleData = await googleResponse.json();
+          
+          console.log('🗺️ geocodingService - Google Maps respuesta:', googleData.status);
+          
+          if (googleData.status === 'OK' && googleData.results && googleData.results.length > 0) {
+            const result = googleData.results[0];
+            const location = result.geometry.location;
+            const coords = {
+              latitude: location.lat,
+              longitude: location.lng,
+              displayName: result.formatted_address || address
+            };
+            console.log('✅ geocodingService - Coordenadas obtenidas de Google Maps:', coords);
+            return coords;
+          } else {
+            console.warn('⚠️ geocodingService - Google Maps no encontró resultados:', googleData.status);
+          }
+        } catch (googleError) {
+          console.error('❌ Error al geocodificar con Google Maps:', googleError);
+        }
+      } else {
+        console.log('ℹ️ geocodingService - No hay API key de Google Maps configurada');
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('❌ Error al geocodificar dirección:', error);
+      return null;
     }
-  }
+  },
 
-  return results;
-}
+  /**
+   * Geocodifica múltiples direcciones (con rate limiting para respetar los límites de Nominatim)
+   * @param addresses Array de direcciones
+   * @param delayMs Delay entre requests (por defecto 1000ms para respetar rate limits)
+   */
+  async geocodeAddresses(
+    addresses: string[],
+    delayMs: number = 1000
+  ): Promise<Map<string, GeocodingResult>> {
+    const results = new Map<string, GeocodingResult>();
+
+    for (let i = 0; i < addresses.length; i++) {
+      const address = addresses[i];
+      const result = await this.geocodeAddress(address);
+      
+      if (result) {
+        results.set(address, result);
+      }
+
+      // Esperar entre requests para respetar rate limits de Nominatim (1 req/segundo)
+      if (i < addresses.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return results;
+  }
+};

@@ -1,8 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff, UserRole } from '../types';
 import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { checkPermission } from '../services/permissionService';
+import { SafeImage } from './SafeImage';
 
 interface ControlCenterProps {
   units: Unit[];
@@ -17,7 +18,7 @@ interface GlobalEvent {
   unitId: string;
   unitName: string;
   date: string; // YYYY-MM-DD
-  category: 'Log' | 'Maintenance' | 'Training';
+  category: 'Log' | 'Maintenance' | 'Training' | 'ContractAlert';
   type: string; // Subtype (e.g., 'Incidencia', 'Preventivo')
   description: string;
   status?: string;
@@ -25,7 +26,22 @@ interface GlobalEvent {
   originalRef: any; // Reference to the original object to allow updating
 }
 
+// Interface for contract generation alerts
+interface ContractAlert {
+  id: string;
+  unitId: string;
+  unitName: string;
+  resourceId: string;
+  resourceName: string;
+  trainingStartDate: string;
+  daysInTraining: number;
+  contractGenerated: boolean;
+}
+
 export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementStaff, onUpdateUnit, currentUserRole }) => {
+  // Log immediately when component renders
+  console.log('🎯 ControlCenter COMPONENT RENDERED - currentUserRole:', currentUserRole, 'typeof:', typeof currentUserRole, '=== CLIENT:', currentUserRole === 'CLIENT');
+  
   const [filterUnit, setFilterUnit] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,7 +63,24 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
   });
   const [newImageUrl, setNewImageUrl] = useState('');
 
+  // Calculate these values directly from currentUserRole to ensure they're always up-to-date
+  // IMPORTANT: Calculate directly without useMemo to ensure fresh values on every render
   const canEdit = checkPermission(currentUserRole, 'CONTROL_CENTER', 'edit');
+  const canViewControlCenter = checkPermission(currentUserRole, 'CONTROL_CENTER', 'view');
+  const isOperationsUser = currentUserRole === 'OPERATIONS' || currentUserRole === 'OPERATIONS_SUPERVISOR' || currentUserRole === 'ADMIN' || currentUserRole === 'SUPER_ADMIN';
+  const isClient = currentUserRole === 'CLIENT';
+  
+  // Debug logging - always log to help diagnose
+  useEffect(() => {
+    console.log('🔄 ControlCenter useEffect - currentUserRole:', currentUserRole, 'isClient:', isClient, 'typeof:', typeof currentUserRole, 'strict equality:', currentUserRole === 'CLIENT');
+  }, [currentUserRole, isClient]);
+  
+  // Tooltip state for event details
+  const [hoveredEvent, setHoveredEvent] = useState<GlobalEvent | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  
+  // State for day events modal
+  const [selectedDayEvents, setSelectedDayEvents] = useState<{ date: string; events: GlobalEvent[] } | null>(null);
 
   // --- Data Aggregation ---
   const allEvents = useMemo(() => {
@@ -124,8 +157,48 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       });
     });
 
+    // Add contract alerts as events (only for operations users)
+    if (isOperationsUser) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      units.forEach(unit => {
+        unit.resources.forEach(resource => {
+          if (resource.type === ResourceType.PERSONNEL && 
+              resource.inTraining && 
+              resource.trainingStartDate && 
+              !resource.contractGenerated) {
+            
+            const startDate = new Date(resource.trainingStartDate);
+            startDate.setHours(0, 0, 0, 0);
+            const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+            
+            if (daysDiff >= 3) {
+              // Calcular la fecha que cumplió 3 días (fecha de inicio + 3 días)
+              const alertDate = new Date(startDate);
+              alertDate.setDate(alertDate.getDate() + 3);
+              const alertDateStr = alertDate.toISOString().split('T')[0];
+              
+              events.push({
+                id: `contract-alert-${resource.id}`,
+                unitId: unit.id,
+                unitName: unit.name,
+                date: alertDateStr, // Fecha que cumplió 3 días, no la fecha de inicio
+                category: 'ContractAlert',
+                type: 'Alerta de Contrato',
+                description: `${resource.name} completó ${daysDiff} días de capacitación. Se requiere generar contrato de trabajo.`,
+                status: 'Pendiente',
+                resourceName: resource.name,
+                originalRef: { resource, unit, daysDiff }
+              });
+            }
+          }
+        });
+      });
+    }
+
     return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [units]);
+  }, [units, isOperationsUser]);
 
   // --- Filtering ---
   const filteredEvents = useMemo(() => {
@@ -224,8 +297,49 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     setEditForm({...editForm, images: editForm.images.filter((_, i) => i !== index)});
   };
 
+  const handleResolveContractAlert = async (event: GlobalEvent) => {
+    if (!event.originalRef?.resource) return;
+    
+    const unitIndex = units.findIndex(u => u.id === event.unitId);
+    if (unitIndex === -1) return;
+    
+    const updatedUnit = { ...units[unitIndex] };
+    const resourceId = event.originalRef.resource.id;
+    
+    // Update the resource to mark contract as generated
+    updatedUnit.resources = updatedUnit.resources.map(res => {
+      if (res.id === resourceId) {
+        return { ...res, contractGenerated: true };
+      }
+      return res;
+    });
+    
+    // Save to database
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      const resource = updatedUnit.resources.find(r => r.id === resourceId);
+      if (resource) {
+        await resourcesService.update(resourceId, { contractGenerated: true });
+      }
+    } catch (error) {
+      console.error('Error al actualizar recurso:', error);
+      alert('Error al guardar. Por favor, intente nuevamente.');
+      return;
+    }
+    
+    onUpdateUnit(updatedUnit);
+    setEditingEvent(null);
+    alert('Alerta resuelta. El contrato ha sido marcado como generado.');
+  };
+
   const handleSaveEdit = () => {
     if (!editingEvent) return;
+
+    // Handle contract alert resolution
+    if (editingEvent.category === 'ContractAlert') {
+      handleResolveContractAlert(editingEvent);
+      return;
+    }
 
     const unitIndex = units.findIndex(u => u.id === editingEvent.unitId);
     if (unitIndex === -1) return;
@@ -338,6 +452,10 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       const d = new Date(ev.date + 'T00:00:00'); 
       return d.getMonth() === month && d.getFullYear() === year;
     });
+    
+    // Calculate isClientUser once per render to ensure consistency
+    const isClientUser = currentUserRole === 'CLIENT';
+    console.log('📅 renderCalendar - currentUserRole:', currentUserRole, 'isClientUser:', isClientUser);
 
     const blanks = Array(firstDay).fill(null);
     const daySlots = Array.from({ length: days }, (_, i) => i + 1);
@@ -357,32 +475,67 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
          </div>
 
          <div className="grid grid-cols-7 auto-rows-fr">
-            {blanks.map((_, i) => <div key={`blank-${i}`} className="h-16 md:h-24 bg-slate-50/50 border-b border-r border-slate-100"></div>)}
+            {blanks.map((_, i) => <div key={`blank-${i}`} className={`${isClientUser ? 'h-24 md:h-32' : 'h-16 md:h-24'} bg-slate-50/50 border-b border-r border-slate-100`}></div>)}
             {daySlots.map(day => {
                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                const dayEvents = monthEvents.filter(ev => ev.date === dateStr);
                const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
                
                return (
-                  <div key={day} className={`min-h-[4rem] md:min-h-[6rem] border-b border-r border-slate-100 p-0.5 md:p-1 relative group hover:bg-slate-50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
+                  <div key={day} className={`${isClientUser ? 'min-h-[6rem] md:min-h-[8rem]' : 'min-h-[4rem] md:min-h-[6rem]'} border-b border-r border-slate-100 p-0.5 md:p-1 relative group hover:bg-slate-50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
                      <span className={`text-[10px] md:text-xs font-medium ml-0.5 md:ml-1 ${isToday ? 'bg-blue-600 text-white px-1 md:px-1.5 rounded-full' : 'text-slate-700'}`}>{day}</span>
-                     <div className="mt-0.5 md:mt-1 space-y-0.5 md:space-y-1 overflow-y-auto max-h-12 md:max-h-20 custom-scrollbar">
-                        {dayEvents.map(ev => (
+                     <div className={`mt-0.5 md:mt-1 space-y-0.5 md:space-y-1 overflow-y-auto ${isClientUser ? 'max-h-20 md:max-h-28' : 'max-h-12 md:max-h-20'} custom-scrollbar`}>
+                        {dayEvents.slice(0, isClientUser ? 2 : 3).map(ev => (
                            <div 
                               key={ev.id} 
                               onClick={() => canEdit && handleEditClick(ev)}
-                              className={`text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5 rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} truncate shadow-sm hover:opacity-80 transition-opacity
+                              onMouseEnter={(e) => {
+                                if (isClientUser) {
+                                  setHoveredEvent(ev);
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setTooltipPosition({ x: rect.left + rect.width / 2, y: rect.top });
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                if (isClientUser) {
+                                  setHoveredEvent(null);
+                                }
+                              }}
+                              className={`${isClientUser ? 'text-[10px] md:text-xs px-1 md:px-1.5 py-1 md:py-1.5' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${isClientUser ? '' : 'truncate'} shadow-sm hover:opacity-80 transition-opacity
                                 ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-100 text-red-700 border-red-200' : 
                                   ev.category === 'Log' ? 'bg-gray-100 text-gray-700 border-gray-200' :
                                   ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-700 border-orange-200' :
                                   'bg-blue-100 text-blue-700 border-blue-200'
                                 }`}
-                              title={`${ev.unitName}: ${ev.description}`}
+                              title={!isClientUser ? `${ev.unitName}: ${ev.description}` : undefined}
                            >
-                              {ev.type === 'Incidencia' && <AlertTriangle size={6} className="inline mr-0.5 md:w-2 md:h-2"/>}
-                              <span className="truncate block">{ev.description}</span>
+                              {ev.type === 'Incidencia' && <AlertTriangle size={isClientUser ? 10 : 6} className={`inline mr-0.5 ${isClientUser ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
+                              {isClientUser ? (
+                                <>
+                                  <div className="flex items-center gap-1 mb-0.5 flex-wrap">
+                                    <span className="text-[9px] md:text-[10px] font-bold text-slate-800 truncate">{ev.unitName}</span>
+                                    <span className="text-[8px] md:text-[9px] text-slate-500 px-1 py-0.5 rounded bg-slate-100 whitespace-nowrap">{ev.type}</span>
+                                  </div>
+                                  <span className="block line-clamp-2 text-[9px] md:text-[10px] text-slate-600 mt-0.5">{ev.description}</span>
+                                </>
+                              ) : (
+                                <span className="truncate block">{ev.description}</span>
+                              )}
                            </div>
                         ))}
+                        {dayEvents.length > (isClientUser ? 2 : 3) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              setSelectedDayEvents({ date: dateStr, events: dayEvents });
+                            }}
+                            className={`${isClientUser ? 'text-[9px] md:text-[10px] px-1 md:px-1.5 py-0.5 md:py-1' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} w-full rounded border-2 border-slate-400 bg-slate-100 text-slate-800 hover:bg-slate-200 hover:border-slate-500 transition-colors font-semibold shadow-sm cursor-pointer`}
+                          >
+                            +{dayEvents.length - (isClientUser ? 2 : 3)} más eventos
+                          </button>
+                        )}
                      </div>
                   </div>
                );
@@ -392,11 +545,137 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
     );
   };
 
+  // Tooltip component for event details
+  const EventTooltip = () => {
+    if (!hoveredEvent || currentUserRole !== 'CLIENT') return null;
+    
+    return (
+      <div 
+        className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 md:p-4 max-w-xs pointer-events-none"
+        style={{
+          left: `${tooltipPosition.x}px`,
+          top: `${tooltipPosition.y - 10}px`,
+          transform: 'translate(-50%, -100%)'
+        }}
+      >
+        <div className="space-y-2">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+            <h4 className="font-bold text-sm text-slate-800">{hoveredEvent.unitName}</h4>
+            <span className={`px-2 py-0.5 rounded text-xs font-medium
+              ${hoveredEvent.category === 'Log' ? 'bg-gray-100 text-gray-800' : 
+                hoveredEvent.category === 'Maintenance' ? 'bg-orange-100 text-orange-800' : 
+                hoveredEvent.category === 'ContractAlert' ? 'bg-red-100 text-red-800' :
+                'bg-blue-100 text-blue-800'}`}>
+              {hoveredEvent.type}
+            </span>
+          </div>
+          <p className="text-xs text-slate-600 line-clamp-4">{hoveredEvent.description}</p>
+          {hoveredEvent.resourceName && (
+            <p className="text-xs font-semibold text-slate-700">Recurso: {hoveredEvent.resourceName}</p>
+          )}
+          {hoveredEvent.status && (
+            <p className="text-xs text-slate-500">Estado: {hoveredEvent.status}</p>
+          )}
+          {hoveredEvent.originalRef?.images?.length > 0 && (
+            <p className="text-xs text-slate-500 flex items-center">
+              <ImageIcon size={12} className="mr-1" /> {hoveredEvent.originalRef.images.length} imagen(es)
+            </p>
+          )}
+          {hoveredEvent.originalRef?.responsibleIds?.length > 0 && (
+            <p className="text-xs text-slate-500 flex items-center">
+              <UserCheck size={12} className="mr-1" /> {hoveredEvent.originalRef.responsibleIds.length} responsable(s)
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Helper to determine if we show full edit features
   const isTrackableRecord = editingEvent?.category === 'Log' || (editingEvent?.category === 'Maintenance' && !editingEvent.id.startsWith('future'));
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 space-y-3 md:space-y-4 animate-in fade-in duration-500 h-full flex flex-col">
+    <div className="p-4 md:p-6 lg:p-8 space-y-3 md:space-y-4 animate-in fade-in duration-500 h-full flex flex-col relative">
+      <EventTooltip />
+      
+      {/* Modal para ver todos los eventos de un día */}
+      {selectedDayEvents && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 md:p-4" onClick={() => setSelectedDayEvents(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 border-b border-slate-700 rounded-t-xl flex justify-between items-center shrink-0">
+              <div className="flex items-center min-w-0 flex-1">
+                <CalendarIcon className="mr-2 shrink-0" size={16} />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-base md:text-lg truncate">Eventos del {new Date(selectedDayEvents.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h3>
+                  <p className="text-[10px] md:text-xs text-slate-300">{selectedDayEvents.events.length} evento(s)</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedDayEvents(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={18} className="md:w-5 md:h-5" /></button>
+            </div>
+            
+            <div className="p-4 md:p-6 overflow-y-auto flex-1">
+              <div className="space-y-3">
+                {selectedDayEvents.events.map(ev => (
+                  <div
+                    key={ev.id}
+                    onClick={() => {
+                      if (canEdit) {
+                        setSelectedDayEvents(null);
+                        handleEditClick(ev);
+                      }
+                    }}
+                    className={`p-3 md:p-4 rounded-lg border-2 ${canEdit ? 'cursor-pointer hover:shadow-md' : 'cursor-default'} transition-all
+                      ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-50 border-red-200' : 
+                        ev.category === 'Log' ? 'bg-gray-50 border-gray-200' :
+                        ev.category === 'Maintenance' ? 'bg-orange-50 border-orange-200' :
+                        ev.category === 'ContractAlert' ? 'bg-red-50 border-red-300' :
+                        'bg-blue-50 border-blue-200'
+                      }`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-sm md:text-base text-slate-800 mb-1">{ev.unitName}</h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-1 rounded text-xs font-medium
+                            ${ev.category === 'Log' ? 'bg-gray-100 text-gray-800' : 
+                              ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-800' : 
+                              ev.category === 'ContractAlert' ? 'bg-red-100 text-red-800' :
+                              'bg-blue-100 text-blue-800'}`}>
+                            {ev.type}
+                          </span>
+                          {ev.status && (
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(ev.status)}`}>
+                              {ev.status}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {ev.type === 'Incidencia' && <AlertTriangle size={20} className="text-red-600 shrink-0" />}
+                    </div>
+                    <p className="text-xs md:text-sm text-slate-600 mb-2 line-clamp-3">{ev.description}</p>
+                    {ev.resourceName && (
+                      <p className="text-xs font-semibold text-slate-700 mb-1">Recurso: {ev.resourceName}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {ev.originalRef?.images?.length > 0 && (
+                        <span className="px-2 py-1 inline-flex text-xs font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200 flex items-center">
+                          <ImageIcon size={12} className="mr-1" /> {ev.originalRef.images.length} imagen(es)
+                        </span>
+                      )}
+                      {ev.originalRef?.responsibleIds?.length > 0 && (
+                        <span className="px-2 py-1 inline-flex text-xs font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200 flex items-center">
+                          <UserCheck size={12} className="mr-1" /> {ev.originalRef.responsibleIds.length} responsable(s)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 md:gap-4 shrink-0">
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-slate-800">Centro de Control Operativo</h1>
@@ -434,6 +713,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                 <option value="Log">Bitácora</option>
                 <option value="Maintenance">Mantenimiento</option>
                 <option value="Training">Capacitación</option>
+                {isOperationsUser && <option value="ContractAlert">Alertas de Contrato</option>}
              </select>
           </div>
        </div>
@@ -441,13 +721,13 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
        {/* Split View Content */}
        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 md:gap-6 overflow-hidden">
           {/* Left: Calendar */}
-          <div className="lg:w-5/12 h-full overflow-y-auto custom-scrollbar pr-1">
+          <div className={`${currentUserRole === 'CLIENT' ? 'lg:w-7/12' : 'lg:w-5/12'} h-full overflow-y-auto custom-scrollbar pr-1`}>
              <h3 className="text-xs md:text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><CalendarIcon size={14} className="mr-2 md:w-4 md:h-4"/> Vista Mensual</h3>
              {renderCalendar()}
           </div>
 
           {/* Right: List */}
-          <div className="lg:w-7/12 h-full overflow-hidden flex flex-col">
+          <div className={`${currentUserRole === 'CLIENT' ? 'lg:w-5/12' : 'lg:w-7/12'} h-full overflow-hidden flex flex-col`}>
              <h3 className="text-xs md:text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><List size={14} className="mr-2 md:w-4 md:h-4"/> Detalle de Eventos ({filteredEvents.length})</h3>
              
              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">
@@ -470,9 +750,11 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                     <span className={`inline-flex items-center px-1.5 md:px-2 py-0.5 rounded text-[9px] md:text-[10px] font-medium mt-1 
                                         ${ev.category === 'Log' ? 'bg-gray-100 text-gray-800' : 
                                             ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-800' : 
+                                            ev.category === 'ContractAlert' ? 'bg-red-100 text-red-800' :
                                             'bg-blue-100 text-blue-800'}`}>
                                         {ev.category === 'Maintenance' && <Wrench size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         {ev.category === 'Training' && <GraduationCap size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
+                                        {ev.category === 'ContractAlert' && <AlertTriangle size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         <span className="truncate max-w-[60px] md:max-w-none">{ev.type}</span>
                                     </span>
                                 </td>
@@ -607,6 +889,25 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                     </div>
                 )}
 
+                {editingEvent.category === 'ContractAlert' && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                        <div className="flex items-start space-x-3">
+                            <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                            <div className="flex-1">
+                                <h4 className="font-bold text-amber-900 mb-2">Alerta de Contrato de Trabajo</h4>
+                                <p className="text-sm text-amber-800 mb-3">
+                                    {editingEvent.originalRef?.daysDiff !== undefined && (
+                                        <>El trabajador <strong>{editingEvent.resourceName}</strong> completó <strong>{editingEvent.originalRef.daysDiff} días</strong> de capacitación. Se requiere generar el contrato de trabajo.</>
+                                    )}
+                                </p>
+                                <p className="text-xs text-amber-700 italic">
+                                    Al resolver esta alerta, se marcará que el contrato ha sido generado y la alerta desaparecerá.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Responsible Selection (Logs AND Maintenance) */}
                 {isTrackableRecord && (
                     <div>
@@ -651,7 +952,12 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                             <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
                                 {editForm.images.map((img, i) => (
                                     <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                        <img src={img} className="w-full h-full object-cover rounded border border-slate-200" alt="ev" />
+                                        <SafeImage 
+                                          src={img} 
+                                          className="w-full h-full object-cover rounded border border-slate-200" 
+                                          alt="ev"
+                                          bucket="unit-images"
+                                        />
                                         <button onClick={() => handleRemoveImage(i)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
                                     </div>
                                 ))}

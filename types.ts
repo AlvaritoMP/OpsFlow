@@ -17,7 +17,7 @@ export enum StaffStatus {
   REPLACED = 'Reemplazo Temporal',
 }
 
-export type UserRole = 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'CLIENT';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'CLIENT';
 export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 
 // --- PERMISSIONS SYSTEM ---
@@ -30,7 +30,14 @@ export type AppFeature =
   | 'BLUEPRINT' 
   | 'CONTROL_CENTER' 
   | 'REPORTS' 
-  | 'CLIENT_REQUESTS' // New Feature
+  | 'CLIENT_REQUESTS'
+  | 'HEADCOUNT'
+  | 'POSITIONS_MANAGEMENT'
+  | 'NIGHT_SUPERVISION'
+  | 'RETENES'
+  | 'VACATIONS'
+  | 'ASSETS_CATALOG'
+  | 'DOCUMENTS'
   | 'SETTINGS';
 
 export interface PermissionRule {
@@ -102,6 +109,7 @@ export interface RequestComment {
 export interface ClientRequest {
   id: string;
   date: string;
+  title?: string; // Título del requerimiento
   category: 'PERSONNEL' | 'LOGISTICS' | 'GENERAL';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED';
@@ -189,7 +197,7 @@ export interface MaintenanceRecord {
 }
 
 // --- ROSTERING TYPES ---
-export type ShiftType = 'Day' | 'Night' | 'OFF' | 'Vacation' | 'Sick';
+export type ShiftType = 'Day' | 'Afternoon' | 'Night' | 'OFF' | 'Vacation' | 'Sick';
 
 export interface DailyShift {
     date: string; // YYYY-MM-DD
@@ -222,10 +230,15 @@ export interface Resource {
   
   // Personnel-specific fields (only for type = PERSONNEL)
   dni?: string; // Documento Nacional de Identidad
+  puesto?: string; // Puesto o cargo del trabajador
   startDate?: string; // Fecha de inicio de labores (YYYY-MM-DD)
   endDate?: string; // Fecha de fin de labores (YYYY-MM-DD)
   personnelStatus?: 'activo' | 'cesado'; // Estado: activo o cesado (solo para personal)
   archived?: boolean; // Si está archivado (no se muestra en vista normal)
+  inTraining?: boolean; // Si está en periodo de capacitación
+  trainingStartDate?: string; // Fecha de inicio de capacitación (YYYY-MM-DD)
+  contractGenerated?: boolean; // Si ya se generó el contrato de trabajo (resuelve la alerta)
+  isShared?: boolean; // Si el trabajador es compartido entre múltiples unidades (true) o único (false). Por defecto false (único)
 }
 
 export interface ZoneLayout {
@@ -273,6 +286,39 @@ export interface UnitContact {
   email?: string;
 }
 
+export interface UnitDocument {
+  id: string;
+  name: string; // Nombre del documento
+  description?: string; // Descripción opcional
+  fileUrl: string; // URL del archivo en Supabase Storage
+  fileName: string; // Nombre original del archivo
+  fileSize: number; // Tamaño del archivo en bytes
+  mimeType: string; // Tipo MIME del archivo
+  uploadedAt: string; // Fecha de carga
+  uploadedBy?: string; // ID del usuario que subió el documento
+}
+
+// ============================================
+// POSICIONES/PUESTOS PREDEFINIDOS
+// ============================================
+
+export interface Position {
+  id: string;
+  name: string; // Nombre del puesto (ej: "Supervisor", "Operario de Limpieza", "Seguridad")
+  description?: string; // Descripción opcional del puesto
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  updatedBy?: string;
+}
+
+export interface RequiredPosition {
+  positionId: string; // ID del puesto predefinido
+  positionName?: string; // Nombre del puesto (cached para evitar joins)
+  quantity: number; // Cantidad requerida
+}
+
 export interface Unit {
   id: string;
   name: string;
@@ -288,10 +334,21 @@ export interface Unit {
   requests: ClientRequest[]; // New field for Client Requests
   complianceHistory: { month: string; score: number }[];
   
+  // Location coordinates
+  latitude?: number; // Latitud de la ubicación de la unidad
+  longitude?: number; // Longitud de la ubicación de la unidad
+  
   // Management Team
   coordinator?: UnitContact;
   rovingSupervisor?: UnitContact; // Supervisor de Ronda
   residentSupervisor?: UnitContact; // Supervisor Residente
+  assignedStaff?: string[]; // Array de IDs de management staff asignados a esta unidad
+  
+  // Documents
+  documents?: UnitDocument[]; // Documentos relacionados al servicio
+  
+  // Required Positions
+  requiredPositions?: RequiredPosition[]; // Puestos requeridos en la unidad
 }
 
 // ============================================
@@ -335,4 +392,178 @@ export interface RetenAssignment {
   updated_at: string;
   created_by?: string;
   updated_by?: string;
+}
+
+// ============================================
+// SUPERVISIÓN NOCTURNA
+// ============================================
+
+export interface NightSupervisionShift {
+  id: string;
+  date: string; // YYYY-MM-DD
+  unit_id: string;
+  unit_name: string;
+  supervisor_id: string; // ID del supervisor que realiza la supervisión
+  supervisor_name: string;
+  shift_start: string; // HH:mm
+  shift_end: string; // HH:mm
+  status: 'en_curso' | 'completada' | 'incompleta' | 'cancelada';
+  completion_percentage: number; // 0-100
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface NightSupervisionCall {
+  id: string;
+  shift_id: string;
+  worker_id: string; // ID del trabajador (resource de tipo PERSONNEL)
+  worker_name: string;
+  worker_phone: string;
+  call_number: 1 | 2 | 3; // Primera, segunda o tercera llamada
+  scheduled_time: string; // HH:mm - hora programada de la llamada
+  actual_time?: string; // HH:mm - hora real en que se hizo la llamada
+  answered: boolean; // Si el trabajador contestó
+  photo_received: boolean; // Si se recibió la foto del trabajador
+  photo_url?: string; // URL de la foto recibida
+  photo_timestamp?: string; // Fecha y hora de la foto (extraída de la foto)
+  on_rest?: boolean; // Si el trabajador está en descanso ese día
+  notes?: string; // Novedades o observaciones del supervisor
+  non_conformity?: boolean; // Si hay alguna no conformidad
+  non_conformity_description?: string; // Descripción de la no conformidad
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface NightSupervisionCameraReview {
+  id: string;
+  shift_id: string;
+  unit_id: string;
+  unit_name: string;
+  review_number: 1 | 2 | 3; // Primera, segunda o tercera revisión
+  scheduled_time: string; // HH:mm - hora programada de la revisión
+  actual_time?: string; // HH:mm - hora real en que se hizo la revisión
+  screenshot_url: string; // URL del screenshot de las cámaras
+  screenshot_timestamp?: string; // Fecha y hora que muestra el screenshot
+  cameras_reviewed: string[]; // IDs o nombres de las cámaras revisadas
+  notes?: string; // Observaciones del supervisor
+  non_conformity?: boolean; // Si hay alguna no conformidad
+  non_conformity_description?: string; // Descripción de la no conformidad
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface NightSupervisionAlert {
+  id: string;
+  shift_id: string;
+  type: 'missing_call' | 'missing_photo' | 'missing_camera_review' | 'non_conformity' | 'critical_event';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  description: string;
+  related_entity_type: 'call' | 'camera_review' | 'shift';
+  related_entity_id?: string;
+  resolved: boolean;
+  resolved_at?: string;
+  resolved_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NightSupervisionReport {
+  shift_id: string;
+  date: string;
+  unit_name: string;
+  supervisor_name: string;
+  total_workers: number;
+  total_calls_required: number;
+  total_calls_completed: number;
+  total_calls_answered: number;
+  total_photos_received: number;
+  total_camera_reviews_required: number;
+  total_camera_reviews_completed: number;
+  non_conformities_count: number;
+  critical_events_count: number;
+  completion_percentage: number;
+  calls: NightSupervisionCall[];
+  camera_reviews: NightSupervisionCameraReview[];
+  alerts: NightSupervisionAlert[];
+}
+
+// ============================================
+// VACACIONES (Régimen General Perú - 30 días/año)
+// ============================================
+
+export interface VacationBalance {
+  id: string;
+  resourceId: string;
+  historicalTakenDays: number;
+  annualEntitlement: number;
+  notes?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export type VacationDayEntryStatus = 'pending_batch' | 'batched' | 'cancelled';
+
+export interface VacationDayEntry {
+  id: string;
+  resourceId: string;
+  unitId: string;
+  vacationDate: string;
+  status: VacationDayEntryStatus;
+  papeletaId?: string;
+  notes?: string;
+  createdAt?: string;
+  createdBy?: string;
+}
+
+export type VacationPapeletaSource = 'direct' | 'accumulated';
+export type VacationPapeletaStatus = 'draft' | 'issued' | 'cancelled';
+
+export interface VacationPapeleta {
+  id: string;
+  resourceId: string;
+  unitId: string;
+  code: string;
+  workerName: string;
+  workerDni?: string;
+  unitName: string;
+  startDate: string;
+  endDate: string;
+  returnDate: string;
+  calendarDays: number;
+  sourceType: VacationPapeletaSource;
+  status: VacationPapeletaStatus;
+  notes?: string;
+  issuedAt?: string;
+  issuedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  accumulatedDays?: VacationDayEntry[];
+}
+
+export interface VacationBalanceSummary {
+  resourceId: string;
+  workerName: string;
+  workerDni?: string;
+  unitId: string;
+  unitName: string;
+  startDate?: string;
+  puesto?: string;
+  accruedDays: number;
+  historicalTakenDays: number;
+  papeletaDays: number;
+  pendingIndividualDays: number;
+  totalUsedDays: number;
+  availableDays: number;
+  fullYears: number;
+  monthsInCurrentPeriod: number;
+  canIssuePapeleta: boolean;
+  pendingDayDates: string[];
 }

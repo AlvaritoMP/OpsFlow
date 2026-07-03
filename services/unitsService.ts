@@ -17,6 +17,8 @@ interface UnitRow {
   coordinator_id?: string;
   roving_supervisor_id?: string;
   resident_supervisor_id?: string;
+  latitude?: number;
+  longitude?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -29,7 +31,10 @@ export const unitsService = {
   // Obtener todas las unidades
   async getAll(): Promise<Unit[]> {
     try {
-      console.log('🔍 Obteniendo unidades de la base de datos...');
+      // Log reducido - solo en desarrollo
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔍 Obteniendo unidades de la base de datos...');
+      }
       const { data, error } = await supabase
         .from('units')
         .select(`
@@ -40,7 +45,8 @@ export const unitsService = {
           unit_images(*),
           blueprint_layers(*),
           zones(*),
-          compliance_history(*)
+          compliance_history(*),
+          unit_management_staff(management_staff_id)
         `)
         .order('created_at', { ascending: false });
 
@@ -51,7 +57,10 @@ export const unitsService = {
         throw error;
       }
 
-      console.log(`📊 Unidades encontradas en BD: ${data?.length || 0}`);
+      // Log reducido - solo en desarrollo
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`📊 Unidades encontradas en BD: ${data?.length || 0}`);
+      }
 
       if (!data || data.length === 0) {
         console.warn('⚠️ No se encontraron unidades en la base de datos');
@@ -59,11 +68,29 @@ export const unitsService = {
       }
 
       // Cargar datos relacionados para cada unidad
-      console.log('🔄 Cargando datos relacionados (recursos, logs, requests, zones, imágenes)...');
+      // Log reducido - solo en desarrollo
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 Cargando datos relacionados (recursos, logs, requests, zones, imágenes)...');
+      }
       const units = await Promise.all(
         data.map(async (unitData) => {
           try {
-            const [resources, logs, requests, zones] = await Promise.all([
+            // Cargar assignedStaff primero
+            let assignedStaff: string[] = [];
+            try {
+              const { data: staffData } = await supabase
+                .from('unit_management_staff')
+                .select('management_staff_id')
+                .eq('unit_id', unitData.id);
+              if (staffData) {
+                assignedStaff = staffData.map((s: any) => s.management_staff_id);
+              }
+            } catch (e) {
+              // Si la tabla no existe, simplemente usar array vacío
+              console.warn('⚠️ Tabla unit_management_staff no encontrada, usando array vacío');
+            }
+
+            const [resources, logs, requests, zones, documents] = await Promise.all([
               resourcesService.getByUnitId(unitData.id).catch(err => {
                 console.warn(`⚠️ Error al cargar recursos para unidad ${unitData.id}:`, err);
                 return [];
@@ -80,15 +107,27 @@ export const unitsService = {
                 console.warn(`⚠️ Error al cargar zones para unidad ${unitData.id}:`, err);
                 return [];
               }),
+              (async () => {
+                try {
+                  const { documentsService } = await import('./documentsService');
+                  return await documentsService.getByUnitId(unitData.id);
+                } catch (err) {
+                  console.warn(`⚠️ Error al cargar documentos para unidad ${unitData.id}:`, err);
+                  return [];
+                }
+              })(),
             ]);
 
-            const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones);
-            console.log(`✅ Unidad ${unitData.name}: ${transformed.images.length} imágenes, ${transformed.logs.length} logs, ${transformed.resources.length} recursos`);
+            const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones, assignedStaff, documents);
+            // Log reducido - solo en desarrollo
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ Unidad ${unitData.name}: ${transformed.images.length} imágenes, ${transformed.logs.length} logs, ${transformed.resources.length} recursos`);
+            }
             return transformed;
           } catch (err) {
             console.error(`❌ Error al transformar unidad ${unitData.id}:`, err);
             // Retornar unidad básica sin datos relacionados
-            return transformUnitFromDB(unitData, [], [], [], []);
+            return transformUnitFromDB(unitData, [], [], [], [], [], []);
           }
         })
       );
@@ -113,7 +152,8 @@ export const unitsService = {
           unit_images(*),
           blueprint_layers(*),
           zones(*),
-          compliance_history(*)
+          compliance_history(*),
+          unit_management_staff(management_staff_id)
         `)
         .eq('id', id)
         .single();
@@ -125,15 +165,39 @@ export const unitsService = {
 
       if (!data) return null;
 
+      // Cargar staff asignado adicional
+      let assignedStaff: string[] = [];
+      try {
+        const { data: staffData } = await supabase
+          .from('unit_management_staff')
+          .select('management_staff_id')
+          .eq('unit_id', data.id);
+        if (staffData) {
+          assignedStaff = staffData.map((s: any) => s.management_staff_id);
+        }
+      } catch (e) {
+        // Si la tabla no existe, simplemente usar array vacío
+        console.warn('⚠️ Tabla unit_management_staff no encontrada, usando array vacío');
+      }
+
       // Cargar datos relacionados
-      const [resources, logs, requests, zones] = await Promise.all([
+      const [resources, logs, requests, zones, documents] = await Promise.all([
         resourcesService.getByUnitId(data.id),
         logsService.getByUnitId(data.id),
         requestsService.getByUnitId(data.id),
         zonesService.getByUnitId(data.id),
+        (async () => {
+          try {
+            const { documentsService } = await import('./documentsService');
+            return await documentsService.getByUnitId(data.id);
+          } catch (err) {
+            console.warn(`⚠️ Error al cargar documentos para unidad ${data.id}:`, err);
+            return [];
+          }
+        })(),
       ]);
 
-      return transformUnitFromDB(data, resources, logs, requests, zones);
+      return transformUnitFromDB(data, resources, logs, requests, zones, assignedStaff, documents);
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -194,10 +258,10 @@ export const unitsService = {
   },
 
   // Actualizar una unidad
-  async update(id: string, unit: Partial<Unit>): Promise<Unit> {
+  async update(id: string, unit: Partial<Unit>, skipAuditLog: boolean = false): Promise<Unit> {
     try {
-      // Obtener la unidad antes de actualizar para el log
-      const oldUnit = await this.getById(id);
+      // Obtener la unidad antes de actualizar para el log (solo si vamos a registrar)
+      const oldUnit = skipAuditLog ? null : await this.getById(id);
       
       const unitData = transformUnitToDB(unit);
 
@@ -208,20 +272,67 @@ export const unitsService = {
 
       if (error) throw error;
 
-      // Actualizar imágenes si se proporcionan
+      // Actualizar imágenes SOLO si se proporcionan explícitamente Y realmente han cambiado
+      // Para evitar perder imágenes cuando se actualiza solo un campo (como recursos, zonas, etc.)
       if (unit.images !== undefined) {
-        // Eliminar imágenes existentes
-        await supabase.from('unit_images').delete().eq('unit_id', id);
+        console.log(`📸 Verificando imágenes para unidad ${id}:`, unit.images);
         
-        // Insertar nuevas imágenes
-        if (unit.images.length > 0) {
-          await supabase.from('unit_images').insert(
-            unit.images.map((url, index) => ({
+        // Obtener imágenes actuales de la base de datos para comparar
+        const { data: currentImages } = await supabase
+          .from('unit_images')
+          .select('image_url')
+          .eq('unit_id', id)
+          .order('display_order');
+        
+        const currentImageUrls = (currentImages?.map(img => img.image_url) || []).filter(url => !url.startsWith('blob:'));
+        const newImageUrls = unit.images.filter(url => !url.startsWith('blob:'));
+        
+        // Normalizar arrays para comparación (ordenar y eliminar duplicados)
+        const normalizeUrls = (urls: string[]) => [...new Set(urls)].sort();
+        const currentNormalized = normalizeUrls(currentImageUrls);
+        const newNormalized = normalizeUrls(newImageUrls);
+        
+        // Solo actualizar si las imágenes realmente cambiaron
+        const imagesChanged = JSON.stringify(currentNormalized) !== JSON.stringify(newNormalized);
+        
+        if (imagesChanged) {
+          console.log('🔄 Las imágenes han cambiado, actualizando...');
+          console.log('  Antes:', currentNormalized);
+          console.log('  Después:', newNormalized);
+          
+          // Eliminar imágenes existentes
+          const { error: deleteError } = await supabase.from('unit_images').delete().eq('unit_id', id);
+          if (deleteError) {
+            console.error('❌ Error al eliminar imágenes existentes:', deleteError);
+            throw new Error(`Error al eliminar imágenes existentes: ${deleteError.message}`);
+          }
+          console.log('✅ Imágenes existentes eliminadas');
+          
+          // Insertar nuevas imágenes
+          if (newImageUrls.length > 0) {
+            const imageRecords = newImageUrls.map((url, index) => ({
               unit_id: id,
               image_url: url,
               display_order: index,
-            }))
-          );
+            }));
+            
+            console.log(`📤 Insertando ${imageRecords.length} imágenes:`, imageRecords);
+            const { data: insertData, error: insertError } = await supabase
+              .from('unit_images')
+              .insert(imageRecords)
+              .select();
+            
+            if (insertError) {
+              console.error('❌ Error al insertar imágenes:', insertError);
+              throw new Error(`Error al insertar imágenes: ${insertError.message}`);
+            }
+            
+            console.log('✅ Imágenes insertadas correctamente:', insertData);
+          } else {
+            console.log('ℹ️ No hay imágenes para insertar (array vacío)');
+          }
+        } else {
+          console.log('ℹ️ Las imágenes no han cambiado, preservando imágenes existentes');
         }
       }
 
@@ -237,32 +348,114 @@ export const unitsService = {
         }
       }
 
+      // Actualizar staff asignado si se proporciona
+      if (unit.assignedStaff !== undefined) {
+        try {
+          // Eliminar relaciones existentes
+          const { error: deleteError } = await supabase
+            .from('unit_management_staff')
+            .delete()
+            .eq('unit_id', id);
+          
+          if (deleteError) {
+            // Si la tabla no existe, solo registrar un warning
+            if (deleteError.code === '42P01') {
+              console.warn('⚠️ Tabla unit_management_staff no existe. Ejecute el script SQL para crearla.');
+            } else {
+              console.error('❌ Error al eliminar staff asignado:', deleteError);
+              throw new Error(`Error al eliminar staff asignado: ${deleteError.message}`);
+            }
+          }
+
+          // Insertar nuevas relaciones
+          if (unit.assignedStaff.length > 0) {
+            const staffRecords = unit.assignedStaff.map(staffId => ({
+              unit_id: id,
+              management_staff_id: staffId,
+            }));
+
+            const { error: insertError } = await supabase
+              .from('unit_management_staff')
+              .insert(staffRecords);
+
+            if (insertError) {
+              // Si la tabla no existe, solo registrar un warning
+              if (insertError.code === '42P01') {
+                console.warn('⚠️ Tabla unit_management_staff no existe. Ejecute el script SQL para crearla.');
+              } else {
+                console.error('❌ Error al insertar staff asignado:', insertError);
+                throw new Error(`Error al insertar staff asignado: ${insertError.message}`);
+              }
+            }
+          }
+        } catch (e: any) {
+          // Si la tabla no existe, solo registrar un warning y continuar
+          if (e.code === '42P01' || e.message?.includes('does not exist')) {
+            console.warn('⚠️ Tabla unit_management_staff no existe. Ejecute el script SQL para crearla.');
+          } else {
+            throw e;
+          }
+        }
+      }
+
       const updatedUnit = await this.getById(id);
       if (!updatedUnit) throw new Error('Unidad no encontrada');
 
-      // Registrar en auditoría
-      await auditService.log({
-        actionType: 'UPDATE',
-        entityType: 'UNIT',
-        entityId: updatedUnit.id,
-        entityName: updatedUnit.name,
-        description: `Unidad "${updatedUnit.name}" actualizada`,
-        changes: {
-          before: oldUnit ? {
-            name: oldUnit.name,
-            clientName: oldUnit.clientName,
-            address: oldUnit.address,
-            status: oldUnit.status,
-          } : undefined,
-          after: {
-            name: updatedUnit.name,
-            clientName: updatedUnit.clientName,
-            address: updatedUnit.address,
-            status: updatedUnit.status,
-          },
-          fields: Object.keys(unitData),
-        },
-      });
+      // Registrar en auditoría solo si no se omite explícitamente (para evitar logs de actualizaciones optimistas)
+      if (!skipAuditLog && oldUnit) {
+        // Verificar si hay cambios en campos principales
+        const hasFieldChanges = 
+          oldUnit.name !== updatedUnit.name ||
+          oldUnit.clientName !== updatedUnit.clientName ||
+          oldUnit.address !== updatedUnit.address ||
+          oldUnit.status !== updatedUnit.status;
+        
+        // Verificar si hay cambios en imágenes
+        const oldImagesCount = oldUnit.images?.length || 0;
+        const newImagesCount = updatedUnit.images?.length || 0;
+        const hasImageChanges = oldImagesCount !== newImagesCount || 
+          (unit.images !== undefined && JSON.stringify(oldUnit.images) !== JSON.stringify(updatedUnit.images));
+        
+        // Verificar si hay cambios en recursos
+        const oldResourcesCount = oldUnit.resources?.length || 0;
+        const newResourcesCount = updatedUnit.resources?.length || 0;
+        const hasResourceChanges = oldResourcesCount !== newResourcesCount;
+        
+        // Registrar log si hay cualquier cambio (campos, imágenes o recursos)
+        if (hasFieldChanges || hasImageChanges || hasResourceChanges) {
+          const changeDescription = [];
+          if (hasFieldChanges) changeDescription.push('campos principales');
+          if (hasImageChanges) changeDescription.push(`${newImagesCount} imagen(es)`);
+          if (hasResourceChanges) changeDescription.push('recursos');
+          
+          await auditService.log({
+            actionType: 'UPDATE',
+            entityType: 'UNIT',
+            entityId: updatedUnit.id,
+            entityName: updatedUnit.name,
+            description: `Unidad "${updatedUnit.name}" actualizada (${changeDescription.join(', ')})`,
+            changes: {
+              before: {
+                name: oldUnit.name,
+                clientName: oldUnit.clientName,
+                address: oldUnit.address,
+                status: oldUnit.status,
+                imagesCount: oldImagesCount,
+                resourcesCount: oldResourcesCount,
+              },
+              after: {
+                name: updatedUnit.name,
+                clientName: updatedUnit.clientName,
+                address: updatedUnit.address,
+                status: updatedUnit.status,
+                imagesCount: newImagesCount,
+                resourcesCount: newResourcesCount,
+              },
+              fields: Object.keys(unitData),
+            },
+          });
+        }
+      }
 
       return updatedUnit;
     } catch (error) {
@@ -318,7 +511,9 @@ function transformUnitFromDB(
   resources: any[] = [],
   logs: any[] = [],
   requests: any[] = [],
-  zones: any[] = []
+  zones: any[] = [],
+  assignedStaff: string[] = [],
+  documents: any[] = []
 ): Unit {
   return {
     id: data.id,
@@ -327,7 +522,20 @@ function transformUnitFromDB(
     address: data.address,
     status: data.status as UnitStatus,
     description: data.description,
-    images: data.unit_images?.map((img: any) => img.image_url).sort((a: any, b: any) => a.display_order - b.display_order) || [],
+    latitude: data.latitude ? Number(data.latitude) : undefined,
+    longitude: data.longitude ? Number(data.longitude) : undefined,
+    // Filtrar blob URLs (no deberían estar en la BD, pero por si acaso) y ordenar por display_order
+    images: (data.unit_images
+      ?.filter((img: any) => {
+        // Filtrar blob URLs
+        if (img.image_url && img.image_url.startsWith('blob:')) {
+          console.warn('⚠️ Se encontró un blob URL en la BD, omitiendo:', img.image_url);
+          return false;
+        }
+        return true;
+      })
+      .sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0))
+      .map((img: any) => img.image_url) || []),
     blueprintLayers: data.blueprint_layers?.map((layer: any) => ({
       id: layer.id,
       name: layer.name,
@@ -340,6 +548,7 @@ function transformUnitFromDB(
       month: item.month,
       score: Number(item.score),
     })) || [],
+    requiredPositions: data.required_positions ? (Array.isArray(data.required_positions) ? data.required_positions : []) : [],
     coordinator: data.coordinator ? {
       id: data.coordinator.id,
       name: data.coordinator.name,
@@ -361,11 +570,13 @@ function transformUnitFromDB(
       phone: data.resident_supervisor.phone,
       photo: data.resident_supervisor.photo,
     } : undefined,
+    assignedStaff: assignedStaff,
+    documents: documents || [],
   };
 }
 
-function transformUnitToDB(unit: Partial<Unit>): Partial<UnitRow> {
-  return {
+function transformUnitToDB(unit: Partial<Unit>): any {
+  const data: any = {
     name: unit.name,
     client_name: unit.clientName,
     address: unit.address,
@@ -374,7 +585,16 @@ function transformUnitToDB(unit: Partial<Unit>): Partial<UnitRow> {
     coordinator_id: unit.coordinator?.id,
     roving_supervisor_id: unit.rovingSupervisor?.id,
     resident_supervisor_id: unit.residentSupervisor?.id,
+    latitude: unit.latitude,
+    longitude: unit.longitude,
   };
+  
+  // Incluir required_positions si está definido
+  if (unit.requiredPositions !== undefined) {
+    data.required_positions = unit.requiredPositions;
+  }
+  
+  return data;
 }
 
 function transformZoneFromDB(zone: any) {
