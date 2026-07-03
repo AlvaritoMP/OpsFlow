@@ -6,13 +6,56 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const REGISTRO_INGRESO_PATH = '/api/opsflow/registro-ingreso';
+
+const TIPO_DOCUMENTO_ID: Record<string, number> = {
+  DNI: 1,
+  PASAPORTE: 2,
+  CE: 3,
+  PTP: 4,
+};
+
 interface RequestBody {
-  action: 'send-package' | 'fetch-unidades' | 'check-package-status';
+  action: 'send-package' | 'fetch-unidades' | 'check-package-status' | 'test-registro-ingreso';
   queueItemIds?: string[];
   reportDate?: string;
   senderNote?: string | null;
   sentByName?: string | null;
   packageId?: string;
+  /** Payload directo para prueba de conectividad (opcional). */
+  testPayload?: Record<string, unknown>;
+}
+
+interface OpalosisRegistroIngresoPayload {
+  TipoDocumentoId: number;
+  Documento: string;
+  ApellidoPaterno: string;
+  ApellidoMaterno: string;
+  Nombres: string;
+  Sexo: string;
+  FechaIngreso: string;
+  FechaNacimiento?: string | null;
+  Cargo?: string | null;
+  CorreoPersonal?: string | null;
+  Telefono?: string | null;
+  Direccion?: string | null;
+  EstadoCivil?: string | null;
+  EmpresaCodigo?: number | null;
+  UnidadId?: number | null;
+  RefOperaciones?: string | null;
+  Pais?: string | null;
+}
+
+interface RegistroIngresoResult {
+  queueItemId?: string;
+  refOperaciones: string;
+  workerName: string;
+  ok: boolean;
+  itemStatus: 'procesado' | 'rechazado' | 'observado';
+  ingresoId?: number;
+  ingresoCod?: string;
+  mensaje: string;
+  response: Record<string, unknown>;
 }
 
 function jsonResponse(body: unknown, status: number) {
@@ -66,24 +109,162 @@ async function callOpalosis(
   return { ok: response.ok, status: response.status, data };
 }
 
-function mapPackageStatus(estado: string): string {
-  const n = estado.toUpperCase();
-  if (n === 'PROCESADO') return 'procesado';
-  if (n === 'OBSERVADO') return 'observado';
-  if (n === 'RECHAZADO') return 'rechazado';
-  if (n === 'PARCIALMENTE_PROCESADO') return 'parcialmente_procesado';
-  if (n === 'PENDIENTE') return 'enviado';
-  return 'enviado';
+function mapHrFieldsToRegistroPayload(
+  hrFields: Record<string, unknown>,
+): OpalosisRegistroIngresoPayload {
+  const tipoDoc = String(hrFields.tipo_documento ?? 'DNI').toUpperCase();
+  const payload: OpalosisRegistroIngresoPayload = {
+    TipoDocumentoId: TIPO_DOCUMENTO_ID[tipoDoc] ?? TIPO_DOCUMENTO_ID.DNI,
+    Documento: String(hrFields.documento ?? ''),
+    ApellidoPaterno: String(hrFields.apellido_paterno ?? ''),
+    ApellidoMaterno: String(hrFields.apellido_materno ?? ''),
+    Nombres: String(hrFields.nombres ?? ''),
+    Sexo: String(hrFields.sexo ?? 'M').slice(0, 1).toUpperCase(),
+    FechaIngreso: String(
+      hrFields.fecha_ingreso ?? new Date().toISOString().slice(0, 10),
+    ),
+  };
+
+  const optionalStringFields: Array<[keyof OpalosisRegistroIngresoPayload, string]> = [
+    ['FechaNacimiento', 'fecha_nacimiento'],
+    ['Cargo', 'cargo'],
+    ['CorreoPersonal', 'correo_personal'],
+    ['Telefono', 'telefono'],
+    ['Direccion', 'direccion'],
+    ['EstadoCivil', 'estado_civil'],
+    ['RefOperaciones', 'ref_operaciones'],
+    ['Pais', 'pais'],
+  ];
+
+  for (const [target, source] of optionalStringFields) {
+    const value = hrFields[source];
+    if (value !== null && value !== undefined && String(value).trim()) {
+      payload[target] = String(value).trim();
+    }
+  }
+
+  if (hrFields.empresa_codigo) {
+    payload.EmpresaCodigo = Number(hrFields.empresa_codigo);
+  }
+  if (hrFields.unidad_id && Number(hrFields.unidad_id) > 0) {
+    payload.UnidadId = Number(hrFields.unidad_id);
+  }
+
+  return payload;
 }
 
-function simulatePackageResponse(sourcePackageId: string, workerCount: number) {
+function parseRegistroResponse(data: unknown): {
+  resultado: boolean;
+  mensaje: string;
+  mensajeError: string;
+  ingresoId?: number;
+  ingresoCod?: string;
+  fechaRegistro?: string;
+} {
+  const row = (data ?? {}) as Record<string, unknown>;
   return {
-    sourcePackageId,
-    estado: 'PENDIENTE',
-    mensaje: 'Paquete recibido correctamente (modo simulación — Opalosis no configurado).',
-    fecha_recepcion: new Date().toISOString(),
-    itemsReceived: workerCount,
+    resultado: Boolean(row.Resultado),
+    mensaje: String(row.Mensaje ?? ''),
+    mensajeError: String(row.MensajeError ?? ''),
+    ingresoId: row.IngresoId !== undefined ? Number(row.IngresoId) : undefined,
+    ingresoCod: row.IngresoCod !== undefined ? String(row.IngresoCod) : undefined,
+    fechaRegistro: row.FechaRegistro !== undefined ? String(row.FechaRegistro) : undefined,
   };
+}
+
+function simulateRegistroResponse(documento: string): Record<string, unknown> {
+  const suffix = documento.replace(/\D/g, '').slice(-4) || '0000';
+  return {
+    Resultado: true,
+    Mensaje: 'Se registro ingreso.',
+    MensajeError: 'sin errores',
+    IngresoId: Math.floor(Math.random() * 900) + 100,
+    IngresoCod: `ING-SIM-${suffix}`,
+    FechaRegistro: new Date().toISOString(),
+  };
+}
+
+function defaultTestPayload(): OpalosisRegistroIngresoPayload {
+  return {
+    TipoDocumentoId: 1,
+    Documento: '12345678',
+    ApellidoPaterno: 'Perez',
+    ApellidoMaterno: 'Gomez',
+    Nombres: 'Juan Carlos',
+    Sexo: 'M',
+    FechaIngreso: new Date().toISOString().slice(0, 10),
+  };
+}
+
+async function registerWorkerInOpalosis(
+  row: Record<string, unknown>,
+  mock: boolean,
+): Promise<RegistroIngresoResult> {
+  const hrFields = (row.hr_fields ?? {}) as Record<string, unknown>;
+  const payload = mapHrFieldsToRegistroPayload(hrFields);
+  const refOperaciones = String(row.ref_operaciones ?? '');
+  const workerName = String(row.worker_name ?? '');
+
+  if (!payload.Documento) {
+    return {
+      queueItemId: row.id as string | undefined,
+      refOperaciones,
+      workerName,
+      ok: false,
+      itemStatus: 'rechazado',
+      mensaje: 'Sin documento — no se puede registrar en Opalosis',
+      response: { Resultado: false, MensajeError: 'Documento requerido' },
+    };
+  }
+
+  let responseData: Record<string, unknown>;
+  let httpOk = true;
+
+  if (mock) {
+    responseData = simulateRegistroResponse(payload.Documento);
+  } else {
+    const result = await callOpalosis(REGISTRO_INGRESO_PATH, {
+      method: 'POST',
+      body: payload,
+    });
+    httpOk = result.ok;
+    responseData = (result.data ?? {}) as Record<string, unknown>;
+    if (!result.ok) {
+      return {
+        queueItemId: row.id as string | undefined,
+        refOperaciones,
+        workerName,
+        ok: false,
+        itemStatus: 'rechazado',
+        mensaje: `HTTP ${result.status}: ${JSON.stringify(responseData)}`,
+        response: responseData,
+      };
+    }
+  }
+
+  const parsed = parseRegistroResponse(responseData);
+  const ok = httpOk && parsed.resultado;
+
+  return {
+    queueItemId: row.id as string | undefined,
+    refOperaciones,
+    workerName,
+    ok,
+    itemStatus: ok ? 'procesado' : 'rechazado',
+    ingresoId: parsed.ingresoId,
+    ingresoCod: parsed.ingresoCod,
+    mensaje: ok
+      ? `${parsed.ingresoCod ?? parsed.mensaje}`.trim()
+      : parsed.mensajeError || parsed.mensaje || 'Error al registrar ingreso',
+    response: responseData,
+  };
+}
+
+function derivePackageStatus(results: RegistroIngresoResult[], mock: boolean): string {
+  const successCount = results.filter((r) => r.ok).length;
+  if (successCount === 0) return 'error';
+  if (successCount < results.length) return 'parcialmente_procesado';
+  return mock ? 'simulado' : 'enviado';
 }
 
 function simulateUnidades() {
@@ -92,33 +273,6 @@ function simulateUnidades() {
     { id: 13, nombre: 'Oficina Central (simulado)', activo: true },
     { id: 14, nombre: 'Almacén Callao (simulado)', activo: false },
   ];
-}
-
-function buildOutboundPackagePayload(
-  sourcePackageId: string,
-  reportDate: string,
-  senderNote: string | null,
-  sentByName: string | null,
-  queueRows: Array<Record<string, unknown>>,
-) {
-  return {
-    sourceApp: 'OpsFlow',
-    sourcePackageId,
-    payloadVersion: 1,
-    sentAt: new Date().toISOString(),
-    reportDate,
-    workerCount: queueRows.length,
-    senderNote: senderNote?.trim() || null,
-    createdByName: sentByName?.trim() || null,
-    items: queueRows.map((row) => ({
-      refOperaciones: row.ref_operaciones,
-      resourceId: row.resource_id,
-      opsflowUnitId: row.opsflow_unit_id,
-      workerName: row.worker_name,
-      workerSnapshot: row.worker_snapshot,
-      hrFields: row.hr_fields,
-    })),
-  };
 }
 
 serve(async (req) => {
@@ -151,6 +305,33 @@ serve(async (req) => {
 
     const mock = isMockMode();
 
+    if (body.action === 'test-registro-ingreso') {
+      const payload = (body.testPayload ?? defaultTestPayload()) as OpalosisRegistroIngresoPayload;
+
+      if (mock) {
+        return jsonResponse({
+          simulated: true,
+          endpoint: REGISTRO_INGRESO_PATH,
+          request: payload,
+          response: simulateRegistroResponse(String(payload.Documento ?? '12345678')),
+        });
+      }
+
+      const result = await callOpalosis(REGISTRO_INGRESO_PATH, {
+        method: 'POST',
+        body: payload,
+      });
+
+      return jsonResponse({
+        simulated: false,
+        endpoint: REGISTRO_INGRESO_PATH,
+        request: payload,
+        httpStatus: result.status,
+        ok: result.ok,
+        response: result.data,
+      }, result.ok ? 200 : 502);
+    }
+
     if (body.action === 'send-package') {
       const queueItemIds = body.queueItemIds ?? [];
       const reportDate = body.reportDate?.trim();
@@ -178,13 +359,6 @@ serve(async (req) => {
       }
 
       const sourcePackageId = crypto.randomUUID();
-      const outboundPayload = buildOutboundPackagePayload(
-        sourcePackageId,
-        reportDate,
-        body.senderNote ?? null,
-        body.sentByName ?? null,
-        queueRows as Array<Record<string, unknown>>,
-      );
 
       const { data: insertedPackage, error: packageError } = await supabaseAdmin
         .from('hr_outbound_ingreso_packages')
@@ -215,63 +389,76 @@ serve(async (req) => {
         item_status: 'pendiente',
       }));
 
-      const { error: itemsError } = await supabaseAdmin
+      const { data: insertedItems, error: itemsError } = await supabaseAdmin
         .from('hr_outbound_ingreso_package_items')
-        .insert(packageItems);
+        .insert(packageItems)
+        .select('id, queue_item_id, ref_operaciones');
 
-      if (itemsError) {
+      if (itemsError || !insertedItems) {
         await supabaseAdmin.from('hr_outbound_ingreso_packages').delete().eq('id', insertedPackage.id);
         return jsonResponse({ error: 'Failed to create package items' }, 500);
       }
 
-      let opalosisResponse: Record<string, unknown>;
-      let packageStatus: string;
-      let fechaRecepcion: string | null = null;
+      const itemIdByQueueId = new Map(
+        insertedItems.map((item) => [item.queue_item_id as string, item.id as string]),
+      );
 
-      if (mock) {
-        opalosisResponse = simulatePackageResponse(sourcePackageId, queueRows.length);
-        packageStatus = 'simulado';
-        fechaRecepcion = opalosisResponse.fecha_recepcion as string;
-      } else {
-        const result = await callOpalosis('/api/ingresos/paquetes', {
-          method: 'POST',
-          body: outboundPayload,
-        });
+      const registrationResults: RegistroIngresoResult[] = [];
+      for (const row of queueRows as Array<Record<string, unknown>>) {
+        const result = await registerWorkerInOpalosis(row, mock);
+        registrationResults.push(result);
 
-        opalosisResponse = (result.data ?? {}) as Record<string, unknown>;
-
-        if (!result.ok) {
+        const packageItemId = itemIdByQueueId.get(row.id as string);
+        if (packageItemId) {
           await supabaseAdmin
-            .from('hr_outbound_ingreso_packages')
+            .from('hr_outbound_ingreso_package_items')
             .update({
-              status: 'error',
-              sent_at: new Date().toISOString(),
-              opalosis_response: opalosisResponse,
+              item_status: result.itemStatus,
+              mensaje: result.mensaje,
+              empleado_id_rrhh: result.ingresoId ?? null,
             })
-            .eq('id', insertedPackage.id);
-
-          return jsonResponse({
-            error: `Opalosis respondió HTTP ${result.status}`,
-            package: insertedPackage,
-            details: opalosisResponse,
-          }, 502);
+            .eq('id', packageItemId);
         }
-
-        packageStatus = mapPackageStatus(String(opalosisResponse.estado ?? 'PENDIENTE'));
-        fechaRecepcion = (opalosisResponse.fecha_recepcion as string) ?? new Date().toISOString();
       }
 
+      const packageStatus = derivePackageStatus(registrationResults, mock);
       const sentAt = new Date().toISOString();
+      const fechaRecepcion = registrationResults.find((r) => r.ok)?.response.FechaRegistro as
+        | string
+        | undefined;
+
+      const opalosisResponse = {
+        endpoint: REGISTRO_INGRESO_PATH,
+        sourcePackageId,
+        workerCount: queueRows.length,
+        successCount: registrationResults.filter((r) => r.ok).length,
+        results: registrationResults.map((r) => ({
+          refOperaciones: r.refOperaciones,
+          workerName: r.workerName,
+          ok: r.ok,
+          ingresoId: r.ingresoId,
+          ingresoCod: r.ingresoCod,
+          mensaje: r.mensaje,
+        })),
+      };
 
       await supabaseAdmin
         .from('hr_outbound_ingreso_packages')
         .update({
           status: packageStatus,
           sent_at: sentAt,
-          fecha_recepcion: fechaRecepcion,
+          fecha_recepcion: fechaRecepcion ?? sentAt,
           opalosis_response: opalosisResponse,
         })
         .eq('id', insertedPackage.id);
+
+      if (packageStatus === 'error') {
+        return jsonResponse({
+          error: 'Ningún trabajador pudo registrarse en Opalosis',
+          package: insertedPackage,
+          details: opalosisResponse,
+        }, 502);
+      }
 
       await supabaseAdmin
         .from('hr_outbound_ingreso_queue')
@@ -291,6 +478,7 @@ serve(async (req) => {
         package: finalPackage,
         simulated: mock,
         opalosisResponse,
+        partial: packageStatus === 'parcialmente_procesado',
       }, 201);
     }
 
@@ -303,7 +491,11 @@ serve(async (req) => {
       } else {
         const result = await callOpalosis('/api/unidades');
         if (!result.ok) {
-          return jsonResponse({ error: `Opalosis respondió HTTP ${result.status}`, details: result.data }, 502);
+          return jsonResponse({
+            error: `Opalosis respondió HTTP ${result.status}`,
+            details: result.data,
+            hint: 'El catálogo de unidades aún no está disponible en el entorno de pruebas.',
+          }, 502);
         }
         if (!Array.isArray(result.data)) {
           return jsonResponse({ error: 'Respuesta inesperada de /api/unidades' }, 502);
@@ -354,40 +546,20 @@ serve(async (req) => {
       if (pkgError) return jsonResponse({ error: 'Database error' }, 500);
       if (!pkg) return jsonResponse({ error: 'Paquete no encontrado' }, 404);
 
-      if (mock) {
-        return jsonResponse({
-          packageId,
-          status: pkg.status,
-          simulated: true,
-          mensaje: 'Modo simulación — configure Opalosis para consultar estado real.',
-        });
-      }
-
-      const result = await callOpalosis(
-        `/api/ingresos/paquetes/${encodeURIComponent(pkg.source_package_id)}`,
-      );
-
-      if (!result.ok) {
-        return jsonResponse({ error: `Opalosis respondió HTTP ${result.status}`, details: result.data }, 502);
-      }
-
-      const estadoData = result.data as Record<string, unknown>;
-      const newStatus = mapPackageStatus(String(estadoData.estado ?? 'PENDIENTE'));
-
-      await supabaseAdmin
-        .from('hr_outbound_ingreso_packages')
-        .update({
-          status: newStatus,
-          opalosis_response: estadoData,
-          fecha_recepcion: (estadoData.fecha_recepcion as string) ?? pkg.fecha_recepcion,
-        })
-        .eq('id', packageId);
+      const { data: items } = await supabaseAdmin
+        .from('hr_outbound_ingreso_package_items')
+        .select('id, worker_name, ref_operaciones, item_status, mensaje, empleado_id_rrhh')
+        .eq('package_id', packageId)
+        .order('created_at', { ascending: true });
 
       return jsonResponse({
         packageId,
-        status: newStatus,
-        simulated: false,
-        opalosisResponse: estadoData,
+        status: pkg.status,
+        simulated: mock,
+        mensaje:
+          'El estado por trabajador se registra al enviar. Opalosis aún no expone consulta de paquete en el API de pruebas.',
+        opalosisResponse: pkg.opalosis_response,
+        items: items ?? [],
       });
     }
 

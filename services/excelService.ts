@@ -640,6 +640,150 @@ export const excelService = {
       console.error('Error al generar plantilla:', error);
       throw new Error('Error al generar plantilla Excel. Asegúrate de que xlsx está instalado: npm install xlsx');
     }
-  }
+  },
+
+  /** Reporte de saldos de vacaciones */
+  async exportVacationBalances(
+    summaries: Array<{
+      workerName: string;
+      workerDni?: string;
+      puesto?: string;
+      unitName: string;
+      startDate?: string;
+      fullYears: number;
+      monthsInCurrentPeriod: number;
+      accruedDays: number;
+      historicalTakenDays: number;
+      papeletaDays: number;
+      pendingIndividualDays: number;
+      totalUsedDays: number;
+      availableDays: number;
+      canIssuePapeleta: boolean;
+      pendingDayDates: string[];
+    }>,
+    options: { includeUnit?: boolean; unitName?: string } = {}
+  ): Promise<void> {
+    const includeUnit = options.includeUnit !== false;
+    const headers = [
+      ...(includeUnit ? ['Unidad'] : []),
+      'Trabajador',
+      'DNI',
+      'Puesto',
+      'Fecha ingreso',
+      'Años completos',
+      'Meses periodo actual',
+      'Días ganados',
+      'Días históricos (pre-sistema)',
+      'Días en papeletas',
+      'Días a cuenta',
+      'Total usado',
+      'Saldo disponible',
+      'Puede emitir papeleta',
+      'Fechas días a cuenta',
+    ];
+
+    const rows = summaries.map(s => {
+      const row: Record<string, string | number> = {
+        Trabajador: s.workerName,
+        DNI: s.workerDni || '',
+        Puesto: s.puesto || '',
+        'Fecha ingreso': s.startDate || '',
+        'Años completos': s.fullYears,
+        'Meses periodo actual': s.monthsInCurrentPeriod,
+        'Días ganados': s.accruedDays,
+        'Días históricos (pre-sistema)': s.historicalTakenDays,
+        'Días en papeletas': s.papeletaDays,
+        'Días a cuenta': s.pendingIndividualDays,
+        'Total usado': s.totalUsedDays,
+        'Saldo disponible': s.availableDays,
+        'Puede emitir papeleta': s.canIssuePapeleta ? 'Sí' : 'No',
+        'Fechas días a cuenta': s.pendingDayDates.join(', '),
+      };
+      if (includeUnit) row['Unidad'] = s.unitName;
+      return row;
+    });
+
+    const unitSuffix = options.unitName
+      ? `_${options.unitName.replace(/[^\w\-]+/g, '_').slice(0, 40)}`
+      : '';
+    await this.exportToExcel(rows, headers, {
+      sheetName: 'Saldos vacaciones',
+      filename: `reporte_saldos_vacaciones${unitSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`,
+    });
+  },
+
+  /** Reporte de papeletas emitidas */
+  async exportVacationPapeletas(
+    papeletas: Array<{
+      code: string;
+      workerName: string;
+      workerDni?: string;
+      unitName: string;
+      startDate: string;
+      endDate: string;
+      returnDate: string;
+      calendarDays: number;
+      sourceType: string;
+      status: string;
+      notes?: string;
+      issuedAt?: string;
+      accumulatedDates?: string;
+    }>,
+    options: { includeUnit?: boolean; unitName?: string } = {}
+  ): Promise<void> {
+    const includeUnit = options.includeUnit !== false;
+    const headers = [
+      'Código',
+      ...(includeUnit ? ['Unidad'] : []),
+      'Trabajador',
+      'DNI',
+      'Fecha salida',
+      'Fecha término',
+      'Fecha retorno',
+      'Días calendario',
+      'Tipo',
+      'Estado',
+      'Fecha emisión',
+      'Observaciones',
+      'Días acumulados origen',
+    ];
+
+    const sourceLabel = (t: string) =>
+      t === 'accumulated' ? 'Acumulada (días a cuenta)' : 'Directa (continua)';
+
+    const statusLabel = (s: string) => {
+      if (s === 'issued') return 'Emitida';
+      if (s === 'draft') return 'Borrador';
+      if (s === 'cancelled') return 'Anulada';
+      return s;
+    };
+
+    const rows = papeletas.map(p => {
+      const row: Record<string, string | number> = {
+        Código: p.code,
+        Trabajador: p.workerName,
+        DNI: p.workerDni || '',
+        'Fecha salida': p.startDate,
+        'Fecha término': p.endDate,
+        'Fecha retorno': p.returnDate,
+        'Días calendario': p.calendarDays,
+        Tipo: sourceLabel(p.sourceType),
+        Estado: statusLabel(p.status),
+        'Fecha emisión': p.issuedAt ? p.issuedAt.split('T')[0] : '',
+        Observaciones: p.notes || '',
+        'Días acumulados origen': p.accumulatedDates || '',
+      };
+      if (includeUnit) row['Unidad'] = p.unitName;
+      return row;
+    });
+
+    const unitSuffix = options.unitName
+      ? `_${options.unitName.replace(/[^\w\-]+/g, '_').slice(0, 40)}`
+      : '';
+    await this.exportToExcel(rows, headers, {
+      sheetName: 'Papeletas',
+      filename: `reporte_papeletas_vacaciones${unitSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`,
+    });
+  },
 };
 

@@ -304,8 +304,29 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
             <ul className="max-h-96 space-y-3 overflow-y-auto text-sm">
               {selectedPackage.items.map((item) => (
                 <li key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-                  <div className="font-medium text-slate-800">{item.workerName}</div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-medium text-slate-800">{item.workerName}</div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                        item.itemStatus === 'procesado'
+                          ? 'bg-green-100 text-green-800'
+                          : item.itemStatus === 'rechazado'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {item.itemStatus}
+                    </span>
+                  </div>
                   <div className="mt-1 font-mono text-xs text-slate-500">{item.refOperaciones}</div>
+                  {item.empleadoIdRrhh && (
+                    <div className="mt-1 text-xs text-emerald-700">
+                      Opalosis: {item.mensaje ?? `Ingreso #${item.empleadoIdRrhh}`}
+                    </div>
+                  )}
+                  {item.mensaje && !item.empleadoIdRrhh && item.itemStatus === 'rechazado' && (
+                    <div className="mt-1 text-xs text-red-700">{item.mensaje}</div>
+                  )}
                   <div className="mt-1 text-xs text-slate-600">
                     {unitNameById.get(item.workerSnapshot.opsflow.unitId) ??
                       item.workerSnapshot.opsflow.unitName}

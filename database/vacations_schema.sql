@@ -68,3 +68,36 @@ CREATE INDEX IF NOT EXISTS idx_vacation_day_entries_papeleta ON vacation_day_ent
 CREATE INDEX IF NOT EXISTS idx_vacation_papeletas_resource ON vacation_papeletas(resource_id);
 CREATE INDEX IF NOT EXISTS idx_vacation_papeletas_unit ON vacation_papeletas(unit_id);
 CREATE INDEX IF NOT EXISTS idx_vacation_papeletas_dates ON vacation_papeletas(start_date, end_date);
+
+-- ============================================
+-- RLS (mismo patrón que opsflow_rls_permissive_for_app.sql)
+-- ============================================
+DO $$
+DECLARE
+  t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'vacation_balances',
+    'vacation_day_entries',
+    'vacation_papeletas'
+  ]
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public'
+        AND tablename = t
+        AND policyname = 'vacation_allow_all'
+    ) THEN
+      EXECUTE format($f$
+        CREATE POLICY vacation_allow_all ON public.%I
+        AS PERMISSIVE
+        FOR ALL
+        TO anon, authenticated
+        USING (true)
+        WITH CHECK (true)
+      $f$, t);
+    END IF;
+  END LOOP;
+END $$;

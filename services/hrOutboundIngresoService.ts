@@ -307,6 +307,19 @@ export const hrOutboundIngresoService = {
     return data as Record<string, unknown>;
   },
 
+  async testRegistroIngreso(testPayload?: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data, error } = await supabase.functions.invoke('hr-opalosis-integration', {
+      body: {
+        action: 'test-registro-ingreso',
+        testPayload: testPayload ?? null,
+      },
+    });
+
+    if (error) throw new Error(error.message);
+    if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+    return data as Record<string, unknown>;
+  },
+
   async fetchUnidadesFromOpalosis(): Promise<{ units: HrUnitCacheEntry[]; simulated: boolean }> {
     const { data, error } = await supabase.functions.invoke('hr-opalosis-integration', {
       body: { action: 'fetch-unidades' },

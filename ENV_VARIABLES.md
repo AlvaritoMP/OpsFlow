@@ -74,6 +74,32 @@ La ingesta desde Opalo ATS usa la Edge Function `receive-worker-handoff`. **No**
 
 Ver `INBOUND_WORKER_HANDOFF.md` para URL del endpoint y ejemplo de payload.
 
+## Envío Opalosis (Edge Function — solo servidor)
+
+La integración outbound hacia Opalosis usa la Edge Function `hr-opalosis-integration`. **No** expongas estas variables en el frontend:
+
+| Variable | Descripción | Ejemplo (pruebas) |
+|----------|-------------|-------------------|
+| `OPALOSIS_API_BASE_URL` | URL base del API Opalosis | `https://onyx.opaloperu.com/apiempleadoregistro` |
+| `OPALOSIS_API_KEY` | Header `X-Api-Key` | *(entregada por Opalosis)* |
+| `OPALOSIS_USE_MOCK` | `true` = simulación; `false` = API real | `false` |
+
+Prueba directa del API (sin Supabase):
+
+```powershell
+.\scripts\test-opalosis-registro-ingreso.ps1
+```
+
+Despliegue de la Edge Function:
+
+```powershell
+$env:OPALOSIS_API_BASE_URL = "https://onyx.opaloperu.com/apiempleadoregistro"
+$env:OPALOSIS_API_KEY = "tu-api-key"
+.\scripts\deploy-hr-opalosis-integration.ps1
+```
+
+Ver `HR_OPALOSIS_INTEGRATION.md` para el flujo completo ATS → Opalosis.
+
 ## Configuración de Supabase para Crear Usuarios
 
 Para que los administradores puedan crear nuevos usuarios desde la aplicación, necesitas configurar Supabase:

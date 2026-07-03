@@ -5,7 +5,45 @@ import type {
   Resource,
   Unit,
 } from '../types';
-import { splitFullName, toOpalosisDate } from './hrIntegration';
+import { HR_TIPO_DOCUMENTO_OPTIONS, splitFullName, toOpalosisDate } from './hrIntegration';
+
+/** Mapeo tipo documento OpsFlow → TipoDocumentoId Opalosis (DNI=1 en entorno de pruebas). */
+export const HR_TIPO_DOCUMENTO_ID: Record<string, number> = {
+  DNI: 1,
+  PASAPORTE: 2,
+  CE: 3,
+  PTP: 4,
+};
+
+/** Payload mínimo/extendido para POST /api/opsflow/registro-ingreso */
+export interface OpalosisRegistroIngresoPayload {
+  TipoDocumentoId: number;
+  Documento: string;
+  ApellidoPaterno: string;
+  ApellidoMaterno: string;
+  Nombres: string;
+  Sexo: string;
+  FechaIngreso: string;
+  FechaNacimiento?: string | null;
+  Cargo?: string | null;
+  CorreoPersonal?: string | null;
+  Telefono?: string | null;
+  Direccion?: string | null;
+  EstadoCivil?: string | null;
+  EmpresaCodigo?: number | null;
+  UnidadId?: number | null;
+  RefOperaciones?: string | null;
+  Pais?: string | null;
+}
+
+export interface OpalosisRegistroIngresoResponse {
+  Resultado: boolean;
+  Mensaje: string;
+  MensajeError: string;
+  IngresoId?: number;
+  IngresoCod?: string;
+  FechaRegistro?: string;
+}
 
 function normalizeIsoDate(value?: string | null): string | undefined {
   if (!value?.trim()) return undefined;
@@ -132,6 +170,42 @@ export function mapSnapshotToHrFields(
   if (direccion) hrFields.direccion = direccion;
 
   return hrFields;
+}
+
+export function mapHrFieldsToRegistroIngresoPayload(
+  hrFields: HrOpalosisIngresoFields,
+): OpalosisRegistroIngresoPayload {
+  const tipoDoc = (hrFields.tipo_documento || 'DNI').toUpperCase();
+  const tipoDocumentoId =
+    HR_TIPO_DOCUMENTO_ID[tipoDoc] ??
+    HR_TIPO_DOCUMENTO_ID.DNI;
+
+  const payload: OpalosisRegistroIngresoPayload = {
+    TipoDocumentoId: tipoDocumentoId,
+    Documento: hrFields.documento,
+    ApellidoPaterno: hrFields.apellido_paterno,
+    ApellidoMaterno: hrFields.apellido_materno,
+    Nombres: hrFields.nombres,
+    Sexo: (hrFields.sexo || 'M').slice(0, 1).toUpperCase(),
+    FechaIngreso: hrFields.fecha_ingreso,
+  };
+
+  if (hrFields.fecha_nacimiento) payload.FechaNacimiento = hrFields.fecha_nacimiento;
+  if (hrFields.cargo) payload.Cargo = hrFields.cargo;
+  if (hrFields.correo_personal) payload.CorreoPersonal = hrFields.correo_personal;
+  if (hrFields.telefono) payload.Telefono = hrFields.telefono;
+  if (hrFields.direccion) payload.Direccion = hrFields.direccion;
+  if (hrFields.estado_civil) payload.EstadoCivil = hrFields.estado_civil;
+  if (hrFields.empresa_codigo) payload.EmpresaCodigo = hrFields.empresa_codigo;
+  if (hrFields.unidad_id && hrFields.unidad_id > 0) payload.UnidadId = hrFields.unidad_id;
+  if (hrFields.ref_operaciones) payload.RefOperaciones = hrFields.ref_operaciones;
+  if (hrFields.pais) payload.Pais = hrFields.pais;
+
+  return payload;
+}
+
+export function isValidTipoDocumento(value: string): value is (typeof HR_TIPO_DOCUMENTO_OPTIONS)[number] {
+  return (HR_TIPO_DOCUMENTO_OPTIONS as readonly string[]).includes(value);
 }
 
 export function listHrFieldWarnings(fields: HrOpalosisIngresoFields): string[] {

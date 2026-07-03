@@ -78,11 +78,16 @@ try {
   Write-Host 'Link puede requerir confirmación previa; continuando...' -ForegroundColor Yellow
 }
 
-Write-Step 'Configurando secrets (modo simulación si no hay URL Opalosis)'
-if ($env:OPALOSIS_API_BASE_URL) {
+Write-Step 'Configurando secrets Opalosis'
+if (-not $env:OPALOSIS_API_BASE_URL) {
+  Write-Host 'OPALOSIS_API_BASE_URL no definida — la función usará modo simulación.' -ForegroundColor Yellow
+  Write-Host '  Ejemplo: https://onyx.opaloperu.com/apiempleadoregistro' -ForegroundColor DarkGray
+} else {
   npx supabase secrets set "OPALOSIS_API_BASE_URL=$env:OPALOSIS_API_BASE_URL"
 }
-if ($env:OPALOSIS_API_KEY) {
+if (-not $env:OPALOSIS_API_KEY) {
+  Write-Host 'OPALOSIS_API_KEY no definida — la función usará modo simulación.' -ForegroundColor Yellow
+} else {
   npx supabase secrets set "OPALOSIS_API_KEY=$env:OPALOSIS_API_KEY"
 }
 if ($env:OPALOSIS_USE_MOCK) {
@@ -100,8 +105,8 @@ Write-Host "`nIMPORTANTE: Ejecute la migración SQL antes de usar la UI:" -Foreg
 Write-Host "  database/migrations/MIGRATION_HR_OPALOSIS_INTEGRATION.sql" -ForegroundColor White
 
 if (-not $SkipTest) {
-  Write-Step 'Prueba de fetch-unidades (modo simulación)'
-  $body = '{"action":"fetch-unidades"}'
+  Write-Step 'Prueba test-registro-ingreso'
+  $body = '{"action":"test-registro-ingreso"}'
   $headers = @{
     'Authorization' = "Bearer $ServiceRoleKey"
     'Content-Type'  = 'application/json'

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Palmtree, Users, FileText, Calendar, Plus, X, Save, Download,
-  Search, Filter, AlertCircle, CheckCircle, Clock, Building, Info
+  Search, Filter, AlertCircle, CheckCircle, Clock, Building, Info, FileSpreadsheet
 } from 'lucide-react';
 import { Unit, ResourceType, VacationBalanceSummary, VacationPapeleta, VacationDayEntry, User } from '../types';
 import {
@@ -11,6 +11,7 @@ import {
 } from '../services/vacationService';
 import { vacationPdfService } from '../services/vacationPdfService';
 import { VacationCalendarView } from './VacationCalendarView';
+import { excelService } from '../services/excelService';
 
 interface VacationsProps {
   units: Unit[];
@@ -65,6 +66,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
   });
 
   const [detailPapeleta, setDetailPapeleta] = useState<VacationPapeleta | null>(null);
+  const [exporting, setExporting] = useState<'balances' | 'papeletas' | null>(null);
 
   const allPersonnel = useMemo(() => {
     const list: { resourceId: string; name: string; dni?: string; unitId: string; unitName: string; startDate?: string }[] = [];
@@ -84,6 +86,8 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     });
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }, [filteredUnits]);
+
+  const fixedUnitName = fixedUnitId ? scopedUnits[0]?.name : undefined;
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -137,6 +141,63 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     }
     return list;
   }, [papeletas, searchTerm]);
+
+  const papeletaAccumulatedDates = useMemo(() => {
+    const map = new Map<string, string[]>();
+    dayEntries
+      .filter(d => d.status === 'batched' && d.papeletaId)
+      .forEach(d => {
+        const list = map.get(d.papeletaId!) || [];
+        list.push(d.vacationDate);
+        map.set(d.papeletaId!, list);
+      });
+    map.forEach((dates, id) => map.set(id, dates.sort()));
+    return map;
+  }, [dayEntries]);
+
+  const handleExportBalances = async () => {
+    if (filteredSummaries.length === 0) {
+      alert('No hay saldos para exportar con los filtros actuales.');
+      return;
+    }
+    try {
+      setExporting('balances');
+      await excelService.exportVacationBalances(filteredSummaries, {
+        includeUnit: !fixedUnitId,
+        unitName: fixedUnitName,
+      });
+    } catch (err) {
+      console.error(err);
+      alert('Error al exportar saldos a Excel.');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleExportPapeletas = async () => {
+    if (filteredPapeletas.length === 0) {
+      alert('No hay papeletas para exportar con los filtros actuales.');
+      return;
+    }
+    try {
+      setExporting('papeletas');
+      await excelService.exportVacationPapeletas(
+        filteredPapeletas.map(p => ({
+          ...p,
+          accumulatedDates: papeletaAccumulatedDates.get(p.id)?.join(', ') || '',
+        })),
+        {
+          includeUnit: !fixedUnitId,
+          unitName: fixedUnitName,
+        }
+      );
+    } catch (err) {
+      console.error(err);
+      alert('Error al exportar papeletas a Excel.');
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const handleSaveHistorical = async () => {
     if (!historicalForm.resourceId) return;
@@ -266,8 +327,6 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     { id: 'papeletas', label: 'Papeletas', icon: <FileText size={16} /> },
     { id: 'day-entries', label: 'Días a Cuenta', icon: <Building size={16} /> },
   ];
-
-  const fixedUnitName = fixedUnitId ? scopedUnits[0]?.name : undefined;
 
   return (
     <div className={embedded ? 'space-y-4' : 'p-6 md:p-8 space-y-6 animate-in fade-in duration-500'}>
@@ -410,6 +469,18 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
         <>
           {/* TAB: Saldos */}
           {activeView === 'balances' && (
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleExportBalances}
+                  disabled={exporting === 'balances' || filteredSummaries.length === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileSpreadsheet size={16} />
+                  {exporting === 'balances' ? 'Exportando...' : 'Exportar saldos a Excel'}
+                </button>
+              </div>
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -484,6 +555,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                 </table>
               </div>
             </div>
+            </div>
           )}
 
           {/* TAB: Calendario visual */}
@@ -543,6 +615,18 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
 
           {/* TAB: Papeletas */}
           {activeView === 'papeletas' && (
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleExportPapeletas}
+                  disabled={exporting === 'papeletas' || filteredPapeletas.length === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileSpreadsheet size={16} />
+                  {exporting === 'papeletas' ? 'Exportando...' : 'Exportar papeletas a Excel'}
+                </button>
+              </div>
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
@@ -605,6 +689,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                   )}
                 </tbody>
               </table>
+            </div>
             </div>
           )}
 
