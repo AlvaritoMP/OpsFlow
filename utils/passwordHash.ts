@@ -18,7 +18,9 @@ export async function hashPassword(password: string): Promise<string> {
  * Verifica si una contraseña coincide con un hash
  */
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  // Limpiar el hash de espacios y caracteres extra antes de comparar
+  const cleanHash = hash.trim();
   const passwordHash = await hashPassword(password);
-  return passwordHash === hash;
+  return passwordHash === cleanHash;
 }
 

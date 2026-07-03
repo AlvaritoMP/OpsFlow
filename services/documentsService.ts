@@ -164,6 +164,49 @@ export const documentsService = {
       return null;
     }
   },
+
+  // Eliminar todos los documentos de una unidad
+  async deleteByUnitId(unitId: string): Promise<void> {
+    try {
+      // Obtener todos los documentos de la unidad para eliminar los archivos de Storage
+      const documents = await this.getByUnitId(unitId);
+      
+      // Eliminar archivos de Storage
+      for (const document of documents) {
+        try {
+          const url = new URL(document.fileUrl);
+          const pathParts = url.pathname.split('/');
+          const bucketIndex = pathParts.findIndex(part => part === 'storage');
+          if (bucketIndex >= 0 && bucketIndex + 3 < pathParts.length) {
+            const bucket = pathParts[bucketIndex + 2];
+            const filePath = pathParts.slice(bucketIndex + 3).join('/');
+            
+            const { supabase } = await import('./supabase');
+            const { error: storageError } = await supabase.storage
+              .from(bucket)
+              .remove([filePath]);
+            
+            if (storageError) {
+              console.warn(`⚠️ Error al eliminar archivo de Storage para documento ${document.id}:`, storageError);
+            }
+          }
+        } catch (e) {
+          console.warn(`⚠️ No se pudo eliminar el archivo de Storage para documento ${document.id}:`, e);
+        }
+      }
+
+      // Eliminar los registros de la base de datos
+      const { error } = await supabase
+        .from('unit_documents')
+        .delete()
+        .eq('unit_id', unitId);
+
+      if (error) throw error;
+    } catch (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
 };
 
 // ============================================

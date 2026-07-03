@@ -30,6 +30,32 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
 // Helper para manejar errores
 export const handleSupabaseError = (error: any) => {
   console.error('Supabase Error:', error);
+  
+  // Detectar errores de red y proporcionar mensajes más útiles
+  if (error?.message?.includes('Failed to fetch') || 
+      error?.message?.includes('ERR_FAILED') || 
+      error?.name === 'TypeError' ||
+      error?.code === 'ECONNREFUSED' ||
+      error?.code === 'ETIMEDOUT') {
+    const networkError = new Error(
+      'Error de conexión con el servidor. Por favor, verifica tu conexión a internet e intenta de nuevo.\n\n' +
+      'Si el problema persiste, puede ser que el servidor esté temporalmente no disponible.'
+    );
+    networkError.name = 'NetworkError';
+    throw networkError;
+  }
+  
+  // Detectar errores de timeout
+  if (error?.message?.includes('timeout') || error?.code === 'ETIMEDOUT') {
+    const timeoutError = new Error(
+      'La solicitud tardó demasiado tiempo. Por favor, intenta de nuevo.\n\n' +
+      'Si el problema persiste, verifica tu conexión a internet.'
+    );
+    timeoutError.name = 'TimeoutError';
+    throw timeoutError;
+  }
+  
+  // Error genérico
   throw new Error(error?.message || 'Error desconocido en la base de datos');
 };
 

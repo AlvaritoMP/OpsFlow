@@ -111,6 +111,8 @@ export const managementStaffService = {
   // Archivar un miembro del staff
   async archive(id: string): Promise<void> {
     try {
+      await releaseStaffFromUnits(id);
+
       const { error } = await supabase
         .from('management_staff')
         .update({ archived: true })
@@ -141,6 +143,9 @@ export const managementStaffService = {
   // Eliminar un miembro del staff
   async delete(id: string): Promise<void> {
     try {
+      await releaseStaffFromUnits(id);
+      await releaseStaffFromLogs(id);
+
       const { error } = await supabase
         .from('management_staff')
         .delete()
@@ -153,6 +158,67 @@ export const managementStaffService = {
     }
   },
 };
+
+async function releaseStaffFromUnits(staffId: string): Promise<void> {
+  const roleColumns = ['coordinator_id', 'roving_supervisor_id', 'resident_supervisor_id'] as const;
+
+  await Promise.all(
+    roleColumns.map(async (column) => {
+      const { error } = await supabase
+        .from('units')
+        .update({ [column]: null })
+        .eq(column, staffId);
+
+      if (error) throw error;
+    })
+  );
+
+  try {
+    const { error } = await supabase
+      .from('unit_management_staff')
+      .delete()
+      .eq('management_staff_id', staffId);
+
+    if (error) {
+      if (error.code === '42P01') {
+        console.warn('⚠️ Tabla unit_management_staff no existe. No se limpiaron asignaciones adicionales.');
+      } else {
+        throw error;
+      }
+    }
+  } catch (error: any) {
+    if (error.code === '42P01' || error.message?.includes('does not exist')) {
+      console.warn('⚠️ Tabla unit_management_staff no existe. No se limpiaron asignaciones adicionales.');
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function releaseStaffFromLogs(staffId: string): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('log_responsible')
+      .delete()
+      .eq('management_staff_id', staffId);
+
+    if (error) {
+      if (error.code === '42P01') {
+        console.warn('⚠️ Tabla log_responsible no existe. No se limpiaron responsables de logs.');
+      } else {
+        throw error;
+      }
+    }
+  } catch (error: any) {
+    if (error.code === '42P01' || error.message?.includes('does not exist')) {
+      console.warn('⚠️ Tabla log_responsible no existe. No se limpiaron responsables de logs.');
+      return;
+    }
+
+    throw error;
+  }
+}
 
 // ============================================
 // FUNCIONES DE TRANSFORMACIÓN

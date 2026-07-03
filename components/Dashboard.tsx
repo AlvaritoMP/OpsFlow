@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, UnitStatus, ResourceType } from '../types';
+import { Unit, UnitStatus, ResourceType, UserRole } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
-import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical } from 'lucide-react';
+import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical, Star, UserX } from 'lucide-react';
 import { UnitsMap } from './UnitsMap';
 
 interface DashboardProps {
   units: Unit[];
   onSelectUnit: (unitId: string) => void;
+  currentUserRole?: UserRole;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, currentUserRole }) => {
+  const isClient = currentUserRole === 'CLIENT';
   // States for new metrics
   const [workersByShift, setWorkersByShift] = useState({ day: 0, afternoon: 0, night: 0 });
   const [retenCoverages, setRetenCoverages] = useState(0);
@@ -20,6 +22,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
   const [personnelRotation, setPersonnelRotation] = useState<number>(0);
   const [personnelEntryRate, setPersonnelEntryRate] = useState<number>(0);
   const [personnelExitRate, setPersonnelExitRate] = useState<number>(0);
+  const [mostUsedReten, setMostUsedReten] = useState<{ name: string; count: number } | null>(null);
+  const [workersExitedThisMonth, setWorkersExitedThisMonth] = useState<number>(0);
+  const [archivedPersonnel, setArchivedPersonnel] = useState<any[]>([]);
+  // Estados para almacenar valores intermedios de cálculos para tooltips
+  const [totalWorkersBreakdown, setTotalWorkersBreakdown] = useState<{ unique: number; shared: number }>({ unique: 0, shared: 0 });
+  const [workersAtStart, setWorkersAtStart] = useState<number>(0);
+  const [retenMetrics, setRetenMetrics] = useState<{ totalRetenes: number; assignments: number; month: string } | null>(null);
+  const [utilizationDetails, setUtilizationDetails] = useState<{ sumPercentages: number; daysWithUsage: number; totalDays: number } | null>(null);
+  const [shiftBreakdown, setShiftBreakdown] = useState<{ day: { unique: number; shared: number }; afternoon: { unique: number; shared: number }; night: { unique: number; shared: number } }>({
+    day: { unique: 0, shared: 0 },
+    afternoon: { unique: 0, shared: 0 },
+    night: { unique: 0, shared: 0 }
+  });
+  const [newWorkersBreakdown, setNewWorkersBreakdown] = useState<{ unique: number; shared: number; month: string }>({ unique: 0, shared: 0, month: '' });
+  const [rotationDetails, setRotationDetails] = useState<{ nuevos: number; salidas: number; inicio: number } | null>(null);
+  const [entryRateDetails, setEntryRateDetails] = useState<{ nuevos: number; inicio: number } | null>(null);
+  const [exitRateDetails, setExitRateDetails] = useState<{ salidas: number; inicio: number; deUnidades: number; archivados: number } | null>(null);
   
 
   // Calculate aggregations
@@ -50,6 +69,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         });
     });
 
+    // Guardar breakdown para tooltip
+    setTotalWorkersBreakdown({ unique: uniqueCount, shared: sharedCount });
+
     return uniqueCount + sharedCount;
   }, [units]);
   
@@ -68,6 +90,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     let afternoonCount = 0;
     let nightCount = 0;
     const sharedWorkersByShift = new Map<string, Set<string>>(); // Map<shift, Set<identifier>>
+    const shiftBreakdownData = {
+      day: { unique: 0, shared: 0 },
+      afternoon: { unique: 0, shared: 0 },
+      night: { unique: 0, shared: 0 }
+    };
 
     units.forEach(unit => {
       unit.resources
@@ -100,19 +127,36 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
               const shiftSet = sharedWorkersByShift.get(shiftType)!;
               if (!shiftSet.has(identifier)) {
                 shiftSet.add(identifier);
-                if (shiftType === 'day') dayCount++;
-                else if (shiftType === 'afternoon') afternoonCount++;
-                else if (shiftType === 'night') nightCount++;
+                if (shiftType === 'day') {
+                  dayCount++;
+                  shiftBreakdownData.day.shared++;
+                } else if (shiftType === 'afternoon') {
+                  afternoonCount++;
+                  shiftBreakdownData.afternoon.shared++;
+                } else if (shiftType === 'night') {
+                  nightCount++;
+                  shiftBreakdownData.night.shared++;
+                }
               }
             } else {
               // Trabajador único: contar en cada unidad
-              if (shiftType === 'day') dayCount++;
-              else if (shiftType === 'afternoon') afternoonCount++;
-              else if (shiftType === 'night') nightCount++;
+              if (shiftType === 'day') {
+                dayCount++;
+                shiftBreakdownData.day.unique++;
+              } else if (shiftType === 'afternoon') {
+                afternoonCount++;
+                shiftBreakdownData.afternoon.unique++;
+              } else if (shiftType === 'night') {
+                nightCount++;
+                shiftBreakdownData.night.unique++;
+              }
             }
           }
         });
     });
+
+    // Guardar breakdown para tooltips
+    setShiftBreakdown(shiftBreakdownData);
 
     return { day: dayCount, afternoon: afternoonCount, night: nightCount };
   }, [units]);
@@ -141,6 +185,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         if (allAssignments.length === 0) {
           setRetenCoverages(0);
           setRetenUtilizationRatio(0);
+          setMostUsedReten(null);
           return;
         }
         
@@ -162,6 +207,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         });
         
         setRetenCoverages(assignments.length);
+        
+        // Calculate most used reten in the current month
+        const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        const currentMonthStartStr = currentMonthStart.toISOString().split('T')[0];
+        const currentMonthEndStr = currentMonthEnd.toISOString().split('T')[0];
+        
+        const currentMonthAssignments = await retenesService.getAssignmentsByDateRange(currentMonthStartStr, currentMonthEndStr);
+        
+        if (currentMonthAssignments.length > 0) {
+          // Count assignments by reten
+          const retenCounts = new Map<string, { name: string; count: number }>();
+          
+          currentMonthAssignments.forEach(assignment => {
+            const retenId = assignment.reten_id;
+            const retenName = assignment.reten_name || 'Desconocido';
+            
+            if (!retenCounts.has(retenId)) {
+              retenCounts.set(retenId, { name: retenName, count: 0 });
+            }
+            const current = retenCounts.get(retenId)!;
+            retenCounts.set(retenId, { name: current.name, count: current.count + 1 });
+          });
+          
+          // Find the most used reten
+          let mostUsed: { name: string; count: number } | null = null;
+          retenCounts.forEach((value) => {
+            if (!mostUsed || value.count > mostUsed.count) {
+              mostUsed = value;
+            }
+          });
+          
+          setMostUsedReten(mostUsed);
+        } else {
+          setMostUsedReten(null);
+        }
         
         // Calculate daily utilization ratio
         if (totalRetenes > 0) {
@@ -249,6 +330,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           console.log(`\nℹ️ Nota: El porcentaje puede ser > 100% si un retén se utiliza múltiples veces en el mismo día.`);
           
           setRetenUtilizationRatio(avgDailyPercentage);
+          // Guardar detalles para tooltip
+          setUtilizationDetails({
+            sumPercentages: sumOfPercentages,
+            daysWithUsage: daysWithUsage,
+            totalDays: daysInMonth
+          });
         } else {
           setRetenUtilizationRatio(0);
         }
@@ -260,6 +347,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     loadRetenMetrics();
   }, []);
 
+  // Cargar trabajadores archivados para el cálculo de salientes
+  useEffect(() => {
+    const loadArchivedPersonnel = async () => {
+      try {
+        const { resourcesService } = await import('../services/resourcesService');
+        const archived = await resourcesService.getAllArchivedPersonnel();
+        setArchivedPersonnel(archived);
+        console.log('📊 Trabajadores archivados cargados:', archived.length);
+        // Debug: mostrar trabajadores con endDate en enero 2026
+        const jan2026Workers = archived.filter(p => {
+          if (!p.endDate) return false;
+          const endDateStr = p.endDate.split('T')[0];
+          return endDateStr.startsWith('2026-01-');
+        });
+        console.log('📊 Trabajadores archivados con endDate en enero 2026:', jan2026Workers.length, jan2026Workers.map(p => ({ name: p.name, endDate: p.endDate })));
+      } catch (error) {
+        console.error('Error al cargar trabajadores archivados:', error);
+      }
+    };
+    loadArchivedPersonnel();
+  }, []);
+
   // Note: setLoadingMetrics(false) is now handled in loadShiftMetrics finally block
 
   // Calculate new workers this month (sin duplicar compartidos)
@@ -269,6 +378,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
     const sharedNewWorkers = new Set<string>(); // Para trabajadores compartidos nuevos
     let uniqueNewCount = 0;
     let sharedNewCount = 0;
+    const monthName = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][today.getMonth()];
     
     units.forEach(unit => {
       unit.resources
@@ -292,6 +403,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           }
         });
     });
+    
+    // Guardar breakdown para tooltip
+    setNewWorkersBreakdown({ unique: uniqueNewCount, shared: sharedNewCount, month: monthName });
     
     return uniqueNewCount + sharedNewCount;
   }, [units]);
@@ -345,8 +459,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
       });
       
       const totalWorkersAtStart = uniqueWorkersAtStart + sharedWorkersAtStartCount;
+      setWorkersAtStart(totalWorkersAtStart);
       
-      // Calculate workers who left during the month (endDate in the current month)
+      // Calculate workers who left during the month (endDate in the current month OR archived/cesado this month)
       const sharedWorkersExited = new Set<string>();
       let uniqueWorkersExited = 0;
       let sharedWorkersExitedCount = 0;
@@ -355,11 +470,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
         unit.resources
           .filter(r => {
             if (r.type !== ResourceType.PERSONNEL) return false;
+            
+            // Incluir trabajadores cesados o archivados
+            const isCesadoOrArchivado = r.personnelStatus === 'cesado' || r.personnelStatus === 'archivado' || r.archived;
+            
+            if (!isCesadoOrArchivado) return false;
             if (!r.endDate) return false;
             
-            const endDate = new Date(r.endDate);
+            // Parsear la fecha de forma segura
+            const endDateStr = r.endDate.split('T')[0]; // YYYY-MM-DD
+            const [year, month, day] = endDateStr.split('-').map(Number);
+            const endDate = new Date(year, month - 1, day);
+            
+            // Comparar solo las fechas (sin hora)
+            const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+            const firstDayOnly = new Date(firstDayOfMonth.getFullYear(), firstDayOfMonth.getMonth(), firstDayOfMonth.getDate());
+            const lastDayOnly = new Date(lastDayOfMonth.getFullYear(), lastDayOfMonth.getMonth(), lastDayOfMonth.getDate());
+            
             // Worker left during the month if endDate is between firstDayOfMonth and lastDayOfMonth
-            return endDate >= firstDayOfMonth && endDate <= lastDayOfMonth;
+            return endDateOnly >= firstDayOnly && endDateOnly <= lastDayOnly;
           })
           .forEach(r => {
             if (r.isShared) {
@@ -374,30 +503,78 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           });
       });
       
-      const totalWorkersExited = uniqueWorkersExited + sharedWorkersExitedCount;
+      // También contar trabajadores archivados que ya no están en unidades activas
+      // Usar las mismas fechas del mes que se calcularon arriba (firstDayOfMonth y lastDayOfMonth ya están definidas)
+      let archivedExitedThisMonth = 0;
+      const archivedWorkersSet = new Set<string>(); // Para evitar duplicados con trabajadores en unidades activas
+      
+      archivedPersonnel.forEach(personnel => {
+        if (personnel.endDate) {
+          // Parsear la fecha de forma segura
+          const endDateStr = personnel.endDate.split('T')[0]; // YYYY-MM-DD
+          const [year, month, day] = endDateStr.split('-').map(Number);
+          const endDate = new Date(year, month - 1, day);
+          
+          // Comparar solo las fechas (sin hora)
+          const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+          const firstDayOnly = new Date(firstDayOfMonth.getFullYear(), firstDayOfMonth.getMonth(), firstDayOfMonth.getDate());
+          const lastDayOnly = new Date(lastDayOfMonth.getFullYear(), lastDayOfMonth.getMonth(), lastDayOfMonth.getDate());
+          
+          // Contar si la fecha de cese está en el mes actual
+          if (endDateOnly >= firstDayOnly && endDateOnly <= lastDayOnly) {
+            // Usar DNI o nombre como identificador único para evitar duplicados
+            const identifier = personnel.dni || personnel.id || personnel.name;
+            if (!archivedWorkersSet.has(identifier)) {
+              archivedWorkersSet.add(identifier);
+              archivedExitedThisMonth++;
+            }
+          }
+        }
+      });
+      
+      const totalWorkersExited = uniqueWorkersExited + sharedWorkersExitedCount + archivedExitedThisMonth;
+      const workersExitedFromUnits = uniqueWorkersExited + sharedWorkersExitedCount;
+      
+      // Debug: mostrar conteo
+      console.log('📊 Trabajadores salientes calculados:', {
+        deUnidadesActivas: workersExitedFromUnits,
+        archivados: archivedExitedThisMonth,
+        total: totalWorkersExited,
+        mes: `${firstDayOfMonth.getFullYear()}-${String(firstDayOfMonth.getMonth() + 1).padStart(2, '0')}`,
+        rangoFechas: `${firstDayOfMonth.toISOString().split('T')[0]} a ${lastDayOfMonth.toISOString().split('T')[0]}`
+      });
+      
+      // Set workers exited this month
+      setWorkersExitedThisMonth(totalWorkersExited);
       
       // Calculate metrics
       if (totalWorkersAtStart > 0) {
         // Rotación mensual = (nuevos + salidas) / total a inicio de mes
         const rotation = ((newWorkersCount + totalWorkersExited) / totalWorkersAtStart) * 100;
         setPersonnelRotation(rotation);
+        setRotationDetails({ nuevos: newWorkersCount, salidas: totalWorkersExited, inicio: totalWorkersAtStart });
         
         // Tasa de ingreso = nuevos / total a inicio de mes
         const entryRate = (newWorkersCount / totalWorkersAtStart) * 100;
         setPersonnelEntryRate(entryRate);
+        setEntryRateDetails({ nuevos: newWorkersCount, inicio: totalWorkersAtStart });
         
         // Tasa de salida = ceses / total a inicio de mes
         const exitRate = (totalWorkersExited / totalWorkersAtStart) * 100;
         setPersonnelExitRate(exitRate);
+        setExitRateDetails({ salidas: totalWorkersExited, inicio: totalWorkersAtStart, deUnidades: workersExitedFromUnits, archivados: archivedExitedThisMonth });
       } else {
         setPersonnelRotation(0);
         setPersonnelEntryRate(0);
         setPersonnelExitRate(0);
+        setRotationDetails(null);
+        setEntryRateDetails(null);
+        setExitRateDetails(null);
       }
     };
     
     calculatePersonnelRotation();
-  }, [units, newWorkersCount]);
+  }, [units, newWorkersCount, archivedPersonnel]);
 
   // Calculate units activity (events and requests)
   useEffect(() => {
@@ -540,7 +717,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={`Total: ${totalUnits} unidades registradas`}
+        >
           <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
             <Building2 size={20} className="md:w-6 md:h-6" />
           </div>
@@ -549,7 +729,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{totalUnits}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={`${activeUnits} de ${totalUnits} unidades tienen estado 'Activo'`}
+        >
           <div className="p-2 md:p-3 bg-green-100 text-green-600 rounded-lg shrink-0">
             <CheckCircle size={20} className="md:w-6 md:h-6" />
           </div>
@@ -558,7 +741,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{activeUnits}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={`Total: ${totalWorkers} trabajadores (${totalWorkersBreakdown.unique} únicos + ${totalWorkersBreakdown.shared} compartidos sin duplicar)`}
+        >
           <div className="p-2 md:p-3 bg-purple-100 text-purple-600 rounded-lg shrink-0">
             <Users size={20} className="md:w-6 md:h-6" />
           </div>
@@ -567,7 +753,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{totalWorkers}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={`${issueUnits} de ${totalUnits} unidades tienen estado 'Con Incidencias'`}
+        >
           <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
             <AlertTriangle size={20} className="md:w-6 md:h-6" />
           </div>
@@ -576,7 +765,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{issueUnits}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={`Total: ${workersByShift.day} trabajadores (${shiftBreakdown.day.unique} únicos + ${shiftBreakdown.day.shared} compartidos)`}
+        >
           <div className="p-2 md:p-3 bg-yellow-100 text-yellow-600 rounded-lg shrink-0">
             <Sun size={20} className="md:w-6 md:h-6" />
           </div>
@@ -585,7 +777,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.day}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={`Total: ${workersByShift.afternoon} trabajadores (${shiftBreakdown.afternoon.unique} únicos + ${shiftBreakdown.afternoon.shared} compartidos)`}
+        >
           <div className="p-2 md:p-3 bg-orange-100 text-orange-600 rounded-lg shrink-0">
             <Clock size={20} className="md:w-6 md:h-6" />
           </div>
@@ -594,7 +789,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.afternoon}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={`Total: ${workersByShift.night} trabajadores (${shiftBreakdown.night.unique} únicos + ${shiftBreakdown.night.shared} compartidos)`}
+        >
           <div className="p-2 md:p-3 bg-indigo-100 text-indigo-600 rounded-lg shrink-0">
             <Moon size={20} className="md:w-6 md:h-6" />
           </div>
@@ -603,28 +801,41 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : workersByShift.night}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-teal-100 text-teal-600 rounded-lg shrink-0">
-            <Shield size={20} className="md:w-6 md:h-6" />
+        {!isClient && (
+          <div 
+            className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+            title={retenMetrics ? `${retenMetrics.assignments} asignaciones en ${retenMetrics.month} (${retenMetrics.totalRetenes} retenes disponibles)` : 'Cargando...'}
+          >
+            <div className="p-2 md:p-3 bg-teal-100 text-teal-600 rounded-lg shrink-0">
+              <Shield size={20} className="md:w-6 md:h-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-slate-500">Coberturas Retenes</p>
+              <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : retenCoverages}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Coberturas Retenes</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">{loadingMetrics ? '...' : retenCoverages}</p>
+        )}
+        {!isClient && (
+          <div 
+            className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+            title={utilizationDetails && retenMetrics ? `Promedio: ${utilizationDetails.sumPercentages.toFixed(2)}% / ${utilizationDetails.daysWithUsage} días = ${retenUtilizationRatio.toFixed(1)}% (${utilizationDetails.daysWithUsage} de ${utilizationDetails.totalDays} días con coberturas, ${retenMetrics.totalRetenes} retenes disponibles)` : 'Cargando...'}
+          >
+            <div className="p-2 md:p-3 bg-cyan-100 text-cyan-600 rounded-lg shrink-0">
+              <Shield size={20} className="md:w-6 md:h-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-slate-500">Utilización Retenes</p>
+              <p className="text-xl md:text-2xl font-bold text-slate-800">
+                {loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`}
+              </p>
+              <p className="text-[10px] text-slate-400">Promedio diario del mes anterior</p>
+            </div>
           </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
-          <div className="p-2 md:p-3 bg-cyan-100 text-cyan-600 rounded-lg shrink-0">
-            <Shield size={20} className="md:w-6 md:h-6" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs md:text-sm font-medium text-slate-500">Utilización Retenes</p>
-            <p className="text-xl md:text-2xl font-bold text-slate-800">
-              {loadingMetrics ? '...' : `${retenUtilizationRatio.toFixed(1)}%`}
-            </p>
-            <p className="text-[10px] text-slate-400">Promedio diario del mes anterior</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        )}
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={`${newWorkersThisMonth} trabajadores nuevos en ${newWorkersBreakdown.month} (${newWorkersBreakdown.unique} únicos + ${newWorkersBreakdown.shared} compartidos)`}
+        >
           <div className="p-2 md:p-3 bg-pink-100 text-pink-600 rounded-lg shrink-0">
             <UserPlus size={20} className="md:w-6 md:h-6" />
           </div>
@@ -633,7 +844,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-xl md:text-2xl font-bold text-slate-800">{newWorkersThisMonth}</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={rotationDetails ? `Rotación: (${rotationDetails.nuevos} nuevos + ${rotationDetails.salidas} salidas) / ${rotationDetails.inicio} inicio = ${personnelRotation.toFixed(1)}%` : 'Cargando...'}
+        >
           <div className="p-2 md:p-3 bg-emerald-100 text-emerald-600 rounded-lg shrink-0">
             <TrendingUp size={20} className="md:w-6 md:h-6" />
           </div>
@@ -645,7 +859,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-[10px] text-slate-400">(Nuevos + Salidas) / Inicio</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={entryRateDetails ? `Tasa de ingreso: ${entryRateDetails.nuevos} nuevos / ${entryRateDetails.inicio} inicio = ${personnelEntryRate.toFixed(1)}%` : 'Cargando...'}
+        >
           <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
             <UserPlus size={20} className="md:w-6 md:h-6" />
           </div>
@@ -657,7 +874,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-[10px] text-slate-400">Nuevos / Inicio</p>
           </div>
         </div>
-        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4">
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={exitRateDetails ? `Tasa de salida: ${exitRateDetails.salidas} salidas (${exitRateDetails.deUnidades} de unidades + ${exitRateDetails.archivados} archivados) / ${exitRateDetails.inicio} inicio = ${personnelExitRate.toFixed(1)}%` : 'Cargando...'}
+        >
           <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
             <UserMinus size={20} className="md:w-6 md:h-6" />
           </div>
@@ -669,6 +889,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
             <p className="text-[10px] text-slate-400">Ceses / Inicio</p>
           </div>
         </div>
+        {!isClient && (
+          <div 
+            className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+            title={mostUsedReten ? `Retén más usado: ${mostUsedReten.name} con ${mostUsedReten.count} ${mostUsedReten.count === 1 ? 'asignación' : 'asignaciones'} en el mes actual` : 'Sin datos'}
+          >
+            <div className="p-2 md:p-3 bg-amber-100 text-amber-600 rounded-lg shrink-0">
+              <Star size={20} className="md:w-6 md:h-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-slate-500">Retén Más Usado</p>
+              <p className="text-xl md:text-2xl font-bold text-slate-800 truncate">
+                {loadingMetrics ? '...' : mostUsedReten ? mostUsedReten.name : 'N/A'}
+              </p>
+              <p className="text-[10px] text-slate-400">
+                {mostUsedReten ? `${mostUsedReten.count} ${mostUsedReten.count === 1 ? 'vez' : 'veces'}` : 'Sin datos'}
+              </p>
+            </div>
+          </div>
+        )}
+        <div 
+          className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
+          title={exitRateDetails ? `${workersExitedThisMonth} trabajadores salientes este mes (${exitRateDetails.deUnidades} de unidades activas + ${exitRateDetails.archivados} archivados)` : `${workersExitedThisMonth} trabajadores salientes este mes`}
+        >
+          <div className="p-2 md:p-3 bg-rose-100 text-rose-600 rounded-lg shrink-0">
+            <UserX size={20} className="md:w-6 md:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs md:text-sm font-medium text-slate-500">Trabajadores Salientes</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-800">
+              {workersExitedThisMonth}
+            </p>
+            <p className="text-[10px] text-slate-400">Este mes</p>
+          </div>
+        </div>
       </div>
 
       {/* Charts Area - Draggable */}
@@ -678,8 +932,63 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit }) => 
           console.log('🗺️ Dashboard - units con coordenadas:', units.filter(u => u.latitude && u.longitude).length);
           return null;
         })()}
+        
+        {/* Layout especial para mapa y actividades recientes lado a lado */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+          {/* Mapa - siempre en la columna izquierda */}
+          <div className="transition-all duration-200">
+            <UnitsMap units={units} onSelectUnit={onSelectUnit} />
+          </div>
+          
+          {/* Actividades recientes - siempre en la columna derecha */}
+          <div
+            draggable
+            onDragStart={(e) => handleChartDragStart(e, 'recentActivity')}
+            onDragOver={(e) => handleChartDragOver(e, 'recentActivity')}
+            onDragLeave={handleChartDragLeave}
+            onDrop={(e) => handleChartDrop(e, 'recentActivity')}
+            onDragEnd={handleChartDragEnd}
+            className={`
+              bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
+              transition-all duration-200
+              ${draggedChart === 'recentActivity' ? 'opacity-50 scale-95' : ''}
+              ${dragOverChart === 'recentActivity' ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+              hover:shadow-md hover:border-blue-300 cursor-move
+            `}
+          >
+            <div className="flex items-center justify-between mb-3 md:mb-4">
+              <h3 className="text-base md:text-lg font-semibold text-slate-800">Últimas Actividades Críticas</h3>
+              <GripVertical size={16} className="text-slate-400 opacity-50" />
+            </div>
+            <div className="space-y-2 md:space-y-3 max-h-[600px] overflow-y-auto">
+              {units.flatMap(u => u.logs.map(l => ({...l, unitName: u.name}))).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10).map(log => (
+                <div key={log.id} className="flex items-start space-x-2 md:space-x-3 p-2 md:p-3 hover:bg-slate-50 rounded-lg transition-colors">
+                   <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
+                     log.type === 'Incidencia' ? 'bg-red-500' : 
+                     log.type === 'Supervision' ? 'bg-blue-500' : 'bg-slate-400'
+                   }`} />
+                   <div className="min-w-0 flex-1">
+                     <p className="text-xs md:text-sm font-medium text-slate-800 truncate">{log.type} en <span className="font-bold">{log.unitName}</span></p>
+                     <p className="text-xs md:text-sm text-slate-600 line-clamp-2">{log.description}</p>
+                     <p className="text-[10px] md:text-xs text-slate-400 mt-1">{log.date} • {log.author}</p>
+                   </div>
+                </div>
+              ))}
+              {units.flatMap(u => u.logs.map(l => ({...l, unitName: u.name}))).length === 0 && (
+                <p className="text-sm text-slate-500 text-center py-8">No hay actividades recientes para mostrar.</p>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        {/* Resto de los gráficos en layout vertical */}
         {chartOrder.map((chartId) => {
           console.log('🗺️ Dashboard - Renderizando chartId:', chartId);
+          
+          // Saltar mapa y actividades recientes ya que se renderizaron arriba
+          if (chartId === 'unitsMap' || chartId === 'recentActivity') {
+            return null;
+          }
           if (chartId === 'complianceChart') {
             return chartData.length > 0 ? (
               <div

@@ -63,6 +63,17 @@ Esta aplicación requiere las siguientes variables de entorno para funcionar cor
 - Para operaciones administrativas (crear usuarios, cambiar contraseñas de otros usuarios, etc.), debes implementar Supabase Edge Functions que usen la `SERVICE_ROLE_KEY` en el servidor.
 - Después de agregar o modificar variables de entorno, siempre redespliega la aplicación
 
+## Recepción ATS (Edge Function — solo servidor)
+
+La ingesta desde Opalo ATS usa la Edge Function `receive-worker-handoff`. **No** expongas estas variables en el frontend:
+
+| Variable | Dónde configurar |
+|----------|------------------|
+| `OPSFLOW_HANDOFF_INGEST_SECRET` | Secrets de la Edge Function en Supabase OpsFlow |
+| `SUPABASE_SERVICE_ROLE_KEY` | Secrets de la Edge Function (ya usada por otras funciones) |
+
+Ver `INBOUND_WORKER_HANDOFF.md` para URL del endpoint y ejemplo de payload.
+
 ## Configuración de Supabase para Crear Usuarios
 
 Para que los administradores puedan crear nuevos usuarios desde la aplicación, necesitas configurar Supabase:

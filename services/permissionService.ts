@@ -21,7 +21,10 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     VACATIONS: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
+    ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
+    ATS_RECEPTION: { view: true, edit: true },
+    HR_OPALOSIS: { view: true, edit: true },
   },
   ADMIN: {
     DASHBOARD: { view: true, edit: true },
@@ -40,7 +43,10 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     VACATIONS: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
+    ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
+    ATS_RECEPTION: { view: true, edit: true },
+    HR_OPALOSIS: { view: true, edit: true },
   },
   OPERATIONS: {
     DASHBOARD: { view: true, edit: false },
@@ -59,7 +65,10 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     VACATIONS: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
+    ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
+    ATS_RECEPTION: { view: true, edit: true },
+    HR_OPALOSIS: { view: true, edit: true },
   },
   OPERATIONS_SUPERVISOR: {
     DASHBOARD: { view: true, edit: false },
@@ -78,7 +87,10 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     VACATIONS: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
+    ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
+    ATS_RECEPTION: { view: true, edit: true },
+    HR_OPALOSIS: { view: true, edit: true },
   },
   CLIENT: {
     DASHBOARD: { view: true, edit: false },
@@ -87,17 +99,20 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     LOGISTICS: { view: true, edit: false },
     LOGS: { view: true, edit: false }, 
     BLUEPRINT: { view: true, edit: false },
-    CONTROL_CENTER: { view: false, edit: false },
+    CONTROL_CENTER: { view: true, edit: false },
     REPORTS: { view: true, edit: false }, 
     CLIENT_REQUESTS: { view: true, edit: true },
-    HEADCOUNT: { view: false, edit: false },
+    HEADCOUNT: { view: true, edit: false },
     POSITIONS_MANAGEMENT: { view: false, edit: false },
     NIGHT_SUPERVISION: { view: false, edit: false },
     RETENES: { view: false, edit: false },
     VACATIONS: { view: false, edit: false },
     ASSETS_CATALOG: { view: false, edit: false },
     DOCUMENTS: { view: true, edit: false },
+    ARCHIVE: { view: false, edit: false },
     SETTINGS: { view: false, edit: false },
+    ATS_RECEPTION: { view: false, edit: false },
+    HR_OPALOSIS: { view: false, edit: false },
   }
 };
 
@@ -107,8 +122,38 @@ export const getPermissions = (): PermissionConfig => {
     if (stored) {
       // Merge with default to ensure new features are covered
       const parsed = JSON.parse(stored);
-      // Ensure new roles are merged if they didn't exist in storage
-      return { ...DEFAULT_PERMISSIONS, ...parsed };
+      // Deep merge: for each role, merge default permissions with stored permissions
+      // IMPORTANT: Default permissions take precedence to ensure updates are applied
+      const merged: PermissionConfig = {} as PermissionConfig;
+      
+      // First, copy all default roles (defaults take precedence)
+      Object.keys(DEFAULT_PERMISSIONS).forEach(role => {
+        const roleKey = role as UserRole;
+        merged[roleKey] = { ...DEFAULT_PERMISSIONS[roleKey] };
+        
+        // Then merge stored permissions for this role if they exist
+        // But only for features that don't exist in defaults (new features)
+        if (parsed[roleKey]) {
+          Object.keys(parsed[roleKey]).forEach(feature => {
+            const featureKey = feature as AppFeature;
+            // Only use stored permission if feature doesn't exist in defaults
+            // This ensures default updates always apply
+            if (!merged[roleKey][featureKey]) {
+              merged[roleKey][featureKey] = parsed[roleKey][featureKey];
+            }
+          });
+        }
+      });
+      
+      // Also include any roles that exist in stored but not in defaults
+      Object.keys(parsed).forEach(role => {
+        const roleKey = role as UserRole;
+        if (!merged[roleKey]) {
+          merged[roleKey] = parsed[roleKey];
+        }
+      });
+      
+      return merged;
     }
   } catch (e) {
     console.error("Error loading permissions", e);
@@ -165,5 +210,8 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   VACATIONS: 'Control de Vacaciones',
   ASSETS_CATALOG: 'Catálogo de Activos',
   DOCUMENTS: 'Documentos',
-  SETTINGS: 'Configuración Sistema'
+  ARCHIVE: 'Archivo de Personal',
+  SETTINGS: 'Configuración Sistema',
+  ATS_RECEPTION: 'Recepción ATS',
+  HR_OPALOSIS: 'Envío Opalosis (RRHH)'
 };

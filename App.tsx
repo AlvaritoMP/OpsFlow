@@ -1,7 +1,6 @@
 
-
-import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive, Activity, UserCheck, Moon, Search, Palmtree } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -24,12 +23,17 @@ import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
 import { Login } from './components/Login';
 import { authService } from './services/authService';
-import { LogOut, FileText, RefreshCw } from 'lucide-react';
+import { LogOut, FileText, RefreshCw, Eye, Cake, Download } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
 import { PositionsManagementSection } from './components/PositionsManagement';
 import { Headcount } from './components/Headcount';
 import { Vacations } from './components/Vacations';
+import { Archive } from './components/Archive';
+import { PasswordReset } from './components/PasswordReset';
+import { WorkersManagement } from './components/WorkersManagement';
+import { InboundWorkerHandoff } from './components/InboundWorkerHandoff';
+import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -37,9 +41,23 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'vacations'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'hr-opalosis'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
+  
+  // Estado para manejo de recuperación de contraseña
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
+  
+  // Estado para gestión de unidades visibles por usuario CLIENT
+  const [showVisibleUnitsModal, setShowVisibleUnitsModal] = useState(false);
+  const [selectedUserForUnits, setSelectedUserForUnits] = useState<User | null>(null);
+  const [selectedVisibleUnitIds, setSelectedVisibleUnitIds] = useState<string[]>([]);
+  const [loadingVisibleUnits, setLoadingVisibleUnits] = useState(false);
+  const [availableClientNames, setAvailableClientNames] = useState<string[]>([]); // Nombres de clientes para el usuario seleccionado
+  
+  // Estado para alertas de cumpleaños
+  const [birthdayAlerts, setBirthdayAlerts] = useState<Array<{ name: string; unitName: string; age: number; daysUntil: number }>>([]);
+  const [showBirthdayAlerts, setShowBirthdayAlerts] = useState(false);
   
   // Settings accordion state
   const [settingsSections, setSettingsSections] = useState<Record<string, boolean>>({
@@ -56,8 +74,11 @@ const App: React.FC = () => {
     setSettingsSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
   
+  // Estado del usuario actual
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  
   // Usar hooks de Supabase (solo cargar si está autenticado)
-  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits } = useUnits(isAuthenticated);
+  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits, replaceUnitInState, releaseManagementStaffFromUnits } = useUnits(isAuthenticated, currentUser);
   const { users, loading: usersLoading, createUser, updateUser, deleteUser, loadUsers } = useUsers(isAuthenticated);
   const { staff: managementStaff, loading: staffLoading, createStaff, updateStaff, deleteStaff, archiveStaff, loadStaff } = useManagementStaff(isAuthenticated);
   const { clients, loading: clientsLoading, createClient, updateClient, deleteClient, loadClients } = useClients(isAuthenticated);
@@ -131,11 +152,29 @@ const App: React.FC = () => {
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
 
   // Google Maps Geocoding API Config State
-  const [googleMapsKey, setGoogleMapsKey] = useState<string>(() => {
-    const key = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
-    return key;
-  });
+  const [googleMapsKey, setGoogleMapsKey] = useState<string>('');
   const [isGoogleMapsSaved, setIsGoogleMapsSaved] = useState(false);
+  const [isLoadingGoogleMapsKey, setIsLoadingGoogleMapsKey] = useState(true);
+
+  // Cargar API key de Google Maps desde Supabase al iniciar
+  useEffect(() => {
+    const loadGoogleMapsKey = async () => {
+      try {
+        const { getGoogleMapsApiKey } = await import('./services/googleMapsService');
+        const key = await getGoogleMapsApiKey();
+        setGoogleMapsKey(key || '');
+      } catch (error) {
+        console.error('Error al cargar API key de Google Maps:', error);
+        // Fallback a localStorage
+        const localKey = localStorage.getItem('GOOGLE_MAPS_API_KEY') || '';
+        setGoogleMapsKey(localKey);
+      } finally {
+        setIsLoadingGoogleMapsKey(false);
+      }
+    };
+
+    loadGoogleMapsKey();
+  }, []);
 
 
   // Branding State
@@ -148,6 +187,48 @@ const App: React.FC = () => {
     return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=';
   });
   const [isLogoSaved, setIsLogoSaved] = useState(false);
+
+  // Cargar logo desde la base de datos al iniciar (si está autenticado)
+  useEffect(() => {
+    const loadLogoFromDatabase = async () => {
+      if (!isAuthenticated) return;
+      
+      try {
+        const { supabase } = await import('./services/supabase');
+        const { data, error } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'company_logo')
+          .single();
+        
+        if (error) {
+          // Si no existe en BD, usar localStorage como fallback
+          const saved = localStorage.getItem('OPSFLOW_LOGO');
+          if (saved && !saved.startsWith('blob:')) {
+            setCompanyLogo(saved);
+          }
+          return;
+        }
+        
+        if (data && data.value) {
+          // Cargar desde la base de datos
+          setCompanyLogo(data.value);
+          // Sincronizar con localStorage para caché
+          localStorage.setItem('OPSFLOW_LOGO', data.value);
+          console.log('✅ Logo cargado desde base de datos');
+        }
+      } catch (error) {
+        console.error('Error al cargar logo desde BD:', error);
+        // Fallback a localStorage
+        const saved = localStorage.getItem('OPSFLOW_LOGO');
+        if (saved && !saved.startsWith('blob:')) {
+          setCompanyLogo(saved);
+        }
+      }
+    };
+    
+    loadLogoFromDatabase();
+  }, [isAuthenticated]);
 
   // Recargar logo cuando cambie en localStorage (para persistencia entre navegaciones)
   useEffect(() => {
@@ -167,6 +248,10 @@ const App: React.FC = () => {
         } else {
           console.warn('⚠️ Intento de guardar blob URL, ignorando...');
         }
+      } else if (e.key === 'OPSFLOW_LOGO' && !e.newValue) {
+        // Si se elimina el logo, usar el por defecto
+        const defaultLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNmM2Y0ZjYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TE9HTzwvdGV4dD48L3N2Zz4=';
+        setCompanyLogo(defaultLogo);
       }
     };
     
@@ -190,7 +275,6 @@ const App: React.FC = () => {
   const [isPermsSaved, setIsPermsSaved] = useState(false);
 
   // User / Role Context
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Verificar autenticación al cargar
@@ -222,6 +306,35 @@ const App: React.FC = () => {
 
     checkAuth();
     
+    // Verificar si hay un token de recuperación de contraseña en la URL
+    const hash = window.location.hash;
+    if (hash) {
+      const params = new URLSearchParams(hash.substring(1)); // Remover el #
+      const accessToken = params.get('access_token');
+      const type = params.get('type');
+      
+      if (accessToken && type === 'recovery') {
+        console.log('🔑 Token de recuperación de contraseña detectado en la URL');
+        setPasswordResetToken(accessToken);
+        // Limpiar la URL de forma segura
+        try {
+          const cleanPath = window.location.pathname || '/';
+          const cleanUrl = cleanPath.endsWith('/') && cleanPath !== '/' 
+            ? cleanPath.slice(0, -1) 
+            : cleanPath;
+          window.history.replaceState({}, document.title, cleanUrl);
+        } catch (e) {
+          console.warn('No se pudo limpiar la URL:', e);
+          // Intentar con una URL más simple
+          try {
+            window.history.replaceState({}, document.title, '/');
+          } catch (e2) {
+            console.warn('No se pudo limpiar la URL con método alternativo:', e2);
+          }
+        }
+      }
+    }
+    
     return () => {
       mounted = false;
     };
@@ -252,6 +365,90 @@ const App: React.FC = () => {
     handleResize(); // Initial check
     return () => window.removeEventListener('resize', handleResize);
   }, [isAuthenticated]);
+
+  const BIRTHDAY_DISMISS_KEY = 'opsflow.birthdayModal.dismissedDate';
+  const BIRTHDAY_SHOWN_KEY = 'opsflow.birthdayModal.autoShownDate';
+
+  const dismissBirthdayAlerts = useCallback(() => {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    try {
+      sessionStorage.setItem(BIRTHDAY_DISMISS_KEY, todayKey);
+    } catch {
+      /* ignore */
+    }
+    setShowBirthdayAlerts(false);
+  }, []);
+
+  // Calcular alertas de cumpleaños cuando se carguen las unidades (solo cumpleaños de hoy)
+  useEffect(() => {
+    if (!isAuthenticated || !units.length) {
+      setBirthdayAlerts([]);
+      setShowBirthdayAlerts(false);
+      return;
+    }
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    let dismissed = false;
+    let alreadyAutoShown = false;
+    try {
+      dismissed = sessionStorage.getItem(BIRTHDAY_DISMISS_KEY) === todayKey;
+      alreadyAutoShown = sessionStorage.getItem(BIRTHDAY_SHOWN_KEY) === todayKey;
+    } catch {
+      /* ignore */
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const currentYear = today.getFullYear();
+    const todayMonth = today.getMonth();
+    const todayDate = today.getDate();
+    const alerts: Array<{ name: string; unitName: string; age: number; daysUntil: number }> = [];
+
+    units.forEach(unit => {
+      unit.resources.forEach(resource => {
+        if (resource.type === ResourceType.PERSONNEL &&
+            resource.birthDate &&
+            !resource.archived &&
+            resource.personnelStatus !== 'cesado') {
+
+          const [birthYear, birthMonthNum, birthDayNum] = resource.birthDate.split('-').map(Number);
+          const birthDate = new Date(birthYear, birthMonthNum - 1, birthDayNum);
+          const birthMonth = birthDate.getMonth();
+          const birthDay = birthDate.getDate();
+
+          if (birthMonth === todayMonth && birthDay === todayDate) {
+            const age = currentYear - birthDate.getFullYear();
+            alerts.push({
+              name: resource.name,
+              unitName: unit.name,
+              age,
+              daysUntil: 0
+            });
+          }
+        }
+      });
+    });
+
+    const todayAlerts = alerts.filter(alert => alert.daysUntil === 0);
+    setBirthdayAlerts(todayAlerts);
+
+    if (todayAlerts.length === 0) {
+      setShowBirthdayAlerts(false);
+      return;
+    }
+    if (dismissed) {
+      setShowBirthdayAlerts(false);
+      return;
+    }
+    if (!alreadyAutoShown) {
+      setShowBirthdayAlerts(true);
+      try {
+        sessionStorage.setItem(BIRTHDAY_SHOWN_KEY, todayKey);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [units, isAuthenticated]);
 
   // Manejar login exitoso
   const handleLoginSuccess = async (user: User) => {
@@ -308,10 +505,30 @@ const App: React.FC = () => {
       // await loadUnits(); // Comentado para evitar recargas que interrumpen la edición
       
       // Notificación de éxito se maneja en el componente que llama
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al actualizar unidad:', error);
+      
+      // Mejorar mensajes de error para el usuario
+      let errorMessage = error?.message || 'Error desconocido al actualizar la unidad';
+      
+      if (error?.name === 'NetworkError' || error?.message?.includes('conexión') || error?.message?.includes('Failed to fetch')) {
+        errorMessage = 'Error de conexión con el servidor.\n\n' +
+                      'Por favor, verifica tu conexión a internet e intenta de nuevo.\n\n' +
+                      'Si el problema persiste, puede ser que el servidor esté temporalmente no disponible.';
+      } else if (error?.name === 'TimeoutError' || error?.message?.includes('timeout')) {
+        errorMessage = 'La solicitud tardó demasiado tiempo.\n\n' +
+                      'Por favor, intenta de nuevo. Si el problema persiste, verifica tu conexión a internet.';
+      } else if (error?.message?.includes('permission') || error?.message?.includes('RLS') || error?.message?.includes('row-level security')) {
+        errorMessage = 'Error de permisos al actualizar la unidad.\n\n' +
+                      'Verifica que tengas permisos para editar unidades y que las políticas RLS estén configuradas correctamente.';
+      }
+      
+      // Crear un nuevo error con el mensaje mejorado
+      const improvedError = new Error(errorMessage);
+      improvedError.name = error?.name || 'UpdateError';
+      
       // El error se propaga para que el componente pueda mostrar su propia notificación
-      throw error;
+      throw improvedError;
     }
   };
 
@@ -392,7 +609,7 @@ const App: React.FC = () => {
     try {
       // Filtrar representantes vacíos
       const validRepresentatives = clientForm.representatives.filter(
-        rep => rep.name.trim() !== '' && (rep.phone.trim() !== '' || rep.email.trim() !== '')
+        rep => rep.name.trim() !== ''
       );
 
       if (editingClient) {
@@ -437,6 +654,190 @@ const App: React.FC = () => {
     } catch (error: any) {
       console.error('Error al eliminar cliente:', error);
       alert(error.message || 'Error al eliminar el cliente.');
+    }
+  };
+
+  // Funciones para gestionar unidades visibles por usuario CLIENT
+  const handleOpenVisibleUnitsModal = async (user: User) => {
+    if (user.role !== 'CLIENT') {
+      alert('Solo se pueden gestionar unidades visibles para usuarios con rol CLIENT.');
+      return;
+    }
+    
+    // Verificar que el usuario tenga clientes asignados
+    if ((!user.linkedClientNames || user.linkedClientNames.length === 0) && 
+        (!user.linkedClientIds || user.linkedClientIds.length === 0)) {
+      alert('Este usuario CLIENT no tiene clientes asignados. Asigna clientes al usuario primero.');
+      return;
+    }
+    
+    setSelectedUserForUnits(user);
+    setShowVisibleUnitsModal(true);
+    setLoadingVisibleUnits(true);
+    setSelectedVisibleUnitIds([]);
+
+    try {
+      // Import dinámico para evitar problemas de inicialización
+      const { userVisibleUnitsService } = await import('./services/userVisibleUnitsService');
+      const { supabase } = await import('./services/supabase');
+      
+      // Obtener nombres de clientes desde IDs si es necesario
+      let clientNames = user.linkedClientNames || [];
+      if ((!clientNames || clientNames.length === 0) && user.linkedClientIds && user.linkedClientIds.length > 0) {
+        const { data: clientData } = await supabase
+          .from('clients')
+          .select('name')
+          .in('id', user.linkedClientIds);
+        
+        if (clientData) {
+          clientNames = clientData.map(c => c.name);
+        }
+      }
+      
+      // Cargar las unidades visibles para este usuario CLIENT
+      const visibleUnitIds = await userVisibleUnitsService.getVisibleUnitsByUserId(user.id);
+      setSelectedVisibleUnitIds(visibleUnitIds);
+      
+      // Guardar los nombres de clientes para usar en el modal
+      setAvailableClientNames(clientNames);
+      
+      // Actualizar el usuario con los nombres de clientes obtenidos si fue necesario
+      if (clientNames.length > 0 && (!user.linkedClientNames || user.linkedClientNames.length === 0)) {
+        setSelectedUserForUnits({ ...user, linkedClientNames: clientNames });
+      } else {
+        // Si ya tenía nombres, usarlos
+        setAvailableClientNames(user.linkedClientNames || clientNames);
+      }
+    } catch (error) {
+      console.error('Error al cargar unidades visibles:', error);
+      alert('Error al cargar las unidades visibles para este usuario.');
+    } finally {
+      setLoadingVisibleUnits(false);
+    }
+  };
+
+  const handleToggleVisibleUnit = (unitId: string) => {
+    setSelectedVisibleUnitIds(prev => {
+      if (prev.includes(unitId)) {
+        return prev.filter(id => id !== unitId);
+      } else {
+        return [...prev, unitId];
+      }
+    });
+  };
+
+  const handleExportUnitsToExcel = async () => {
+    try {
+      const { excelService } = await import('./services/excelService');
+      
+      // Preparar datos de las unidades para exportar
+      const exportData = visibleUnits.map(unit => {
+        const staffCount = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived && r.personnelStatus !== 'cesado').length;
+        const equipmentCount = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT).length;
+        const materialsCount = unit.resources.filter(r => r.type === ResourceType.MATERIAL).length;
+        const pendingRequestsCount = unit.requests?.filter(r => r.status === 'PENDING').length || 0;
+        const zonesNames = unit.zones.map(z => z.name).join(', ') || 'Sin zonas';
+        const lastComplianceScore = unit.complianceHistory && unit.complianceHistory.length > 0 
+          ? unit.complianceHistory[unit.complianceHistory.length - 1].score 
+          : 'N/A';
+        
+        return {
+          'Nombre': unit.name,
+          'Cliente': unit.clientName || '',
+          'Dirección': unit.address || '',
+          'Estado': unit.status || '',
+          'Descripción': unit.description || '',
+          'Latitud': unit.latitude || '',
+          'Longitud': unit.longitude || '',
+          'Personal Activo': staffCount,
+          'Equipos': equipmentCount,
+          'Materiales': materialsCount,
+          'Total Recursos': staffCount + equipmentCount + materialsCount,
+          'Zonas': unit.zones.length,
+          'Nombres de Zonas': zonesNames,
+          'Coordinador': unit.coordinator?.name || '',
+          'Supervisor Residente': unit.residentSupervisor?.name || '',
+          'Supervisor de Ronda': unit.rovingSupervisor?.name || '',
+          'Documentos': unit.documents?.length || 0,
+          'Puestos Requeridos': unit.requiredPositions?.length || 0,
+          'Solicitudes Pendientes': pendingRequestsCount,
+          'Score Cumplimiento': lastComplianceScore,
+          'Imágenes': unit.images?.length || 0,
+        };
+      });
+
+      const headers = [
+        'Nombre',
+        'Cliente',
+        'Dirección',
+        'Estado',
+        'Descripción',
+        'Latitud',
+        'Longitud',
+        'Personal Activo',
+        'Equipos',
+        'Materiales',
+        'Total Recursos',
+        'Zonas',
+        'Nombres de Zonas',
+        'Coordinador',
+        'Supervisor Residente',
+        'Supervisor de Ronda',
+        'Documentos',
+        'Puestos Requeridos',
+        'Solicitudes Pendientes',
+        'Score Cumplimiento',
+        'Imágenes',
+      ];
+
+      await excelService.exportToExcel(exportData, headers, {
+        filename: `unidades_${new Date().toISOString().split('T')[0]}.xlsx`,
+        sheetName: 'Unidades',
+      });
+
+      alert(`✅ Se exportaron ${visibleUnits.length} unidad${visibleUnits.length !== 1 ? 'es' : ''} correctamente`);
+    } catch (error: any) {
+      console.error('Error al exportar unidades:', error);
+      alert(`❌ Error al exportar: ${error.message || 'Error desconocido'}`);
+    }
+  };
+
+  const handleSaveVisibleUnits = async () => {
+    if (!selectedUserForUnits) return;
+
+    setLoadingVisibleUnits(true);
+    try {
+      // Import dinámico para evitar problemas de inicialización
+      const { userVisibleUnitsService } = await import('./services/userVisibleUnitsService');
+      
+      // Guardar las unidades visibles para este usuario CLIENT
+      await userVisibleUnitsService.setVisibleUnitsForUser(
+        selectedUserForUnits.id,
+        selectedVisibleUnitIds
+      );
+
+      alert(`Unidades visibles guardadas correctamente para ${selectedUserForUnits.name}`);
+      setShowVisibleUnitsModal(false);
+      
+      // Recargar unidades para reflejar los cambios
+      // Si el usuario modificado es el usuario actual, recargar sus unidades
+      if (currentUser && selectedUserForUnits.id === currentUser.id) {
+        // Forzar recarga del hook useUnits
+        if (loadUnits) {
+          await loadUnits();
+        }
+      } else {
+        // Si es otro usuario, solo recargar si el currentUser también es CLIENT
+        // para que useUnits recalcule el filtrado
+        if (currentUser && currentUser.role === 'CLIENT' && loadUnits) {
+          await loadUnits();
+        }
+      }
+    } catch (error: any) {
+      console.error('Error al guardar unidades visibles:', error);
+      alert(error.message || 'Error al guardar las unidades visibles.');
+    } finally {
+      setLoadingVisibleUnits(false);
     }
   };
 
@@ -576,10 +977,39 @@ const App: React.FC = () => {
           
           setShowChangePasswordModal(false);
           setPasswordForm({ userId: '', newPassword: '', confirmPassword: '' });
-          alert('✅ Contraseña actualizada correctamente');
+          
+          // Verificar si es el propio usuario
+          const isOwnPassword = currentUser?.id === passwordForm.userId;
+          if (isOwnPassword) {
+            // Verificar si se creó la sesión de Auth
+            try {
+              const { supabase } = await import('./services/supabase');
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session) {
+                alert('✅ Contraseña actualizada correctamente.\n\nLa sesión de Supabase Auth se sincronizó automáticamente. Ahora puedes subir imágenes.');
+              } else {
+                alert('✅ Contraseña actualizada en la tabla users.\n\n⚠️ IMPORTANTE: Para subir imágenes, necesitas actualizar la contraseña en Supabase Auth también.\n\n' +
+                      'SOLUCIÓN:\n' +
+                      '1. Ve a Supabase Dashboard → Authentication → Users\n' +
+                      '2. Busca tu usuario (' + currentUser.email + ')\n' +
+                      '3. Cambia la contraseña para que coincida con la nueva\n' +
+                      '4. Cierra sesión y vuelve a iniciar en la app\n\n' +
+                      'O contacta al administrador para que use el script reset_password.js');
+              }
+            } catch (e) {
+              alert('✅ Contraseña actualizada en la tabla users.\n\n⚠️ Para subir imágenes, actualiza la contraseña en Supabase Auth también.');
+            }
+          } else {
+            alert('✅ Contraseña actualizada correctamente.\n\nEl usuario deberá usar la nueva contraseña en su próximo login.');
+          }
       } catch (error: any) {
           console.error('Error al cambiar contraseña:', error);
-          const errorMessage = error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.';
+          let errorMessage = error.message || 'Error al cambiar la contraseña. Por favor, intente nuevamente.';
+          
+          // Si el error menciona Supabase Auth, dar instrucciones más claras
+          if (errorMessage.includes('Supabase Auth') || errorMessage.includes('sincronizar')) {
+            errorMessage = error.message; // Usar el mensaje completo del error
+          }
           
           // Si el mensaje contiene información útil, mostrarlo
           if (errorMessage.includes('email de reset') || errorMessage.includes('enviado')) {
@@ -703,6 +1133,7 @@ const App: React.FC = () => {
       if (confirm('¿Eliminar este miembro del equipo de gestión? Esta acción no se puede deshacer.')) {
         try {
           await deleteStaff(staffId);
+          releaseManagementStaffFromUnits(staffId);
         } catch (error) {
           console.error('Error al eliminar personal:', error);
           alert('Error al eliminar el personal. Por favor, intente nuevamente.');
@@ -714,6 +1145,7 @@ const App: React.FC = () => {
       if (confirm('¿Archivar este trabajador? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
         try {
           await archiveStaff(staffId);
+          releaseManagementStaffFromUnits(staffId);
         } catch (error) {
           console.error('Error al archivar personal:', error);
           alert('Error al archivar el personal. Por favor, intente nuevamente.');
@@ -935,7 +1367,30 @@ const App: React.FC = () => {
           return;
         }
         
-        // Guardar en localStorage
+        // Guardar en la base de datos (system_settings)
+        const { supabase } = await import('./services/supabase');
+        const { error: dbError } = await supabase
+          .from('system_settings')
+          .upsert(
+            {
+              key: 'company_logo',
+              value: companyLogo,
+              description: 'Logo de la empresa que aparece en el sidebar y reportes',
+              updated_at: new Date().toISOString(),
+            },
+            {
+              onConflict: 'key',
+            }
+          );
+        
+        if (dbError) {
+          console.error('Error al guardar logo en BD:', dbError);
+          // Continuar guardando en localStorage como fallback
+        } else {
+          console.log('✅ Logo guardado en base de datos');
+        }
+        
+        // Guardar en localStorage también (para compatibilidad y caché)
         localStorage.setItem('OPSFLOW_LOGO', companyLogo);
         
         // Forzar actualización del estado para que se refleje inmediatamente
@@ -1161,7 +1616,7 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'dashboard') {
-      return <Dashboard units={visibleUnits} onSelectUnit={handleSelectUnit} />;
+      return <Dashboard units={visibleUnits} onSelectUnit={handleSelectUnit} currentUserRole={currentUser?.role} />;
     }
 
     if (currentView === 'operations-dashboard') {
@@ -1192,6 +1647,42 @@ const App: React.FC = () => {
       return <Vacations units={visibleUnits} currentUser={currentUser} />;
     }
 
+    if (currentView === 'workers-management') {
+      return <WorkersManagement units={visibleUnits} clients={clients} onUpdateUnit={handleUpdateUnit} />;
+    }
+
+    if (currentView === 'ats-reception') {
+      return (
+        <InboundWorkerHandoff
+          canEdit={checkPermission(currentUser.role, 'ATS_RECEPTION', 'edit')}
+          units={visibleUnits}
+          onRegistered={loadUnits}
+        />
+      );
+    }
+
+    if (currentView === 'hr-opalosis') {
+      return (
+        <HrOpalosisIngreso
+          canEdit={checkPermission(currentUser.role, 'HR_OPALOSIS', 'edit')}
+          units={visibleUnits}
+          currentUserName={currentUser?.name}
+        />
+      );
+    }
+
+    if (currentView === 'archive') {
+      return (
+        <div className="w-full h-full">
+          <Archive 
+            key="archive-view" 
+            currentUserRole={currentUser?.role}
+            onRestoreWorker={loadUnits}
+          />
+        </div>
+      );
+    }
+
     if (currentView === 'units') {
       if (selectedUnitId) {
         const unit = units.find(u => u.id === selectedUnitId);
@@ -1212,6 +1703,7 @@ const App: React.FC = () => {
             availableClients={clients.map(c => ({ id: c.id, name: c.name }))} // Pass available clients
             onBack={() => setSelectedUnitId(null)} 
             onUpdate={handleUpdateUnit}
+            replaceUnitInState={replaceUnitInState}
             googleMapsApiKey={googleMapsKey}
           />
         );
@@ -1227,14 +1719,23 @@ const App: React.FC = () => {
                 {unitSearchQuery && ` para "${unitSearchQuery}"`}
               </p>
             </div>
-            {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
+            <div className="flex gap-2">
               <button 
-                onClick={() => setShowAddUnitModal(true)}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 transition-colors shadow-sm"
+                onClick={handleExportUnitsToExcel}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-green-700 transition-colors shadow-sm"
+                title="Exportar unidades a Excel"
               >
-                <Plus size={20} className="mr-2" /> Nueva Unidad
+                <Download size={20} className="mr-2" /> Exportar Excel
               </button>
-            )}
+              {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'edit') && (
+                <button 
+                  onClick={() => setShowAddUnitModal(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  <Plus size={20} className="mr-2" /> Nueva Unidad
+                </button>
+              )}
+            </div>
           </div>
           
           {/* Search Bar */}
@@ -1260,7 +1761,9 @@ const App: React.FC = () => {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {visibleUnits.map(unit => {
-              const staffCount = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
+              const staffCount = unit.resources.filter(
+                r => r.type === ResourceType.PERSONNEL && !r.archived && r.personnelStatus !== 'cesado'
+              ).length;
               const logisticsCount = unit.resources.filter(r => r.type !== ResourceType.PERSONNEL).length;
               const pendingRequestsCount = unit.requests?.filter(r => r.status === 'PENDING').length || 0;
 
@@ -1807,6 +2310,16 @@ const App: React.FC = () => {
                                      </button>
                                    );
                                  })()}
+                                 {/* Botón para gestionar unidades visibles: solo para usuarios CLIENT */}
+                                 {u.role === 'CLIENT' && (
+                                   <button 
+                                     onClick={(e) => { e.stopPropagation(); handleOpenVisibleUnitsModal(u); }} 
+                                     disabled={isProcessing}
+                                     className="text-green-400 hover:text-green-600 p-1 rounded hover:bg-green-50 mr-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                     title="Gestionar unidades visibles">
+                                     <Eye size={16}/>
+                                   </button>
+                                 )}
                                  <button 
                                    onClick={() => handleDeleteUser(u.id)} 
                                    disabled={isProcessing}
@@ -1932,7 +2445,7 @@ const App: React.FC = () => {
                                  className="text-amber-600 hover:text-amber-900 p-1 rounded hover:bg-amber-50"
                                  title="Archivar trabajador"
                                >
-                                 <Archive size={16} />
+                                 <ArchiveIcon size={16} />
                                </button>
                              )}
                              <button
@@ -1956,21 +2469,23 @@ const App: React.FC = () => {
            {/* --- Clients Management (admin y superadmin) --- */}
            {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-               <button
-                 onClick={() => toggleSettingsSection('clients')}
-                 className="w-full px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center hover:bg-slate-100 transition-colors"
-               >
-                 <h3 className="font-bold text-slate-700 flex items-center"><Building className="mr-2" size={18} /> Gestión de Clientes</h3>
-                 <div className="flex items-center gap-2">
+               <div className="w-full border-b border-slate-100 bg-slate-50">
+                 <div className="px-6 py-4 flex justify-between items-center hover:bg-slate-100 transition-colors">
+                   <div
+                     onClick={() => toggleSettingsSection('clients')}
+                     className="flex-1 flex justify-between items-center cursor-pointer"
+                   >
+                     <h3 className="font-bold text-slate-700 flex items-center"><Building className="mr-2" size={18} /> Gestión de Clientes</h3>
+                     <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.clients ? 'rotate-180' : ''}`} />
+                   </div>
                    <button 
                      onClick={(e) => { e.stopPropagation(); openAddClientModal(); }} 
-                     className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center"
+                     className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-medium hover:bg-slate-50 transition-colors flex items-center ml-2"
                    >
                      <Plus size={14} className="mr-1.5" /> Nuevo Cliente
                    </button>
-                   <ChevronDown size={18} className={`text-slate-500 transition-transform ${settingsSections.clients ? 'rotate-180' : ''}`} />
                  </div>
-               </button>
+               </div>
                {settingsSections.clients && (
                <div className="p-6">
                  {clientsLoading ? (
@@ -2094,10 +2609,16 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-center mt-4">
                        <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline">Obtener API Key</a>
-                       <button onClick={() => {
-                         localStorage.setItem('GOOGLE_MAPS_API_KEY', googleMapsKey);
-                         setIsGoogleMapsSaved(true);
-                         setTimeout(() => setIsGoogleMapsSaved(false), 3000);
+                       <button onClick={async () => {
+                         try {
+                           const { saveGoogleMapsApiKey } = await import('./services/googleMapsService');
+                           await saveGoogleMapsApiKey(googleMapsKey);
+                           setIsGoogleMapsSaved(true);
+                           setTimeout(() => setIsGoogleMapsSaved(false), 3000);
+                         } catch (error) {
+                           console.error('Error al guardar API key:', error);
+                           alert('Error al guardar la API Key. Por favor, intente nuevamente.');
+                         }
                        }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center">
                           <Save size={16} className="mr-2"/> Guardar API Key
                        </button>
@@ -2590,8 +3111,57 @@ const App: React.FC = () => {
     return renderContent();
   }
 
+  // Modal de alertas de cumpleaños (solo cumpleaños de hoy)
+  const BirthdayAlertsModal = () => {
+    // Filtrar solo alertas de hoy (daysUntil === 0)
+    const todayAlerts = birthdayAlerts.filter(alert => alert.daysUntil === 0);
+    
+    if (!showBirthdayAlerts || todayAlerts.length === 0) return null;
+    
+    return (
+      <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-pink-600 text-white px-6 py-4 flex justify-between items-center">
+            <h3 className="font-bold text-lg flex items-center">
+              <Cake className="mr-2" size={20} />
+              Cumpleaños de Hoy
+            </h3>
+            <button 
+              onClick={dismissBirthdayAlerts}
+              className="text-white/80 hover:text-white"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="p-6 overflow-y-auto flex-1">
+            <div className="space-y-2">
+              {todayAlerts.map((alert, idx) => (
+                <div key={idx} className="bg-pink-50 border border-pink-200 rounded-lg p-3">
+                  <p className="font-medium text-slate-800">
+                    🎉 {alert.name} cumple {alert.age} año{alert.age !== 1 ? 's' : ''} hoy
+                  </p>
+                  <p className="text-sm text-slate-600 mt-1">Unidad: {alert.unitName}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
+            <button
+              onClick={dismissBirthdayAlerts}
+              className="w-full bg-pink-600 text-white py-2.5 rounded-lg font-medium hover:bg-pink-700 transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <>
+      <BirthdayAlertsModal />
+      <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Mobile Overlay */}
       {sidebarOpen && (
         <div 
@@ -2640,13 +3210,34 @@ const App: React.FC = () => {
                 </button>
               )}
               
-              <button 
-                onClick={() => { setCurrentView('client-control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'client-control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-              >
-                <LayoutList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                <span className="truncate min-w-0">Centro de Control</span>
-              </button>
+              {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
+                <button 
+                  onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                  className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                >
+                  <LayoutList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                  <span className="truncate min-w-0">Centro de Control</span>
+                </button>
+              )}
+
+              {/* Headcount - Visible for users with HEADCOUNT view permission */}
+              {(() => {
+                const hasPermission = checkPermission(currentUser.role, 'HEADCOUNT', 'view');
+                console.log('🔍 Headcount permission check (CLIENT):', {
+                  role: currentUser.role,
+                  hasPermission,
+                  permissions: getPermissions()[currentUser.role]?.HEADCOUNT
+                });
+                return hasPermission;
+              })() && (
+                  <button 
+                    onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Users size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Headcount</span>
+                  </button>
+              )}
             </>
           ) : (
             <>
@@ -2714,8 +3305,16 @@ const App: React.FC = () => {
                   </button>
               )}
 
-              {/* Headcount - Visible for SUPER_ADMIN, ADMIN, OPERATIONS */}
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS') && (
+              {/* Headcount - Visible for users with HEADCOUNT view permission */}
+              {(() => {
+                const hasPermission = checkPermission(currentUser.role, 'HEADCOUNT', 'view');
+                console.log('🔍 Headcount permission check:', {
+                  role: currentUser.role,
+                  hasPermission,
+                  permissions: getPermissions()[currentUser.role]?.HEADCOUNT
+                });
+                return hasPermission;
+              })() && (
                   <button 
                     onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -2733,6 +3332,50 @@ const App: React.FC = () => {
                   >
                     <Palmtree size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Vacaciones</span>
+                  </button>
+              )}
+
+              {/* Gestión de Trabajadores - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+                  <button 
+                    onClick={() => { setCurrentView('workers-management'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'workers-management' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Trabajadores</span>
+                  </button>
+              )}
+
+              {/* Recepción ATS - Visible for users with ATS_RECEPTION view permission */}
+              {checkPermission(currentUser.role, 'ATS_RECEPTION', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('ats-reception'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'ats-reception' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Inbox size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Recepción ATS</span>
+                  </button>
+              )}
+
+              {/* Envío Opalosis RRHH */}
+              {checkPermission(currentUser.role, 'HR_OPALOSIS', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('hr-opalosis'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'hr-opalosis' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Send size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Envío Opalosis</span>
+                  </button>
+              )}
+
+              {/* Archivo - Visible for users with ARCHIVE permission */}
+              {checkPermission(currentUser.role, 'ARCHIVE', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('archive'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'archive' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <ArchiveIcon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Archivo</span>
                   </button>
               )}
 
@@ -2842,7 +3485,7 @@ const App: React.FC = () => {
         {/* Powered By Logo Section - DYNAMIC */}
         <div className="px-4 md:px-6 pb-4 md:pb-6 pt-2 flex flex-col items-center justify-center shrink-0 min-w-0">
             <span className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 md:mb-2">Powered By</span>
-            {companyLogo ? (
+            {companyLogo && companyLogo.trim() !== '' ? (
               <img 
                 src={companyLogo} 
                 alt="Company Logo" 
@@ -2877,7 +3520,124 @@ const App: React.FC = () => {
            {renderContent()}
         </div>
       </main>
+
+      {/* Modal para gestionar unidades visibles por usuario CLIENT */}
+      {showVisibleUnitsModal && selectedUserForUnits && (currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center shrink-0">
+              <h3 className="font-bold text-lg flex items-center">
+                <Eye className="mr-2" size={20}/> Unidades Visibles para {selectedUserForUnits.name}
+              </h3>
+              <button onClick={() => setShowVisibleUnitsModal(false)} className="text-white/80 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {loadingVisibleUnits ? (
+                <div className="text-center py-8 text-slate-500">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto mb-3"></div>
+                  Cargando unidades...
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(() => {
+                    // Filtrar unidades solo de los clientes vinculados al usuario CLIENT
+                    // Usar availableClientNames que ya incluye los nombres obtenidos de los IDs
+                    const clientNamesToFilter = availableClientNames.length > 0 
+                      ? availableClientNames 
+                      : (selectedUserForUnits.linkedClientNames || []);
+                    
+                    const allowedClientNames = new Set<string>(clientNamesToFilter);
+                    
+                    // Filtrar unidades solo de los clientes asignados al usuario
+                    const filteredUnits = units.filter(unit => {
+                      if (allowedClientNames.size === 0) {
+                        // Si no hay clientes asignados, no mostrar ninguna unidad
+                        return false;
+                      }
+                      // Solo mostrar unidades de los clientes asignados
+                      return allowedClientNames.has(unit.clientName);
+                    });
+                    
+                    return filteredUnits.length === 0 ? (
+                      <div>
+                        <p className="text-sm text-slate-500 mb-2">
+                          {clientNamesToFilter.length === 0 
+                            ? 'Este usuario no tiene clientes asignados. Asigna clientes al usuario primero.'
+                            : 'No hay unidades disponibles para los clientes asignados a este usuario.'}
+                        </p>
+                        {clientNamesToFilter.length > 0 && (
+                          <p className="text-xs text-slate-400">
+                            Clientes asignados: {clientNamesToFilter.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-xs text-slate-500 mb-3">
+                          Selecciona las unidades que {selectedUserForUnits.name} podrá ver. 
+                          Solo se muestran unidades de los clientes asignados a este usuario.
+                          {clientNamesToFilter.length > 0 && (
+                            <span className="block mt-1 font-medium">Clientes: {clientNamesToFilter.join(', ')}</span>
+                          )}
+                          {!selectedVisibleUnitIds.length && (
+                            <span className="block mt-2 text-amber-600">Si no seleccionas ninguna, verá todas las unidades de los clientes asignados.</span>
+                          )}
+                        </p>
+                        {filteredUnits.map(unit => (
+                          <label key={unit.id} className="flex items-center p-2 hover:bg-slate-100 rounded-lg cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 mr-3"
+                              checked={selectedVisibleUnitIds.includes(unit.id)}
+                              onChange={() => handleToggleVisibleUnit(unit.id)}
+                            />
+                            <div className="flex-1">
+                              <span className="text-sm text-slate-700 font-medium">{unit.name}</span>
+                              <span className="text-xs text-slate-500 ml-2">({unit.clientName})</span>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
+              <button
+                onClick={handleSaveVisibleUnits}
+                disabled={loadingVisibleUnits}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingVisibleUnits ? (
+                  <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div> Guardando...</>
+                ) : (
+                  <><Save size={16} className="mr-2"/> Guardar Cambios</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de recuperación de contraseña */}
+      {passwordResetToken && (
+        <PasswordReset
+          accessToken={passwordResetToken}
+          onSuccess={() => {
+            setPasswordResetToken(null);
+            // Recargar la página para que el usuario pueda iniciar sesión
+            window.location.reload();
+          }}
+          onCancel={() => {
+            setPasswordResetToken(null);
+          }}
+        />
+      )}
     </div>
+    </>
   );
 };
 

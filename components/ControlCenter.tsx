@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff, UserRole } from '../types';
-import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2, Cake } from 'lucide-react';
 import { checkPermission } from '../services/permissionService';
 import { SafeImage } from './SafeImage';
 
@@ -18,11 +18,12 @@ interface GlobalEvent {
   unitId: string;
   unitName: string;
   date: string; // YYYY-MM-DD
-  category: 'Log' | 'Maintenance' | 'Training' | 'ContractAlert';
+  category: 'Log' | 'Maintenance' | 'Training' | 'ContractAlert' | 'Birthday';
   type: string; // Subtype (e.g., 'Incidencia', 'Preventivo')
   description: string;
   status?: string;
   resourceName?: string; // For maintenance/training
+  author?: string; // Usuario que crea el evento (para Logs)
   originalRef: any; // Reference to the original object to allow updating
 }
 
@@ -97,6 +98,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
           category: 'Log',
           type: log.type,
           description: log.description,
+          author: log.author,
           status: 'Registrado',
           originalRef: log
         });
@@ -157,6 +159,63 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       });
     });
 
+    // Add birthday events (show birthdays in the next 30 days for calendar visibility)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const currentYear = today.getFullYear();
+    
+    units.forEach(unit => {
+      unit.resources.forEach(resource => {
+        if (resource.type === ResourceType.PERSONNEL && resource.birthDate && !resource.archived && resource.personnelStatus !== 'cesado') {
+          // Parse birthDate manually to avoid timezone issues
+          // birthDate comes as "YYYY-MM-DD" string
+          const [birthYear, birthMonth, birthDay] = resource.birthDate.split('-').map(Number);
+          const birthDate = new Date(birthYear, birthMonth - 1, birthDay);
+          
+          // Create birthday dates in local timezone
+          const birthdayThisYear = new Date(currentYear, birthMonth - 1, birthDay);
+          const birthdayNextYear = new Date(currentYear + 1, birthMonth - 1, birthDay);
+          
+          // Check if birthday is today or in the next 30 days
+          const daysUntilBirthday = Math.floor((birthdayThisYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          const daysUntilNextYearBirthday = Math.floor((birthdayNextYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          let birthdayDate: Date;
+          let daysUntil: number;
+          
+          if (daysUntilBirthday >= 0 && daysUntilBirthday <= 30) {
+            birthdayDate = birthdayThisYear;
+            daysUntil = daysUntilBirthday;
+          } else if (daysUntilBirthday < 0 && daysUntilNextYearBirthday <= 30) {
+            birthdayDate = birthdayNextYear;
+            daysUntil = daysUntilNextYearBirthday;
+          } else {
+            return; // Skip if birthday is more than 30 days away
+          }
+          
+          // Format date in local timezone to avoid UTC offset issues
+          const year = birthdayDate.getFullYear();
+          const month = String(birthdayDate.getMonth() + 1).padStart(2, '0');
+          const day = String(birthdayDate.getDate()).padStart(2, '0');
+          const birthdayDateStr = `${year}-${month}-${day}`;
+          const age = currentYear - birthYear;
+          
+          events.push({
+            id: `birthday-${resource.id}-${birthdayDateStr}`,
+            unitId: unit.id,
+            unitName: unit.name,
+            date: birthdayDateStr,
+            category: 'Birthday',
+            type: daysUntil === 0 ? 'Cumpleaños Hoy' : `Cumpleaños en ${daysUntil} día${daysUntil !== 1 ? 's' : ''}`,
+            description: `${resource.name} cumple ${age} año${age !== 1 ? 's' : ''}`,
+            status: daysUntil === 0 ? 'Hoy' : 'Próximo',
+            resourceName: resource.name,
+            originalRef: resource
+          });
+        }
+      });
+    });
+
     // Add contract alerts as events (only for operations users)
     if (isOperationsUser) {
       const today = new Date();
@@ -212,6 +271,18 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       return matchesUnit && matchesCategory && matchesSearch;
     });
   }, [allEvents, filterUnit, filterCategory, searchTerm]);
+
+  // Autores únicos para la leyenda (solo Logs, según eventos filtrados)
+  const authorLegend = useMemo(() => {
+    const authors = new Set<string>();
+    filteredEvents.forEach(ev => {
+      if (ev.category === 'Log') {
+        const name = (ev.author || ev.originalRef?.author || '').trim();
+        if (name) authors.add(name);
+      }
+    });
+    return Array.from(authors).sort();
+  }, [filteredEvents]);
 
   // --- Handlers ---
   const handleEditClick = (event: GlobalEvent) => {
@@ -439,7 +510,30 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
      if (s.includes('pendiente') || s.includes('programado')) return 'bg-blue-100 text-blue-700';
      if (s.includes('incidencia') || s.includes('reparacion')) return 'bg-red-100 text-red-700';
      return 'bg-gray-100 text-gray-600';
-  }
+  };
+
+  // Color consistente por usuario (autor del evento)
+  const getAuthorColor = (author?: string) => {
+    if (!author) return 'bg-slate-100 text-slate-700 border-slate-200';
+
+    const normalized = author.toLowerCase().trim();
+    const palette = [
+      'bg-emerald-100 text-emerald-700 border-emerald-200',
+      'bg-sky-100 text-sky-700 border-sky-200',
+      'bg-violet-100 text-violet-700 border-violet-200',
+      'bg-amber-100 text-amber-700 border-amber-200',
+      'bg-rose-100 text-rose-700 border-rose-200',
+      'bg-teal-100 text-teal-700 border-teal-200',
+      'bg-indigo-100 text-indigo-700 border-indigo-200',
+    ];
+
+    let hash = 0;
+    for (let i = 0; i < normalized.length; i++) {
+      hash = (hash + normalized.charCodeAt(i)) % 2147483647;
+    }
+    const index = hash % palette.length;
+    return palette[index];
+  };
 
   const getUnitPersonnel = (unitId: string) => {
       const unit = units.find(u => u.id === unitId);
@@ -501,14 +595,16 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                   setHoveredEvent(null);
                                 }
                               }}
-                              className={`${isClientUser ? 'text-[10px] md:text-xs px-1 md:px-1.5 py-1 md:py-1.5' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} rounded border ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${isClientUser ? '' : 'truncate'} shadow-sm hover:opacity-80 transition-opacity
-                                ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-100 text-red-700 border-red-200' : 
-                                  ev.category === 'Log' ? 'bg-gray-100 text-gray-700 border-gray-200' :
+                              className={`${isClientUser ? 'text-[10px] md:text-xs px-1 md:px-1.5 py-1 md:py-1.5' : 'text-[8px] md:text-[9px] px-0.5 md:px-1 py-0.5'} rounded border ${canEdit && ev.category !== 'Birthday' ? 'cursor-pointer' : 'cursor-default'} ${isClientUser ? '' : 'truncate'} shadow-sm hover:opacity-80 transition-opacity
+                                ${ev.category === 'Birthday' ? 'bg-pink-100 text-pink-700 border-pink-200' :
+                                  ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-100 text-red-700 border-red-200' : 
+                                  ev.category === 'Log' ? getAuthorColor(ev.author || ev.originalRef?.author) :
                                   ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-700 border-orange-200' :
                                   'bg-blue-100 text-blue-700 border-blue-200'
                                 }`}
                               title={!isClientUser ? `${ev.unitName}: ${ev.description}` : undefined}
                            >
+                              {ev.category === 'Birthday' && <Cake size={isClientUser ? 10 : 6} className={`inline mr-0.5 ${isClientUser ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
                               {ev.type === 'Incidencia' && <AlertTriangle size={isClientUser ? 10 : 6} className={`inline mr-0.5 ${isClientUser ? 'md:w-3 md:h-3' : 'md:w-2 md:h-2'}`}/>}
                               {isClientUser ? (
                                 <>
@@ -517,9 +613,30 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                     <span className="text-[8px] md:text-[9px] text-slate-500 px-1 py-0.5 rounded bg-slate-100 whitespace-nowrap">{ev.type}</span>
                                   </div>
                                   <span className="block line-clamp-2 text-[9px] md:text-[10px] text-slate-600 mt-0.5">{ev.description}</span>
+                                  {ev.category === 'Log' && (ev.author || ev.originalRef?.author) && (
+                                    <span
+                                      className={`inline-flex items-center mt-0.5 px-1 py-0.5 rounded-full border text-[8px] md:text-[9px] font-medium ${getAuthorColor(
+                                        ev.author || ev.originalRef?.author
+                                      )}`}
+                                    >
+                                      {ev.author || ev.originalRef?.author}
+                                    </span>
+                                  )}
                                 </>
                               ) : (
+                                <>
                                 <span className="truncate block">{ev.description}</span>
+                                  {ev.category === 'Log' && (ev.author || ev.originalRef?.author) && (
+                                    <span
+                                      className={`inline-flex items-center mt-0.5 px-1 py-0.5 rounded-full border text-[8px] md:text-[9px] font-medium ${getAuthorColor(
+                                        ev.author || ev.originalRef?.author
+                                      )}`}
+                                      title={`Autor: ${ev.author || ev.originalRef?.author}`}
+                                    >
+                                      {ev.author || ev.originalRef?.author}
+                                    </span>
+                                  )}
+                                </>
                               )}
                            </div>
                         ))}
@@ -626,7 +743,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                     }}
                     className={`p-3 md:p-4 rounded-lg border-2 ${canEdit ? 'cursor-pointer hover:shadow-md' : 'cursor-default'} transition-all
                       ${ev.category === 'Log' && ev.type === 'Incidencia' ? 'bg-red-50 border-red-200' : 
-                        ev.category === 'Log' ? 'bg-gray-50 border-gray-200' :
+                        ev.category === 'Log' ? getAuthorColor(ev.author || ev.originalRef?.author) :
                         ev.category === 'Maintenance' ? 'bg-orange-50 border-orange-200' :
                         ev.category === 'ContractAlert' ? 'bg-red-50 border-red-300' :
                         'bg-blue-50 border-blue-200'
@@ -646,6 +763,15 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                           {ev.status && (
                             <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(ev.status)}`}>
                               {ev.status}
+                            </span>
+                          )}
+                          {ev.category === 'Log' && (ev.author || ev.originalRef?.author) && (
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs font-medium border ${getAuthorColor(
+                                ev.author || ev.originalRef?.author
+                              )}`}
+                            >
+                              {ev.author || ev.originalRef?.author}
                             </span>
                           )}
                         </div>
@@ -681,6 +807,23 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
             <h1 className="text-xl md:text-2xl font-bold text-slate-800">Centro de Control Operativo</h1>
             <p className="text-xs md:text-sm text-slate-500">Gestión consolidada de eventos y bitácoras.</p>
           </div>
+          {authorLegend.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 px-3 py-2 flex flex-wrap gap-2 items-center shadow-sm">
+              <span className="text-[10px] md:text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Leyenda usuarios (bitácoras)
+              </span>
+              {authorLegend.map(name => (
+                <span
+                  key={name}
+                  className={`inline-flex items-center px-1.5 md:px-2 py-0.5 rounded-full border text-[9px] md:text-[10px] font-medium ${getAuthorColor(
+                    name
+                  )}`}
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+          )}
        </div>
 
        {/* Filters */}
@@ -713,6 +856,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                 <option value="Log">Bitácora</option>
                 <option value="Maintenance">Mantenimiento</option>
                 <option value="Training">Capacitación</option>
+                <option value="Birthday">Cumpleaños</option>
                 {isOperationsUser && <option value="ContractAlert">Alertas de Contrato</option>}
              </select>
           </div>
@@ -751,12 +895,26 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                                         ${ev.category === 'Log' ? 'bg-gray-100 text-gray-800' : 
                                             ev.category === 'Maintenance' ? 'bg-orange-100 text-orange-800' : 
                                             ev.category === 'ContractAlert' ? 'bg-red-100 text-red-800' :
+                                            ev.category === 'Birthday' ? 'bg-pink-100 text-pink-800' :
                                             'bg-blue-100 text-blue-800'}`}>
                                         {ev.category === 'Maintenance' && <Wrench size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         {ev.category === 'Training' && <GraduationCap size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         {ev.category === 'ContractAlert' && <AlertTriangle size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
+                                        {ev.category === 'Birthday' && <Cake size={8} className="mr-0.5 md:w-2.5 md:h-2.5"/>}
                                         <span className="truncate max-w-[60px] md:max-w-none">{ev.type}</span>
                                     </span>
+                                    {ev.category === 'Log' && (ev.author || ev.originalRef?.author) && (
+                                      <div className="mt-1">
+                                        <span
+                                          className={`inline-flex items-center px-1.5 md:px-2 py-0.5 rounded-full border text-[9px] md:text-[10px] font-medium ${getAuthorColor(
+                                            ev.author || ev.originalRef?.author
+                                          )}`}
+                                          title={`Autor: ${ev.author || ev.originalRef?.author}`}
+                                        >
+                                          {ev.author || ev.originalRef?.author}
+                                        </span>
+                                      </div>
+                                    )}
                                 </td>
                                 <td className="px-2 md:px-4 py-2 md:py-3 text-[10px] md:text-xs text-slate-600 max-w-[120px] md:max-w-xs">
                                     <div className="line-clamp-2" title={ev.description}>

@@ -1,12 +1,15 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet } from 'lucide-react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
-import { requestsService } from '../services/requestsService';
+import { requestsService, requestCommentIsFromViewer } from '../services/requestsService';
+import { variableCompensationsService } from '../services/variableCompensationsService';
 import { SafeImage } from './SafeImage';
+import { AttendanceReportsTab } from './AttendanceReportsTab';
+import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -16,6 +19,9 @@ interface UnitDetailProps {
   availableClients?: { id: string; name: string }[]; // Lista de clientes disponibles
   onBack: () => void;
   onUpdate?: (updatedUnit: Unit) => void | Promise<void>;
+  /** Solo estado React: usar para requests/comentarios sin disparar persistencia de toda la unidad (evita re-guardar cientos de recursos). */
+  replaceUnitInState?: (updatedUnit: Unit) => void;
+  googleMapsApiKey?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -42,6 +48,160 @@ const PRIORITY_STYLES = {
     'HIGH': 'bg-red-100 text-red-600 font-bold'
 };
 
+/** Mismo gris por defecto que el plano cuando una zona no tiene layout */
+const DEFAULT_ZONE_PLAN_COLOR = '#94a3b8';
+
+function normalizeZoneNameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/** Color `layout.color` de la zona en el plano (hex), o gris por defecto */
+function getZoneHexColorForAssignedName(unitZones: Zone[] | undefined, assignedName: string): string {
+  const t = assignedName.trim();
+  if (!t || !unitZones?.length) return DEFAULT_ZONE_PLAN_COLOR;
+  let z = unitZones.find((x) => x.name === t);
+  if (!z) z = unitZones.find((x) => normalizeZoneNameKey(x.name) === normalizeZoneNameKey(t));
+  const c = z?.layout?.color?.trim();
+  if (c && /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(c)) return c;
+  return DEFAULT_ZONE_PLAN_COLOR;
+}
+
+function foregroundForHexBackground(hex: string): string {
+  const raw = hex.replace('#', '');
+  const expanded =
+    raw.length === 3
+      ? raw.split('').map((ch) => ch + ch).join('')
+      : raw.length >= 6
+        ? raw.slice(0, 6)
+        : '949494';
+  const r = parseInt(expanded.slice(0, 2), 16) / 255;
+  const g = parseInt(expanded.slice(2, 4), 16) / 255;
+  const b = parseInt(expanded.slice(4, 6), 16) / 255;
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.55 ? '#0f172a' : '#f8fafc';
+}
+
+interface ZoneNameBadgesProps {
+  unitZones: Zone[] | undefined;
+  zoneNames: string[];
+  className?: string;
+  size?: 'sm' | 'xs';
+}
+
+const ZoneNameBadges: React.FC<ZoneNameBadgesProps> = ({ unitZones, zoneNames, className = '', size = 'sm' }) => {
+  if (!zoneNames.length) return null;
+  const pad = size === 'xs' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs';
+  return (
+    <span className={`inline-flex flex-wrap items-center gap-1 max-w-full ${className}`}>
+      {zoneNames.map((zn, i) => {
+        const bg = getZoneHexColorForAssignedName(unitZones, zn);
+        const fg = foregroundForHexBackground(bg);
+        return (
+          <span
+            key={`${zn}-${i}`}
+            className={`rounded-full font-medium max-w-[160px] truncate border border-black/10 shadow-sm ${pad}`}
+            style={{ backgroundColor: bg, color: fg }}
+            title={zn}
+          >
+            {zn}
+          </span>
+        );
+      })}
+    </span>
+  );
+};
+
+/** Hilo de discusión de requerimientos: scroll interno fiable (min-h-0 + flex) y orden cronológico */
+const RequestDiscussionThread: React.FC<{
+  comments: RequestComment[] | undefined;
+  userRole: UserRole;
+  variant: 'inline' | 'modal';
+}> = ({ comments, userRole, variant }) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sorted = useMemo(
+    () =>
+      [...(comments || [])].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      ),
+    [comments]
+  );
+
+  const scrollSig = useMemo(
+    () => sorted.map((c) => `${c.id}:${String(c.date)}:${(c.text || '').length}`).join('|'),
+    [sorted]
+  );
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [scrollSig, variant]);
+
+  if (variant === 'inline') {
+    return (
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 p-3 overflow-y-auto overscroll-y-contain custom-scrollbar space-y-3 max-h-[min(22rem,55vh)] sm:max-h-[min(24rem,50vh)]"
+      >
+        {sorted.length === 0 ? (
+          <div className="min-h-[100px] flex flex-col items-center justify-center text-slate-300">
+            <MessageSquarePlus size={24} className="mb-1 opacity-50" />
+            <span className="text-xs">Sin comentarios</span>
+          </div>
+        ) : (
+          sorted.map((comment, idx) => (
+            <div
+              key={`${comment.id}-${idx}`}
+              className={`flex flex-col ${requestCommentIsFromViewer(comment.role, userRole) ? 'items-end' : 'items-start'}`}
+            >
+              <div
+                className={`relative px-3 py-2 rounded-lg text-xs max-w-[90%] ${
+                  requestCommentIsFromViewer(comment.role, userRole)
+                    ? 'bg-blue-100 text-blue-900 rounded-br-none'
+                    : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm'
+                }`}
+              >
+                <p className="whitespace-pre-wrap break-words">{comment.text}</p>
+              </div>
+              <span className="text-[9px] text-slate-400 mt-1 px-1">{comment.author}</span>
+            </div>
+          ))
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={scrollRef}
+      className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100 max-h-[min(18rem,45vh)] min-h-0 overflow-y-auto overscroll-y-contain custom-scrollbar"
+    >
+      {sorted.length === 0 && (
+        <p className="text-xs text-slate-400 italic text-center">No hay comentarios aún.</p>
+      )}
+      {sorted.map((comment, idx) => (
+        <div
+          key={`${comment.id}-${idx}`}
+          className={`flex flex-col ${requestCommentIsFromViewer(comment.role, userRole) ? 'items-end' : 'items-start'}`}
+        >
+          <div
+            className={`max-w-[85%] rounded-lg p-3 text-sm ${
+              requestCommentIsFromViewer(comment.role, userRole)
+                ? 'bg-blue-100 text-blue-900 rounded-br-none'
+                : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
+            }`}
+          >
+            <p className="whitespace-pre-wrap break-words">{comment.text}</p>
+          </div>
+          <span className="text-[10px] text-slate-400 mt-1 px-1">
+            {comment.author} • {new Date(comment.date).toLocaleDateString()}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // Helper to start weeks on Monday
 const getMonday = (d: Date) => {
   const date = new Date(d);
@@ -50,7 +210,11 @@ const getMonday = (d: Date) => {
   return new Date(date.setDate(diff));
 }
 
-export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, googleMapsApiKey }) => {
+type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation' | 'attendance';
+type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones' | 'localidad' | 'phone';
+type SortDirection = 'asc' | 'desc';
+
+export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, replaceUnitInState, googleMapsApiKey }) => {
   // Cargar activos estándar al montar el componente
   React.useEffect(() => {
     const loadStandardAssets = async () => {
@@ -76,56 +240,115 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       try {
         const { positionsService } = await import('../services/positionsService');
         const data = await positionsService.getAll(true); // Incluir inactivos para referencia
+        console.log('✅ Puestos cargados:', data.length);
         setPositions(data);
-      } catch (error) {
-        console.error('Error al cargar puestos:', error);
+        if (data.length === 0) {
+          console.warn('⚠️ No se encontraron puestos predefinidos. Verifica que existan en la base de datos.');
+        }
+      } catch (error: any) {
+        console.error('❌ Error al cargar puestos:', error);
+        console.error('❌ Detalles del error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details
+        });
+        // Mostrar notificación si hay error
+        setNotification({ 
+          type: 'error', 
+          message: `Error al cargar puestos predefinidos: ${error.message || 'Error desconocido'}. Verifica tu conexión y permisos.` 
+        });
+        setTimeout(() => setNotification(null), 8000);
       }
     };
     loadPositions();
   }, []);
 
-  // Corregir trabajadores con endDate que no están marcados como cesados/archivados
-  React.useEffect(() => {
-    const fixCesadosWorkers = async () => {
-      if (!onUpdate) return;
-      
-      const workersToFix = unit.resources.filter(r => 
-        r.type === ResourceType.PERSONNEL && 
-        r.endDate && 
-        (r.personnelStatus !== 'cesado' || !r.archived)
-      );
+  // NOTA: endDate es solo referencial y NO debe cambiar automáticamente el estado
+  // El cese/archivo solo ocurre cuando se ejecuta explícitamente la acción de "Cesar"
+  // Este useEffect fue eliminado porque marcaba automáticamente como "cesado" a trabajadores con endDate
+  // Los trabajadores con endDate pero sin haber sido cesados explícitamente deben mantenerse como "activo"
+  
+  // Ref para evitar que se ejecute múltiples veces la corrección de trabajadores cesados
+  const hasFixedCesadoWorkersRef = useRef<Set<string>>(new Set());
+  
+  // Ref para rastrear si hay un proceso de cese en curso
+  const isTerminatingRef = useRef<boolean>(false);
 
-      if (workersToFix.length === 0) return;
-
-      try {
-        const { resourcesService } = await import('../services/resourcesService');
-        const updatePromises = workersToFix.map(worker => 
-          resourcesService.update(worker.id, {
-            personnelStatus: 'cesado' as const,
-            archived: true
-          })
-        );
-
-        await Promise.all(updatePromises);
-        
-        // Recargar la unidad para reflejar los cambios
-        const { unitsService } = await import('../services/unitsService');
-        const updatedUnit = await unitsService.getById(unit.id);
-        if (updatedUnit) {
-          onUpdate(updatedUnit);
-        }
-      } catch (error) {
-        console.error('Error al corregir trabajadores cesados:', error);
-      }
-    };
-
-    // Ejecutar solo una vez al cargar la unidad
-    fixCesadosWorkers();
-  }, [unit.id]); // Solo cuando cambia el ID de la unidad
+  // DESHABILITADO: Este proceso automático estaba causando conflictos con el cese manual de trabajadores
+  // Los trabajadores cesados manualmente por los usuarios estaban siendo revertidos automáticamente
+  // Si necesitas corregir trabajadores incorrectamente cesados, usa el script SQL manualmente
+  // 
+  // React.useEffect(() => {
+  //   // Evitar ejecutar múltiples veces para la misma unidad
+  //   if (hasFixedCesadoWorkersRef.current.has(unit.id)) {
+  //     return;
+  //   }
+  //
+  //   const fixIncorrectlyCesadoWorkers = async () => {
+  //     if (!onUpdate || isTerminatingRef.current) return; // No ejecutar si hay un cese en curso
+  //     
+  //     // Buscar trabajadores con endDate que están marcados como "cesado" pero NO están archivados
+  //     // Estos fueron marcados incorrectamente y deben volver a "activo"
+  //     const workersToFix = unit.resources.filter(r => 
+  //       r.type === ResourceType.PERSONNEL && 
+  //       r.endDate && 
+  //       r.personnelStatus === 'cesado' && 
+  //       !r.archived // Solo corregir si NO están archivados explícitamente
+  //     );
+  //
+  //     if (workersToFix.length === 0) {
+  //       // Marcar como procesado aunque no haya nada que corregir
+  //       hasFixedCesadoWorkersRef.current.add(unit.id);
+  //       return;
+  //     }
+  //
+  //     try {
+  //       // Marcar como procesado ANTES de hacer las actualizaciones para evitar loops
+  //       hasFixedCesadoWorkersRef.current.add(unit.id);
+  //
+  //       const { resourcesService } = await import('../services/resourcesService');
+  //       const updatePromises = workersToFix.map(worker => 
+  //         resourcesService.update(worker.id, {
+  //           personnelStatus: 'activo' as const, // Volver a activo
+  //           // Mantener endDate (es solo referencial)
+  //           // NO cambiar archived (debe permanecer false)
+  //         })
+  //       );
+  //
+  //       await Promise.all(updatePromises);
+  //       
+  //       // Recargar la unidad para reflejar los cambios
+  //       const { unitsService } = await import('../services/unitsService');
+  //       const updatedUnit = await unitsService.getById(unit.id);
+  //       if (updatedUnit) {
+  //         onUpdate(updatedUnit);
+  //       }
+  //       
+  //       console.log(`✅ Corregidos ${workersToFix.length} trabajadores que estaban incorrectamente marcados como "cesado"`);
+  //       setNotification({ 
+  //         type: 'success', 
+  //         message: `✅ Corregidos ${workersToFix.length} trabajador${workersToFix.length > 1 ? 'es' : ''} que estaban incorrectamente marcados como "cesado"` 
+  //       });
+  //       setTimeout(() => setNotification(null), 5000);
+  //     } catch (error) {
+  //       // Si hay error, remover de la lista para permitir reintento
+  //       hasFixedCesadoWorkersRef.current.delete(unit.id);
+  //       console.error('Error al corregir trabajadores incorrectamente marcados como cesado:', error);
+  //       setNotification({ 
+  //         type: 'error', 
+  //         message: 'Error al corregir trabajadores. Por favor, ejecute el script SQL manualmente.' 
+  //       });
+  //       setTimeout(() => setNotification(null), 5000);
+  //     }
+  //   };
+  //
+  //   // Ejecutar solo una vez al cargar la unidad
+  //   fixIncorrectlyCesadoWorkers();
+  // }, [unit.id]); // Remover onUpdate de las dependencias para evitar loops
 
   // Mantener el tab activo incluso cuando la unidad se actualiza
-  const [activeTab, setActiveTab] = useState<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
-  const activeTabRef = useRef<'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents'>('overview');
+  const [activeTab, setActiveTab] = useState<UnitDetailTab>('overview');
+  const activeTabRef = useRef<UnitDetailTab>('overview');
   const previousUnitIdRef = useRef<string>(unit.id);
 
   // Estados para modal de supervisión nocturna
@@ -155,32 +378,90 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Nueva unidad, resetear a overview
       setActiveTab('overview');
       activeTabRef.current = 'overview';
+      previousUnitIdRef.current = unit.id;
     }
-    previousUnitIdRef.current = unit.id;
-  }, [unit.id]); // Solo cuando cambia el ID de la unidad
+  }, [unit.id, activeTab]); // Solo cuando cambia el ID de la unidad
   
   // Edit Unit General Info State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(unit);
   
   // Sincronizar editForm cuando unit cambia (importante para preservar recursos)
-  useEffect(() => {
-    setEditForm(unit);
-  }, [unit.id]); // Solo cuando cambia el ID de la unidad
+  // El useEffect más abajo (línea ~500) ya maneja esta sincronización
   const [newZoneName, setNewZoneName] = useState('');
-  const [newZoneShifts, setNewZoneShifts] = useState<string[]>([]);
+  const [newZoneShifts, setNewZoneShifts] = useState<ShiftType[]>(['Day']);
 
   // Personnel State
   const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>('list'); // New View Mode
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
   const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado
+  const [showCesadoPersonnel, setShowCesadoPersonnel] = useState(false); // Mostrar personal cesado (no archivado)
+  const [personnelSearchQuery, setPersonnelSearchQuery] = useState<string>(''); // Barra de búsqueda para personal
+  const [personnelSort, setPersonnelSort] = useState<{ key: PersonnelSortKey; direction: SortDirection } | null>(null);
+  
+  // Limpiar búsqueda cuando cambie el modo de vista o el estado de archivados/cesados
+  React.useEffect(() => {
+    setPersonnelSearchQuery('');
+  }, [personnelViewMode, showArchivedPersonnel, showCesadoPersonnel]);
+  
+  // Salary increments states
+  const [showSalaryIncrementModal, setShowSalaryIncrementModal] = useState(false);
+  const [selectedWorkerForIncrement, setSelectedWorkerForIncrement] = useState<Resource | null>(null);
+  
+  // Cese y renovación de contrato states
+  const [showTerminateModal, setShowTerminateModal] = useState(false);
+  const [selectedWorkerForTermination, setSelectedWorkerForTermination] = useState<Resource | null>(null);
+  const [terminationType, setTerminationType] = useState<'cesado' | 'archivado'>('cesado');
+  const [terminationDate, setTerminationDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [isTerminating, setIsTerminating] = useState(false);
+  
+  const [showRenewContractModal, setShowRenewContractModal] = useState(false);
+  const [selectedWorkerForRenewal, setSelectedWorkerForRenewal] = useState<Resource | null>(null);
+  const [renewContractForm, setRenewContractForm] = useState<{ startDate: string; endDate: string; notes: string; monthlySalary?: number; workConditionAmount?: number }>({ startDate: '', endDate: '', notes: '', monthlySalary: undefined, workConditionAmount: undefined });
+  const [isRenewingContract, setIsRenewingContract] = useState(false);
+  const [contractHistory, setContractHistory] = useState<Record<string, ContractHistory[]>>({});
+  const contractHistoryRef = useRef<Record<string, ContractHistory[]>>({});
+  useEffect(() => {
+    contractHistoryRef.current = contractHistory;
+  }, [contractHistory]);
+  const [salaryIncrements, setSalaryIncrements] = useState<Record<string, SalaryIncrement[]>>({});
+  const [newIncrementForm, setNewIncrementForm] = useState<{
+    previousSalary: number;
+    newSalary: number;
+    incrementDate: string;
+    effectiveDate: string;
+    notes?: string;
+  }>({
+    previousSalary: 0,
+    newSalary: 0,
+    incrementDate: new Date().toISOString().split('T')[0],
+    effectiveDate: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
+  const [isSavingIncrement, setIsSavingIncrement] = useState(false);
+
+  // Variable compensation states
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [compensationMonth, setCompensationMonth] = useState(currentMonth);
+  const [variableCompensations, setVariableCompensations] = useState<VariableCompensation[]>([]);
+  const [isLoadingCompensations, setIsLoadingCompensations] = useState(false);
+  const [isSavingCompensation, setIsSavingCompensation] = useState(false);
+  const [compensationForm, setCompensationForm] = useState({
+    resourceId: '',
+    amount: '',
+    concept: 'Comisión',
+    paymentDate: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
   
   // Loading and notification states
   const [isSavingWorker, setIsSavingWorker] = useState(false);
   const [isUpdatingResource, setIsUpdatingResource] = useState(false);
+  const [isDeletingResource, setIsDeletingResource] = useState(false);
   const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
   const [isSavingRequest, setIsSavingRequest] = useState(false);
+  const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   
   // Roster State - Estado local optimizado para actualizaciones rápidas
@@ -188,11 +469,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [localResources, setLocalResources] = useState<Resource[]>(unit.resources);
   const [rosterHasUnsavedChanges, setRosterHasUnsavedChanges] = useState(false);
   const [isSavingRoster, setIsSavingRoster] = useState(false);
+  const [dirtyRosterShifts, setDirtyRosterShifts] = useState<Set<string>>(new Set());
   
   // Sincronizar localResources cuando unit.resources cambia desde el padre
   useEffect(() => {
     setLocalResources(unit.resources);
     setRosterHasUnsavedChanges(false); // Resetear cuando se carga nueva data
+    setDirtyRosterShifts(new Set());
   }, [unit.resources]);
 
   // Mass Training State
@@ -206,20 +489,59 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     type: 'EPP' as 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro', 
     dateAssigned: '', 
     serialNumber: '',
+    phoneNumber: '',
     standardAssetId: '' as string | undefined
   });
   const [generateConstancy, setGenerateConstancy] = useState(true); // Por defecto generar constancia
   const [standardAssets, setStandardAssets] = useState<Array<{ id: string; name: string; type: string; defaultSerialNumberPrefix?: string }>>([]);
   const [useStandardAsset, setUseStandardAsset] = useState(true); // Por defecto usar catálogo
+  const [showEditAssignedAssetModal, setShowEditAssignedAssetModal] = useState(false);
+  const [selectedWorkerForAssetEdit, setSelectedWorkerForAssetEdit] = useState<Resource | null>(null);
+  const [editAssignedAssetForm, setEditAssignedAssetForm] = useState<{
+    id: string;
+    name: string;
+    type: 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro';
+    dateAssigned: string;
+    serialNumber: string;
+    phoneNumber: string;
+    notes: string;
+  }>({
+    id: '',
+    name: '',
+    type: 'EPP',
+    dateAssigned: '',
+    serialNumber: '',
+    phoneNumber: '',
+    notes: ''
+  });
+
+  const isCorporatePhoneAsset = (name: string) => {
+    const normalized = (name || '').toLowerCase();
+    return normalized.includes('celular corporativo') || normalized.includes('telefono corporativo');
+  };
+
+  const handleOpenEditAssignedAsset = (worker: Resource, asset: AssignedAsset) => {
+    setSelectedWorkerForAssetEdit(worker);
+    setEditAssignedAssetForm({
+      id: asset.id,
+      name: asset.name || '',
+      type: (asset.type || 'EPP') as 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro',
+      dateAssigned: (asset.dateAssigned || (asset as any).date_assigned || '').split('T')[0],
+      serialNumber: asset.serialNumber || (asset as any).serial_number || '',
+      phoneNumber: asset.phoneNumber || (asset as any).phone_number || '',
+      notes: asset.notes || ''
+    });
+    setShowEditAssignedAssetModal(true);
+  };
   
   // Positions State
   const [positions, setPositions] = useState<Position[]>([]);
   const [showRequiredPositionsModal, setShowRequiredPositionsModal] = useState(false);
   const [editingRequiredPosition, setEditingRequiredPosition] = useState<RequiredPosition | null>(null);
-  const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1 });
+  const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1, shift: '' as string | undefined });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; dni?: string; puesto?: string; startDate?: string; endDate?: string; isShared?: boolean }>({ name: '', zones: [], shift: '', dni: '', puesto: '', startDate: '', endDate: '', isShared: false });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -232,6 +554,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Resource Editing State (Logistics & Personnel)
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [isSyncing, setIsSyncing] = useState<string | null>(null); // ID of resource currently syncing
+  const getWorkerInitial = (name?: string) => (name?.trim().charAt(0) || '?').toUpperCase();
+  const handleWorkerImageSelection = (
+    file: File | undefined,
+    currentImage: string | undefined,
+    onImageSelected: (imageUrl: string) => void
+  ) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setNotification({ type: 'error', message: 'Seleccione un archivo de imagen válido' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    if (currentImage?.startsWith('blob:')) {
+      URL.revokeObjectURL(currentImage);
+    }
+
+    onImageSelected(URL.createObjectURL(file));
+  };
+
+  const uploadWorkerImageIfNeeded = async (imageUrl: string | undefined, workerId?: string): Promise<string | undefined> => {
+    if (!imageUrl || !imageUrl.startsWith('blob:')) return imageUrl;
+
+    const response = await fetch(imageUrl);
+    const blob = await response.blob();
+    const extension = blob.type.split('/')[1] || 'jpg';
+    const file = new File([blob], `worker-${workerId || Date.now()}.${extension}`, { type: blob.type || 'image/jpeg' });
+    const { storageService } = await import('../services/storageService');
+    const uploadedUrl = await storageService.uploadFile('unit-images', file, `workers/${workerId || 'new'}-${Date.now()}.${extension}`);
+    URL.revokeObjectURL(imageUrl);
+    return uploadedUrl;
+  };
   
   // Maintenance History State (Equipment)
   const [expandedEquipment, setExpandedEquipment] = useState<string | null>(null);
@@ -243,6 +597,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   
   // Add Logistics Resource State
   const [showAddResourceModal, setShowAddResourceModal] = useState(false);
+  const [isAddingLogisticsResource, setIsAddingLogisticsResource] = useState(false);
   const [newResourceType, setNewResourceType] = useState<ResourceType>(ResourceType.EQUIPMENT);
   const [newResourceForm, setNewResourceForm] = useState<Partial<Resource>>({ name: '', quantity: 1, status: 'Operativo', assignedZones: [] });
   const [equipmentResponsibleWorkerId, setEquipmentResponsibleWorkerId] = useState<string>('');
@@ -316,9 +671,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
   const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
-  const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit');
+  const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit') || userRole === 'OPERATIONS' || userRole === 'OPERATIONS_SUPERVISOR';
+  const canManageZones = canEditGeneral || canEditBlueprint;
   const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
+
+  /** Solo lista de requerimientos: evita `onUpdate` → persistir toda la unidad y re-guardar todos los recursos. */
+  const applyUnitRequestsInUI = (requests: ClientRequest[]): void | Promise<void> => {
+    const next = { ...unit, requests };
+    if (replaceUnitInState) {
+      replaceUnitInState(next);
+      return;
+    }
+    if (onUpdate) return onUpdate(next);
+  };
 
   // Helper para cerrar todos los modales excepto el especificado (útil en móvil)
   const closeAllModalsExcept = (keepOpen?: string) => {
@@ -350,6 +716,29 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       month: '2-digit',
       day: '2-digit'
     });
+  };
+
+  const getBirthdayStatus = (birthDateStr: string) => {
+    const [birthYear, birthMonth, birthDay] = birthDateStr.split('-').map(Number);
+    if (!birthYear || !birthMonth || !birthDay) return null;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let nextBirthday = new Date(today.getFullYear(), birthMonth - 1, birthDay);
+    if (nextBirthday.getTime() < today.getTime()) {
+      nextBirthday = new Date(today.getFullYear() + 1, birthMonth - 1, birthDay);
+    }
+
+    const daysUntil = Math.round((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return { daysUntil };
+  };
+
+  const parseLocalDateTime = (dateStr?: string) => {
+    if (!dateStr) return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day).getTime();
   };
 
   // Cargar turnos de supervisión nocturna para esta unidad
@@ -461,41 +850,171 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     
     console.log('💾 Iniciando guardado de unidad:', unit.id);
     console.log('📸 Imágenes en editForm:', editForm.images);
+
+    // Detectar si hay imágenes locales (blob URLs) que requieren sesión activa para subir
+    const blobImages = editForm.images.filter(img => img.startsWith('blob:'));
+    const hasBlobImages = blobImages.length > 0;
+
+    // Si hay imágenes blob, intentar subirlas antes de guardar
+    let finalImages = [...editForm.images];
     
-    // Verificar sesión de Supabase Auth antes de guardar
-    try {
-      const { supabase } = await import('../services/supabase');
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (hasBlobImages) {
+      console.log(`📤 Intentando subir ${blobImages.length} imagen(es) blob antes de guardar...`);
       
-      if (sessionError || !session) {
-        console.warn('⚠️ No hay sesión de Supabase Auth activa. Las imágenes pueden no guardarse correctamente.');
-        const { authService } = await import('../services/authService');
-        const localSession = authService.getSession();
-        if (localSession) {
-          setNotification({ 
-            type: 'error', 
-            message: 'No hay sesión de Supabase Auth activa. Por favor, cierra sesión y vuelve a iniciar sesión antes de guardar imágenes.' 
-          });
-          setTimeout(() => setNotification(null), 8000);
-          return; // No guardar si no hay sesión de Auth
+      try {
+        const { supabase } = await import('../services/supabase');
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session) {
+          // No hay sesión de Auth - las imágenes se mantendrán como blob
+          // No mostrar warning agresivo, solo continuar
+          const { authService } = await import('../services/authService');
+          const localSession = authService.getSession();
+          if (localSession) {
+            // Solo preguntar si realmente hay imágenes blob que no se pueden subir
+            if (blobImages.length > 0) {
+              const userWantsToSaveWithoutImages = window.confirm(
+                'No se puede subir las imágenes nuevas ahora.\n\n' +
+                'Para subir imágenes necesitas sesión de Supabase Auth.\n\n' +
+                '¿Deseas guardar la unidad SIN las imágenes nuevas?\n\n' +
+                'Las imágenes se mantendrán en el formulario para subirlas después.'
+              );
+            
+              if (!userWantsToSaveWithoutImages) {
+                // El usuario canceló, no guardar
+                return;
+              }
+              
+              // El usuario quiere guardar sin imágenes, remover los blob URLs
+              console.log('ℹ️ Usuario decidió guardar sin imágenes nuevas');
+              finalImages = editForm.images.filter(img => !img.startsWith('blob:'));
+              
+              // Actualizar el formulario para remover blob URLs
+              setEditForm(prev => ({
+                ...prev,
+                images: finalImages
+              }));
+              
+              setNotification({ 
+                type: 'info', 
+                message: 'Unidad guardada sin las imágenes nuevas. Para subir imágenes, cierra sesión y vuelve a iniciar sesión.' 
+              });
+              setTimeout(() => setNotification(null), 8000);
+              
+              // Continuar con el guardado sin las imágenes blob
+            }
+          } else {
+            setNotification({ 
+              type: 'error', 
+              message: 'Debes estar autenticado para subir imágenes. Por favor, inicia sesión.' 
+            });
+            setTimeout(() => setNotification(null), 8000);
+            return;
+          }
+        } else {
+          // Hay sesión, continuar con la subida normal
+          console.log('✅ Sesión de Supabase Auth activa para manejo de imágenes:', session.user.id);
+          
+          // Intentar subir cada imagen blob
+          const { storageService } = await import('../services/storageService');
+          const uploadedUrls: string[] = [];
+          const failedBlobs: string[] = [];
+          
+          for (const blobUrl of blobImages) {
+            try {
+              // Obtener el archivo desde el blob URL
+              const response = await fetch(blobUrl);
+              const blob = await response.blob();
+              const file = new File([blob], `image-${Date.now()}.${blob.type.split('/')[1] || 'jpg'}`, { type: blob.type });
+              
+              // Subir a Storage
+              const timestamp = Date.now();
+              const fileName = `unit-${unit.id}-${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+              const path = `units/${unit.id}/${fileName}`;
+              
+              console.log('☁️ Subiendo imagen blob a Storage:', path);
+              const permanentUrl = await storageService.uploadFile('unit-images', file, path);
+              console.log('✅ Imagen subida correctamente:', permanentUrl);
+              
+              uploadedUrls.push(permanentUrl);
+            } catch (uploadError: any) {
+              console.error('❌ Error al subir imagen blob:', uploadError);
+              failedBlobs.push(blobUrl);
+            }
+          }
+          
+          if (failedBlobs.length > 0) {
+            const userWantsToSaveWithoutFailedImages = window.confirm(
+              `No se pudieron subir ${failedBlobs.length} de ${blobImages.length} imagen(es).\n\n` +
+              `¿Deseas guardar la unidad sin estas imágenes?\n\n` +
+              `Las imágenes que no se subieron se mantendrán en el formulario.`
+            );
+            
+            if (!userWantsToSaveWithoutFailedImages) {
+              // El usuario canceló, no guardar
+              return;
+            }
+            
+            // Remover solo las imágenes que fallaron
+            finalImages = editForm.images.map(img => {
+              if (failedBlobs.includes(img)) {
+                return null; // Marcar para eliminar
+              }
+              const blobIndex = blobImages.indexOf(img);
+              if (blobIndex >= 0 && !failedBlobs.includes(img)) {
+                return uploadedUrls[blobImages.indexOf(img)];
+              }
+              return img;
+            }).filter(img => img !== null) as string[];
+            
+            setNotification({ 
+              type: 'info', 
+              message: `Unidad guardada. ${failedBlobs.length} imagen(es) no se pudieron subir y se mantuvieron en el formulario.` 
+            });
+            setTimeout(() => setNotification(null), 8000);
+          } else {
+            // Todas las imágenes se subieron correctamente
+            // Reemplazar blob URLs con URLs permanentes
+            finalImages = editForm.images.map(img => {
+              const blobIndex = blobImages.indexOf(img);
+              if (blobIndex >= 0) {
+                return uploadedUrls[blobIndex];
+              }
+              return img;
+            });
+            
+            // Actualizar el estado del formulario con las URLs permanentes
+            setEditForm(prev => ({
+              ...prev,
+              images: finalImages
+            }));
+            
+            console.log('✅ Todas las imágenes se subieron correctamente. URLs permanentes:', finalImages);
+          }
         }
-      } else {
-        console.log('✅ Sesión de Supabase Auth activa:', session.user.id);
+      } catch (authCheckError) {
+        console.error('❌ Error al verificar sesión de Auth:', authCheckError);
+        setNotification({ 
+          type: 'error', 
+          message: 'Error al verificar autenticación. Por favor, intenta de nuevo.' 
+        });
+        setTimeout(() => setNotification(null), 8000);
+        return;
       }
-    } catch (authCheckError) {
-      console.warn('⚠️ Error al verificar sesión de Auth:', authCheckError);
+    } else {
+      console.log('ℹ️ No hay nuevas imágenes locales (blob). Se puede guardar aunque no haya sesión de Auth.');
     }
     
-    // Filtrar y limpiar cualquier blob URL que pueda quedar (por si acaso)
-    const cleanedImages = editForm.images.filter(img => {
+    // Filtrar cualquier blob URL que pueda quedar (por seguridad)
+    const cleanedImages = finalImages.filter(img => {
       if (img.startsWith('blob:')) {
-        console.warn('⚠️ Se encontró un blob URL en las imágenes. Omitiendo:', img);
-        return false; // NO mantener blob URLs, deben haberse subido a Storage
+        console.warn('⚠️ Se encontró un blob URL en las imágenes después de intentar subirlas. Omitiendo:', img);
+        return false;
       }
       return true;
     });
     
-    console.log('✅ Imágenes limpiadas (sin blob URLs):', cleanedImages);
+    console.log('✅ Imágenes finales (sin blob URLs):', cleanedImages);
     
     // Geocodificar la dirección si cambió O si no hay coordenadas
     let latitude = editForm.latitude;
@@ -587,7 +1106,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       let errorMessage = `Error al guardar: ${error.message || 'Error desconocido'}`;
       
-      if (error.message?.includes('permission') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
+      // Detectar errores de red y proporcionar mensajes más útiles
+      if (error?.name === 'NetworkError' || 
+          error?.message?.includes('conexión') || 
+          error?.message?.includes('Failed to fetch') ||
+          error?.message?.includes('ERR_FAILED')) {
+        errorMessage = 'Error de conexión con el servidor.\n\n' +
+                      'Por favor, verifica tu conexión a internet e intenta de nuevo.\n\n' +
+                      'Si el problema persiste, puede ser que el servidor esté temporalmente no disponible.\n\n' +
+                      'Los cambios que hiciste se mantendrán en el formulario. Puedes intentar guardar de nuevo cuando se restablezca la conexión.';
+      } else if (error?.name === 'TimeoutError' || error?.message?.includes('timeout')) {
+        errorMessage = 'La solicitud tardó demasiado tiempo.\n\n' +
+                      'Por favor, intenta de nuevo. Si el problema persiste, verifica tu conexión a internet.\n\n' +
+                      'Los cambios que hiciste se mantendrán en el formulario.';
+      } else if (error.message?.includes('permission') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
         errorMessage = `Error de permisos al guardar. Verifica que tengas permisos para editar unidades y que las políticas RLS estén configuradas correctamente.\n\nError: ${error.message}`;
       }
       
@@ -595,12 +1127,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         type: 'error', 
         message: errorMessage
       });
-      setTimeout(() => setNotification(null), 8000);
+      setTimeout(() => setNotification(null), 12000); // Más tiempo para leer mensajes de error de red
     }
   };
 
   const handleAddZone = async () => {
-    if (!newZoneName) return;
+    if (!canManageZones) {
+      setNotification({ type: 'error', message: 'No tienes permisos para gestionar zonas.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    const zoneName = newZoneName.trim();
+    if (!zoneName) {
+      setNotification({ type: 'error', message: 'Ingresa un nombre para la zona.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
     
     // Validar que al menos un turno esté seleccionado
     if (newZoneShifts.length === 0) {
@@ -618,7 +1161,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Crear la zona en la base de datos inmediatamente
       const newZone = await zonesService.create({
-      name: newZoneName,
+      name: zoneName,
         shifts: newZoneShifts, // Ya es un array de ShiftType
       layout: { 
           x: 1, y: 1, w: 2, h: 2, color: '#e2e8f0',
@@ -641,8 +1184,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       };
       // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
 
-    setNewZoneName('');
-      setNewZoneShifts([]);
+      setNewZoneName('');
+      setNewZoneShifts(['Day']);
       
       setNotification({
         type: 'success',
@@ -660,6 +1203,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleDeleteZone = async (zoneId: string) => {
+    if (!canManageZones) {
+      setNotification({ type: 'error', message: 'No tienes permisos para gestionar zonas.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
     try {
       // Importar zonesService dinámicamente
       const { zonesService } = await import('../services/zonesService');
@@ -740,160 +1289,118 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       console.log('📤 Iniciando subida de imagen:', file.name, file.size, 'bytes');
       
-      // Verificar sesión de Supabase Auth ANTES de crear el blob URL
-      // Si no hay sesión, intentar crearla desde la sesión local
-      try {
-        const { supabase } = await import('../services/supabase');
-        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError || !session) {
-          console.log('⚠️ No hay sesión de Supabase Auth, intentando crear desde sesión local...');
-          const { authService } = await import('../services/authService');
-          const localSession = authService.getSession();
-          
-          if (localSession) {
-            // El usuario tiene sesión local pero no de Supabase Auth
-            // Esto significa que el usuario inició sesión con password_hash pero no se creó la sesión de Auth
-            // La mejor solución es que el usuario cierre sesión y vuelva a iniciar sesión
-            // El código de signIn ya intenta crear la sesión de Auth, así que si el usuario
-            // cierra sesión y vuelve a iniciar, debería funcionar
-            
-            // Verificar de nuevo si ahora hay sesión
-            if (!session) {
-              const { data: { session: newSession } } = await supabase.auth.getSession();
-              session = newSession || undefined;
-            }
-            
-            if (!session) {
-              console.error('❌ No se pudo crear sesión de Supabase Auth');
-              setNotification({ 
-                type: 'error', 
-                message: 'No se pudo activar la sesión de Supabase Auth.\n\nPor favor, cierra sesión y vuelve a iniciar sesión.\n\nEsto activará la sesión necesaria para subir imágenes.' 
-              });
-              setTimeout(() => setNotification(null), 10000);
-              
-              // Limpiar el input
-              if (fileInput) {
-                fileInput.value = '';
-              }
-              return; // No continuar si no hay sesión de Auth
-            }
-          } else {
-            setNotification({ 
-              type: 'error', 
-              message: 'Debes estar autenticado para subir imágenes. Por favor, inicia sesión.' 
-            });
-            setTimeout(() => setNotification(null), 5000);
-            
-            // Limpiar el input
-            if (fileInput) {
-              fileInput.value = '';
-            }
-            return;
-          }
-        }
-        
-        console.log('✅ Sesión de Supabase Auth verificada:', session?.user?.id);
-      } catch (authCheckError) {
-        console.error('❌ Error al verificar sesión de Auth:', authCheckError);
-        setNotification({ 
-          type: 'error', 
-          message: 'Error al verificar autenticación. Por favor, intenta de nuevo.' 
-        });
-        setTimeout(() => setNotification(null), 5000);
-        
-        // Limpiar el input
-        if (fileInput) {
-          fileInput.value = '';
-        }
-        return;
-      }
-      
-      // Mostrar preview temporal mientras se sube
+      // Crear blob URL inmediatamente para mostrar preview
       const tempUrl = URL.createObjectURL(file);
       
-      // Agregar a la lista de imágenes que se están subiendo
-      setUploadingImages(prev => new Set(prev).add(tempUrl));
+      // Agregar la imagen al formulario inmediatamente (como blob URL)
+      setEditForm(prev => {
+        const updated = {
+          ...prev,
+          images: [...prev.images, tempUrl]
+        };
+        console.log('🖼️ Imagen agregada al formulario (blob URL):', tempUrl);
+        return updated;
+      });
       
-      setEditForm({ ...editForm, images: [...editForm.images, tempUrl] });
-      console.log('🖼️ Preview temporal creado:', tempUrl);
+      // Verificar sesión de Supabase Auth para intentar subir inmediatamente
+      // Si no hay sesión, la imagen se mantendrá como blob URL y se intentará subir al guardar
+      let hasAuthSession = false;
       
       try {
-        // Subir a Supabase Storage
-        const { storageService } = await import('../services/storageService');
-        const timestamp = Date.now();
-        const fileName = `unit-${unit.id}-${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-        const path = `units/${unit.id}/${fileName}`;
+        const { supabase } = await import('../services/supabase');
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
-        console.log('☁️ Subiendo a Storage:', { bucket: 'unit-images', path });
-        const permanentUrl = await storageService.uploadFile('unit-images', file, path);
-        console.log('✅ URL permanente obtenida:', permanentUrl);
-        
-        // Reemplazar el blob URL temporal con la URL permanente
-        setEditForm(prev => {
-          const updated = {
-            ...prev,
-            images: prev.images.map(img => img === tempUrl ? permanentUrl : img)
-          };
-          console.log('🔄 Estado actualizado con URL permanente. Total imágenes:', updated.images.length);
-          return updated;
-        });
-        
-        // Remover de la lista de imágenes que se están subiendo
-        setUploadingImages(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(tempUrl);
-          return newSet;
-        });
-        
-        // Limpiar el blob URL temporal
-        URL.revokeObjectURL(tempUrl);
-        
-        setNotification({ type: 'success', message: 'Imagen subida correctamente' });
-        setTimeout(() => setNotification(null), 3000);
-      } catch (error: any) {
-        console.error('❌ Error al subir imagen:', error);
-        console.error('❌ Detalles del error:', {
-          message: error.message,
-          stack: error.stack,
-          name: error.name
-        });
-        
-        // Remover de la lista de imágenes que se están subiendo
-        setUploadingImages(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(tempUrl);
-          return newSet;
-        });
-        
-        // Remover la imagen temporal si falló la subida
-        setEditForm(prev => {
-          const updated = {
-            ...prev,
-            images: prev.images.filter(img => img !== tempUrl)
-          };
-          console.log('🗑️ Imagen temporal removida. Total imágenes:', updated.images.length);
-          return updated;
-        });
-        URL.revokeObjectURL(tempUrl);
-        
-        // Mensaje de error más específico
-        let errorMessage = `Error al subir imagen: ${error.message || 'Error desconocido'}`;
-        
-        if (error.message?.includes('Supabase Auth') || error.message?.includes('sesión')) {
-          errorMessage = `No se puede subir la imagen.\n\n${error.message}\n\nPor favor, cierra sesión y vuelve a iniciar sesión para activar la sesión de Supabase Auth necesaria.`;
+        if (sessionError || !session) {
+          // No hay sesión de Auth - la imagen se agregará como blob
+          // No mostrar notificación agresiva - solo continuar silenciosamente
+          // La imagen se subirá cuando se guarde la unidad si hay sesión
+          hasAuthSession = false;
+        } else {
+          console.log('✅ Sesión de Supabase Auth verificada:', session.user.id);
+          hasAuthSession = true;
         }
+      } catch (authCheckError) {
+        console.error('❌ Error al verificar sesión de Auth:', authCheckError);
+        hasAuthSession = false;
+      }
+      
+      // Si hay sesión de Auth, intentar subir inmediatamente
+      if (hasAuthSession) {
+        // Agregar a la lista de imágenes que se están subiendo
+        setUploadingImages(prev => new Set(prev).add(tempUrl));
         
-        setNotification({ 
-          type: 'error', 
-          message: errorMessage
-        });
-        setTimeout(() => setNotification(null), 10000); // Más tiempo para leer el mensaje
-      } finally {
-        // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
-        if (fileInput) {
-          fileInput.value = '';
+        try {
+          // Subir a Supabase Storage
+          const { storageService } = await import('../services/storageService');
+          const timestamp = Date.now();
+          const fileName = `unit-${unit.id}-${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+          const path = `units/${unit.id}/${fileName}`;
+          
+          console.log('☁️ Subiendo a Storage:', { bucket: 'unit-images', path });
+          const permanentUrl = await storageService.uploadFile('unit-images', file, path);
+          console.log('✅ URL permanente obtenida:', permanentUrl);
+          
+          // Reemplazar el blob URL temporal con la URL permanente
+          setEditForm(prev => {
+            const updated = {
+              ...prev,
+              images: prev.images.map(img => img === tempUrl ? permanentUrl : img)
+            };
+            console.log('🔄 Estado actualizado con URL permanente. Total imágenes:', updated.images.length);
+            return updated;
+          });
+          
+          // Remover de la lista de imágenes que se están subiendo
+          setUploadingImages(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(tempUrl);
+            return newSet;
+          });
+          
+          // Limpiar el blob URL temporal
+          URL.revokeObjectURL(tempUrl);
+          
+          setNotification({ type: 'success', message: 'Imagen subida correctamente' });
+          setTimeout(() => setNotification(null), 3000);
+        } catch (error: any) {
+          console.error('❌ Error al subir imagen:', error);
+          console.error('❌ Detalles del error:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+          });
+          
+          // Remover de la lista de imágenes que se están subiendo
+          setUploadingImages(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(tempUrl);
+            return newSet;
+          });
+          
+          // NO remover la imagen temporal si falló la subida
+          // La mantendremos como blob URL para intentar subirla cuando se guarde la unidad
+          console.log('ℹ️ Imagen blob mantenida en el formulario. Se intentará subir al guardar la unidad.');
+          
+          // Mensaje de error más específico
+          let errorMessage = `No se pudo subir la imagen automáticamente: ${error.message || 'Error desconocido'}`;
+          
+          if (error.message?.includes('Supabase Auth') || error.message?.includes('sesión')) {
+            errorMessage = `No se puede subir la imagen ahora.\n\n${error.message}\n\nLa imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.\n\nSi el problema persiste, cierra sesión y vuelve a iniciar sesión para activar la sesión de Supabase Auth necesaria.`;
+          } else {
+            errorMessage = `No se pudo subir la imagen automáticamente.\n\n${error.message}\n\nLa imagen se mantendrá en el formulario y se intentará subir cuando guardes la unidad.`;
+          }
+          
+          setNotification({ 
+            type: 'error', 
+            message: errorMessage
+          });
+          setTimeout(() => setNotification(null), 10000);
         }
+      }
+      
+      // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
+      if (fileInput) {
+        fileInput.value = '';
       }
     }
   };
@@ -935,7 +1442,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleCreateRequest = async () => {
-      if(!onUpdate) return;
+      if (!onUpdate && !replaceUnitInState) return;
       
       // Validar campos requeridos
       if (!newRequestForm.title?.trim()) {
@@ -950,7 +1457,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
       
       setIsSavingRequest(true);
-      setNotification({ type: 'info', message: 'Guardando requerimiento...' });
+      setNotification({ type: 'info', message: 'Subiendo evidencias y guardando requerimiento...' });
       
       try {
         // Obtener el nombre real del usuario
@@ -965,7 +1472,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           authorName
         });
         
-        // Crear el request en la base de datos
+        // Subir imágenes blob a storage ANTES de guardar el requerimiento
+        const { storageService } = await import('../services/storageService');
+        let processedAttachments: string[] = [];
+        
+        if (newRequestImages.length > 0) {
+          setNotification({ type: 'info', message: `Subiendo ${newRequestImages.length} evidencia(s)...` });
+          
+          const imageUploadPromises = newRequestImages.map(async (imgUrl) => {
+            if (imgUrl.startsWith('blob:')) {
+              try {
+                // Convertir blob URL a File
+                const response = await fetch(imgUrl);
+                const blob = await response.blob();
+                const file = new File([blob], `request-evidence-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`, { type: blob.type || 'image/jpeg' });
+                
+                // Subir a storage
+                const uploadedUrl = await storageService.uploadImage(file, 'unit-images');
+                return uploadedUrl;
+              } catch (error) {
+                console.error('Error al subir evidencia:', error);
+                // Si falla la subida, intentar mantener la URL original (puede ser una URL permanente)
+                return imgUrl;
+              }
+            }
+            // Ya es una URL permanente
+            return imgUrl;
+          });
+          
+          processedAttachments = await Promise.all(imageUploadPromises);
+        }
+        
+        // Crear el request en la base de datos con las URLs procesadas
         const savedRequest = await requestsService.create({
           date: new Date().toISOString().split('T')[0],
           title: newRequestForm.title.trim(),
@@ -975,7 +1513,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           description: newRequestForm.description,
           author: authorName,
           relatedResourceId: newRequestForm.relatedResourceId || undefined,
-          attachments: newRequestImages,
+          attachments: processedAttachments,
           comments: []
         }, unit.id);
 
@@ -983,7 +1521,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const allRequests = await requestsService.getByUnitId(unit.id);
         
         // Actualizar la unidad con los requests recargados
-        onUpdate({ ...unit, requests: allRequests });
+        applyUnitRequestsInUI(allRequests);
         
         // Limpiar el formulario y cerrar el modal
         setShowRequestModal(false);
@@ -1002,10 +1540,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleUpdateRequestStatus = async (status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED', response?: string, attachments?: string[], title?: string) => {
-      if(!onUpdate || !editingRequest) return;
+      if ((!onUpdate && !replaceUnitInState) || !editingRequest) return;
       
       setIsSavingRequest(true);
-      setNotification({ type: 'info', message: 'Guardando cambios...' });
+      setNotification({ type: 'info', message: 'Subiendo evidencias y guardando cambios...' });
       
       try {
         // Obtener el nombre real del usuario para la respuesta si se proporciona
@@ -1017,12 +1555,60 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           responseAuthor = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
         }
         
+        // Subir imágenes blob a storage ANTES de guardar (si hay attachments nuevos)
+        let processedAttachments: string[] = [];
+        
+        // Si se pasan attachments, procesarlos (pueden ser nuevos o existentes)
+        if (attachments && attachments.length > 0) {
+          const { storageService } = await import('../services/storageService');
+          
+          setNotification({ type: 'info', message: `Subiendo ${attachments.length} evidencia(s) de respuesta...` });
+          
+          const imageUploadPromises = attachments.map(async (imgUrl, index) => {
+            if (imgUrl.startsWith('blob:')) {
+              try {
+                console.log(`📤 Subiendo evidencia de respuesta ${index + 1}/${attachments.length}...`);
+                // Convertir blob URL a File
+                const response = await fetch(imgUrl);
+                if (!response.ok) {
+                  throw new Error(`Error al obtener blob: ${response.statusText}`);
+                }
+                const blob = await response.blob();
+                const file = new File([blob], `response-evidence-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`, { type: blob.type || 'image/jpeg' });
+                
+                // Subir a storage
+                const uploadedUrl = await storageService.uploadImage(file, 'unit-images');
+                console.log(`✅ Evidencia ${index + 1} subida correctamente:`, uploadedUrl);
+                return uploadedUrl;
+              } catch (error) {
+                console.error(`❌ Error al subir evidencia de respuesta ${index + 1}:`, error);
+                // Si falla la subida, mostrar error pero continuar
+                setNotification({ type: 'error', message: `Error al subir evidencia ${index + 1}. Se omitirá.` });
+                setTimeout(() => setNotification(null), 3000);
+                return null; // Retornar null para filtrarlo después
+              }
+            }
+            // Ya es una URL permanente (puede ser una URL existente de Supabase)
+            console.log(`✓ Evidencia ${index + 1} ya es URL permanente:`, imgUrl);
+            return imgUrl;
+          });
+          
+          const uploadedUrls = await Promise.all(imageUploadPromises);
+          // Filtrar nulls (errores de subida)
+          processedAttachments = uploadedUrls.filter((url): url is string => url !== null);
+          
+          console.log(`📦 Evidencias procesadas: ${processedAttachments.length}/${attachments.length}`);
+        } else {
+          // Si no se pasan attachments nuevos, mantener los existentes
+          processedAttachments = editingRequest.responseAttachments || [];
+        }
+        
         // Actualizar el request en la base de datos
         await requestsService.update(editingRequest.id, {
           status,
           title: title !== undefined ? (title.trim() || undefined) : editingRequest.title,
           response: response || editingRequest.response,
-          responseAttachments: attachments || editingRequest.responseAttachments,
+          responseAttachments: processedAttachments,
           resolvedDate: status === 'RESOLVED' ? new Date().toISOString().split('T')[0] : editingRequest.resolvedDate
         });
 
@@ -1030,16 +1616,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const allRequests = await requestsService.getByUnitId(unit.id);
         
         // Actualizar la unidad con los requests recargados
-        onUpdate({ ...unit, requests: allRequests });
+        applyUnitRequestsInUI(allRequests);
         
         // Actualizar el request en edición con los datos recargados
         const updatedRequest = allRequests.find(r => r.id === editingRequest.id);
         if (updatedRequest) {
           setEditingRequest(updatedRequest);
+          // Actualizar también los attachments en el estado local para que se muestren inmediatamente
+          setResolveAttachments(updatedRequest.responseAttachments || []);
         } else {
           setEditingRequest(null);
         }
-        setResolveAttachments([]);
+        // NO limpiar resolveAttachments aquí, mantenerlos para que se vean en el modal
+        // setResolveAttachments([]);
         setResolveResponse('');
         setResolveTitle('');
         
@@ -1061,7 +1650,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Eliminar requerimiento (solo para administradores)
   const handleDeleteRequest = async (requestId: string) => {
-    if (!onUpdate) return;
+    if (!onUpdate && !replaceUnitInState) return;
     
     // Verificar permisos: solo ADMIN y SUPER_ADMIN pueden eliminar requerimientos
     if (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
@@ -1086,7 +1675,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Actualizar estado local
       const updatedRequests = (unit.requests || []).filter(r => r.id !== requestId);
-      const result = onUpdate({ ...unit, requests: updatedRequests });
+      const result = applyUnitRequestsInUI(updatedRequests);
       if (result instanceof Promise) {
         await result;
       }
@@ -1128,61 +1717,167 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // INLINE COMMENTS HANDLER
   const handleInlineCommentSubmit = async (reqId: string) => {
       const text = commentDrafts[reqId];
-      if (!onUpdate || !text || !text.trim()) return;
+      if ((!onUpdate && !replaceUnitInState) || !text?.trim()) return;
+
+      const draftText = text.trim();
 
       try {
-        // Obtener el nombre real del usuario
         const { authService } = await import('../services/authService');
         const currentUserData = await authService.getCurrentUser();
         const authorName = currentUserData?.name || currentUserData?.email || (userRole === 'CLIENT' ? 'Cliente' : 'Admin/Ops');
-        
-        console.log('💬 Agregando comentario - Usuario actual:', {
-          name: currentUserData?.name,
-          email: currentUserData?.email,
-          role: userRole,
-          authorName
-        });
-        
+
         const newComment = {
           id: `c-${Date.now()}`,
           author: authorName,
           role: userRole,
           date: new Date().toISOString(),
-          text: text
+          text: draftText
         };
 
-        // Actualización optimista: agregar el comentario inmediatamente a la UI
         const updatedRequests = (unit.requests || []).map(req => {
           if (req.id === reqId) {
             return { ...req, comments: [...(req.comments || []), newComment] };
           }
           return req;
         });
-        
-        // Actualizar la unidad inmediatamente para feedback rápido
-        onUpdate({ ...unit, requests: updatedRequests });
-        
-        // Limpiar el draft del comentario inmediatamente
+
+        applyUnitRequestsInUI(updatedRequests);
         setCommentDrafts(prev => ({ ...prev, [reqId]: '' }));
 
-        // Guardar el comentario en la base de datos en segundo plano
         await requestsService.addComment(reqId, newComment);
 
-        // Recargar todos los requests desde la BD para asegurar consistencia
-        const allRequests = await requestsService.getByUnitId(unit.id);
-        
-        // Actualizar la unidad con los requests recargados (con el ID real del comentario de la BD)
-        onUpdate({ ...unit, requests: allRequests });
+        try {
+          const allRequests = await requestsService.getByUnitId(unit.id);
+          applyUnitRequestsInUI(allRequests);
+        } catch (refreshErr) {
+          console.warn('Refresco de requerimientos tras comentario (fallback por requerimiento):', refreshErr);
+          try {
+            const one = await requestsService.getById(reqId);
+            if (one) {
+              applyUnitRequestsInUI(
+                (unit.requests || []).map((r) => (r.id === reqId ? one : r))
+              );
+            } else {
+              setNotification({
+                type: 'success',
+                message: 'Comentario enviado. Si no aparece de inmediato, actualice la vista en unos segundos.',
+              });
+              setTimeout(() => setNotification(null), 4000);
+            }
+          } catch {
+            setNotification({
+              type: 'success',
+              message: 'Comentario enviado. Si no aparece, recargue la página.',
+            });
+            setTimeout(() => setNotification(null), 4000);
+          }
+        }
       } catch (error) {
         console.error('Error al agregar comentario:', error);
+        setCommentDrafts(prev => ({ ...prev, [reqId]: draftText }));
         setNotification({ type: 'error', message: 'Error al agregar el comentario. Por favor, intente nuevamente.' });
         setTimeout(() => setNotification(null), 3000);
-        
-        // Revertir la actualización optimista en caso de error
-        const allRequests = await requestsService.getByUnitId(unit.id);
-        onUpdate({ ...unit, requests: allRequests });
+
+        try {
+          const allRequests = await requestsService.getByUnitId(unit.id);
+          applyUnitRequestsInUI(allRequests);
+        } catch {
+          /* ignore */
+        }
       }
   };
+
+  // Refs para que la recarga de comentarios desde Realtime/polling no capture un `unit` obsoleto
+  const unitForRequestsSyncRef = useRef(unit);
+  const onUpdateForRequestsSyncRef = useRef(onUpdate);
+  const replaceUnitInStateForSyncRef = useRef(replaceUnitInState);
+  unitForRequestsSyncRef.current = unit;
+  onUpdateForRequestsSyncRef.current = onUpdate;
+  replaceUnitInStateForSyncRef.current = replaceUnitInState;
+
+  // Actualiza lista de requerimientos desde el servidor (comentarios / discusión en vivo entre usuarios)
+  useEffect(() => {
+    const shouldSync =
+      (!!replaceUnitInState || typeof onUpdate === 'function') &&
+      canViewRequests &&
+      (activeTab === 'requests' || editingRequest !== null);
+
+    if (!shouldSync) return;
+
+    const ids = [
+      ...new Set(
+        [...(unit.requests || []).map((r) => r.id), editingRequest?.id].filter((id): id is string =>
+          Boolean(id)
+        )
+      ),
+    ];
+    if (ids.length === 0) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const refreshFromServer = async () => {
+      const u = unitForRequestsSyncRef.current;
+      const ru = replaceUnitInStateForSyncRef.current;
+      const ou = onUpdateForRequestsSyncRef.current;
+      if (!ru && !ou) return;
+      try {
+        const allRequests = await requestsService.getByUnitId(u.id);
+        const next = { ...u, requests: allRequests };
+        if (ru) {
+          ru(next);
+        } else if (ou) {
+          await Promise.resolve(ou(next));
+        }
+        setEditingRequest((prev) => {
+          if (!prev) return prev;
+          const nextReq = allRequests.find((r) => r.id === prev.id);
+          return nextReq ?? prev;
+        });
+      } catch (e) {
+        console.error('[request_comments] No se pudo sincronizar discusión:', e);
+      }
+    };
+
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void refreshFromServer();
+      }, 400);
+    };
+
+    void refreshFromServer();
+    const unsubRealtime = requestsService.subscribeToRequestComments(ids, scheduleRefresh);
+
+    const pollMs = 8000;
+    const pollId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void refreshFromServer();
+    }, pollMs);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshFromServer();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      unsubRealtime();
+      window.clearInterval(pollId);
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+  }, [
+    activeTab,
+    editingRequest?.id,
+    unit.id,
+    canViewRequests,
+    onUpdate,
+    replaceUnitInState,
+    (unit.requests || [])
+      .map((r) => r.id)
+      .filter(Boolean)
+      .sort()
+      .join(','),
+  ]);
 
 
   // --- BLUEPRINT INTERACTION LOGIC ---
@@ -1230,9 +1925,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const deltaX = currentGridX - currentState.startGridX;
         const deltaY = currentGridY - currentState.startGridY;
 
-        // Usar editForm.zones si está disponible, sino unit.zones
+        // Usar editForm.zones incluso cuando queda vacío, para no revivir zonas eliminadas.
         setEditForm(prev => {
-          const zonesToUse = prev.zones && prev.zones.length > 0 ? prev.zones : unit.zones;
+          const zonesToUse = prev.zones ?? unit.zones;
           const zonesCopy = [...zonesToUse];
           const zoneIndex = zonesCopy.findIndex(z => z.id === currentState.zoneId);
           if (zoneIndex === -1) return prev;
@@ -1281,7 +1976,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         // Guardar cambios en BD
         if (currentState.type !== 'idle' && currentState.zoneId) {
           setEditForm(prev => {
-            const zonesToUse = prev.zones && prev.zones.length > 0 ? prev.zones : unit.zones;
+            const zonesToUse = prev.zones ?? unit.zones;
             const updatedZone = zonesToUse.find(z => z.id === currentState.zoneId);
             if (updatedZone && updatedZone.layout) {
               // Guardar de forma asíncrona sin bloquear
@@ -1323,9 +2018,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const updateSelectedZoneDetails = async (key: string, value: any) => {
       if (!selectedZoneId) return;
+      if (!canManageZones) {
+        setNotification({ type: 'error', message: 'No tienes permisos para gestionar zonas.' });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+
       try {
-        // Usar editForm.zones si está disponible, sino unit.zones
-        const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+        const zonesToUse = editForm.zones ?? unit.zones;
         const zonesCopy = zonesToUse.map(z => z.id === selectedZoneId ? { ...z, [key]: value } : z);
         
       if (key === 'color') {
@@ -1379,10 +2079,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const selectAllPersonnel = () => {
-    if (selectedPersonnelIds.length === unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length) {
+    // Usar filteredPersonnel si hay búsqueda activa, sino usar personnel
+    const personnelToUse = personnelSearchQuery.trim() ? filteredPersonnel : personnel;
+    if (selectedPersonnelIds.length === personnelToUse.length && personnelToUse.length > 0) {
       setSelectedPersonnelIds([]);
     } else {
-      setSelectedPersonnelIds(unit.resources.filter(r => r.type === ResourceType.PERSONNEL).map(r => r.id));
+      setSelectedPersonnelIds(personnelToUse.map(p => p.id));
     }
   };
 
@@ -1485,7 +2187,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         name: assetAssignmentForm.name,
         type: assetAssignmentForm.type as any,
               dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
-        serialNumber: assetAssignmentForm.serialNumber
+        serialNumber: assetAssignmentForm.serialNumber,
+        phoneNumber: assetAssignmentForm.phoneNumber || undefined
     };
     
             // Generar constancia (solo guardar en BD, no descargar PDF)
@@ -1531,6 +2234,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               type: assetAssignmentForm.type as any,
               dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
               serialNumber: assetAssignmentForm.serialNumber,
+              phoneNumber: assetAssignmentForm.phoneNumber || undefined,
               constancyCode: constancyCode || undefined,
               constancyGeneratedAt: constancyCode ? new Date().toISOString() : undefined,
               standardAssetId: assetAssignmentForm.standardAssetId || undefined
@@ -1550,14 +2254,37 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return res;
     });
 
+        // Guardar IDs antes de limpiarlos
+        const workerIdsToUpdate = [...selectedPersonnelIds];
+        
         // Cerrar modal ANTES de actualizar para evitar que se recargue y cierre
     setShowAssetAssignmentModal(false);
     setSelectedPersonnelIds([]);
-    setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '' });
+    setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '', phoneNumber: '' });
         setGenerateConstancy(true);
         
-        // Actualizar unidad (esto guardará los activos con códigos de constancia)
-        onUpdate({ ...unit, resources: updatedResources });
+        // Guardar activos explícitamente en la BD para cada trabajador
+        const { resourcesService } = await import('../services/resourcesService');
+        for (const res of updatedResources) {
+          if (res.type === ResourceType.PERSONNEL && workerIdsToUpdate.includes(res.id)) {
+            // Guardar activos explícitamente
+            await resourcesService.update(res.id, { assignedAssets: res.assignedAssets });
+          }
+        }
+        
+        // Recargar recursos desde BD para sincronizar
+        const syncedResources = await Promise.all(
+          updatedResources.map(async (res) => {
+            if (res.type === ResourceType.PERSONNEL && workerIdsToUpdate.includes(res.id)) {
+              const synced = await resourcesService.getById(res.id);
+              return synced || res;
+            }
+            return res;
+          })
+        );
+        
+        // Actualizar unidad con recursos sincronizados
+        onUpdate({ ...unit, resources: syncedResources });
         
         setNotification({ 
           type: 'success', 
@@ -1582,6 +2309,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               type: assetAssignmentForm.type as any,
               dateAssigned: assetAssignmentForm.dateAssigned || new Date().toISOString().split('T')[0],
               serialNumber: assetAssignmentForm.serialNumber,
+              phoneNumber: assetAssignmentForm.phoneNumber || undefined,
               standardAssetId: assetAssignmentForm.standardAssetId || undefined
             };
           
@@ -1593,14 +2321,38 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return res;
       });
 
+      // Guardar IDs antes de limpiarlos
+      const workerIdsToUpdate = [...selectedPersonnelIds];
+      
       // Cerrar modal ANTES de actualizar
       setShowAssetAssignmentModal(false);
       setSelectedPersonnelIds([]);
-      setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '', standardAssetId: undefined });
+      setAssetAssignmentForm({ name: '', type: 'EPP', dateAssigned: '', serialNumber: '', phoneNumber: '', standardAssetId: undefined });
       setGenerateConstancy(true);
       setUseStandardAsset(true);
       
-      onUpdate({ ...unit, resources: updatedResources });
+      // Guardar activos explícitamente en la BD para cada trabajador
+      const { resourcesService } = await import('../services/resourcesService');
+      for (const res of updatedResources) {
+        if (res.type === ResourceType.PERSONNEL && workerIdsToUpdate.includes(res.id)) {
+          // Guardar activos explícitamente
+          await resourcesService.update(res.id, { assignedAssets: res.assignedAssets });
+        }
+      }
+      
+      // Recargar recursos desde BD para sincronizar
+      const syncedResources = await Promise.all(
+        updatedResources.map(async (res) => {
+          if (res.type === ResourceType.PERSONNEL && workerIdsToUpdate.includes(res.id)) {
+            const synced = await resourcesService.getById(res.id);
+            return synced || res;
+          }
+          return res;
+        })
+      );
+      
+      // Actualizar unidad con recursos sincronizados
+      onUpdate({ ...unit, resources: syncedResources });
       
       setNotification({ 
         type: 'success', 
@@ -1619,21 +2371,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setIsSavingWorker(true);
     try {
       const { resourcesService } = await import('../services/resourcesService');
+      const finalWorkerImage = await uploadWorkerImageIfNeeded(newWorkerForm.image);
       const newWorker = await resourcesService.create({
       name: newWorkerForm.name,
       type: ResourceType.PERSONNEL,
       quantity: 1,
       status: StaffStatus.ACTIVE,
+        image: finalWorkerImage,
         assignedZones: newWorkerForm.zones,
       assignedShift: newWorkerForm.shift,
       compliancePercentage: 100,
         dni: newWorkerForm.dni || undefined,
         puesto: newWorkerForm.puesto || undefined,
+        localidad: newWorkerForm.localidad?.trim() || undefined,
+        phone: newWorkerForm.phone?.trim() || undefined,
+        birthDate: newWorkerForm.birthDate || undefined,
         isShared: newWorkerForm.isShared || false,
         startDate: newWorkerForm.startDate || undefined,
-        endDate: newWorkerForm.endDate || undefined,
-        personnelStatus: newWorkerForm.endDate ? 'cesado' : 'activo',
-        archived: newWorkerForm.endDate ? true : false, // Archivar automáticamente si tiene fecha de fin
+        endDate: newWorkerForm.endDate || undefined, // Solo para monitoreo, NO archiva automáticamente
+        personnelStatus: 'activo', // Siempre activo al crear, el cese se hace manualmente
+        archived: false, // No se archiva automáticamente
+        monthlySalary: newWorkerForm.monthlySalary ? Number(newWorkerForm.monthlySalary) : undefined,
+        workConditionAmount: newWorkerForm.workConditionAmount ? Number(newWorkerForm.workConditionAmount) : undefined,
       trainings: [],
       assignedAssets: []
       }, unit.id);
@@ -1652,7 +2411,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', dni: '', startDate: '', endDate: '' });
+      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -1739,11 +2498,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             compliancePercentage: 100,
             dni: row.dni?.trim() || undefined,
             puesto: row.puesto?.trim() || undefined,
+            localidad: row.localidad?.trim() || undefined,
+            phone: row.telefono?.trim() || undefined,
             isShared: row.compartido === true || row.compartido === 'true' || row.compartido === 'Sí' || row.compartido === 'Sí' || false,
             startDate: row.fechaInicio || undefined,
-            endDate: row.fechaFin || undefined,
-            personnelStatus: row.fechaFin ? 'cesado' : 'activo',
-            archived: row.fechaFin ? true : false, // Archivar automáticamente si tiene fecha de fin
+            endDate: row.fechaFin || undefined, // Solo para monitoreo, NO archiva automáticamente
+            personnelStatus: 'activo', // Siempre activo al crear, el cese se hace manualmente
+            archived: false, // No se archiva automáticamente
             trainings: [],
             assignedAssets: []
           }, unit.id);
@@ -1826,15 +2587,89 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
   };
 
-  const handleDeleteAsset = (resourceId: string, assetId: string) => {
+  const handleDeleteAsset = async (resourceId: string, assetId: string) => {
       if(!onUpdate) return;
-      const updatedResources = unit.resources.map(r => {
-          if (r.id === resourceId) {
-              return { ...r, assignedAssets: r.assignedAssets?.filter(a => a.id !== assetId) };
-          }
-          return r;
+      
+      try {
+        const { resourcesService } = await import('../services/resourcesService');
+        const resource = unit.resources.find(r => r.id === resourceId);
+        
+        if (!resource) {
+          setNotification({ type: 'error', message: 'Recurso no encontrado' });
+          setTimeout(() => setNotification(null), 3000);
+          return;
+        }
+        
+        // Filtrar el activo a eliminar del array
+        const updatedAssets = (resource.assignedAssets || []).filter(a => a.id !== assetId);
+        
+        // Eliminar directamente de la BD actualizando solo los activos
+        await resourcesService.update(resourceId, { assignedAssets: updatedAssets });
+        
+        // Recargar el recurso desde la BD para sincronizar
+        const updatedResource = await resourcesService.getById(resourceId);
+        
+        if (!updatedResource) {
+          throw new Error('No se pudo recargar el recurso actualizado');
+        }
+        
+        // Actualizar solo el recurso específico en el estado local
+        const updatedResources = unit.resources.map(r => 
+          r.id === resourceId ? updatedResource : r
+        );
+        
+        // Actualizar unidad solo con el recurso modificado (sin disparar actualización completa)
+        onUpdate({ ...unit, resources: updatedResources });
+        
+        setNotification({ type: 'success', message: 'Activo eliminado correctamente' });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (error) {
+        console.error('Error al eliminar activo:', error);
+        setNotification({ type: 'error', message: 'Error al eliminar activo. Por favor, intente nuevamente.' });
+        setTimeout(() => setNotification(null), 5000);
+      }
+  };
+
+  const handleSaveEditedAssignedAsset = async () => {
+    if (!onUpdate || !selectedWorkerForAssetEdit || !editAssignedAssetForm.id) return;
+
+    try {
+      setIsUpdatingResource(true);
+      const { resourcesService } = await import('../services/resourcesService');
+      const worker = unit.resources.find(r => r.id === selectedWorkerForAssetEdit.id);
+      if (!worker) throw new Error('Trabajador no encontrado');
+
+      const updatedAssets = (worker.assignedAssets || []).map(a => {
+        if (a.id !== editAssignedAssetForm.id) return a;
+        return {
+          ...a,
+          name: editAssignedAssetForm.name,
+          type: editAssignedAssetForm.type,
+          dateAssigned: editAssignedAssetForm.dateAssigned || new Date().toISOString().split('T')[0],
+          serialNumber: editAssignedAssetForm.serialNumber || undefined,
+          phoneNumber: editAssignedAssetForm.phoneNumber || undefined,
+          notes: editAssignedAssetForm.notes || undefined
+        };
       });
+
+      await resourcesService.update(worker.id, { assignedAssets: updatedAssets });
+      const refreshedWorker = await resourcesService.getById(worker.id);
+      if (!refreshedWorker) throw new Error('No se pudo recargar trabajador actualizado');
+
+      const updatedResources = unit.resources.map(r => r.id === worker.id ? refreshedWorker : r);
       onUpdate({ ...unit, resources: updatedResources });
+
+      setNotification({ type: 'success', message: 'Activo actualizado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+      setShowEditAssignedAssetModal(false);
+      setSelectedWorkerForAssetEdit(null);
+    } catch (error) {
+      console.error('Error al actualizar activo asignado:', error);
+      setNotification({ type: 'error', message: 'Error al actualizar activo. Por favor, intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsUpdatingResource(false);
+    }
   };
 
   // Función para generar y descargar PDF de constancia a demanda
@@ -1900,12 +2735,116 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
 
-  const togglePersonnelExpand = (id: string) => {
-    setExpandedPersonnel(expandedPersonnel === id ? null : id);
+  const togglePersonnelExpand = async (id: string) => {
+    const newExpandedId = expandedPersonnel === id ? null : id;
+    setExpandedPersonnel(newExpandedId);
+    
+    // Cargar historial de contratos cuando se expande
+    if (newExpandedId && !contractHistory[newExpandedId]) {
+      try {
+        const { contractService } = await import('../services/contractService');
+        const history = await contractService.getContractHistory(newExpandedId);
+        setContractHistory(prev => ({
+          ...prev,
+          [newExpandedId]: history
+        }));
+      } catch (error) {
+        console.error('Error al cargar historial de contratos:', error);
+      }
+    }
+    
+    // Cargar incrementos salariales cuando se expande
+    if (newExpandedId && !salaryIncrements[newExpandedId]) {
+      try {
+        const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
+        const increments = await salaryIncrementsService.getByResourceId(newExpandedId);
+        setSalaryIncrements(prev => ({ ...prev, [newExpandedId]: increments }));
+      } catch (error) {
+        console.error('Error al cargar incrementos salariales:', error);
+      }
+    }
   };
   
   const toggleEquipmentExpand = (id: string) => {
     setExpandedEquipment(expandedEquipment === id ? null : id);
+  };
+
+  // Funciones para gestionar incrementos salariales
+  const handleOpenSalaryIncrementModal = async (worker: Resource) => {
+    setSelectedWorkerForIncrement(worker);
+    setNewIncrementForm({
+      previousSalary: worker.monthlySalary || 0,
+      newSalary: worker.monthlySalary || 0,
+      incrementDate: new Date().toISOString().split('T')[0],
+      effectiveDate: new Date().toISOString().split('T')[0],
+      notes: ''
+    });
+    setShowSalaryIncrementModal(true);
+    
+    // Cargar incrementos si no están cargados
+    if (!salaryIncrements[worker.id]) {
+      try {
+        const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
+        const increments = await salaryIncrementsService.getByResourceId(worker.id);
+        setSalaryIncrements(prev => ({ ...prev, [worker.id]: increments }));
+      } catch (error) {
+        console.error('Error al cargar incrementos salariales:', error);
+      }
+    }
+  };
+
+  const handleSaveSalaryIncrement = async () => {
+    if (!selectedWorkerForIncrement || !onUpdate) return;
+    
+    if (newIncrementForm.newSalary <= newIncrementForm.previousSalary) {
+      setNotification({ type: 'error', message: 'El nuevo salario debe ser mayor al salario anterior' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    setIsSavingIncrement(true);
+    try {
+      const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
+      const increment = await salaryIncrementsService.create({
+        resourceId: selectedWorkerForIncrement.id,
+        previousSalary: newIncrementForm.previousSalary,
+        newSalary: newIncrementForm.newSalary,
+        incrementDate: newIncrementForm.incrementDate,
+        effectiveDate: newIncrementForm.effectiveDate,
+        notes: newIncrementForm.notes || undefined
+      });
+      
+      // Actualizar la lista de incrementos
+      setSalaryIncrements(prev => ({
+        ...prev,
+        [selectedWorkerForIncrement.id]: [
+          increment,
+          ...(prev[selectedWorkerForIncrement.id] || [])
+        ]
+      }));
+      
+      // Actualizar el trabajador con el nuevo salario
+      const updatedWorker = {
+        ...selectedWorkerForIncrement,
+        monthlySalary: newIncrementForm.newSalary
+      };
+      
+      // Actualizar en la unidad
+      const updatedResources = unit.resources.map(r => 
+        r.id === selectedWorkerForIncrement.id ? updatedWorker : r
+      );
+      onUpdate({ ...unit, resources: updatedResources });
+      
+      setShowSalaryIncrementModal(false);
+      setNotification({ type: 'success', message: 'Incremento salarial registrado correctamente' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar incremento salarial:', error);
+      setNotification({ type: 'error', message: 'Error al guardar el incremento salarial' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingIncrement(false);
+    }
   };
 
   // --- ROSTERING LOGIC ---
@@ -1974,6 +2913,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      });
      
      // Marcar que hay cambios sin guardar (NO guardar automáticamente)
+     setDirtyRosterShifts(prev => {
+       const next = new Set(prev);
+       next.add(`${resourceId}|${date}`);
+       return next;
+     });
      setRosterHasUnsavedChanges(true);
   };
 
@@ -1985,24 +2929,35 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      try {
          const { resourcesService } = await import('../services/resourcesService');
          
-         // Guardar todos los turnos de todos los recursos que tienen cambios
-         const savePromises: Promise<void>[] = [];
-         
-         localResources.forEach(resource => {
-             if (resource.type === ResourceType.PERSONNEL && resource.workSchedule && resource.workSchedule.length > 0) {
-                 // Guardar todos los turnos de este recurso
-                 resource.workSchedule.forEach(shift => {
-                     savePromises.push(
-                         resourcesService.upsertDailyShift(resource.id, shift).catch(error => {
-                             console.error(`❌ Error al guardar turno para ${resource.name} en ${shift.date}:`, error);
-                             throw error;
-                         })
-                     );
-                 });
-             }
+         const changedShiftsByResource = new Map<string, { resource: Resource; shifts: DailyShift[] }>();
+
+         dirtyRosterShifts.forEach(key => {
+             const [resourceId, date] = key.split('|');
+             const resource = localResources.find(r => r.id === resourceId);
+             const shift = resource?.workSchedule?.find(s => s.date === date);
+
+             if (!resource || !shift) return;
+
+             const current = changedShiftsByResource.get(resourceId) || { resource, shifts: [] };
+             current.shifts.push(shift);
+             changedShiftsByResource.set(resourceId, current);
          });
-         
-         await Promise.all(savePromises);
+
+         if (changedShiftsByResource.size === 0) {
+             setRosterHasUnsavedChanges(false);
+             setDirtyRosterShifts(new Set());
+             setIsSavingRoster(false);
+             return;
+         }
+
+         for (const { resource, shifts } of changedShiftsByResource.values()) {
+             try {
+                 await resourcesService.upsertDailyShiftsForResource(resource.id, shifts);
+             } catch (error) {
+                 console.error(`❌ Error al guardar turnos para ${resource.name}:`, error);
+                 throw error;
+             }
+         }
          
          // Actualizar la unidad en el estado padre para sincronizar
          const updatedResources = localResources.map(r => {
@@ -2015,6 +2970,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      onUpdate({ ...unit, resources: updatedResources });
          
          setRosterHasUnsavedChanges(false);
+         setDirtyRosterShifts(new Set());
          setNotification({ type: 'success', message: 'Planificación guardada correctamente' });
          setTimeout(() => setNotification(null), 3000);
      } catch (error) {
@@ -2028,11 +2984,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
 
   const handleReplicateWeek = () => {
-      if (!onUpdate) return;
-      
       const currentWeekDates = getRosterDates().map(d => d.toISOString().split('T')[0]);
+      const newDirtyKeys = new Set<string>();
       
-      const updatedResources = unit.resources.map(r => {
+      const updatedResources = localResources.map(r => {
           if (r.type !== ResourceType.PERSONNEL) return r;
           
           const schedule = r.workSchedule ? [...r.workSchedule] : [];
@@ -2056,14 +3011,146 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       type: shift.type,
                       hours: shift.hours
                   });
+                  newDirtyKeys.add(`${r.id}|${targetDateStr}`);
               }
           });
           
           return { ...r, workSchedule: schedule };
       });
       
-      onUpdate({ ...unit, resources: updatedResources });
-      alert("Se han replicado los turnos a la próxima semana.");
+      setLocalResources(updatedResources);
+      setDirtyRosterShifts(prev => {
+        const next = new Set(prev);
+        newDirtyKeys.forEach(key => next.add(key));
+        return next;
+      });
+      setRosterHasUnsavedChanges(rosterHasUnsavedChanges || newDirtyKeys.size > 0);
+      setNotification({
+        type: newDirtyKeys.size > 0 ? 'info' : 'error',
+        message: newDirtyKeys.size > 0
+          ? 'Turnos replicados. Presiona "Guardar Planificación" para confirmar los cambios.'
+          : 'No hay turnos en la semana actual para replicar.'
+      });
+      setTimeout(() => setNotification(null), 4000);
+  };
+
+  // Limpiar duplicados de activos asignados
+  const handleCleanupDuplicateAssets = async () => {
+    if (!confirm('¿Está seguro de ejecutar la limpieza de duplicados?\n\nEsto eliminará registros duplicados de activos asignados, manteniendo solo uno de cada duplicado (priorizando los que tienen constancia).\n\nEsta acción puede tardar varios minutos si hay muchos duplicados.')) {
+      return;
+    }
+
+    setIsCleaningDuplicates(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      
+      setNotification({ 
+        type: 'info', 
+        message: 'Iniciando limpieza de duplicados... Esto puede tardar varios minutos.' 
+      });
+      
+      const result = await resourcesService.cleanupDuplicateAssets();
+      
+      setNotification({ 
+        type: 'success', 
+        message: `Limpieza completada: ${result.totalDuplicates} duplicado(s) eliminado(s) de ${result.cleanedResources} recurso(s).` 
+      });
+      setTimeout(() => setNotification(null), 8000);
+      
+      // Recargar la unidad para reflejar los cambios
+      if (onUpdate) {
+        const { unitsService } = await import('../services/unitsService');
+        const updatedUnit = await unitsService.getById(unit.id);
+        if (updatedUnit) {
+          onUpdate(updatedUnit);
+        }
+      }
+    } catch (error) {
+      console.error('Error al limpiar duplicados:', error);
+      setNotification({ 
+        type: 'error', 
+        message: 'Error al limpiar duplicados. Por favor, intente nuevamente.' 
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsCleaningDuplicates(false);
+    }
+  };
+
+  // Exportar tabla de personal a Excel
+  const handleExportPersonnelToExcel = async () => {
+    try {
+      const { excelService } = await import('../services/excelService');
+      
+      // Preparar datos para exportación
+      const personnelToExport = showArchivedPersonnel ? archivedPersonnel : personnel;
+      
+      const headers = [
+        'Colaborador',
+        'DNI',
+        'Puesto',
+        'Localidad',
+        'Teléfono',
+        'Zonas Asignadas',
+        'Estado',
+        'Fecha Inicio',
+        'Fecha Fin',
+        'Turno',
+        'Cumplimiento (%)',
+        'Salario Mensual (S/)',
+        'Condición Trabajo (S/)',
+        'En Capacitación',
+        'Archivado',
+        'Cantidad Capacitaciones',
+        'Cantidad Activos Asignados'
+      ];
+      
+      const data = personnelToExport.map(worker => ({
+        'Colaborador': worker.name,
+        'DNI': worker.dni || '',
+        'Puesto': worker.puesto || '',
+        'Localidad': worker.localidad || '',
+        'Teléfono': worker.phone || '',
+        'Zonas Asignadas': worker.assignedZones?.join(', ') || 'Sin zona',
+        'Estado': worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo'),
+        'Fecha Inicio': (() => {
+          const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
+          return rel.start ? formatDateFromString(rel.start) : '';
+        })(),
+        'Fecha Fin': (() => {
+          const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
+          return rel.end ? formatDateFromString(rel.end) : '';
+        })(),
+        'Turno': worker.assignedShift || '',
+        'Cumplimiento (%)': worker.compliancePercentage || 0,
+        'Salario Mensual (S/)': worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
+        'Condición Trabajo (S/)': worker.workConditionAmount ? `S/ ${worker.workConditionAmount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
+        'En Capacitación': worker.inTraining ? 'Sí' : 'No',
+        'Archivado': worker.archived ? 'Sí' : 'No',
+        'Cantidad Capacitaciones': worker.trainings?.length || 0,
+        'Cantidad Activos Asignados': worker.assignedAssets?.length || 0
+      }));
+      
+      const filename = `personal_${unit.name}_${showArchivedPersonnel ? 'archivado' : 'activo'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      
+      await excelService.exportToExcel(data, headers, {
+        filename,
+        sheetName: 'Personal'
+      });
+      
+      setNotification({ 
+        type: 'success', 
+        message: `Se exportaron ${data.length} colaborador${data.length !== 1 ? 'es' : ''} a Excel correctamente.` 
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al exportar personal a Excel:', error);
+      setNotification({ 
+        type: 'error', 
+        message: 'Error al exportar a Excel. Por favor, intente nuevamente.' 
+      });
+      setTimeout(() => setNotification(null), 5000);
+    }
   };
 
   const getShiftColor = (type: string) => {
@@ -2119,24 +3206,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     try {
       const { resourcesService } = await import('../services/resourcesService');
       
-      // Si es personal y se establece endDate, marcarlo como cesado y archivarlo automáticamente
-      const hasEndDate = editingResource.type === ResourceType.PERSONNEL && editingResource.endDate;
-      const isCesado = editingResource.type === ResourceType.PERSONNEL && editingResource.personnelStatus === 'cesado';
-      const shouldArchive = hasEndDate || isCesado;
+      // endDate es solo para monitoreo, NO cambia automáticamente el estado
+      // El cese/archivo se hace manualmente mediante el proceso de cese
       
-      const resourceToUpdate = shouldArchive 
-        ? { 
-            ...editingResource, 
-            archived: true, 
-            personnelStatus: hasEndDate ? 'cesado' as const : editingResource.personnelStatus 
-          }
-        : editingResource;
+      // Excluir assignedAssets, trainings y workSchedule del objeto de actualización
+      // Estos campos se manejan por separado y solo se actualizan si se modifican explícitamente
+      const { assignedAssets, trainings, workSchedule, ...resourceData } = editingResource;
+      const finalResourceImage = await uploadWorkerImageIfNeeded(editingResource.image, editingResource.id);
+      const originalWorker = unit.resources.find(r => r.id === editingResource.id);
+      const lockedPhone = originalWorker?.phone?.trim();
       
-      // Guardar en la BD
-      await resourcesService.update(editingResource.id, resourceToUpdate);
+      // Asegurar que si el trabajador NO está archivado, el estado sea "activo"
+      // endDate es solo referencial y NO debe cambiar el estado automáticamente
+      const resourceToUpdate = {
+        ...resourceData,
+        image: finalResourceImage,
+        phone: lockedPhone || editingResource.phone?.trim() || undefined,
+        // Si NO está archivado explícitamente, forzar estado "activo"
+        // Esto previene que trabajadores con endDate sean marcados como "cesado"
+        personnelStatus: editingResource.archived === true 
+          ? (editingResource.personnelStatus || 'activo')
+          : 'activo' // Si no está archivado, siempre debe ser "activo"
+      };
       
-      // Recargar el recurso desde la BD para asegurar sincronización completa
-      const updatedResourceFromDB = await resourcesService.getById(editingResource.id);
+      // Guardar en la BD y usar la respuesta ya recargada del servicio.
+      const updatedResourceFromDB = await resourcesService.update(editingResource.id, resourceToUpdate);
       
       if (!updatedResourceFromDB) {
         throw new Error('No se pudo recargar el recurso actualizado');
@@ -2159,7 +3253,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y mostrar notificación
       setEditingResource(null);
-      const message = shouldArchive 
+      // Verificar si se archivó explícitamente (no basado en endDate)
+      const wasArchived = editingResource.archived === true && editingResource.personnelStatus === 'archivado';
+      const message = wasArchived 
         ? 'Trabajador cesado y archivado correctamente' 
         : 'Cambios guardados correctamente';
       setNotification({ type: 'success', message });
@@ -2173,99 +3269,140 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleDeleteResource = () => {
+  const handleDeleteResource = async () => {
     if (!onUpdate || !editingResource) return;
-    if (confirm('¿Estás seguro de eliminar este recurso?')) {
-      const updatedResources = unit.resources.filter(r => r.id !== editingResource.id);
-      onUpdate({ ...unit, resources: updatedResources });
+    if (!confirm('¿Estás seguro de eliminar este recurso?')) return;
+
+    setIsDeletingResource(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      await resourcesService.delete(editingResource.id);
+      const updatedResources = unit.resources.filter((r) => r.id !== editingResource.id);
+      await onUpdate({ ...unit, resources: updatedResources });
       setEditingResource(null);
+      setNotification({ type: 'success', message: 'Recurso eliminado.' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: unknown) {
+      console.error('Error al eliminar recurso:', error);
+      const msg = error instanceof Error ? error.message : 'No se pudo eliminar el recurso.';
+      setNotification({ type: 'error', message: msg });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsDeletingResource(false);
     }
   };
 
   const handleAddResource = async () => {
     if (!onUpdate) return;
-    const newResource: Resource = {
-      id: `r-${Date.now()}`,
-      name: newResourceForm.name || 'Nuevo Recurso',
-      type: newResourceType,
-      quantity: newResourceForm.quantity || 1,
-      status: newResourceType === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo',
-      unitOfMeasure: newResourceForm.unitOfMeasure,
-      assignedZones: newResourceForm.assignedZones || [],
-      nextMaintenance: newResourceForm.nextMaintenance,
-      lastRestock: newResourceForm.lastRestock,
-      image: newResourceForm.image,
-      externalId: newResourceForm.externalId // SKU
-    };
-
-    // Si es equipo y se solicita generar constancia
-    if (newResourceType === ResourceType.EQUIPMENT && generateEquipmentConstancy && equipmentResponsibleWorkerId) {
-      try {
-        const responsibleWorker = unit.resources.find(r => r.id === equipmentResponsibleWorkerId && r.type === ResourceType.PERSONNEL);
-        
-        if (!responsibleWorker) {
-          setNotification({ type: 'error', message: 'Trabajador responsable no encontrado' });
-          setTimeout(() => setNotification(null), 3000);
-          return;
-        }
-
-        if (!responsibleWorker.dni) {
-          setNotification({ 
-            type: 'error', 
-            message: `El trabajador ${responsibleWorker.name} no tiene DNI registrado. Se requiere DNI para generar constancia.` 
-          });
-          setTimeout(() => setNotification(null), 5000);
-          return;
-        }
-
-        const { constancyService } = await import('../services/constancyService');
-        const { pdfConstancyService } = await import('../services/pdfConstancyService');
-        const { authService } = await import('../services/authService');
-        
-        const currentUser = await authService.getCurrentUser();
-
-        // Generar constancia de maquinaria
-        const constancy = await constancyService.generateEquipmentConstancy(
-          responsibleWorker.id,
-          responsibleWorker.name,
-          responsibleWorker.dni,
-          unit.id,
-          unit.name,
-          newResource,
-          currentUser?.name || currentUser?.email || 'Sistema'
-        );
-
-        // Generar y descargar PDF
-        pdfConstancyService.downloadPDF({
-          code: constancy.code,
-          workerName: responsibleWorker.name,
-          workerDni: responsibleWorker.dni,
-          unitName: unit.name,
-          date: constancy.date,
-          items: constancy.items,
-          constancyType: 'EQUIPMENT',
-        }, `constancia-maquinaria-${constancy.code}-${responsibleWorker.name.replace(/\s+/g, '-')}.pdf`);
-
-        setNotification({ 
-          type: 'success', 
-          message: `Constancia de maquinaria generada y descargada` 
-        });
-        setTimeout(() => setNotification(null), 5000);
-      } catch (error) {
-        console.error('Error al generar constancia de maquinaria:', error);
-        setNotification({ 
-          type: 'error', 
-          message: 'Error al generar constancia. El equipo se registró pero la constancia no se generó.' 
-        });
-        setTimeout(() => setNotification(null), 5000);
-      }
+    const name = (newResourceForm.name || '').trim();
+    if (!name) {
+      setNotification({ type: 'error', message: 'Ingrese el nombre del recurso.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
     }
 
-    onUpdate({ ...unit, resources: [...unit.resources, newResource] });
-    setShowAddResourceModal(false);
-    setNewResourceForm({ name: '', quantity: 1, status: 'Operativo', externalId: '', assignedZones: [] });
-    setEquipmentResponsibleWorkerId('');
-    setGenerateEquipmentConstancy(false);
+    setIsAddingLogisticsResource(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+
+      const created = await resourcesService.create(
+        {
+          name,
+          type: newResourceType,
+          quantity: newResourceForm.quantity || 1,
+          status: newResourceType === ResourceType.MATERIAL ? 'Stock OK' : 'Operativo',
+          unitOfMeasure: newResourceForm.unitOfMeasure,
+          assignedZones: newResourceForm.assignedZones || [],
+          nextMaintenance: newResourceForm.nextMaintenance,
+          lastRestock: newResourceForm.lastRestock,
+          image: newResourceForm.image,
+          externalId: newResourceForm.externalId || undefined,
+        },
+        unit.id
+      );
+
+      onUpdate({ ...unit, resources: [...unit.resources, created] });
+
+      let constancyOk = false;
+      if (newResourceType === ResourceType.EQUIPMENT && generateEquipmentConstancy && equipmentResponsibleWorkerId) {
+        const responsibleWorker = unit.resources.find(
+          r => r.id === equipmentResponsibleWorkerId && r.type === ResourceType.PERSONNEL
+        );
+
+        if (!responsibleWorker) {
+          setNotification({
+            type: 'warning',
+            message: 'Recurso guardado. No se encontró el trabajador seleccionado para la constancia.',
+          });
+          setTimeout(() => setNotification(null), 5000);
+        } else if (!responsibleWorker.dni) {
+          setNotification({
+            type: 'warning',
+            message: `Recurso guardado. ${responsibleWorker.name} no tiene DNI; no se generó la constancia.`,
+          });
+          setTimeout(() => setNotification(null), 5000);
+        } else {
+          try {
+            const { constancyService } = await import('../services/constancyService');
+            const { pdfConstancyService } = await import('../services/pdfConstancyService');
+            const { authService } = await import('../services/authService');
+
+            const currentUser = await authService.getCurrentUser();
+
+            const constancy = await constancyService.generateEquipmentConstancy(
+              responsibleWorker.id,
+              responsibleWorker.name,
+              responsibleWorker.dni,
+              unit.id,
+              unit.name,
+              created,
+              currentUser?.name || currentUser?.email || 'Sistema'
+            );
+
+            pdfConstancyService.downloadPDF(
+              {
+                code: constancy.code,
+                workerName: responsibleWorker.name,
+                workerDni: responsibleWorker.dni,
+                unitName: unit.name,
+                date: constancy.date,
+                items: constancy.items,
+                constancyType: 'EQUIPMENT',
+              },
+              `constancia-maquinaria-${constancy.code}-${responsibleWorker.name.replace(/\s+/g, '-')}.pdf`
+            );
+            constancyOk = true;
+          } catch (error) {
+            console.error('Error al generar constancia de maquinaria:', error);
+            setNotification({
+              type: 'warning',
+              message: 'Recurso guardado. No se pudo generar el PDF de constancia.',
+            });
+            setTimeout(() => setNotification(null), 5000);
+          }
+        }
+      }
+
+      if (!constancyOk && !(newResourceType === ResourceType.EQUIPMENT && generateEquipmentConstancy && equipmentResponsibleWorkerId)) {
+        setNotification({ type: 'success', message: 'Recurso registrado correctamente.' });
+        setTimeout(() => setNotification(null), 3000);
+      } else if (constancyOk) {
+        setNotification({ type: 'success', message: 'Recurso registrado y constancia generada.' });
+        setTimeout(() => setNotification(null), 5000);
+      }
+
+      setShowAddResourceModal(false);
+      setNewResourceForm({ name: '', quantity: 1, status: 'Operativo', externalId: '', assignedZones: [] });
+      setEquipmentResponsibleWorkerId('');
+      setGenerateEquipmentConstancy(false);
+    } catch (error: unknown) {
+      console.error('Error al registrar recurso de logística:', error);
+      const msg = error instanceof Error ? error.message : 'Error al registrar el recurso. Verifique permisos y conexión.';
+      setNotification({ type: 'error', message: msg });
+      setTimeout(() => setNotification(null), 6000);
+    } finally {
+      setIsAddingLogisticsResource(false);
+    }
   };
 
   const openAddResourceModal = (type: ResourceType) => {
@@ -2427,8 +3564,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       description: newEventForm.description,
         author: authorName,
         images: processedImages,
-        responsibleIds: newEventResponsibles,
-        responsibleData: responsibleData // Pasar información adicional sobre el tipo
+        responsibleIds: newEventResponsibles
       }, unit.id);
       
       // Actualizar estado local directamente (sin recargar toda la unidad)
@@ -2630,7 +3766,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         ...editingLog,
         date: eventDate,
         author: authorName,
-        responsibleData: responsibleData
+        responsibleIds: editingLog.responsibleIds,
+        ...({ responsibleData } as any) // Pasar información adicional sobre el tipo
       });
       
       // Actualizar estado local con el log guardado
@@ -2723,25 +3860,350 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const resourcesForRoster = personnelViewMode === 'roster' ? localResources : unit.resources;
   
   // Calcular personal archivado usando useMemo para asegurar disponibilidad
-  // Incluye personal archivado explícitamente O personal cesado (que se archiva automáticamente)
+  // Incluye solo personal EXPLÍCITAMENTE archivado (archived = true)
   const archivedPersonnel = useMemo(() => {
     return unit.resources.filter(r => 
       r.type === ResourceType.PERSONNEL && 
-      (r.archived === true || r.personnelStatus === 'cesado')
+      r.archived === true // Solo trabajadores explícitamente archivados
+    );
+  }, [unit.resources]);
+
+  // Incluye trabajadores cesados pero NO archivados
+  const cesadoPersonnel = useMemo(() => {
+    return unit.resources.filter(r => 
+      r.type === ResourceType.PERSONNEL && 
+      r.personnelStatus === 'cesado' && 
+      !r.archived // Cesados pero no archivados
     );
   }, [unit.resources]);
   
   const personnel = useMemo(() => {
     return resourcesForRoster.filter(r => {
       if (r.type !== ResourceType.PERSONNEL) return false;
-      // Si estamos viendo archivados, mostrar solo los archivados o cesados
+      // Si estamos viendo archivados, mostrar solo los EXPLÍCITAMENTE archivados
       if (showArchivedPersonnel) {
-        return r.archived === true || r.personnelStatus === 'cesado';
+        return r.archived === true; // Solo trabajadores explícitamente archivados
       }
-      // Si estamos viendo activos, excluir archivados y cesados
+      // Si estamos viendo cesados, mostrar solo trabajadores cesados (no archivados)
+      if (showCesadoPersonnel) {
+        return r.personnelStatus === 'cesado' && !r.archived;
+      }
+      // Si estamos viendo activos, mostrar solo trabajadores activos
+      // endDate es solo referencial y NO debe afectar la visualización
+      // Un trabajador solo debe aparecer como "cesado" si fue explícitamente cesado mediante el proceso de cese
+      // Los trabajadores con endDate pero activos SÍ deben mostrarse (endDate es solo para monitoreo)
+      // NO mostrar trabajadores con personnelStatus = 'cesado' en la vista de activos
       return !r.archived && r.personnelStatus !== 'cesado';
     });
-  }, [resourcesForRoster, showArchivedPersonnel]);
+  }, [resourcesForRoster, showArchivedPersonnel, showCesadoPersonnel]);
+
+  const getPersonnelSortValue = (worker: Resource, key: PersonnelSortKey): string | number => {
+    switch (key) {
+      case 'name':
+        return `${worker.name || ''} ${worker.puesto || ''}`.trim().toLocaleLowerCase('es-PE');
+      case 'dni':
+        return worker.dni || '';
+      case 'birthDate': {
+        if (!worker.birthDate) return Number.MAX_SAFE_INTEGER;
+        const [, month, day] = worker.birthDate.split('-').map(Number);
+        return month && day ? month * 100 + day : Number.MAX_SAFE_INTEGER;
+      }
+      case 'status':
+        return (worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo')).toLocaleLowerCase('es-PE');
+      case 'dates': {
+        const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
+        return parseLocalDateTime(rel.start || rel.end) ?? Number.MAX_SAFE_INTEGER;
+      }
+      case 'shift':
+        return (worker.assignedShift || '').toLocaleLowerCase('es-PE');
+      case 'compliance':
+        return worker.compliancePercentage ?? 0;
+      case 'salary':
+        return worker.monthlySalary ?? 0;
+      case 'zones':
+        return (worker.assignedZones || []).join(', ').toLocaleLowerCase('es-PE');
+      case 'localidad':
+        return (worker.localidad || '').toLocaleLowerCase('es-PE');
+      case 'phone':
+        return worker.phone || '';
+      default:
+        return '';
+    }
+  };
+
+  const handlePersonnelSort = (key: PersonnelSortKey) => {
+    setPersonnelSort(current => {
+      if (!current || current.key !== key) {
+        return { key, direction: 'asc' };
+      }
+
+      return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+    });
+  };
+
+  // Filtrar personal basado en la búsqueda
+  const filteredPersonnel = useMemo(() => {
+    const query = personnelSearchQuery.toLowerCase().trim();
+    const filtered = query ? personnel.filter(worker => {
+      const name = (worker.name || '').toLowerCase();
+      const dni = (worker.dni || '').toLowerCase();
+      const puesto = (worker.puesto || '').toLowerCase();
+      const zones = (worker.assignedZones || []).join(' ').toLowerCase();
+      const localidad = (worker.localidad || '').toLowerCase();
+      const email = (worker.email || '').toLowerCase();
+      const phone = (worker.phone || '').toLowerCase();
+      
+      return name.includes(query) || 
+             dni.includes(query) || 
+             puesto.includes(query) || 
+             zones.includes(query) ||
+             localidad.includes(query) ||
+             email.includes(query) ||
+             phone.includes(query);
+    }) : personnel;
+
+    if (!personnelSort) {
+      return filtered;
+    }
+
+    return [...filtered].sort((a, b) => {
+      const aValue = getPersonnelSortValue(a, personnelSort.key);
+      const bValue = getPersonnelSortValue(b, personnelSort.key);
+
+      let comparison = 0;
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        comparison = aValue - bValue;
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue), 'es-PE', {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      }
+
+      return personnelSort.direction === 'asc' ? comparison : -comparison;
+    });
+  }, [personnel, personnelSearchQuery, personnelSort, contractHistory]);
+
+  const allUnitPersonnel = useMemo(() => (
+    unit.resources.filter(r => r.type === ResourceType.PERSONNEL)
+  ), [unit.resources]);
+
+  const formatMoney = (amount: number) => `S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const loadVariableCompensations = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent) setIsLoadingCompensations(true);
+    try {
+      const data = await variableCompensationsService.getByUnitAndMonth(unit.id, compensationMonth);
+      setVariableCompensations(data);
+    } catch (error: unknown) {
+      console.error('Error al cargar comisiones variables:', error);
+      const msg =
+        error instanceof Error
+          ? error.message
+          : 'Error al cargar comisiones/remuneraciones variables. Revise permisos (RLS) o la conexión.';
+      setNotification({ type: 'error', message: msg });
+      setTimeout(() => setNotification(null), 6000);
+    } finally {
+      if (!silent) setIsLoadingCompensations(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'compensation') return;
+    loadVariableCompensations();
+  }, [activeTab, unit.id, compensationMonth]);
+
+  const getWorkerById = (resourceId: string) => allUnitPersonnel.find(worker => worker.id === resourceId);
+
+  const handleSaveVariableCompensation = async () => {
+    if (!canEditPersonnel) return;
+    if (!compensationForm.resourceId || !compensationForm.amount) {
+      setNotification({ type: 'error', message: 'Seleccione un trabajador e ingrese un monto.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    const amount = Number(compensationForm.amount);
+    if (!amount || amount <= 0) {
+      setNotification({ type: 'error', message: 'El monto debe ser mayor a cero.' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    setIsSavingCompensation(true);
+    try {
+      const created = await variableCompensationsService.create({
+        unitId: unit.id,
+        resourceId: compensationForm.resourceId,
+        periodMonth: compensationMonth,
+        amount,
+        concept: compensationForm.concept || 'Comisión',
+        paymentDate: compensationForm.paymentDate || undefined,
+        notes: compensationForm.notes || undefined,
+        source: 'manual'
+      });
+
+      setVariableCompensations((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+      setCompensationForm({
+        resourceId: '',
+        amount: '',
+        concept: 'Comisión',
+        paymentDate: new Date().toISOString().split('T')[0],
+        notes: ''
+      });
+      setNotification({ type: 'success', message: 'Comisión/remuneración variable registrada.' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar comisión variable:', error);
+      const msg =
+        error instanceof Error ? error.message : 'Error al guardar la comisión/remuneración variable.';
+      setNotification({ type: 'error', message: msg });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingCompensation(false);
+    }
+  };
+
+  const handleDeleteVariableCompensation = async (id: string) => {
+    if (!canEditPersonnel) return;
+    if (!confirm('¿Eliminar este registro variable?')) return;
+
+    try {
+      await variableCompensationsService.delete(id);
+      setVariableCompensations(prev => prev.filter(item => item.id !== id));
+      setNotification({ type: 'success', message: 'Registro eliminado.' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar comisión variable:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el registro.' });
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const handleImportVariableCompensations = async (file: File | null) => {
+    if (!canEditPersonnel) return;
+    if (!file) return;
+    setIsSavingCompensation(true);
+
+    try {
+      const { excelService } = await import('../services/excelService');
+      const { data, result } = await excelService.importVariableCompensationsFromExcel(file);
+      const unmatched: string[] = [];
+
+      const rowsToCreate = data.flatMap(row => {
+        const worker = allUnitPersonnel.find(person => {
+          const sameDni = row.dni && person.dni && person.dni.trim() === row.dni.trim();
+          const sameName = row.trabajador && person.name.trim().toLowerCase() === row.trabajador.trim().toLowerCase();
+          return sameDni || sameName;
+        });
+
+        if (!worker) {
+          unmatched.push(row.dni || row.trabajador || 'Fila sin identificación');
+          return [];
+        }
+
+        return [{
+          unitId: unit.id,
+          resourceId: worker.id,
+          periodMonth: row.mes || compensationMonth,
+          amount: row.monto,
+          concept: row.concepto || 'Comisión',
+          paymentDate: row.fechaPago,
+          notes: row.notas,
+          source: 'import' as const
+        }];
+      });
+
+      if (rowsToCreate.length > 0) {
+        const inserted = await variableCompensationsService.createMany(rowsToCreate);
+        setVariableCompensations((prev) => {
+          const next = [...inserted, ...prev];
+          const byId = new Map(next.map((row) => [row.id, row]));
+          return Array.from(byId.values());
+        });
+      }
+      const skippedText = unmatched.length > 0 ? ` ${unmatched.length} fila(s) no coincidieron con trabajadores de esta unidad.` : '';
+      const failedText = result.failed > 0 ? ` ${result.failed} fila(s) tenían errores de formato.` : '';
+      setNotification({
+        type: unmatched.length || result.failed ? 'info' : 'success',
+        message: `Importación completada: ${rowsToCreate.length} registro(s) cargado(s).${skippedText}${failedText}`
+      });
+      setTimeout(() => setNotification(null), 8000);
+    } catch (error) {
+      console.error('Error al importar comisiones variables:', error);
+      setNotification({ type: 'error', message: 'Error al importar la tabla de comisiones/remuneraciones variables.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingCompensation(false);
+    }
+  };
+
+  const handleExportVariableCompensations = async () => {
+    try {
+      const { excelService } = await import('../services/excelService');
+      const headers = ['Mes', 'Trabajador', 'DNI', 'Puesto', 'Concepto', 'Monto', 'Fecha Pago', 'Origen', 'Notas'];
+      const data = variableCompensations.map(item => {
+        const worker = getWorkerById(item.resourceId);
+        return {
+          'Mes': item.periodMonth,
+          'Trabajador': worker?.name || 'Trabajador no encontrado',
+          'DNI': worker?.dni || '',
+          'Puesto': worker?.puesto || '',
+          'Concepto': item.concept,
+          'Monto': item.amount,
+          'Fecha Pago': item.paymentDate || '',
+          'Origen': item.source === 'import' ? 'Importado' : 'Manual',
+          'Notas': item.notes || ''
+        };
+      });
+
+      await excelService.exportToExcel(data, headers, {
+        filename: `comisiones_${unit.name}_${compensationMonth}.xlsx`,
+        sheetName: 'Comisiones'
+      });
+    } catch (error) {
+      console.error('Error al exportar comisiones variables:', error);
+      setNotification({ type: 'error', message: 'Error al exportar comisiones/remuneraciones variables.' });
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const personnelIdsKey = useMemo(
+    () => personnel.map(p => p.id).sort().join(','),
+    [personnel]
+  );
+
+  useEffect(() => {
+    if (activeTab !== 'personnel') return;
+    const ids = personnel.map(p => p.id).filter(id => contractHistoryRef.current[id] === undefined);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { contractService } = await import('../services/contractService');
+        const results = await Promise.all(
+          ids.map(async (id) => {
+            const h = await contractService.getContractHistory(id);
+            return [id, h] as const;
+          })
+        );
+        if (cancelled) return;
+        setContractHistory(prev => {
+          const next = { ...prev };
+          for (const [id, h] of results) {
+            if (next[id] === undefined) next[id] = h;
+          }
+          return next;
+        });
+      } catch (e) {
+        console.error('Error precargando historial de contratos:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, personnelIdsKey, personnel]);
   
   const equipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT);
   const materials = unit.resources.filter(r => r.type === ResourceType.MATERIAL);
@@ -2900,21 +4362,29 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                                      {hasAttachments && (
                                          <div className="mb-4">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 flex items-center"><Paperclip size={10} className="mr-1"/> Evidencias Cliente</p>
-                                            <div className="flex gap-2 overflow-x-auto pb-1">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias Cliente ({req.attachments!.length})</p>
+                                            <div className="flex gap-2 overflow-x-auto pb-2">
                                                 {req.attachments!.map((img, i) => (
-                                                    <div key={i} className="w-16 h-16 shrink-0 rounded border border-slate-200 overflow-hidden bg-slate-100">
+                                                    <button
+                                                      key={i}
+                                                      type="button"
+                                                      className="w-24 h-24 shrink-0 rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer group relative p-0 block"
+                                                      onClick={() => {
+                                                        setImageModalUrl(img);
+                                                        setShowImageModal(true);
+                                                      }}
+                                                      title="Ver evidencia en grande"
+                                                    >
                                                         <SafeImage 
                                                           src={img} 
-                                                          className="w-full h-full object-cover" 
-                                                          alt="client attachment"
+                                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none" 
+                                                          alt={`Evidencia ${i + 1}`}
                                                           bucket="unit-images"
-                                                          onClick={() => {
-                                                            setImageModalUrl(img);
-                                                            setShowImageModal(true);
-                                                          }}
                                                         />
-                                                    </div>
+                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+                                                            <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
+                                                        </div>
+                                                    </button>
                                                 ))}
                                             </div>
                                          </div>
@@ -2932,40 +4402,52 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                              <p className="text-sm text-slate-600 line-clamp-2">{req.response}</p>
                                          </div>
                                      )}
+
+                                     {/* Response Attachments Display (Admin Evidence) */}
+                                     {req.responseAttachments && req.responseAttachments.length > 0 && (
+                                         <div className="mt-3 pt-3 border-t border-slate-100">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias de Respuesta ({req.responseAttachments.length})</p>
+                                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                                {req.responseAttachments.map((img, i) => (
+                                                    <button
+                                                      key={i}
+                                                      type="button"
+                                                      className="w-24 h-24 shrink-0 rounded-lg border-2 border-green-200 overflow-hidden bg-slate-100 hover:border-green-400 transition-colors cursor-pointer group relative p-0 block"
+                                                      onClick={() => {
+                                                        setImageModalUrl(img);
+                                                        setShowImageModal(true);
+                                                      }}
+                                                      title="Ver evidencia en grande"
+                                                    >
+                                                        <SafeImage 
+                                                          src={img} 
+                                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none" 
+                                                          alt={`Evidencia respuesta ${i + 1}`}
+                                                          bucket="unit-images"
+                                                        />
+                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+                                                            <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                         </div>
+                                     )}
                                  </div>
 
                                  {/* RIGHT COLUMN: INLINE CHAT */}
-                                 <div className="bg-slate-50/50 flex flex-col h-full min-h-[250px] lg:h-auto border-l border-slate-100">
-                                     <div className="p-3 border-b border-slate-200 bg-slate-50">
+                                 <div className="bg-slate-50/50 flex flex-col h-full min-h-[280px] lg:min-h-0 border-l border-slate-100">
+                                     <div className="p-3 border-b border-slate-200 bg-slate-50 flex-shrink-0">
                                          <h6 className="text-[10px] uppercase font-bold text-slate-500 flex items-center">
                                              <MessageCircle size={12} className="mr-1.5" /> Discusión / Chat
                                          </h6>
                                      </div>
                                      
-                                     {/* Scrollable Messages */}
-                                     <div className="flex-1 p-3 overflow-y-auto custom-scrollbar space-y-3 max-h-60 lg:max-h-80">
-                                        {(!req.comments || req.comments.length === 0) ? (
-                                            <div className="h-full flex flex-col items-center justify-center text-slate-300">
-                                                <MessageSquarePlus size={24} className="mb-1 opacity-50"/>
-                                                <span className="text-xs">Sin comentarios</span>
-                                            </div>
-                                        ) : (
-                                            req.comments.map(comment => (
-                                                <div key={comment.id} className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}>
-                                                    <div className={`relative px-3 py-2 rounded-lg text-xs max-w-[90%] ${
-                                                        comment.role === userRole 
-                                                        ? 'bg-blue-100 text-blue-900 rounded-br-none' 
-                                                        : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm'
-                                                    }`}>
-                                                        <p>{comment.text}</p>
-                                                    </div>
-                                                    <span className="text-[9px] text-slate-400 mt-1 px-1">
-                                                    {comment.author}
-                                                    </span>
-                                                </div>
-                                            ))
-                                        )}
-                                     </div>
+                                     <RequestDiscussionThread
+                                       comments={req.comments}
+                                       userRole={userRole}
+                                       variant="inline"
+                                     />
 
                                      {/* Input Area */}
                                      <div className="p-3 border-t border-slate-200 bg-white">
@@ -2976,10 +4458,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                  placeholder="Escribir comentario..."
                                                  value={commentDrafts[req.id] || ''}
                                                  onChange={(e) => setCommentDrafts({...commentDrafts, [req.id]: e.target.value})}
-                                                 onKeyDown={(e) => e.key === 'Enter' && handleInlineCommentSubmit(req.id)}
+                                                 onKeyDown={(e) => {
+                                                   if (e.key === 'Enter') {
+                                                     e.preventDefault();
+                                                     void handleInlineCommentSubmit(req.id);
+                                                   }
+                                                 }}
                                              />
                                              <button 
-                                                 onClick={() => handleInlineCommentSubmit(req.id)} 
+                                                 type="button"
+                                                 onClick={() => void handleInlineCommentSubmit(req.id)} 
                                                  disabled={!commentDrafts[req.id]?.trim()} 
                                                  className="bg-slate-800 text-white p-1.5 rounded-md hover:bg-slate-900 disabled:opacity-50 transition-colors"
                                              >
@@ -3010,20 +4498,101 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  const renderZoneManagement = () => {
+    const shiftLabels: Record<string, string> = {
+      Day: 'Día',
+      Afternoon: 'Tarde',
+      Night: 'Noche',
+      OFF: 'Descanso',
+      Vacation: 'Vacaciones',
+      Sick: 'Enfermedad',
+    };
+
+    return (
+      <div className="pt-4 border-t border-slate-100">
+        <label className="block text-sm font-medium text-slate-700 mb-2">Gestión de Zonas y Turnos</label>
+        {editForm.zones.map(z => {
+          const displayShifts = z.shifts.map(s => shiftLabels[s] || s).join(', ');
+          return (
+            <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
+              <div>
+                <span className="font-bold text-sm">{z.name}</span>
+                <span className="text-xs text-slate-500"> ({displayShifts})</span>
+              </div>
+              <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700" title="Eliminar zona">
+                <Trash2 size={16}/>
+              </button>
+            </div>
+          );
+        })}
+        <div className="flex flex-col gap-2 mt-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Nombre Zona"
+              className="flex-1 border border-slate-300 rounded p-1.5 text-sm"
+              value={newZoneName}
+              onChange={e => setNewZoneName(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={handleAddZone}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"
+            >
+              Agregar
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs text-slate-600 self-center">Turnos:</span>
+            {(['Day', 'Afternoon', 'Night', 'OFF', 'Vacation', 'Sick'] as const).map(shift => {
+              const isSelected = newZoneShifts.includes(shift);
+              return (
+                <button
+                  key={shift}
+                  type="button"
+                  onClick={() => {
+                    if (isSelected) {
+                      setNewZoneShifts(newZoneShifts.filter(s => s !== shift));
+                    } else {
+                      setNewZoneShifts([...newZoneShifts, shift]);
+                    }
+                  }}
+                  className={`px-3 py-1 rounded text-xs border transition-colors ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {shiftLabels[shift] || shift}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // --- BLUEPRINT RENDERER ---
   const renderBlueprint = () => {
-    // Usar editForm.zones si está disponible (zonas agregadas localmente), sino usar unit.zones
-    const zonesToUse = editForm.zones && editForm.zones.length > 0 ? editForm.zones : unit.zones;
+    const zonesToUse = editForm.zones ?? unit.zones;
     
     const selectedZone = zonesToUse.find(z => z.id === selectedZoneId);
     
     // Filter resources that have this zone in their assignedZones array
     const zoneResources = selectedZone ? unit.resources.filter(r => r.assignedZones?.includes(selectedZone.name)) : [];
-    
+
     // Split for better display in sidebar
     const zonePersonnel = zoneResources.filter(r => r.type === ResourceType.PERSONNEL);
     const zoneEquipment = zoneResources.filter(r => r.type === ResourceType.EQUIPMENT);
     const zoneMaterials = zoneResources.filter(r => r.type === ResourceType.MATERIAL);
+    const zoneAssignedAssets = zonePersonnel.flatMap(worker =>
+      (worker.assignedAssets || []).map(asset => ({
+        ...asset,
+        workerId: worker.id,
+        workerName: worker.name,
+      }))
+    );
 
     // Summary Calculations for Header
     const totalArea = zonesToUse.reduce((acc, z) => acc + (z.area || 0), 0);
@@ -3196,6 +4765,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           const zP = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.assignedZones?.includes(zone.name)).length;
                           const zE = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT && r.assignedZones?.includes(zone.name)).length;
                           const zM = unit.resources.filter(r => r.type === ResourceType.MATERIAL && r.assignedZones?.includes(zone.name)).length;
+                          const zA = unit.resources
+                            .filter(r => r.type === ResourceType.PERSONNEL && r.assignedZones?.includes(zone.name))
+                            .reduce((count, r) => count + (r.assignedAssets || []).length, 0);
                           
                           // Defaults if no layout
                           const layout = zone.layout || { x: 1, y: 1, w: 2, h: 2, color: '#94a3b8' };
@@ -3254,6 +4826,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                   }`}>{zM}</span>
                                               </div>
                                           )}
+                                          {zA > 0 && (
+                                              <div className="flex flex-col items-center">
+                                                  <Briefcase size={isMobile ? 12 : 24} className={`opacity-80 ${isMobile ? 'mb-0' : 'mb-0.5'}`} />
+                                                  <span className={`font-bold bg-white/40 rounded-full ${
+                                                    isMobile ? 'text-[7px] px-0.5' : 'text-[10px] px-1.5'
+                                                  }`}>{zA}</span>
+                                              </div>
+                                          )}
                                       </div>
                                   </div>
 
@@ -3297,6 +4877,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
            {/* DYNAMIC SIDEBAR */}
            <div className="w-full lg:w-96 flex flex-col gap-6">
+               {isEditingBlueprint && (
+                   <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-5">
+                       {renderZoneManagement()}
+                   </div>
+               )}
                
                {/* 1. Edit Zone Details Panel */}
                {selectedZone ? (
@@ -3348,7 +4933,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             <h5 className="font-bold text-slate-600 text-sm mb-3 flex items-center"><ClipboardList className="mr-2" size={16}/> Recursos Asignados</h5>
                             
                             <div className="overflow-y-auto pr-1 custom-scrollbar space-y-4 flex-1">
-                                {zoneResources.length === 0 && (
+                                {zoneResources.length === 0 && zoneAssignedAssets.length === 0 && (
                                     <div className="text-center py-6 text-slate-400 text-sm italic border-2 border-dashed border-slate-100 rounded-lg">
                                         Zona libre de recursos asignados.
                                     </div>
@@ -3377,6 +4962,40 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                         </div>
                                                     </div>
                                                     <div className={`w-2 h-2 rounded-full ${res.status === 'Activo' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                                </div>
+                                            )})}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ASSIGNED ASSETS GROUP */}
+                                {zoneAssignedAssets.length > 0 && (
+                                    <div>
+                                        <h6 className="text-[10px] font-bold text-orange-500 uppercase mb-2">Dotación / EPP ({zoneAssignedAssets.length})</h6>
+                                        <div className="space-y-2">
+                                            {zoneAssignedAssets.map(asset => {
+                                                const assetDate = asset.dateAssigned || (asset as any).date_assigned;
+                                                const serialNumber = asset.serialNumber || (asset as any).serial_number;
+                                                const phoneNumber = asset.phoneNumber || (asset as any).phone_number;
+                                                return (
+                                                <div key={`${asset.workerId}-${asset.id}`} className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center justify-between">
+                                                    <div className="flex items-center min-w-0">
+                                                        <div className="p-1 rounded-full mr-2 bg-orange-100 text-orange-600 shrink-0">
+                                                            {getAssetIcon(asset.type)}
+                                                        </div>
+                                                        <div className="truncate">
+                                                            <p className="text-xs font-bold text-slate-700 truncate">{asset.name}</p>
+                                                            <p className="text-[9px] text-slate-500 truncate">
+                                                                {asset.workerName}
+                                                                {assetDate ? ` • ${assetDate}` : ''}
+                                                                {serialNumber ? ` • SN: ${serialNumber}` : ''}
+                                                                {phoneNumber ? ` • Tel: ${phoneNumber}` : ''}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 shrink-0">
+                                                        {asset.type}
+                                                    </span>
                                                 </div>
                                             )})}
                                         </div>
@@ -3802,77 +5421,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
 
                   {/* Zones Management */}
-                  <div className="pt-4 border-t border-slate-100">
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Gestión de Zonas y Turnos</label>
-                    {editForm.zones.map(z => {
-                        const shiftLabels: Record<string, string> = {
-                            'Day': 'Día',
-                            'Afternoon': 'Tarde',
-                            'Night': 'Noche',
-                            'OFF': 'Descanso',
-                            'Vacation': 'Vacaciones',
-                            'Sick': 'Enfermedad'
-                        };
-                        const displayShifts = z.shifts.map(s => shiftLabels[s] || s).join(', ');
-                        return (
-                        <div key={z.id} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-2 border border-slate-100">
-                                <div><span className="font-bold text-sm">{z.name}</span> <span className="text-xs text-slate-500">({displayShifts})</span></div>
-                            <button onClick={() => handleDeleteZone(z.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
-                        </div>
-                        );
-                    })}
-                    <div className="flex flex-col gap-2 mt-2">
-                        <div className="flex gap-2">
-                            <input 
-                                type="text" 
-                                placeholder="Nombre Zona" 
-                                className="flex-1 border border-slate-300 rounded p-1.5 text-sm" 
-                                value={newZoneName} 
-                                onChange={e => setNewZoneName(e.target.value)} 
-                            />
-                            <button 
-                                onClick={handleAddZone} 
-                                className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"
-                            >
-                                Agregar
-                            </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <span className="text-xs text-slate-600 self-center">Turnos:</span>
-                            {(['Day', 'Afternoon', 'Night', 'OFF', 'Vacation', 'Sick'] as const).map(shift => {
-                                const shiftLabels: Record<string, string> = {
-                                    'Day': 'Día',
-                                    'Afternoon': 'Tarde',
-                                    'Night': 'Noche',
-                                    'OFF': 'Descanso',
-                                    'Vacation': 'Vacaciones',
-                                    'Sick': 'Enfermedad'
-                                };
-                                const isSelected = newZoneShifts.includes(shift);
-                                return (
-                                    <button
-                                        key={shift}
-                                        type="button"
-                                        onClick={() => {
-                                            if (isSelected) {
-                                                setNewZoneShifts(newZoneShifts.filter(s => s !== shift));
-                                            } else {
-                                                setNewZoneShifts([...newZoneShifts, shift]);
-                                            }
-                                        }}
-                                        className={`px-3 py-1 rounded text-xs border transition-colors ${
-                                            isSelected
-                                                ? 'bg-blue-600 text-white border-blue-600'
-                                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                                        }`}
-                                    >
-                                        {shiftLabels[shift] || shift}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                  </div>
+                  {canManageZones && renderZoneManagement()}
 
                   {/* Image Management */}
                   <div className="pt-4 border-t border-slate-100">
@@ -4016,7 +5565,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                    onClick={() => {
                      setShowRequiredPositionsModal(true);
                      setEditingRequiredPosition(null);
-                     setRequiredPositionForm({ positionId: '', quantity: 1 });
+                     setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
                    }}
                    className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
                  >
@@ -4027,7 +5576,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              
              {(() => {
                const requiredPositions = unit.requiredPositions || [];
-               const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
+               const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
                
                if (requiredPositions.length === 0) {
                  return (
@@ -4039,7 +5588,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          onClick={() => {
                            setShowRequiredPositionsModal(true);
                            setEditingRequiredPosition(null);
-                           setRequiredPositionForm({ positionId: '', quantity: 1 });
+                           setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
                          }}
                          className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
                        >
@@ -4054,15 +5603,58 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  <div className="space-y-3">
                    {requiredPositions.map((reqPos, index) => {
                      const positionName = reqPos.positionName || positions.find(p => p.id === reqPos.positionId)?.name || 'Desconocido';
-                     const covered = personnel.filter(p => p.puesto === positionName || p.puesto === reqPos.positionId).length;
+                     
+                     // Helper para obtener turno del trabajador
+                     const getWorkerShift = (worker: Resource): string | undefined => {
+                       if (worker.assignedShift) return worker.assignedShift;
+                       if (worker.workSchedule && worker.workSchedule.length > 0) {
+                         const today = new Date().toISOString().split('T')[0];
+                         const todayShift = worker.workSchedule.find(s => s.date === today);
+                         if (todayShift && todayShift.type !== 'OFF' && todayShift.type !== 'Vacation' && todayShift.type !== 'Sick') {
+                           return todayShift.type;
+                         }
+                       }
+                       return undefined;
+                     };
+                     
+                     // Helper para hacer match entre turnos
+                     const matchesShift = (workerShift: string | undefined, requiredShift: string | undefined): boolean => {
+                       if (!requiredShift) return true;
+                       if (!workerShift) return false;
+                       const normalizeShift = (shift: string): string => {
+                         const lower = shift.toLowerCase();
+                         if (lower.includes('day') || lower.includes('mañana') || lower.includes('diurno') || lower.includes('morning')) return 'Day';
+                         if (lower.includes('afternoon') || lower.includes('tarde') || lower.includes('vespertino')) return 'Afternoon';
+                         if (lower.includes('night') || lower.includes('noche') || lower.includes('nocturno')) return 'Night';
+                         return shift;
+                       };
+                       return normalizeShift(workerShift) === normalizeShift(requiredShift);
+                     };
+                     
+                     // Filtrar trabajadores por puesto Y turno
+                     const matchingPersonnel = personnel.filter(p => {
+                       const matchesPosition = p.puesto === positionName || p.puesto === reqPos.positionId;
+                       if (!matchesPosition) return false;
+                       if (reqPos.shift) {
+                         const workerShift = getWorkerShift(p);
+                         return matchesShift(workerShift, reqPos.shift);
+                       }
+                       return true;
+                     });
+                     
+                     const covered = matchingPersonnel.length;
                      const deficit = reqPos.quantity - covered;
                      const coverage = reqPos.quantity > 0 ? (covered / reqPos.quantity) * 100 : 0;
+                     const shiftLabel = reqPos.shift ? (reqPos.shift === 'Day' ? 'Mañana' : reqPos.shift === 'Afternoon' ? 'Tarde' : reqPos.shift === 'Night' ? 'Noche' : reqPos.shift) : 'Todos';
                      
                      return (
                        <div key={index} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                          <div className="flex items-center justify-between mb-2">
                            <div className="flex-1">
                              <h4 className="font-medium text-slate-800">{positionName}</h4>
+                             {reqPos.shift && (
+                               <p className="text-xs text-slate-500 mt-1">Turno: {shiftLabel}</p>
+                             )}
                              <div className="flex items-center space-x-4 mt-2 text-sm">
                                <span className="text-slate-600">Requerido: <strong>{reqPos.quantity}</strong></span>
                                <span className={covered >= reqPos.quantity ? 'text-green-600' : 'text-orange-600'}>
@@ -4071,6 +5663,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                {deficit > 0 && (
                                  <span className="text-red-600 flex items-center">
                                    <AlertCircle size={14} className="mr-1" /> Falta: <strong>{deficit}</strong>
+                                   {reqPos.shift && <span className="ml-1 text-xs">({shiftLabel})</span>}
                                  </span>
                                )}
                                {deficit === 0 && (
@@ -4085,10 +5678,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                <button
                                  onClick={() => {
                                    setEditingRequiredPosition(reqPos);
-                                   setRequiredPositionForm({
-                                     positionId: reqPos.positionId,
-                                     quantity: reqPos.quantity,
-                                   });
+                                  setRequiredPositionForm({
+                                    positionId: reqPos.positionId,
+                                    quantity: reqPos.quantity,
+                                    shift: reqPos.shift,
+                                  });
                                    setShowRequiredPositionsModal(true);
                                  }}
                                  className="text-blue-600 hover:text-blue-800 p-1"
@@ -4138,20 +5732,64 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     </div>
   );
 
+  const renderPersonnelSortHeader = (
+    key: PersonnelSortKey,
+    label: string,
+    className: string,
+    align: 'left' | 'center' | 'right' = 'left'
+  ) => {
+    const isActive = personnelSort?.key === key;
+    const nextDirection = isActive && personnelSort.direction === 'asc' ? 'descendente' : 'ascendente';
+    const justifyClass = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start';
+
+    return (
+      <button
+        type="button"
+        onClick={() => handlePersonnelSort(key)}
+        className={`${className} group inline-flex items-center gap-1 ${justifyClass} whitespace-nowrap hover:text-slate-800 transition-colors`}
+        title={`Ordenar ${label} de forma ${nextDirection}`}
+      >
+        <span>{label}</span>
+        {isActive ? (
+          personnelSort.direction === 'asc'
+            ? <ChevronUp size={12} className="text-blue-600" />
+            : <ChevronDown size={12} className="text-blue-600" />
+        ) : (
+          <ChevronDown size={12} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+        )}
+      </button>
+    );
+  };
+
   const renderPersonnel = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h3 className="text-lg font-semibold text-slate-800">
-            Gestión de Personal ({showArchivedPersonnel ? archivedPersonnel.length : personnel.length})
-            {!showArchivedPersonnel && archivedPersonnel.length > 0 && (
-              <span className="text-sm font-normal text-slate-500 ml-2">
-                ({archivedPersonnel.length} archivado{archivedPersonnel.length > 1 ? 's' : ''})
-              </span>
+            Gestión de Personal ({
+              showArchivedPersonnel ? archivedPersonnel.length : 
+              showCesadoPersonnel ? cesadoPersonnel.length : 
+              personnel.length
+            })
+            {!showArchivedPersonnel && !showCesadoPersonnel && (
+              <>
+                {cesadoPersonnel.length > 0 && (
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    ({cesadoPersonnel.length} cesado{cesadoPersonnel.length > 1 ? 's' : ''})
+                  </span>
+                )}
+                {archivedPersonnel.length > 0 && (
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    ({archivedPersonnel.length} archivado{archivedPersonnel.length > 1 ? 's' : ''})
+                  </span>
+                )}
+              </>
             )}
           </h3>
           <p className="text-slate-500 text-sm">
-            {showArchivedPersonnel ? 'Personal archivado' : 'Administración de colaboradores, asistencias y capacitaciones.'}
+            {showArchivedPersonnel ? 'Personal archivado' : 
+             showCesadoPersonnel ? 'Personal cesado (no archivado)' : 
+             'Administración de colaboradores, asistencias y capacitaciones.'}
           </p>
         </div>
         {canViewPersonnel && (
@@ -4160,22 +5798,42 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  <button 
                     onClick={() => setPersonnelViewMode('list')} 
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'list' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
-                    disabled={showArchivedPersonnel}
+                    disabled={showArchivedPersonnel || showCesadoPersonnel}
                  >
                      <Users size={14} className="mr-1.5"/> Lista
                  </button>
                  <button 
                     onClick={() => setPersonnelViewMode('roster')} 
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${personnelViewMode === 'roster' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
-                    disabled={showArchivedPersonnel}
+                    disabled={showArchivedPersonnel || showCesadoPersonnel}
                  >
                      <Calendar size={14} className="mr-1.5"/> Turnos / Rostering
                  </button>
              </div>
+             {/* Botón para mostrar/ocultar personal cesado */}
+             {cesadoPersonnel.length > 0 && (
+               <button
+                 onClick={() => {
+                   setShowCesadoPersonnel(!showCesadoPersonnel);
+                   setShowArchivedPersonnel(false); // Asegurar que solo una vista esté activa
+                 }}
+                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center ${
+                   showCesadoPersonnel 
+                     ? 'bg-red-100 text-red-700 hover:bg-red-200' 
+                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                 }`}
+               >
+                 <UserCheck size={16} className="mr-2"/>
+                 {showCesadoPersonnel ? 'Ver Activos' : `Ver Cesados (${cesadoPersonnel.length})`}
+               </button>
+             )}
              {/* Botón para mostrar/ocultar personal archivado */}
              {archivedPersonnel.length > 0 && (
                <button
-                 onClick={() => setShowArchivedPersonnel(!showArchivedPersonnel)}
+                 onClick={() => {
+                   setShowArchivedPersonnel(!showArchivedPersonnel);
+                   setShowCesadoPersonnel(false); // Asegurar que solo una vista esté activa
+                 }}
                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center ${
                    showArchivedPersonnel 
                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
@@ -4219,6 +5877,36 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             </button>
               </div>
             )}
+            {canViewPersonnel && personnel.length > 0 && (
+              <>
+                <button 
+                  onClick={handleExportPersonnelToExcel}
+                  className="bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors flex items-center shadow-sm"
+                  title="Exportar tabla de personal a Excel"
+                >
+                  <Download size={18} className="mr-2" /> Exportar Excel
+                </button>
+                {canEditPersonnel && (
+                  <button 
+                    onClick={handleCleanupDuplicateAssets}
+                    className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors flex items-center shadow-sm"
+                    title="Limpiar activos duplicados en la base de datos"
+                    disabled={isCleaningDuplicates}
+                  >
+                    {isCleaningDuplicates ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Limpiando...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={18} className="mr-2" /> Limpiar Duplicados
+                      </>
+                    )}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -4245,65 +5933,177 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       )}
 
       {personnelViewMode === 'list' ? (
+      <div className="space-y-4">
+        {/* Barra de búsqueda */}
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar por nombre, DNI, puesto, localidad, zona, email o teléfono..."
+              value={personnelSearchQuery}
+              onChange={(e) => setPersonnelSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            />
+            {personnelSearchQuery && (
+              <button
+                onClick={() => setPersonnelSearchQuery('')}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                title="Limpiar búsqueda"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+          {personnelSearchQuery && (
+            <p className="mt-2 text-xs text-slate-500">
+              Mostrando {filteredPersonnel.length} de {personnel.length} colaborador{personnel.length !== 1 ? 'es' : ''}
+              {showCesadoPersonnel && (
+                <span className="text-red-600 font-medium ml-2">(Cesados)</span>
+              )}
+              {showArchivedPersonnel && (
+                <span className="text-amber-600 font-medium ml-2">(Archivados)</span>
+              )}
+            </p>
+          )}
+        </div>
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
          {/* Table Header */}
-         <div className={`grid grid-cols-12 border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[800px] ${
+         <div className={`grid grid-cols-9 md:grid-cols-[repeat(15,minmax(0,1fr))] border-b border-slate-200 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider gap-2 min-w-[1200px] ${
            showArchivedPersonnel ? 'bg-amber-50' : 'bg-slate-50'
          }`}>
             <div className="col-span-1 flex items-center justify-center">
                {!showArchivedPersonnel && (
-                 <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === personnel.length && personnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                 <input type="checkbox" onChange={selectAllPersonnel} checked={selectedPersonnelIds.length === filteredPersonnel.length && filteredPersonnel.length > 0} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                )}
             </div>
-            <div className="col-span-3 md:col-span-2 whitespace-nowrap">Colaborador</div>
-            <div className="col-span-2 hidden md:block text-center whitespace-nowrap">DNI</div>
-            <div className="col-span-2 text-center whitespace-nowrap">Estado</div>
-            <div className="col-span-2 hidden md:block text-center whitespace-nowrap">Fechas</div>
-            <div className="col-span-1 hidden md:block text-center whitespace-nowrap">Turno</div>
-            <div className="col-span-1 hidden md:block text-center whitespace-nowrap">Cumpl.</div>
-            <div className="col-span-3 md:col-span-2 text-right whitespace-nowrap">Acciones</div>
+            {renderPersonnelSortHeader('name', 'Colaborador', 'col-span-3 md:col-span-2 lg:col-span-2')}
+            {renderPersonnelSortHeader('dni', 'DNI', 'col-span-2 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('phone', 'Teléfono', 'col-span-1 hidden md:inline-flex', 'center')}
+            {renderPersonnelSortHeader('birthDate', 'Cumpleaños', 'col-span-2 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('status', 'Estado', 'col-span-2 md:col-span-1 lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('dates', 'Fechas', 'col-span-2 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('shift', 'Turno', 'col-span-1 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('compliance', 'Cumpl.', 'col-span-1 hidden md:inline-flex lg:col-span-1', 'center')}
+            {renderPersonnelSortHeader('salary', 'Salario', 'col-span-1 hidden lg:inline-flex', 'center')}
+            {renderPersonnelSortHeader('zones', 'Zona/Grupo', 'col-span-1 hidden lg:inline-flex', 'center')}
+            {renderPersonnelSortHeader('localidad', 'Localidad', 'col-span-1 hidden lg:inline-flex', 'center')}
+            <div className="col-span-3 md:col-span-2 lg:col-span-2 text-right whitespace-nowrap">Acciones</div>
          </div>
 
          <div className="divide-y divide-slate-100">
-            {personnel.length === 0 ? (
+            {filteredPersonnel.length === 0 ? (
               <div className="p-12 text-center text-slate-400">
                 <Archive size={48} className="mx-auto mb-4 opacity-20"/>
                 <p className="font-medium">
-                  {showArchivedPersonnel ? 'No hay personal archivado' : 'No hay personal registrado'}
+                  {personnelSearchQuery 
+                    ? `No se encontraron colaboradores que coincidan con "${personnelSearchQuery}"`
+                    : showArchivedPersonnel 
+                      ? 'No hay personal archivado' 
+                      : 'No hay personal registrado'}
                 </p>
               </div>
             ) : (
-              personnel.map(worker => (
+              filteredPersonnel.map(worker => (
                 <div key={worker.id} className={`group transition-colors hover:bg-slate-50 ${showArchivedPersonnel ? 'bg-amber-50/30' : ''}`}>
                  {/* Main Row */}
-                 <div className={`grid grid-cols-12 p-4 items-center gap-2 min-w-[800px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
+                 <div className={`grid grid-cols-9 md:grid-cols-[repeat(15,minmax(0,1fr))] p-4 items-center gap-2 min-w-[1200px] ${isArchivingPersonnel === worker.id ? 'opacity-50' : ''}`}>
                     <div className="col-span-1 flex items-center justify-center">
                        {!showArchivedPersonnel && (
                          <input type="checkbox" checked={selectedPersonnelIds.includes(worker.id)} onChange={() => togglePersonnelSelection(worker.id)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" disabled={isArchivingPersonnel === worker.id} />
                        )}
                     </div>
-                    <div className="col-span-3 md:col-span-2 flex items-center min-w-0">
-                       <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
-                          {worker.name.charAt(0)}
-                       </div>
-                       <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-slate-900 truncate">{worker.name}</p>
-                            {worker.inTraining && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 shrink-0">
-                                En Capacitación
-                              </span>
-                            )}
-                       </div>
-                          <p className="text-xs text-slate-500 truncate">
-                            {worker.puesto ? `${worker.puesto} • ` : ''}{worker.assignedZones?.join(', ') || 'Sin zona'}
-                          </p>
+                    <div className="col-span-3 md:col-span-2 lg:col-span-2 flex items-center min-w-0">
+                       {worker.image ? (
+                         <SafeImage
+                           src={worker.image}
+                           alt={worker.name}
+                           bucket="unit-images"
+                           className="w-16 h-16 rounded-full object-cover mr-4 shrink-0 bg-slate-200 cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition"
+                           onClick={() => {
+                             closeAllModalsExcept('image');
+                             setImageModalUrl(worker.image!);
+                             setShowImageModal(true);
+                           }}
+                           title="Click para ver foto en tamaño completo"
+                           fallback={
+                             <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 mr-4 shrink-0">
+                               {getWorkerInitial(worker.name)}
+                             </div>
+                           }
+                         />
+                       ) : (
+                         <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 mr-4 shrink-0">
+                            {getWorkerInitial(worker.name)}
+                         </div>
+                       )}
+                       <button
+                         type="button"
+                         onClick={() => togglePersonnelExpand(worker.id)}
+                         className="min-w-0 flex-1 text-left group/name focus:outline-none"
+                         disabled={isArchivingPersonnel === worker.id}
+                       >
+                         <div className="flex items-center gap-2">
+                           <p className="text-sm font-medium text-slate-900 truncate underline decoration-dotted group-hover/name:decoration-solid group-hover/name:text-blue-700">
+                             {worker.name}
+                           </p>
+                           {worker.inTraining && (
+                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 shrink-0">
+                               En Capacitación
+                             </span>
+                           )}
+                         </div>
+                         {/* Zona/Grupo: solo en columna dedicada (lg+). En <lg la columna está oculta: mostrar aquí */}
+                         <p className="text-xs min-w-0 lg:hidden">
+                           <span className="text-slate-500">
+                             {worker.puesto ? `${worker.puesto} • ` : ''}
+                           </span>
+                           {(worker.assignedZones?.length ?? 0) > 0 ? (
+                             <ZoneNameBadges unitZones={unit.zones} zoneNames={worker.assignedZones!} size="xs" />
+                           ) : (
+                             <span className="text-slate-400 italic">Sin zona</span>
+                           )}
+                           {worker.localidad?.trim() ? (
+                             <span className="text-slate-600"> • {worker.localidad.trim()}</span>
+                           ) : null}
+                         </p>
+                         {worker.puesto ? (
+                           <p className="hidden lg:block text-xs min-w-0 text-slate-500 truncate">{worker.puesto}</p>
+                         ) : null}
+                       </button>
                     </div>
-                    </div>
-                    <div className="col-span-2 hidden md:flex items-center justify-center text-sm text-slate-500 font-mono">
+                    <div className="col-span-2 hidden md:flex lg:col-span-1 items-center justify-center text-sm text-slate-500 font-mono">
                        {worker.dni || <span className="text-slate-300 italic">-</span>}
                     </div>
-                    <div className="col-span-2 flex items-center justify-center">
+                    <div className="col-span-1 hidden md:flex items-center justify-center min-w-0 px-1">
+                       {worker.phone?.trim() ? (
+                         <span className="truncate max-w-full font-mono text-sm text-slate-600" title={worker.phone.trim()}>{worker.phone.trim()}</span>
+                       ) : (
+                         <span className="text-slate-300 italic">-</span>
+                       )}
+                    </div>
+                    <div className="col-span-2 hidden md:flex lg:col-span-1 items-center justify-center text-xs text-slate-600">
+                       {worker.birthDate ? (
+                         <div className="text-center">
+                           <div className="whitespace-nowrap">{formatDateFromString(worker.birthDate)}</div>
+                           {(() => {
+                             const birthdayStatus = getBirthdayStatus(worker.birthDate);
+                             if (!birthdayStatus) return null;
+
+                             if (birthdayStatus.daysUntil === 0) {
+                               return <div className="text-pink-600 font-bold text-[10px] mt-0.5">🎉 Hoy</div>;
+                             } else if (birthdayStatus.daysUntil > 0 && birthdayStatus.daysUntil <= 7) {
+                               return <div className="text-pink-500 text-[10px] mt-0.5">En {birthdayStatus.daysUntil} día{birthdayStatus.daysUntil !== 1 ? 's' : ''}</div>;
+                             }
+                             return null;
+                           })()}
+                         </div>
+                       ) : (
+                         <span className="text-slate-300 italic">-</span>
+                       )}
+                    </div>
+                    <div className="col-span-2 md:col-span-1 lg:col-span-1 flex items-center justify-center">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                           worker.personnelStatus === 'cesado' 
                             ? 'bg-red-100 text-red-700' 
@@ -4312,17 +6112,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                            {worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo')}
                         </span>
                     </div>
-                    <div className="col-span-2 hidden md:flex flex-col items-center justify-center text-xs text-slate-500">
-                       {worker.startDate && (
-                         <div className="whitespace-nowrap">Inicio: {formatDateFromString(worker.startDate)}</div>
-                       )}
-                       {worker.endDate && (
-                         <div className="text-red-600 whitespace-nowrap">Fin: {formatDateFromString(worker.endDate)}</div>
-                       )}
-                       {!worker.startDate && !worker.endDate && <span className="text-slate-300 italic">-</span>}
+                    <div className="col-span-2 hidden md:flex lg:col-span-1 flex-col items-center justify-center text-xs text-slate-500">
+                       {(() => {
+                         const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
+                         return (
+                           <>
+                             {rel.start && (
+                               <div className="whitespace-nowrap">Inicio: {formatDateFromString(rel.start)}</div>
+                             )}
+                             {rel.end && (
+                               <div className="text-red-600 whitespace-nowrap">Fin: {formatDateFromString(rel.end)}</div>
+                             )}
+                             {!rel.start && !rel.end && <span className="text-slate-300 italic">-</span>}
+                           </>
+                         );
+                       })()}
                             </div>
-                    <div className="col-span-1 hidden md:flex items-center justify-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
-                    <div className="col-span-1 hidden md:flex items-center justify-center">
+                    <div className="col-span-1 hidden md:flex lg:col-span-1 items-center justify-center text-sm text-slate-600">{worker.assignedShift || '-'}</div>
+                    <div className="col-span-1 hidden md:flex lg:col-span-1 items-center justify-center">
                         <div className="flex items-center">
                             <div className="w-12 bg-slate-200 rounded-full h-1.5 mr-1">
                                 <div className={`h-1.5 rounded-full ${worker.compliancePercentage && worker.compliancePercentage >= 90 ? 'bg-green-500' : 'bg-yellow-500'}`} style={{ width: `${worker.compliancePercentage || 0}%` }}></div>
@@ -4330,19 +6137,57 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             <span className="text-xs font-medium">{worker.compliancePercentage || 0}%</span>
                     </div>
                     </div>
-                    <div className="col-span-3 md:col-span-2 flex justify-end items-center gap-2">
+                    <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-700 font-medium">
+                       {worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-300 italic">-</span>}
+                    </div>
+                    <div className="col-span-1 hidden lg:flex items-center justify-center text-xs">
+                       {(worker.assignedZones?.length ?? 0) > 0 ? (
+                         <ZoneNameBadges
+                           unitZones={unit.zones}
+                           zoneNames={worker.assignedZones!}
+                           className="justify-center"
+                         />
+                       ) : (
+                         <span className="text-slate-300 italic">Sin zona</span>
+                       )}
+                    </div>
+                    <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-600 min-w-0 px-1">
+                       {worker.localidad?.trim() ? (
+                         <span className="truncate max-w-full" title={worker.localidad.trim()}>{worker.localidad.trim()}</span>
+                       ) : (
+                         <span className="text-slate-300 italic">-</span>
+                       )}
+                    </div>
+                    <div className="col-span-3 md:col-span-2 lg:col-span-2 flex justify-end items-center gap-2">
                         <button onClick={() => togglePersonnelExpand(worker.id)} className="text-slate-400 hover:text-blue-600 p-1" disabled={isArchivingPersonnel === worker.id}>
                             {expandedPersonnel === worker.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                         </button>
                         {canEditPersonnel && (
                             <>
-                                <button onClick={() => { setEditingResource(worker); }} className="text-blue-600 hover:text-blue-900 p-1" title="Editar" disabled={isArchivingPersonnel === worker.id || isUpdatingResource}>
-                                    {isUpdatingResource && editingResource?.id === worker.id ? (
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                                    ) : (
-                                <Edit2 size={16} />
-                                    )}
-                            </button>
+                                {!showArchivedPersonnel && (
+                                    <button onClick={() => { setEditingResource(worker); }} className="text-blue-600 hover:text-blue-900 p-1" title="Editar" disabled={isArchivingPersonnel === worker.id || isUpdatingResource}>
+                                        {isUpdatingResource && editingResource?.id === worker.id ? (
+                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                        ) : (
+                                    <Edit2 size={16} />
+                                        )}
+                                </button>
+                                )}
+                                {!showArchivedPersonnel && worker.personnelStatus === 'activo' && (
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedWorkerForTermination(worker);
+                                            setTerminationDate(new Date().toISOString().split('T')[0]);
+                                            setTerminationType('cesado');
+                                            setShowTerminateModal(true);
+                                        }}
+                                        className="text-orange-600 hover:text-orange-900 p-1" 
+                                        title="Cesar trabajador"
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource || isTerminating}
+                                    >
+                                        <XCircle size={16} />
+                                    </button>
+                                )}
                                 {!showArchivedPersonnel && (
                                   <>
                                     <button 
@@ -4438,42 +6283,62 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               </>
                             )}
                             {showArchivedPersonnel && (
-                                <button 
-                                    onClick={async () => {
-                                        if (confirm(`¿Desarchivar a ${worker.name}? El trabajador volverá a aparecer en la lista de personal activo.`)) {
-                                            setIsArchivingPersonnel(worker.id);
-                                            try {
-                                                const { resourcesService } = await import('../services/resourcesService');
-                                                await resourcesService.update(worker.id, { archived: false });
-                                                // Recargar recursos desde BD
-                                                if (onUpdate) {
-                                                    const { unitsService } = await import('../services/unitsService');
-                                                    const refreshedUnit = await unitsService.getById(unit.id);
-                                                    if (refreshedUnit) {
-                                                        onUpdate(refreshedUnit);
+                                <>
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedWorkerForTermination(worker);
+                                            setTerminationType(worker.personnelStatus === 'cesado' ? 'archivado' : 'cesado');
+                                            setTerminationDate(worker.endDate || new Date().toISOString().split('T')[0]);
+                                            setShowTerminateModal(true);
+                                        }}
+                                        className="text-blue-600 hover:text-blue-900 p-1" 
+                                        title={`Cambiar estado a ${worker.personnelStatus === 'cesado' ? 'Archivado' : 'Cesado'}`}
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource || isTerminating}
+                                    >
+                                        <Edit2 size={16} />
+                                    </button>
+                                    <button 
+                                        onClick={async () => {
+                                            if (confirm(`¿Desarchivar a ${worker.name}? El trabajador volverá a aparecer en la lista de personal activo.`)) {
+                                                setIsArchivingPersonnel(worker.id);
+                                                try {
+                                                    const { resourcesService } = await import('../services/resourcesService');
+                                                    // Desarchivar: cambiar a activo, eliminar archived, y eliminar endDate (es solo referencial)
+                                                    await resourcesService.update(worker.id, { 
+                                                        archived: false, 
+                                                        personnelStatus: 'activo',
+                                                        endDate: null // Eliminar fecha de fin (es solo referencial, no debe afectar el estado)
+                                                    });
+                                                    // Recargar recursos desde BD
+                                                    if (onUpdate) {
+                                                        const { unitsService } = await import('../services/unitsService');
+                                                        const refreshedUnit = await unitsService.getById(unit.id);
+                                                        if (refreshedUnit) {
+                                                            onUpdate(refreshedUnit);
+                                                        }
                                                     }
+                                                    setNotification({ type: 'success', message: 'Trabajador desarchivado correctamente' });
+                                                    setTimeout(() => setNotification(null), 3000);
+                                                } catch (error) {
+                                                    console.error('Error al desarchivar trabajador:', error);
+                                                    setNotification({ type: 'error', message: 'Error al desarchivar el trabajador. Por favor, intente nuevamente.' });
+                                                    setTimeout(() => setNotification(null), 5000);
+                                                } finally {
+                                                    setIsArchivingPersonnel(null);
                                                 }
-                                                setNotification({ type: 'success', message: 'Trabajador desarchivado correctamente' });
-                                                setTimeout(() => setNotification(null), 3000);
-                                            } catch (error) {
-                                                console.error('Error al desarchivar trabajador:', error);
-                                                setNotification({ type: 'error', message: 'Error al desarchivar el trabajador. Por favor, intente nuevamente.' });
-                                                setTimeout(() => setNotification(null), 5000);
-                                            } finally {
-                                                setIsArchivingPersonnel(null);
                                             }
-                                        }
-                                    }}
-                                    className="text-green-600 hover:text-green-900 p-1 disabled:opacity-50" 
-                                    title="Desarchivar trabajador"
-                                    disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
-                                >
-                                    {isArchivingPersonnel === worker.id ? (
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
-                                    ) : (
-                                      <Archive size={16} />
-                                    )}
-                                </button>
+                                        }}
+                                        className="text-green-600 hover:text-green-900 p-1 disabled:opacity-50" 
+                                        title="Desarchivar trabajador"
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
+                                    >
+                                        {isArchivingPersonnel === worker.id ? (
+                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                                        ) : (
+                                          <Archive size={16} />
+                                        )}
+                                    </button>
+                                </>
                             )}
                             </>
                         )}
@@ -4530,7 +6395,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 <p className="font-medium text-slate-700 truncate">{a.name}</p>
                                                 <p className="text-xs text-slate-500 truncate">
                                                     {a.dateAssigned} 
-                                                    {a.serialNumber && ` • SN: ${a.serialNumber}`}
+                                                    {(a.serialNumber || (a as any).serial_number) && ` • SN: ${a.serialNumber || (a as any).serial_number}`}
+                                                    {(a.phoneNumber || (a as any).phone_number) && ` • Tel: ${a.phoneNumber || (a as any).phone_number}`}
                                                     {a.constancyCode && ` • Const: ${a.constancyCode}`}
                                                 </p>
                                             </div>
@@ -4548,6 +6414,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 <span className="text-xs text-slate-400 italic">Sin constancia</span>
                                             )}
                                             {canEditPersonnel && (
+                                                <button
+                                                    onClick={() => handleOpenEditAssignedAsset(worker, a)}
+                                                    className="text-slate-300 hover:text-blue-600 p-1 hover:bg-blue-50 rounded transition-colors"
+                                                    title="Editar activo"
+                                                >
+                                                    <Edit2 size={12}/>
+                                                </button>
+                                            )}
+                                            {canEditPersonnel && (
                                                 <button 
                                                     onClick={() => handleDeleteAsset(worker.id, a.id)} 
                                                     className="text-slate-300 hover:text-red-500 p-1 hover:bg-red-50 rounded transition-colors"
@@ -4562,12 +6437,119 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 }) : <p className="text-xs text-slate-400 italic">Sin activos asignados.</p>}
                             </div>
                         </div>
+
+                        {/* Contract History */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm md:col-span-2">
+                            <div className="flex justify-between items-center mb-3">
+                                <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center"><FileText size={14} className="mr-1.5"/> Historial de Contratos</h5>
+                                {canEditPersonnel && worker.personnelStatus === 'activo' && (
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedWorkerForRenewal(worker);
+                                            const activeContract = contractHistory[worker.id]?.find((c: any) => c.status === 'activo');
+                                            setRenewContractForm({ 
+                                                startDate: activeContract?.endDate ? new Date(new Date(activeContract.endDate).getTime() + 86400000).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                                                endDate: '',
+                                                notes: '',
+                                                monthlySalary: worker.monthlySalary,
+                                                workConditionAmount: worker.workConditionAmount
+                                            });
+                                            setShowRenewContractModal(true);
+                                        }} 
+                                        className="text-xs text-blue-600 hover:underline flex items-center"
+                                    >
+                                        <Plus size={12} className="mr-1"/> Renovar Contrato
+                                    </button>
+                                )}
+                            </div>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {(contractHistory[worker.id] || []).length > 0 ? (contractHistory[worker.id] || []).map((contract: any) => (
+                                    <div key={contract.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 bg-blue-50/50 p-2 rounded">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <FileText size={12} className="text-blue-600" />
+                                                <p className="font-medium text-slate-700">
+                                                    Contrato #{contract.contractNumber}
+                                                </p>
+                                                <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                                    contract.status === 'activo' ? 'bg-green-100 text-green-700' :
+                                                    contract.status === 'renovado' ? 'bg-blue-100 text-blue-700' :
+                                                    'bg-slate-100 text-slate-700'
+                                                }`}>
+                                                    {contract.status}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-slate-500">
+                                                {contract.startDate} - {contract.endDate}
+                                                {contract.notes && ` • ${contract.notes}`}
+                                            </p>
+                                            {(contract.monthlySalary !== undefined || contract.workConditionAmount !== undefined) && (
+                                              <p className="text-xs text-slate-600 mt-1">
+                                                {contract.monthlySalary !== undefined ? `Salario: S/ ${Number(contract.monthlySalary).toFixed(2)}` : 'Salario: -'}
+                                                {' • '}
+                                                {contract.workConditionAmount !== undefined ? `Condición: S/ ${Number(contract.workConditionAmount).toFixed(2)}` : 'Condición: -'}
+                                              </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                )) : <p className="text-xs text-slate-400 italic">Sin registro de contratos. El contrato inicial se creará automáticamente al renovar.</p>}
+                            </div>
+                        </div>
+
+                        {/* Salary Information */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm md:col-span-2">
+                            <div className="flex justify-between items-center mb-3">
+                                <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center"><DollarSign size={14} className="mr-1.5"/> Información Salarial</h5>
+                                {canEditPersonnel && <button onClick={() => handleOpenSalaryIncrementModal(worker)} className="text-xs text-green-600 hover:underline flex items-center"><TrendingUp size={12} className="mr-1"/> Registrar Incremento</button>}
+                            </div>
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">Salario Bruto Mensual</p>
+                                    <p className="text-sm font-semibold text-slate-700">
+                                        {worker.monthlySalary ? `S/ ${worker.monthlySalary.toFixed(2)}` : 'No registrado'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">Condición de Trabajo</p>
+                                    <p className="text-sm font-semibold text-slate-700">
+                                        {worker.workConditionAmount ? `S/ ${worker.workConditionAmount.toFixed(2)}` : 'No registrado'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div>
+                                <p className="text-xs font-semibold text-slate-500 mb-2">Historial de Incrementos</p>
+                                <div className="space-y-2 max-h-48 overflow-y-auto">
+                                    {(salaryIncrements[worker.id] || []).length > 0 ? (salaryIncrements[worker.id] || []).map(increment => (
+                                        <div key={increment.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 bg-green-50/50 p-2 rounded">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <TrendingUp size={12} className="text-green-600" />
+                                                    <p className="font-medium text-slate-700">
+                                                        S/ {increment.previousSalary.toFixed(2)} → S/ {increment.newSalary.toFixed(2)}
+                                                    </p>
+                                                    <span className="text-xs font-bold text-green-600">
+                                                        (+S/ {(increment.newSalary - increment.previousSalary).toFixed(2)})
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-500">
+                                                    Registrado: {increment.incrementDate} • Aplicado: {increment.effectiveDate}
+                                                </p>
+                                                {increment.notes && (
+                                                    <p className="text-xs text-slate-400 italic mt-1">{increment.notes}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )) : <p className="text-xs text-slate-400 italic">Sin incrementos registrados.</p>}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                  )}
                 </div>
               ))
             )}
          </div>
+      </div>
       </div>
       ) : (
           // --- ROSTER VIEW (GRID) ---
@@ -4662,9 +6644,29 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                  <tr key={worker.id} className="hover:bg-slate-50/50">
                                      <td className="px-4 py-3 whitespace-nowrap sticky left-0 bg-white z-10 border-r border-slate-100">
                                          <div className="flex items-center">
-                                             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mr-2 shrink-0">
-                                                 {worker.name.charAt(0)}
-                                             </div>
+                                            {worker.image ? (
+                                                <SafeImage
+                                                    src={worker.image}
+                                                    alt={worker.name}
+                                                    bucket="unit-images"
+                                                    className="w-16 h-16 rounded-full object-cover mr-4 shrink-0 bg-slate-200 cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition"
+                                                    onClick={() => {
+                                                        closeAllModalsExcept('image');
+                                                        setImageModalUrl(worker.image!);
+                                                        setShowImageModal(true);
+                                                    }}
+                                                    title="Click para ver foto en tamaño completo"
+                                                    fallback={
+                                                        <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 mr-4 shrink-0">
+                                                            {getWorkerInitial(worker.name)}
+                                                        </div>
+                                                    }
+                                                />
+                                            ) : (
+                                                <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 mr-4 shrink-0">
+                                                    {getWorkerInitial(worker.name)}
+                                                </div>
+                                            )}
                                              <div>
                                                  <p className="text-sm font-medium text-slate-900 truncate max-w-[120px]" title={worker.name}>{worker.name}</p>
                                                  <p className="text-[10px] text-slate-400">{worker.assignedShift || 'N/A'}</p>
@@ -4868,6 +6870,230 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       </div>
     </div>
   );
+
+  const renderVariableCompensations = () => {
+    const totalMonth = variableCompensations.reduce((sum, item) => sum + item.amount, 0);
+    const totalsByWorker = allUnitPersonnel.map(worker => {
+      const workerTotal = variableCompensations
+        .filter(item => item.resourceId === worker.id)
+        .reduce((sum, item) => sum + item.amount, 0);
+      return { worker, total: workerTotal };
+    }).filter(item => item.total > 0).sort((a, b) => b.total - a.total);
+
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center">
+              <DollarSign className="mr-2 text-green-600" size={24} />
+              Comisiones y Remuneraciones Variables
+            </h2>
+            <p className="text-sm text-slate-500">Registre y consulte pagos variables por trabajador y mes.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {canEditPersonnel && (
+              <>
+                <button
+                  onClick={async () => {
+                    const { excelService } = await import('../services/excelService');
+                    await excelService.generateVariableCompensationsTemplate();
+                  }}
+                  className="px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 flex items-center text-sm"
+                >
+                  <FileSpreadsheet size={16} className="mr-2" /> Plantilla
+                </button>
+                <label className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center text-sm cursor-pointer">
+                  <Upload size={16} className="mr-2" /> Importar Excel
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleImportVariableCompensations(e.target.files?.[0] || null);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </>
+            )}
+            <button
+              onClick={handleExportVariableCompensations}
+              disabled={variableCompensations.length === 0}
+              className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300 flex items-center text-sm"
+            >
+              <Download size={16} className="mr-2" /> Exportar
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Mes de consulta</label>
+            <input
+              type="month"
+              className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-green-500"
+              value={compensationMonth}
+              onChange={(e) => setCompensationMonth(e.target.value)}
+            />
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <p className="text-sm text-slate-500">Total pagado en el mes</p>
+            <p className="text-3xl font-bold text-green-700 mt-2">{formatMoney(totalMonth)}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <p className="text-sm text-slate-500">Trabajadores con variable</p>
+            <p className="text-3xl font-bold text-slate-800 mt-2">{totalsByWorker.length}</p>
+          </div>
+        </div>
+
+        {canEditPersonnel ? (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center">
+              <Plus size={18} className="mr-2 text-green-600" />
+              Registro manual
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+              <select
+                className="lg:col-span-2 border border-slate-300 rounded-lg p-2 outline-none"
+                value={compensationForm.resourceId}
+                onChange={(e) => setCompensationForm({ ...compensationForm, resourceId: e.target.value })}
+              >
+                <option value="">Seleccionar trabajador...</option>
+                {allUnitPersonnel.map(worker => (
+                  <option key={worker.id} value={worker.id}>
+                    {worker.name}{worker.dni ? ` - ${worker.dni}` : ''}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="border border-slate-300 rounded-lg p-2 outline-none"
+                placeholder="Monto"
+                value={compensationForm.amount}
+                onChange={(e) => setCompensationForm({ ...compensationForm, amount: e.target.value })}
+              />
+              <input
+                type="text"
+                className="border border-slate-300 rounded-lg p-2 outline-none"
+                placeholder="Concepto"
+                value={compensationForm.concept}
+                onChange={(e) => setCompensationForm({ ...compensationForm, concept: e.target.value })}
+              />
+              <input
+                type="date"
+                className="border border-slate-300 rounded-lg p-2 outline-none"
+                value={compensationForm.paymentDate}
+                onChange={(e) => setCompensationForm({ ...compensationForm, paymentDate: e.target.value })}
+              />
+              <button
+                onClick={handleSaveVariableCompensation}
+                disabled={isSavingCompensation}
+                className="bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700 disabled:bg-slate-300 flex items-center justify-center"
+              >
+                <Save size={16} className="mr-2" /> Guardar
+              </button>
+            </div>
+            <input
+              type="text"
+              className="mt-3 w-full border border-slate-300 rounded-lg p-2 outline-none"
+              placeholder="Notas u observaciones (opcional)"
+              value={compensationForm.notes}
+              onChange={(e) => setCompensationForm({ ...compensationForm, notes: e.target.value })}
+            />
+          </div>
+        ) : (
+          <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
+            Solo lectura: no tiene permisos de edición en Personal para registrar o importar pagos variables.
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800">Detalle de pagos variables</h3>
+              {isLoadingCompensations && <span className="text-xs text-slate-500">Cargando...</span>}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="text-left px-4 py-3">Trabajador</th>
+                    <th className="text-left px-4 py-3">Concepto</th>
+                    <th className="text-right px-4 py-3">Monto</th>
+                    <th className="text-left px-4 py-3">Fecha pago</th>
+                    <th className="text-left px-4 py-3">Origen</th>
+                    {canEditPersonnel && <th className="px-4 py-3"></th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {variableCompensations.map(item => {
+                    const worker = getWorkerById(item.resourceId);
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-slate-800">{worker?.name || 'Trabajador no encontrado'}</p>
+                          <p className="text-xs text-slate-500">{worker?.dni || worker?.puesto || ''}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-slate-700">{item.concept}</p>
+                          {item.notes && <p className="text-xs text-slate-400">{item.notes}</p>}
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-green-700">{formatMoney(item.amount)}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.paymentDate || '-'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${item.source === 'import' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>
+                            {item.source === 'import' ? 'Importado' : 'Manual'}
+                          </span>
+                        </td>
+                        {canEditPersonnel && (
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              onClick={() => handleDeleteVariableCompensation(item.id)}
+                              className="text-slate-400 hover:text-red-600 p-1"
+                              title="Eliminar"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                  {variableCompensations.length === 0 && (
+                    <tr>
+                      <td colSpan={canEditPersonnel ? 6 : 5} className="px-4 py-10 text-center text-slate-400">
+                        No hay comisiones o remuneraciones variables registradas para este mes.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 h-fit">
+            <h3 className="font-bold text-slate-800 mb-4">Resumen por trabajador</h3>
+            <div className="space-y-3">
+              {totalsByWorker.map(({ worker, total }) => (
+                <div key={worker.id} className="flex justify-between items-center border-b border-slate-100 pb-2">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">{worker.name}</p>
+                    <p className="text-xs text-slate-400">{worker.puesto || worker.dni || 'Sin puesto'}</p>
+                  </div>
+                  <span className="font-bold text-green-700">{formatMoney(total)}</span>
+                </div>
+              ))}
+              {totalsByWorker.length === 0 && (
+                <p className="text-sm text-slate-400 text-center py-6">Sin pagos variables en el mes.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderDocuments = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
@@ -5098,6 +7324,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {checkPermission(userRole, 'PERSONNEL', 'view') && (
               <button onClick={() => setActiveTab('personnel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'personnel' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Personal</button>
           )}
+          {canViewPersonnel && (
+              <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'attendance' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Asistencia</button>
+          )}
+          {checkPermission(userRole, 'PERSONNEL', 'view') && (
+              <button onClick={() => setActiveTab('compensation')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'compensation' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Variables</button>
+          )}
           {checkPermission(userRole, 'LOGISTICS', 'view') && (
               <button onClick={() => setActiveTab('logistics')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'logistics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Logística</button>
           )}
@@ -5127,11 +7359,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       <div className="px-6 md:px-8 pb-10">
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'personnel' && renderPersonnel()}
+        {activeTab === 'compensation' && renderVariableCompensations()}
         {activeTab === 'logistics' && renderLogistics()}
         {activeTab === 'management' && renderManagement()}
         {activeTab === 'blueprint' && renderBlueprint()}
         {activeTab === 'requests' && renderClientRequests()}
         {activeTab === 'documents' && renderDocuments()}
+        {activeTab === 'attendance' && (
+          <AttendanceReportsTab unit={unit} canUpload={canEditPersonnel} />
+        )}
       </div>
       
       {/* --- MODALS SECTION --- */}
@@ -5237,22 +7473,37 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                <button onClick={handleAddImageToRequest} disabled={!newRequestImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20}/></button>
                            </div>
                            {newRequestImages.length > 0 && (
-                               <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
-                                   {newRequestImages.map((img, i) => (
-                                       <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                           <SafeImage 
-                              src={img} 
-                              className="w-full h-full object-cover rounded border border-slate-200" 
-                              alt="ev"
-                              bucket="unit-images"
-                              onClick={() => {
-                                setImageModalUrl(img);
-                                setShowImageModal(true);
-                              }}
-                            />
-                                           <button onClick={() => setNewRequestImages(newRequestImages.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
-                                       </div>
-                                   ))}
+                               <div className="mt-3">
+                                   <p className="text-xs text-slate-500 mb-2">Evidencias agregadas ({newRequestImages.length}):</p>
+                                   <div className="flex gap-2 overflow-x-auto pb-2">
+                                       {newRequestImages.map((img, i) => (
+                                           <div key={i} className="w-24 h-24 shrink-0 relative group rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer">
+                                               <SafeImage 
+                                                  src={img} 
+                                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                                  alt={`Evidencia ${i + 1}`}
+                                                  bucket="unit-images"
+                                                  onClick={() => {
+                                                    setImageModalUrl(img);
+                                                    setShowImageModal(true);
+                                                  }}
+                                                />
+                                               <button 
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setNewRequestImages(newRequestImages.filter((_, idx) => idx !== i));
+                                                  }} 
+                                                  className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 z-10"
+                                                  title="Eliminar evidencia"
+                                                >
+                                                  <X size={12} />
+                                                </button>
+                                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                   <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                               </div>
+                                           </div>
+                                       ))}
+                                   </div>
                                </div>
                            )}
                       </div>
@@ -5286,7 +7537,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       <button onClick={() => setEditingRequest(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
                   </div>
                   
-                  <div className="p-4 md:p-6 overflow-y-auto flex-1 custom-scrollbar">
+                  <div className="p-4 md:p-6 overflow-y-auto flex-1 min-h-0 custom-scrollbar">
                       {/* Original Request Info */}
                       <div className="mb-6">
                           <div className="flex justify-between items-start mb-2">
@@ -5302,46 +7553,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           
                           {/* Client Attachments Display */}
                           {editingRequest.attachments && editingRequest.attachments.length > 0 && (
-                             <div className="mb-3">
-                                 <p className="text-xs font-bold text-slate-400 uppercase mb-1 flex items-center"><Paperclip size={12} className="mr-1"/> Adjuntos del Cliente</p>
-                                 <div className="flex gap-2 overflow-x-auto pb-1">
+                             <div className="mb-4">
+                                 <p className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Adjuntos del Cliente ({editingRequest.attachments.length})</p>
+                                 <div className="flex gap-2 overflow-x-auto pb-2">
                                      {editingRequest.attachments.map((img, i) => (
-                                         <div key={i} className="w-20 h-20 shrink-0 rounded border border-slate-200 overflow-hidden">
+                                         <button
+                                           key={i}
+                                           type="button"
+                                           className="w-24 h-24 shrink-0 rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer group relative p-0 block"
+                                           onClick={() => {
+                                             setImageModalUrl(img);
+                                             setShowImageModal(true);
+                                           }}
+                                           title="Ver evidencia en grande"
+                                         >
                                              <SafeImage 
                                                src={img} 
-                                               className="w-full h-full object-cover" 
-                                               alt="client attachment"
+                                               className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none" 
+                                               alt={`Evidencia cliente ${i + 1}`}
                                                bucket="unit-images"
-                                               onClick={() => {
-                                                 setImageModalUrl(img);
-                                                 setShowImageModal(true);
-                                               }}
                                              />
-                                         </div>
+                                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+                                                 <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
+                                             </div>
+                                         </button>
                                      ))}
                                  </div>
                              </div>
                           )}
                       </div>
 
-                      {/* Comment Thread (Chat) - Kept for legacy/detail view, but now primarily inline */}
+                      {/* Comment Thread (Chat) */}
                       <div className="mb-6 border-t border-slate-100 pt-4">
                           <h4 className="font-bold text-slate-700 text-sm mb-3 flex items-center"><MessageCircle size={16} className="mr-2"/> Historial de Comentarios</h4>
-                          <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100 max-h-60 overflow-y-auto custom-scrollbar">
-                              {(!editingRequest.comments || editingRequest.comments.length === 0) && (
-                                  <p className="text-xs text-slate-400 italic text-center">No hay comentarios aún.</p>
-                              )}
-                              {editingRequest.comments?.map(comment => (
-                                  <div key={comment.id} className={`flex flex-col ${comment.role === userRole ? 'items-end' : 'items-start'}`}>
-                                      <div className={`max-w-[85%] rounded-lg p-3 text-sm ${comment.role === userRole ? 'bg-blue-100 text-blue-900 rounded-br-none' : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'}`}>
-                                          <p>{comment.text}</p>
-                                      </div>
-                                      <span className="text-[10px] text-slate-400 mt-1 px-1">
-                                          {comment.author} • {new Date(comment.date).toLocaleDateString()}
-                                      </span>
-                                  </div>
-                              ))}
-                          </div>
+                          <RequestDiscussionThread
+                            comments={editingRequest.comments}
+                            userRole={userRole}
+                            variant="modal"
+                          />
                       </div>
 
                       {/* Admin Resolution Section (Only visible to non-clients or if resolved) */}
@@ -5396,22 +7645,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                <button onClick={handleAddResolveImage} disabled={!resolveImageUrl} className="bg-slate-100 p-2 rounded hover:bg-slate-200 disabled:opacity-50"><Plus size={20}/></button>
                                            </div>
                                            {resolveAttachments.length > 0 && (
-                                               <div className="flex gap-2 mt-2 overflow-x-auto pb-2">
-                                                   {resolveAttachments.map((img, i) => (
-                                                       <div key={i} className="w-16 h-16 shrink-0 relative group">
-                                                           <SafeImage 
-                                                             src={img} 
-                                                             className="w-full h-full object-cover rounded border border-slate-200" 
-                                                             alt="admin ev"
-                                                             bucket="unit-images"
-                                                             onClick={() => {
-                                                               setImageModalUrl(img);
-                                                               setShowImageModal(true);
-                                                             }}
-                                                           />
-                                                           <button onClick={() => handleRemoveResolveImage(i)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
-                                                       </div>
-                                                   ))}
+                                               <div className="mt-3">
+                                                   <p className="text-xs text-slate-500 mb-2">Evidencias de respuesta ({resolveAttachments.length}):</p>
+                                                   <div className="flex gap-2 overflow-x-auto pb-2">
+                                                       {resolveAttachments.map((img, i) => (
+                                                           <div key={i} className="w-24 h-24 shrink-0 relative group rounded-lg border-2 border-slate-200 overflow-hidden bg-slate-100 hover:border-blue-400 transition-colors">
+                                                               <SafeImage 
+                                                                  src={img} 
+                                                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none relative z-0" 
+                                                                  alt={`Evidencia respuesta ${i + 1}`}
+                                                                  bucket="unit-images"
+                                                                />
+                                                               <button
+                                                                 type="button"
+                                                                 className="absolute inset-0 z-10 w-full h-full cursor-pointer bg-transparent"
+                                                                 onClick={() => {
+                                                                   setImageModalUrl(img);
+                                                                   setShowImageModal(true);
+                                                                 }}
+                                                                 title="Ver evidencia en grande"
+                                                                 aria-label="Ver evidencia en grande"
+                                                               />
+                                                               <button 
+                                                                  type="button"
+                                                                  onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleRemoveResolveImage(i);
+                                                                  }} 
+                                                                  className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 z-20 pointer-events-auto"
+                                                                  title="Eliminar evidencia"
+                                                                >
+                                                                  <X size={12} />
+                                                                </button>
+                                                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none z-[11]">
+                                                                   <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
+                                                               </div>
+                                                           </div>
+                                                       ))}
+                                                   </div>
                                                </div>
                                            )}
                                       </div>
@@ -5439,21 +7710,32 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       <p className="text-sm text-green-700">{editingRequest.response || "Sin respuesta final registrada."}</p>
                                       {/* Show attachments preview in read-only mode */}
                                       {editingRequest.responseAttachments && editingRequest.responseAttachments.length > 0 && (
-                                         <div className="flex gap-2 mt-2 pt-2 border-t border-green-200/50">
-                                            {editingRequest.responseAttachments.map((att, i) => (
-                                                <div key={i} className="w-12 h-12 rounded border border-green-200 overflow-hidden">
-                                                  <SafeImage 
-                                                    src={att} 
-                                                    className="w-full h-full object-cover"
-                                                    alt="attachment"
-                                                    bucket="unit-images"
-                                                    onClick={() => {
-                                                      setImageModalUrl(att);
-                                                      setShowImageModal(true);
-                                                    }}
-                                                  />
-                                                </div>
-                                            ))}
+                                         <div className="mt-3 pt-3 border-t border-green-200/50">
+                                            <p className="text-xs font-bold text-green-700 mb-2 flex items-center"><Paperclip size={12} className="mr-1"/> Evidencias de Respuesta ({editingRequest.responseAttachments.length})</p>
+                                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                                {editingRequest.responseAttachments.map((att, i) => (
+                                                    <button
+                                                      key={i}
+                                                      type="button"
+                                                      className="w-24 h-24 shrink-0 rounded-lg border-2 border-green-200 overflow-hidden bg-slate-100 hover:border-green-400 transition-colors cursor-pointer group relative p-0 block"
+                                                      onClick={() => {
+                                                        setImageModalUrl(att);
+                                                        setShowImageModal(true);
+                                                      }}
+                                                      title="Ver evidencia en grande"
+                                                    >
+                                                      <SafeImage 
+                                                        src={att} 
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform pointer-events-none"
+                                                        alt={`Evidencia respuesta ${i + 1}`}
+                                                        bucket="unit-images"
+                                                      />
+                                                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+                                                          <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
+                                                      </div>
+                                                    </button>
+                                                ))}
+                                            </div>
                                          </div>
                                      )}
                                   </div>
@@ -5578,6 +7860,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <li><strong>Nombre</strong> (requerido) - Nombre completo del trabajador</li>
                   <li><strong>DNI</strong> (opcional) - Documento Nacional de Identidad</li>
                   <li><strong>Puesto</strong> (opcional) - Cargo o puesto del trabajador</li>
+                  <li><strong>Localidad</strong> (opcional) - Distrito, ciudad u otro lugar de referencia</li>
+                  <li><strong>Teléfono</strong> (opcional) - Número de contacto del trabajador</li>
                   <li><strong>Zonas</strong> (opcional) - Zonas asignadas, separadas por coma o punto y coma</li>
                   <li><strong>Turno</strong> (opcional) - Diurno, Nocturno o Mixto</li>
                   <li><strong>Fecha Inicio</strong> (opcional) - Formato: YYYY-MM-DD o DD/MM/YYYY</li>
@@ -5723,6 +8007,58 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <button onClick={() => setShowAddWorkerModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
              <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+                <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  {newWorkerForm.image ? (
+                    <SafeImage
+                      src={newWorkerForm.image}
+                      alt={newWorkerForm.name || 'Nuevo colaborador'}
+                      bucket="unit-images"
+                      className="w-16 h-16 rounded-full object-cover bg-slate-200 shrink-0"
+                      fallback={
+                        <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shrink-0">
+                          {getWorkerInitial(newWorkerForm.name)}
+                        </div>
+                      }
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shrink-0">
+                      {getWorkerInitial(newWorkerForm.name)}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Foto del trabajador</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center rounded-lg bg-white px-3 py-2 text-sm font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 transition-colors">
+                        <Camera size={16} className="mr-2" />
+                        Subir foto
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            handleWorkerImageSelection(e.target.files?.[0], newWorkerForm.image, (imageUrl) => setNewWorkerForm({ ...newWorkerForm, image: imageUrl }));
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      {newWorkerForm.image && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (newWorkerForm.image?.startsWith('blob:')) {
+                              URL.revokeObjectURL(newWorkerForm.image);
+                            }
+                            setNewWorkerForm({ ...newWorkerForm, image: undefined });
+                          }}
+                          className="text-sm text-red-600 hover:text-red-800"
+                        >
+                          Quitar
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">Se guardará como imagen de perfil del colaborador.</p>
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo *</label>
                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.name} onChange={e => setNewWorkerForm({...newWorkerForm, name: e.target.value})} required />
@@ -5746,8 +8082,49 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     ))}
                   </select>
                   {positions.length === 0 && (
-                    <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
+                    <div className="text-xs text-slate-500 mt-1">
+                      <p>No hay puestos definidos.</p>
+                      <p className="mt-1 text-amber-600">
+                        Si sabes que existen puestos en la base de datos, verifica tu conexión y sesión de Supabase Auth.
+                      </p>
+                      <p className="mt-1">
+                        Configúralos en Configuración → Gestión de Puestos.
+                      </p>
+                    </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Localidad</label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                    value={newWorkerForm.localidad || ''}
+                    onChange={e => setNewWorkerForm({ ...newWorkerForm, localidad: e.target.value })}
+                    placeholder="Ej. distrito, ciudad"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
+                  <input
+                    type="tel"
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                    value={newWorkerForm.phone || ''}
+                    onChange={e => setNewWorkerForm({ ...newWorkerForm, phone: e.target.value })}
+                    placeholder="Ej. 987654321"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Nacimiento</label>
+                  <input 
+                    type="date" 
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                    value={newWorkerForm.birthDate || ''} 
+                    onChange={e => setNewWorkerForm({...newWorkerForm, birthDate: e.target.value})} 
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Se usará para generar alertas de cumpleaños</p>
                 </div>
                 
                 <div>
@@ -5803,6 +8180,36 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
                 </div>
 
+                <div className="border-t border-slate-200 pt-4">
+                  <h4 className="text-sm font-semibold text-slate-700 mb-3">Información Salarial</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Salario Bruto Mensual</label>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min="0"
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                        value={newWorkerForm.monthlySalary || ''} 
+                        onChange={e => setNewWorkerForm({...newWorkerForm, monthlySalary: e.target.value ? parseFloat(e.target.value) : undefined})} 
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (Monto)</label>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min="0"
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                        value={newWorkerForm.workConditionAmount || ''} 
+                        onChange={e => setNewWorkerForm({...newWorkerForm, workConditionAmount: e.target.value ? parseFloat(e.target.value) : undefined})} 
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <button 
                   onClick={handleAddWorker} 
                   disabled={isSavingWorker}
@@ -5822,7 +8229,115 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* 6. Mass Training Modal */}
+      {/* 6. Salary Increment Modal */}
+      {showSalaryIncrementModal && selectedWorkerForIncrement && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
+             {/* Header fijo para móvil */}
+             <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><TrendingUp className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Incremento Salarial</span></h3>
+                <button onClick={() => setShowSalaryIncrementModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
+             </div>
+             <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-slate-700">Trabajador:</p>
+                  <p className="text-base font-semibold text-slate-900">{selectedWorkerForIncrement.name}</p>
+                  <p className="text-xs text-slate-500 mt-1">Salario actual: {selectedWorkerForIncrement.monthlySalary ? `S/ ${selectedWorkerForIncrement.monthlySalary.toFixed(2)}` : 'No registrado'}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Salario Anterior</label>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      min="0"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                      value={newIncrementForm.previousSalary || ''} 
+                      onChange={e => setNewIncrementForm({...newIncrementForm, previousSalary: e.target.value ? parseFloat(e.target.value) : 0})} 
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nuevo Salario *</label>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      min="0"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                      value={newIncrementForm.newSalary || ''} 
+                      onChange={e => setNewIncrementForm({...newIncrementForm, newSalary: e.target.value ? parseFloat(e.target.value) : 0})} 
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Registro *</label>
+                    <input 
+                      type="date" 
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                      value={newIncrementForm.incrementDate} 
+                      onChange={e => setNewIncrementForm({...newIncrementForm, incrementDate: e.target.value})} 
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Aplicación *</label>
+                    <input 
+                      type="date" 
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                      value={newIncrementForm.effectiveDate} 
+                      onChange={e => setNewIncrementForm({...newIncrementForm, effectiveDate: e.target.value})} 
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Notas (opcional)</label>
+                  <textarea 
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                    rows={3}
+                    value={newIncrementForm.notes || ''} 
+                    onChange={e => setNewIncrementForm({...newIncrementForm, notes: e.target.value})} 
+                    placeholder="Observaciones sobre el incremento..."
+                  />
+                </div>
+
+                {newIncrementForm.newSalary > newIncrementForm.previousSalary && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-sm font-medium text-green-800">Incremento:</p>
+                    <p className="text-lg font-bold text-green-900">
+                      +S/ {(newIncrementForm.newSalary - newIncrementForm.previousSalary).toFixed(2)}
+                    </p>
+                  </div>
+                )}
+
+                <button 
+                  onClick={handleSaveSalaryIncrement} 
+                  disabled={isSavingIncrement || newIncrementForm.newSalary <= newIncrementForm.previousSalary}
+                  className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isSavingIncrement ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <TrendingUp size={16} className="mr-2" />
+                      Registrar Incremento
+                    </>
+                  )}
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Mass Training Modal */}
       {showMassTrainingModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
@@ -5869,7 +8384,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     onChange={(e) => {
                       setUseStandardAsset(e.target.checked);
                       if (!e.target.checked) {
-                        setAssetAssignmentForm({ ...assetAssignmentForm, standardAssetId: undefined, name: '', serialNumber: '' });
+                        setAssetAssignmentForm({ ...assetAssignmentForm, standardAssetId: undefined, name: '', serialNumber: '', phoneNumber: '' });
                       }
                     }}
                     className="rounded"
@@ -5896,7 +8411,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               standardAssetId: selectedAsset.id,
                               name: selectedAsset.name,
                               type: selectedAsset.type as any,
-                              serialNumber: selectedAsset.defaultSerialNumberPrefix || ''
+                              serialNumber: selectedAsset.defaultSerialNumberPrefix || '',
+                              phoneNumber: ''
                             });
                           }
                         }}
@@ -5984,6 +8500,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     placeholder={useStandardAsset && assetAssignmentForm.standardAssetId ? "Prefijo aplicado automáticamente" : ""}
                   />
                 </div>
+                {isCorporatePhoneAsset(assetAssignmentForm.name) && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">N° Telefónico (Opcional)</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      value={assetAssignmentForm.phoneNumber}
+                      onChange={e => setAssetAssignmentForm({ ...assetAssignmentForm, phoneNumber: e.target.value })}
+                      placeholder="Ej. 987654321"
+                    />
+                  </div>
+                )}
                 
                 <div className="flex items-center space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <input 
@@ -6021,9 +8549,65 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       
                       {editingResource.type === ResourceType.PERSONNEL && (
                           <>
+                              <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                  {editingResource.image ? (
+                                      <SafeImage
+                                          src={editingResource.image}
+                                          alt={editingResource.name}
+                                          bucket="unit-images"
+                                          className="w-16 h-16 rounded-full object-cover bg-slate-200 shrink-0"
+                                          fallback={
+                                              <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shrink-0">
+                                                  {getWorkerInitial(editingResource.name)}
+                                              </div>
+                                          }
+                                      />
+                                  ) : (
+                                      <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shrink-0">
+                                          {getWorkerInitial(editingResource.name)}
+                                      </div>
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                      <label className="block text-sm font-medium text-slate-700 mb-2">Foto del trabajador</label>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                          <label className="inline-flex cursor-pointer items-center rounded-lg bg-white px-3 py-2 text-sm font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 transition-colors">
+                                              <Camera size={16} className="mr-2" />
+                                              Cambiar foto
+                                              <input
+                                                  type="file"
+                                                  accept="image/*"
+                                                  className="hidden"
+                                                  onChange={(e) => {
+                                                      handleWorkerImageSelection(e.target.files?.[0], editingResource.image, (imageUrl) => setEditingResource({ ...editingResource, image: imageUrl }));
+                                                      e.target.value = '';
+                                                  }}
+                                              />
+                                          </label>
+                                          {editingResource.image && (
+                                              <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                      if (editingResource.image?.startsWith('blob:')) {
+                                                          URL.revokeObjectURL(editingResource.image);
+                                                      }
+                                                      setEditingResource({ ...editingResource, image: '' });
+                                                  }}
+                                                  className="text-sm text-red-600 hover:text-red-800"
+                                              >
+                                                  Quitar
+                                              </button>
+                                          )}
+                                      </div>
+                                      <p className="text-xs text-slate-500 mt-2">La foto se guarda al presionar Guardar Cambios.</p>
+                                  </div>
+                              </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
                                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.dni || ''} onChange={e => setEditingResource({...editingResource, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Nacimiento</label>
+                                  <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.birthDate || ''} onChange={e => setEditingResource({...editingResource, birthDate: e.target.value})} />
                               </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
@@ -6038,8 +8622,51 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     ))}
                                   </select>
                                   {positions.length === 0 && (
-                                    <p className="text-xs text-slate-500 mt-1">No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.</p>
+                                    <div className="text-xs text-slate-500 mt-1">
+                                      <p>No hay puestos definidos.</p>
+                                      <p className="mt-1 text-amber-600">
+                                        Si sabes que existen puestos en la base de datos, verifica tu conexión y sesión de Supabase Auth.
+                                      </p>
+                                      <p className="mt-1">
+                                        Configúralos en Configuración → Gestión de Puestos.
+                                      </p>
+                                    </div>
                                   )}
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Localidad</label>
+                                  <input
+                                      type="text"
+                                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                      value={editingResource.localidad || ''}
+                                      onChange={e => setEditingResource({ ...editingResource, localidad: e.target.value })}
+                                      placeholder="Ej. distrito, ciudad"
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
+                                  {(() => {
+                                    const savedPhone = unit.resources.find(r => r.id === editingResource.id)?.phone?.trim();
+                                    if (savedPhone) {
+                                      return (
+                                        <>
+                                          <div className="w-full border border-slate-200 rounded-lg p-2 bg-slate-50 text-slate-700 font-mono">
+                                            {savedPhone}
+                                          </div>
+                                          <p className="text-xs text-slate-500 mt-1">El teléfono no puede modificarse una vez registrado.</p>
+                                        </>
+                                      );
+                                    }
+                                    return (
+                                      <input
+                                          type="tel"
+                                          className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                          value={editingResource.phone || ''}
+                                          onChange={e => setEditingResource({ ...editingResource, phone: e.target.value })}
+                                          placeholder="Ej. 987654321"
+                                      />
+                                    );
+                                  })()}
                               </div>
                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                                 <label className="flex items-center space-x-2 cursor-pointer">
@@ -6089,12 +8716,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         setEditingResource({
                                           ...editingResource, 
                                           endDate,
-                                          personnelStatus: endDate ? 'cesado' as const : 'activo' as const,
-                                          // Se archivará automáticamente al guardar si tiene endDate
+                                          // NO cambiar automáticamente el estado basado en endDate
+                                          // endDate es solo referencial para monitoreo del término del contrato
+                                          // El cese/archivo se hace manualmente mediante la acción de "Cesar"
                                         });
                                       }} />
                                       {editingResource.endDate && (
-                                        <p className="text-xs text-amber-600 mt-1">El trabajador será cesado y archivado automáticamente al guardar</p>
+                                        <p className="text-xs text-blue-600 mt-1">La fecha de fin de contrato es solo referencial para monitoreo. No afecta el estado del trabajador.</p>
                                       )}
                                   </div>
                               </div>
@@ -6131,6 +8759,40 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       </div>
                                   )}
                               </div>
+                              
+                              {/* Información Salarial */}
+                              <div className="border-t border-slate-200 pt-4 mt-4">
+                                  <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center">
+                                      <DollarSign size={14} className="mr-1.5" />
+                                      Información Salarial
+                                  </h4>
+                                  <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Salario Bruto Mensual</label>
+                                          <input 
+                                              type="number" 
+                                              step="0.01" 
+                                              min="0"
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                                              value={editingResource.monthlySalary || ''} 
+                                              onChange={e => setEditingResource({...editingResource, monthlySalary: e.target.value ? parseFloat(e.target.value) : undefined})} 
+                                              placeholder="0.00"
+                                          />
+                                      </div>
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (Monto)</label>
+                                          <input 
+                                              type="number" 
+                                              step="0.01" 
+                                              min="0"
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
+                                              value={editingResource.workConditionAmount || ''} 
+                                              onChange={e => setEditingResource({...editingResource, workConditionAmount: e.target.value ? parseFloat(e.target.value) : undefined})} 
+                                              placeholder="0.00"
+                                          />
+                                      </div>
+                                  </div>
+                              </div>
                           </>
                       )}
 
@@ -6153,11 +8815,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                       <div className="flex gap-2 pt-2">
                           <button 
-                            onClick={handleDeleteResource} 
-                            disabled={isUpdatingResource}
+                            type="button"
+                            onClick={() => void handleDeleteResource()} 
+                            disabled={isUpdatingResource || isDeletingResource}
                             className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-100 transition-colors border border-red-100 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <Trash2 size={16} className="mr-2"/> Eliminar
+                            {isDeletingResource ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600 mr-2" />
+                                Eliminando…
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 size={16} className="mr-2"/> Eliminar
+                              </>
+                            )}
                           </button>
                           <button 
                             onClick={handleUpdateResource} 
@@ -6260,7 +8932,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </>
                 )}
 
-                <button onClick={handleAddResource} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2">Registrar</button>
+                <button
+                  type="button"
+                  disabled={isAddingLogisticsResource}
+                  onClick={handleAddResource}
+                  className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isAddingLogisticsResource ? 'Guardando…' : 'Registrar'}
+                </button>
              </div>
           </div>
         </div>
@@ -6660,7 +9339,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       {/* Este modal tiene z-index más alto porque puede abrirse desde otros modales */}
       {showImageModal && imageModalUrl && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[60]" 
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[220]" 
           onClick={() => {
             closeAllModalsExcept();
             setShowImageModal(false);
@@ -6771,9 +9450,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   ))}
                 </select>
                 {positions.length === 0 && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    No hay puestos definidos. Configúralos en Configuración → Gestión de Puestos.
-                  </p>
+                  <div className="text-xs text-slate-500 mt-1">
+                    <p>No hay puestos definidos.</p>
+                    <p className="mt-1 text-amber-600">
+                      Si sabes que existen puestos en la base de datos, verifica tu conexión y sesión de Supabase Auth.
+                    </p>
+                    <p className="mt-1">
+                      Configúralos en Configuración → Gestión de Puestos.
+                    </p>
+                  </div>
                 )}
               </div>
               <div>
@@ -6790,6 +9475,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     quantity: parseInt(e.target.value) || 1,
                   })}
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Turno <span className="text-slate-400 text-xs">(Opcional)</span>
+                </label>
+                <select
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={requiredPositionForm.shift || ''}
+                  onChange={(e) => setRequiredPositionForm({
+                    ...requiredPositionForm,
+                    shift: e.target.value || undefined,
+                  })}
+                >
+                  <option value="">Todos los turnos</option>
+                  <option value="Day">Mañana (Day)</option>
+                  <option value="Afternoon">Tarde (Afternoon)</option>
+                  <option value="Night">Noche (Night)</option>
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  Si se especifica un turno, solo se contarán trabajadores asignados a ese turno para cubrir este requerimiento.
+                </p>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-200 flex justify-end space-x-3">
@@ -6828,36 +9534,62 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           positionId: requiredPositionForm.positionId,
                           positionName: position.name,
                           quantity: requiredPositionForm.quantity,
+                          shift: requiredPositionForm.shift,
                         };
                       }
                       return req;
                     });
                   } else {
-                    // Verificar si ya existe
-                    const exists = currentRequired.some(r => r.positionId === requiredPositionForm.positionId);
+                    // Verificar si ya existe (mismo puesto Y mismo turno, o mismo puesto sin turno)
+                    const exists = currentRequired.some(r => {
+                      const samePosition = r.positionId === requiredPositionForm.positionId;
+                      const sameShift = (r.shift || undefined) === (requiredPositionForm.shift || undefined);
+                      return samePosition && sameShift;
+                    });
                     if (exists) {
-                      setNotification({ type: 'error', message: 'Este puesto ya está en la lista de requeridos' });
+                      const shiftText = requiredPositionForm.shift ? ` en turno ${requiredPositionForm.shift === 'Day' ? 'Mañana' : requiredPositionForm.shift === 'Afternoon' ? 'Tarde' : 'Noche'}` : '';
+                      setNotification({ type: 'error', message: `Este puesto${shiftText} ya está en la lista de requeridos` });
                       setTimeout(() => setNotification(null), 3000);
                       return;
                     }
                     // Agregar nuevo
+                    console.log('🔄 Agregando nuevo puesto requerido:', {
+                      positionId: requiredPositionForm.positionId,
+                      positionName: position.name,
+                      quantity: requiredPositionForm.quantity,
+                      shift: requiredPositionForm.shift
+                    });
                     updated = [
                       ...currentRequired,
                       {
                         positionId: requiredPositionForm.positionId,
                         positionName: position.name,
                         quantity: requiredPositionForm.quantity,
+                        shift: requiredPositionForm.shift,
                       },
                     ];
+                    console.log('✅ Lista actualizada de puestos requeridos:', updated);
                   }
 
                   if (onUpdate) {
-                    await onUpdate({ ...unit, requiredPositions: updated });
-                    setNotification({ type: 'success', message: editingRequiredPosition ? 'Puesto requerido actualizado' : 'Puesto requerido agregado' });
-                    setTimeout(() => setNotification(null), 3000);
-                    setShowRequiredPositionsModal(false);
-                    setEditingRequiredPosition(null);
-                    setRequiredPositionForm({ positionId: '', quantity: 1 });
+                    console.log('🔄 Llamando a onUpdate con requiredPositions:', updated);
+                    try {
+                      await onUpdate({ ...unit, requiredPositions: updated });
+                      console.log('✅ onUpdate completado exitosamente');
+                      setNotification({ type: 'success', message: editingRequiredPosition ? 'Puesto requerido actualizado' : 'Puesto requerido agregado' });
+                      setTimeout(() => setNotification(null), 3000);
+                      setShowRequiredPositionsModal(false);
+                      setEditingRequiredPosition(null);
+                      setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
+                    } catch (error) {
+                      console.error('❌ Error al actualizar requiredPositions:', error);
+                      setNotification({ type: 'error', message: 'Error al guardar. Por favor, intente nuevamente.' });
+                      setTimeout(() => setNotification(null), 5000);
+                    }
+                  } else {
+                    console.error('❌ onUpdate no está disponible');
+                    setNotification({ type: 'error', message: 'Error: No se puede actualizar la unidad' });
+                    setTimeout(() => setNotification(null), 5000);
                   }
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
@@ -6987,6 +9719,537 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 )}
               </div>
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmación de Cese */}
+      {showTerminateModal && selectedWorkerForTermination && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Confirmar Cese de Trabajador</h3>
+              <button
+                onClick={() => {
+                  setShowTerminateModal(false);
+                  setSelectedWorkerForTermination(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-sm text-slate-600 mb-4">
+                {selectedWorkerForTermination.archived 
+                  ? `Cambiar estado de <strong>${selectedWorkerForTermination.name}</strong> (actualmente: ${selectedWorkerForTermination.personnelStatus === 'cesado' ? 'Cesado' : 'Archivado'}). Seleccione el nuevo estado:`
+                  : `Está a punto de cesar a <strong>${selectedWorkerForTermination.name}</strong>. Seleccione el tipo de cese:`
+                }
+              </p>
+              
+              <div className="space-y-3 mb-4">
+                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="terminationType"
+                    value="cesado"
+                    checked={terminationType === 'cesado'}
+                    onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-slate-800">Cesado</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      Se decidió sacar al trabajador (despido/terminación de relación laboral)
+                    </div>
+                  </div>
+                </label>
+                
+                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="terminationType"
+                    value="archivado"
+                    checked={terminationType === 'archivado'}
+                    onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-slate-800">Archivado</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      El contrato se terminó naturalmente (fin de contrato)
+                    </div>
+                  </div>
+                </label>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Fecha de cese *
+                </label>
+                <input
+                  type="date"
+                  value={terminationDate}
+                  onChange={(e) => setTerminationDate(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowTerminateModal(false);
+                  setSelectedWorkerForTermination(null);
+                }}
+                className="flex-1 py-2 px-4 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+                disabled={isTerminating}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!selectedWorkerForTermination || !onUpdate) return;
+                  
+                  // Marcar que hay un proceso de cese en curso para evitar conflictos
+                  isTerminatingRef.current = true;
+                  setIsTerminating(true);
+                  try {
+                    const { resourcesService } = await import('../services/resourcesService');
+                    const { contractService } = await import('../services/contractService');
+                    
+                    // Si el trabajador ya está archivado, solo cambiar el estado
+                    if (selectedWorkerForTermination.archived) {
+                      const updateData: any = {
+                        personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+                      };
+                      
+                      // Si se cambia la fecha de cese, actualizarla también
+                      if (terminationDate) {
+                        updateData.endDate = terminationDate;
+                      }
+                      
+                      await resourcesService.update(selectedWorkerForTermination.id, updateData);
+                    } else {
+                      // Si no está archivado, es un cese nuevo
+                      // Intentar finalizar el contrato activo si existe (no bloquear si falla)
+                      try {
+                        const activeContract = await contractService.getActiveContract(selectedWorkerForTermination.id);
+                        if (activeContract) {
+                          await contractService.finalizeContract(activeContract.id);
+                        }
+                      } catch (contractError) {
+                        // No bloquear el proceso si falla la finalización del contrato
+                        console.warn('⚠️ No se pudo finalizar el contrato activo (continuando con el cese):', contractError);
+                      }
+                      
+                      // Actualizar el trabajador según el tipo de cese
+                      // IMPORTANTE: Incluir type para que transformResourceToDB procese los campos de personal
+                      const updateData: any = {
+                        type: ResourceType.PERSONNEL, // Necesario para que transformResourceToDB procese los campos
+                        personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+                        endDate: terminationDate,
+                      };
+                      
+                      if (terminationType === 'archivado') {
+                        updateData.archived = true;
+                      }
+                      
+                      console.log('🔄 [UnitDetail] Actualizando trabajador con datos:', {
+                        id: selectedWorkerForTermination.id,
+                        name: selectedWorkerForTermination.name,
+                        updateData
+                      });
+                      
+                      const updatedResource = await resourcesService.update(selectedWorkerForTermination.id, updateData);
+                      
+                      console.log('✅ [UnitDetail] Trabajador actualizado, recurso retornado:', {
+                        id: updatedResource.id,
+                        name: updatedResource.name,
+                        personnelStatus: updatedResource.personnelStatus,
+                        archived: updatedResource.archived,
+                        endDate: updatedResource.endDate
+                      });
+                    }
+                    
+                    // Recargar la unidad para reflejar los cambios
+                    console.log('🔄 Recargando unidad para reflejar cambios...');
+                    const { unitsService } = await import('../services/unitsService');
+                    const refreshedUnit = await unitsService.getById(unit.id);
+                    if (refreshedUnit) {
+                      console.log('✅ Unidad recargada, actualizando estado local');
+                      onUpdate(refreshedUnit);
+                      
+                      // Verificar que el trabajador se actualizó correctamente
+                      const updatedWorker = refreshedUnit.resources.find(r => r.id === selectedWorkerForTermination.id);
+                      if (updatedWorker) {
+                        console.log('✅ Trabajador encontrado en unidad recargada:', {
+                          id: updatedWorker.id,
+                          name: updatedWorker.name,
+                          personnelStatus: updatedWorker.personnelStatus,
+                          archived: updatedWorker.archived,
+                          endDate: updatedWorker.endDate
+                        });
+                      } else {
+                        console.warn('⚠️ Trabajador no encontrado en unidad recargada');
+                      }
+                    } else {
+                      console.error('❌ No se pudo recargar la unidad');
+                    }
+                    
+                    setNotification({ 
+                      type: 'success', 
+                      message: selectedWorkerForTermination.archived 
+                        ? `Estado del trabajador actualizado a ${terminationType === 'cesado' ? 'Cesado' : 'Archivado'} correctamente`
+                        : `Trabajador ${terminationType === 'cesado' ? 'cesado' : 'archivado'} correctamente` 
+                    });
+                    setTimeout(() => setNotification(null), 3000);
+                    
+                    setShowTerminateModal(false);
+                    setSelectedWorkerForTermination(null);
+                  } catch (error) {
+                    console.error('Error al cesar trabajador:', error);
+                    setNotification({ 
+                      type: 'error', 
+                      message: 'Error al cesar el trabajador. Por favor, intente nuevamente.' 
+                    });
+                    setTimeout(() => setNotification(null), 5000);
+                  } finally {
+                    setIsTerminating(false);
+                    // Permitir que otros procesos continúen después de un breve delay
+                    setTimeout(() => {
+                      isTerminatingRef.current = false;
+                    }, 2000);
+                  }
+                }}
+                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+                  terminationType === 'cesado'
+                    ? 'bg-orange-600 text-white hover:bg-orange-700'
+                    : 'bg-amber-600 text-white hover:bg-amber-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                disabled={isTerminating || !terminationDate}
+              >
+                {isTerminating ? 'Procesando...' : `Confirmar ${terminationType === 'cesado' ? 'Cese' : 'Archivo'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Renovación de Contrato */}
+      {showEditAssignedAssetModal && selectedWorkerForAssetEdit && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Editar Activo Asignado</h3>
+              <button
+                onClick={() => {
+                  setShowEditAssignedAssetModal(false);
+                  setSelectedWorkerForAssetEdit(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-600 mb-4">
+              Trabajador: <strong>{selectedWorkerForAssetEdit.name}</strong>
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Activo</label>
+                <input
+                  type="text"
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editAssignedAssetForm.name}
+                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, name: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                <select
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editAssignedAssetForm.type}
+                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, type: e.target.value as any })}
+                >
+                  <option value="EPP">EPP</option>
+                  <option value="Uniforme">Uniforme</option>
+                  <option value="Tecnologia">Tecnología</option>
+                  <option value="Herramienta">Herramienta</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label>
+                <input
+                  type="date"
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editAssignedAssetForm.dateAssigned}
+                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, dateAssigned: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">N° Serie (Opcional)</label>
+                <input
+                  type="text"
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editAssignedAssetForm.serialNumber}
+                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, serialNumber: e.target.value })}
+                />
+              </div>
+
+              {isCorporatePhoneAsset(editAssignedAssetForm.name) && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">N° Telefónico (Opcional)</label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editAssignedAssetForm.phoneNumber}
+                    onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, phoneNumber: e.target.value })}
+                    placeholder="Ej. 987654321"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEditAssignedAssetModal(false);
+                  setSelectedWorkerForAssetEdit(null);
+                }}
+                className="flex-1 py-2 px-4 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+                disabled={isUpdatingResource}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveEditedAssignedAsset}
+                className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isUpdatingResource || !editAssignedAssetForm.name.trim()}
+              >
+                {isUpdatingResource ? 'Guardando...' : 'Guardar Cambios'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Renovación de Contrato */}
+      {showRenewContractModal && selectedWorkerForRenewal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Renovar Contrato</h3>
+              <button
+                onClick={() => {
+                  setShowRenewContractModal(false);
+                  setSelectedWorkerForRenewal(null);
+                  setRenewContractForm({ startDate: '', endDate: '', notes: '', monthlySalary: undefined, workConditionAmount: undefined });
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-sm text-slate-600 mb-4">
+                Renovar contrato de <strong>{selectedWorkerForRenewal.name}</strong>
+              </p>
+              
+              {/* Mostrar historial de contratos */}
+              {contractHistory[selectedWorkerForRenewal.id] && contractHistory[selectedWorkerForRenewal.id].length > 0 && (
+                <div className="mb-4 p-3 bg-slate-50 rounded-lg">
+                  <div className="text-xs font-semibold text-slate-700 mb-2">Historial de Contratos:</div>
+                  <div className="space-y-1">
+                    {contractHistory[selectedWorkerForRenewal.id].map((contract: any) => (
+                      <div key={contract.id} className="text-xs text-slate-600">
+                        Contrato #{contract.contractNumber}: {contract.startDate} - {contract.endDate} 
+                        <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
+                          contract.status === 'activo' ? 'bg-green-100 text-green-700' :
+                          contract.status === 'renovado' ? 'bg-blue-100 text-blue-700' :
+                          'bg-slate-100 text-slate-700'
+                        }`}>
+                          {contract.status}
+                        </span>
+                        {(contract.monthlySalary !== undefined || contract.workConditionAmount !== undefined) && (
+                          <span className="ml-2 text-slate-500">
+                            • {contract.monthlySalary !== undefined ? `S/ ${Number(contract.monthlySalary).toFixed(2)}` : 'S/ -'}
+                            {` | `}
+                            {contract.workConditionAmount !== undefined ? `Cond: S/ ${Number(contract.workConditionAmount).toFixed(2)}` : 'Cond: -'}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Fecha de inicio del nuevo contrato *
+                  </label>
+                  <input
+                    type="date"
+                    value={renewContractForm.startDate}
+                    onChange={(e) => setRenewContractForm({ ...renewContractForm, startDate: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Fecha de fin del nuevo contrato *
+                  </label>
+                  <input
+                    type="date"
+                    value={renewContractForm.endDate}
+                    onChange={(e) => setRenewContractForm({ ...renewContractForm, endDate: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                    min={renewContractForm.startDate}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Salario Bruto Mensual (opcional)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={renewContractForm.monthlySalary ?? ''}
+                    onChange={(e) => setRenewContractForm({ ...renewContractForm, monthlySalary: e.target.value ? parseFloat(e.target.value) : undefined })}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: 1800.00"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Condición de Trabajo (opcional)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={renewContractForm.workConditionAmount ?? ''}
+                    onChange={(e) => setRenewContractForm({ ...renewContractForm, workConditionAmount: e.target.value ? parseFloat(e.target.value) : undefined })}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: 200.00"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Notas (opcional)
+                  </label>
+                  <textarea
+                    value={renewContractForm.notes}
+                    onChange={(e) => setRenewContractForm({ ...renewContractForm, notes: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={3}
+                    placeholder="Notas adicionales sobre la renovación..."
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowRenewContractModal(false);
+                  setSelectedWorkerForRenewal(null);
+                  setRenewContractForm({ startDate: '', endDate: '', notes: '', monthlySalary: undefined, workConditionAmount: undefined });
+                }}
+                className="flex-1 py-2 px-4 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+                disabled={isRenewingContract}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!selectedWorkerForRenewal || !onUpdate || !renewContractForm.startDate || !renewContractForm.endDate) return;
+                  
+                  if (new Date(renewContractForm.endDate) < new Date(renewContractForm.startDate)) {
+                    setNotification({ type: 'error', message: 'La fecha de fin debe ser posterior a la fecha de inicio' });
+                    setTimeout(() => setNotification(null), 3000);
+                    return;
+                  }
+                  
+                  setIsRenewingContract(true);
+                  try {
+                    const { contractService } = await import('../services/contractService');
+                    const { resourcesService } = await import('../services/resourcesService');
+                    
+                    // Crear el nuevo contrato
+                    await contractService.createContract(
+                      selectedWorkerForRenewal.id,
+                      renewContractForm.startDate,
+                      renewContractForm.endDate,
+                      renewContractForm.notes || undefined,
+                      {
+                        isRenewal: true,
+                        monthlySalary: renewContractForm.monthlySalary,
+                        workConditionAmount: renewContractForm.workConditionAmount
+                      }
+                    );
+                    
+                    // Solo actualizar fin del último contrato en el recurso; el inicio de la relación laboral
+                    // permanece como el primer contrato (no se sobrescribe en renovaciones).
+                    await resourcesService.update(selectedWorkerForRenewal.id, {
+                      endDate: renewContractForm.endDate,
+                      monthlySalary: renewContractForm.monthlySalary,
+                      workConditionAmount: renewContractForm.workConditionAmount,
+                      personnelStatus: 'activo',
+                      archived: false,
+                    });
+                    
+                    // Recargar historial de contratos
+                    const history = await contractService.getContractHistory(selectedWorkerForRenewal.id);
+                    setContractHistory(prev => ({
+                      ...prev,
+                      [selectedWorkerForRenewal.id]: history
+                    }));
+                    
+                    // Recargar la unidad
+                    const { unitsService } = await import('../services/unitsService');
+                    const refreshedUnit = await unitsService.getById(unit.id);
+                    if (refreshedUnit) {
+                      onUpdate(refreshedUnit);
+                    }
+                    
+                    setNotification({ type: 'success', message: 'Contrato renovado correctamente' });
+                    setTimeout(() => setNotification(null), 3000);
+                    
+                    setShowRenewContractModal(false);
+                    setSelectedWorkerForRenewal(null);
+                    setRenewContractForm({ startDate: '', endDate: '', notes: '', monthlySalary: undefined, workConditionAmount: undefined });
+                  } catch (error) {
+                    console.error('Error al renovar contrato:', error);
+                    setNotification({ type: 'error', message: 'Error al renovar el contrato. Por favor, intente nuevamente.' });
+                    setTimeout(() => setNotification(null), 5000);
+                  } finally {
+                    setIsRenewingContract(false);
+                  }
+                }}
+                className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isRenewingContract || !renewContractForm.startDate || !renewContractForm.endDate}
+              >
+                {isRenewingContract ? 'Renovando...' : 'Renovar Contrato'}
+              </button>
+            </div>
           </div>
         </div>
       )}

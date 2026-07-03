@@ -25,18 +25,25 @@ export const resourcesService = {
       if (error) throw error;
 
       // Cargar datos relacionados para cada recurso
-      const resources = await Promise.all(
-        data.map(async (resource) => {
-          const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
+      const resources = await mapWithConcurrency(
+        data,
+        4,
+        async (resource) => {
+          const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
             this.getTrainings(resource.id),
             this.getAssignedAssets(resource.id),
             this.getDailyShifts(resource.id),
             this.getMaintenanceRecords(resource.id),
             this.getZoneAssignments(resource.id),
+            this.getContractHistory(resource.id),
           ]);
 
-          return transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
-        })
+          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
+          return {
+            ...transformed,
+            contractHistory: contractHistory,
+          };
+        }
       );
 
       return resources;
@@ -59,8 +66,56 @@ export const resourcesService = {
 
       if (error) throw error;
 
-      const resources = await Promise.all(
-        data.map(async (resource) => {
+      const resources = await mapWithConcurrency(
+        data,
+        4,
+        async (resource) => {
+          const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
+            this.getTrainings(resource.id),
+            this.getAssignedAssets(resource.id),
+            this.getDailyShifts(resource.id),
+            this.getMaintenanceRecords(resource.id),
+            this.getZoneAssignments(resource.id),
+            this.getContractHistory(resource.id),
+          ]);
+
+          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
+          return {
+            ...transformed,
+            contractHistory: contractHistory,
+          };
+        }
+      );
+
+      return resources;
+    } catch (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+  },
+
+  // Obtener todos los trabajadores archivados/cesados de todas las unidades
+  // Solo incluir trabajadores que están EXPLÍCITAMENTE archivados (archived = true)
+  // O que tienen personnel_status = 'cesado' Y archived = true
+  // NO incluir trabajadores activos con solo endDate o solo personnel_status = 'cesado'
+  async getAllArchivedPersonnel(): Promise<Array<Resource & { originalUnitId: string; originalUnitName: string }>> {
+    try {
+      const { data, error } = await supabase
+        .from('resources')
+        .select(`
+          *,
+          unit:units!resources_unit_id_fkey(id, name)
+        `)
+        .eq('type', 'Personal')
+        .eq('archived', true) // Solo trabajadores explícitamente archivados
+        .order('end_date', { ascending: false });
+
+      if (error) throw error;
+
+      const resources = await mapWithConcurrency(
+        data,
+        4,
+        async (resource: any) => {
           const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
             this.getTrainings(resource.id),
             this.getAssignedAssets(resource.id),
@@ -69,8 +124,13 @@ export const resourcesService = {
             this.getZoneAssignments(resource.id),
           ]);
 
-          return transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
-        })
+          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
+          return {
+            ...transformed,
+            originalUnitId: resource.unit_id,
+            originalUnitName: resource.unit?.name || 'Unidad desconocida',
+          };
+        }
       );
 
       return resources;
@@ -94,15 +154,20 @@ export const resourcesService = {
         throw error;
       }
 
-      const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
+      const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
         this.getTrainings(id),
         this.getAssignedAssets(id),
         this.getDailyShifts(id),
         this.getMaintenanceRecords(id),
         this.getZoneAssignments(id),
+        this.getContractHistory(id),
       ]);
 
-      return transformResourceFromDB(data, trainings, assets, shifts, maintenance, zoneAssignments);
+      const transformed = transformResourceFromDB(data, trainings, assets, shifts, maintenance, zoneAssignments);
+      return {
+        ...transformed,
+        contractHistory: contractHistory,
+      };
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -136,6 +201,17 @@ export const resourcesService = {
         await this.createZoneAssignments(data.id, resource.assignedZones);
       }
 
+      // Si es personal y tiene startDate y endDate, crear contrato inicial
+      if (resource.type === ResourceType.PERSONNEL && resource.startDate && resource.endDate) {
+        try {
+          const { contractService } = await import('./contractService');
+          await contractService.createContract(data.id, resource.startDate, resource.endDate);
+        } catch (error) {
+          console.error('Error al crear contrato inicial:', error);
+          // No lanzar error, solo registrar
+        }
+      }
+
       return await this.getById(data.id) || resource as Resource;
     } catch (error) {
       handleSupabaseError(error);
@@ -144,20 +220,29 @@ export const resourcesService = {
   },
 
   // Actualizar un recurso
-  async update(id: string, resource: Partial<Resource>): Promise<Resource> {
+  async update(id: string, resource: Partial<Resource>, newUnitId?: string): Promise<Resource> {
     try {
-      const resourceData = transformResourceToDB(resource);
+      const resourceData = transformResourceToDB(resource, newUnitId);
+      
+      if (Object.keys(resourceData).length > 0) {
+        const { data: updateResult, error } = await supabase
+          .from('resources')
+          .update(resourceData)
+          .eq('id', id)
+          .select(); // Agregar select para verificar que se actualizó
 
-      const { error } = await supabase
-        .from('resources')
-        .update(resourceData)
-        .eq('id', id);
-
-      if (error) throw error;
+        if (error) {
+          console.error('❌ [resourcesService.update] Error al actualizar:', error);
+          throw error;
+        }
+        
+        if (!updateResult || updateResult.length === 0) {
+          console.warn('⚠️ [resourcesService.update] No se encontró el recurso después de actualizar');
+        }
+      }
 
       // Actualizar workSchedule (turnos) si se proporcionan
       if (resource.workSchedule !== undefined) {
-        console.log(`🔄 Actualizando ${resource.workSchedule.length} turnos para recurso ${id}`);
         
         // Eliminar turnos existentes
         const { error: deleteError } = await supabase.from('daily_shifts').delete().eq('resource_id', id);
@@ -168,18 +253,12 @@ export const resourcesService = {
         
         // Insertar nuevos turnos
         if (resource.workSchedule.length > 0) {
-          console.log('📅 Insertando turnos:', resource.workSchedule.map(s => ({ 
-            date: s.date, 
-            type: s.type,
-            hours: s.hours
-          })));
           await this.createDailyShifts(id, resource.workSchedule);
         }
       }
 
       // Actualizar assignedAssets si se proporcionan
       if (resource.assignedAssets !== undefined) {
-        console.log(`🔄 Actualizando ${resource.assignedAssets.length} activos para recurso ${id}`);
         
         // Eliminar activos existentes
         const { error: deleteError } = await supabase.from('assigned_assets').delete().eq('resource_id', id);
@@ -190,17 +269,12 @@ export const resourcesService = {
         
         // Insertar nuevos activos
         if (resource.assignedAssets.length > 0) {
-          console.log('📦 Insertando activos:', resource.assignedAssets.map(a => ({ 
-            name: a.name, 
-            constancyCode: a.constancyCode 
-          })));
           await this.createAssignedAssets(id, resource.assignedAssets);
         }
       }
 
       // Actualizar trainings (capacitaciones) si se proporcionan
       if (resource.trainings !== undefined) {
-        console.log(`🔄 Actualizando ${resource.trainings.length} capacitaciones para recurso ${id}`);
         
         // Eliminar capacitaciones existentes
         const { error: deleteError } = await supabase.from('trainings').delete().eq('resource_id', id);
@@ -211,12 +285,24 @@ export const resourcesService = {
         
         // Insertar nuevas capacitaciones
         if (resource.trainings.length > 0) {
-          console.log('📚 Insertando capacitaciones:', resource.trainings.map(t => ({ 
-            topic: t.topic, 
-            date: t.date,
-            status: t.status
-          })));
           await this.createTrainings(id, resource.trainings);
+        }
+      }
+
+      // Actualizar zonas asignadas si se proporcionan
+      if (resource.assignedZones !== undefined) {
+        const { error: deleteError } = await supabase
+          .from('resource_zone_assignments')
+          .delete()
+          .eq('resource_id', id);
+
+        if (deleteError) {
+          console.error('Error al eliminar asignaciones de zonas existentes:', deleteError);
+          throw deleteError;
+        }
+
+        if (resource.assignedZones.length > 0) {
+          await this.createZoneAssignments(id, resource.assignedZones);
         }
       }
 
@@ -227,13 +313,69 @@ export const resourcesService = {
     }
   },
 
-  // Eliminar un recurso
+  // Eliminar un recurso y filas dependientes (evita FK y filas huérfanas)
   async delete(id: string): Promise<void> {
+    const safe = async (
+      label: string,
+      run: () => Promise<{ error: { code?: string; message?: string } | null }>
+    ) => {
+      try {
+        const { error } = await run();
+        if (error && error.code !== '42P01') {
+          console.warn(`⚠️ [resources.delete] ${label}:`, error);
+        }
+      } catch (e) {
+        console.warn(`⚠️ [resources.delete] ${label}:`, e);
+      }
+    };
+
     try {
-      const { error } = await supabase
-        .from('resources')
-        .delete()
-        .eq('id', id);
+      await safe('maintenance_responsible', () =>
+        supabase.from('maintenance_responsible').delete().eq('resource_id', id)
+      );
+
+      try {
+        const { data: maintenanceRecords } = await supabase
+          .from('maintenance_records')
+          .select('id')
+          .eq('resource_id', id);
+        if (maintenanceRecords?.length) {
+          const recordIds = maintenanceRecords.map((r: { id: string }) => r.id);
+          await safe('maintenance_images', () =>
+            supabase.from('maintenance_images').delete().in('maintenance_record_id', recordIds)
+          );
+          await safe('maintenance_records', () =>
+            supabase.from('maintenance_records').delete().eq('resource_id', id)
+          );
+        }
+      } catch (e) {
+        console.warn('⚠️ [resources.delete] maintenance_records (bloque):', e);
+      }
+
+      await safe('daily_shifts', () =>
+        supabase.from('daily_shifts').delete().eq('resource_id', id)
+      );
+      await safe('assigned_assets', () =>
+        supabase.from('assigned_assets').delete().eq('resource_id', id)
+      );
+      await safe('trainings', () =>
+        supabase.from('trainings').delete().eq('resource_id', id)
+      );
+      await safe('resource_zone_assignments', () =>
+        supabase.from('resource_zone_assignments').delete().eq('resource_id', id)
+      );
+
+      await safe('contract_history', () =>
+        supabase.from('contract_history').delete().eq('resource_id', id)
+      );
+      await safe('salary_increments', () =>
+        supabase.from('salary_increments').delete().eq('resource_id', id)
+      );
+      await safe('variable_compensations', () =>
+        supabase.from('variable_compensations').delete().eq('resource_id', id)
+      );
+
+      const { error } = await supabase.from('resources').delete().eq('id', id);
 
       if (error) throw error;
     } catch (error) {
@@ -279,11 +421,23 @@ export const resourcesService = {
   // ============================================
 
   async getTrainings(resourceId: string): Promise<Training[]> {
-    const { data } = await supabase
-      .from('trainings')
-      .select('*')
-      .eq('resource_id', resourceId)
-      .order('date', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('trainings')
+        .select('*')
+        .eq('resource_id', resourceId)
+        .order('date', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener capacitaciones para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener capacitaciones:', error);
+      return [];
+    }
 
     return data?.map(t => ({
       id: t.id,
@@ -309,37 +463,35 @@ export const resourcesService = {
   },
 
   async getAssignedAssets(resourceId: string): Promise<AssignedAsset[]> {
-    const { data, error } = await supabase
-      .from('assigned_assets')
-      .select('*')
-      .eq('resource_id', resourceId)
-      .order('date_assigned', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('assigned_assets')
+        .select('*')
+        .eq('resource_id', resourceId)
+        .order('date_assigned', { ascending: false });
+      
+      if (error) throw error;
 
-    if (error) {
-      console.error('Error al obtener assigned assets:', error);
+      return data?.map(a => ({
+        id: a.id,
+        name: a.name,
+        type: a.type as any,
+        dateAssigned: a.date_assigned,
+        serialNumber: a.serial_number,
+        phoneNumber: a.phone_number,
+        notes: a.notes,
+        constancyCode: a.constancy_code || undefined,
+        constancyGeneratedAt: a.constancy_generated_at || undefined,
+        standardAssetId: a.standard_asset_id || undefined,
+      })) || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener activos asignados para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener activos asignados:', error);
       return [];
     }
-
-    const assets = data?.map(a => ({
-      id: a.id,
-      name: a.name,
-      type: a.type as any,
-      dateAssigned: a.date_assigned,
-      serialNumber: a.serial_number,
-      notes: a.notes,
-      constancyCode: a.constancy_code || undefined,
-      constancyGeneratedAt: a.constancy_generated_at || undefined,
-    })) || [];
-    
-    // Debug: verificar códigos de constancia
-    // Logs reducidos - solo en modo debug
-    // const withConstancy = assets.filter(a => a.constancyCode);
-    // if (withConstancy.length > 0 && process.env.NODE_ENV === 'development') {
-    //   console.log(`📄 Activos con constancia para recurso ${resourceId}:`, 
-    //     withConstancy.map(a => ({ name: a.name, code: a.constancyCode })));
-    // }
-    
-    return assets;
   },
 
   async createAssignedAssets(resourceId: string, assets: AssignedAsset[]): Promise<void> {
@@ -350,6 +502,7 @@ export const resourcesService = {
         type: a.type,
         date_assigned: a.dateAssigned,
         serial_number: a.serialNumber,
+        phone_number: a.phoneNumber || null,
         notes: a.notes,
         constancy_code: a.constancyCode || null,
         constancy_generated_at: a.constancyGeneratedAt || null,
@@ -386,12 +539,127 @@ export const resourcesService = {
     }
   },
 
+  // Limpiar duplicados de activos asignados
+  async cleanupDuplicateAssets(): Promise<{ totalDuplicates: number; cleanedResources: number }> {
+    try {
+      // Obtener todos los activos agrupados por recurso
+      const { data: allAssets, error: fetchError } = await supabase
+        .from('assigned_assets')
+        .select('*')
+        .order('resource_id')
+        .order('date_assigned', { ascending: false });
+
+      if (fetchError) throw fetchError;
+      if (!allAssets || allAssets.length === 0) {
+        return { totalDuplicates: 0, cleanedResources: 0 };
+      }
+
+      // Agrupar por resource_id
+      const assetsByResource = new Map<string, any[]>();
+      allAssets.forEach(asset => {
+        if (!assetsByResource.has(asset.resource_id)) {
+          assetsByResource.set(asset.resource_id, []);
+        }
+        assetsByResource.get(asset.resource_id)!.push(asset);
+      });
+
+      let totalDuplicates = 0;
+      let cleanedResources = 0;
+      const idsToDelete: string[] = [];
+
+      // Para cada recurso, identificar duplicados
+      for (const [resourceId, assets] of assetsByResource.entries()) {
+        if (assets.length <= 1) continue; // No hay duplicados si solo hay uno
+
+        // Agrupar por combinación de: name, date_assigned, serial_number
+        const uniqueGroups = new Map<string, any[]>();
+        
+        assets.forEach(asset => {
+          // Crear clave única basada en nombre, fecha y serial number
+          const key = `${asset.name}|${asset.date_assigned || ''}|${asset.serial_number || ''}`;
+          if (!uniqueGroups.has(key)) {
+            uniqueGroups.set(key, []);
+          }
+          uniqueGroups.get(key)!.push(asset);
+        });
+
+        // Para cada grupo, si hay más de uno, mantener el más reciente (o el que tiene constancia) y eliminar los demás
+        for (const [key, group] of uniqueGroups.entries()) {
+          if (group.length > 1) {
+            // Ordenar: primero los que tienen constancia, luego por fecha más reciente, luego por id más reciente
+            group.sort((a, b) => {
+              // Priorizar los que tienen constancia
+              if (a.constancy_code && !b.constancy_code) return -1;
+              if (!a.constancy_code && b.constancy_code) return 1;
+              // Luego por fecha más reciente
+              if (a.date_assigned && b.date_assigned) {
+                const dateCompare = b.date_assigned.localeCompare(a.date_assigned);
+                if (dateCompare !== 0) return dateCompare;
+              }
+              // Finalmente por id más reciente (asumiendo que los IDs más nuevos son mayores)
+              return b.id.localeCompare(a.id);
+            });
+
+            // Mantener el primero (el mejor), eliminar los demás
+            const toKeep = group[0];
+            const toDelete = group.slice(1);
+            
+            totalDuplicates += toDelete.length;
+            idsToDelete.push(...toDelete.map(a => a.id));
+            
+            if (toDelete.length > 0) {
+              cleanedResources++;
+              console.log(`🧹 Recurso ${resourceId}: ${toDelete.length} duplicado(s) de "${toKeep.name}" - Manteniendo: ${toKeep.id}, Eliminando: ${toDelete.map(d => d.id).join(', ')}`);
+            }
+          }
+        }
+      }
+
+      // Eliminar duplicados en lotes para mejor rendimiento
+      if (idsToDelete.length > 0) {
+        const batchSize = 100;
+        for (let i = 0; i < idsToDelete.length; i += batchSize) {
+          const batch = idsToDelete.slice(i, i + batchSize);
+          const { error: deleteError } = await supabase
+            .from('assigned_assets')
+            .delete()
+            .in('id', batch);
+
+          if (deleteError) {
+            console.error(`❌ Error al eliminar lote de duplicados (${i} a ${i + batch.length}):`, deleteError);
+            throw deleteError;
+          }
+        }
+
+        console.log(`✅ Limpieza completada: ${totalDuplicates} duplicados eliminados de ${cleanedResources} recursos`);
+      }
+
+      return { totalDuplicates, cleanedResources };
+    } catch (error) {
+      console.error('❌ Error al limpiar duplicados:', error);
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+
   async getDailyShifts(resourceId: string): Promise<DailyShift[]> {
-    const { data } = await supabase
-      .from('daily_shifts')
-      .select('*')
-      .eq('resource_id', resourceId)
-      .order('date', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('daily_shifts')
+        .select('*')
+        .eq('resource_id', resourceId)
+        .order('date', { ascending: true });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener turnos para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener turnos:', error);
+      return [];
+    }
 
     return data?.map(s => ({
       date: s.date,
@@ -401,7 +669,7 @@ export const resourcesService = {
   },
 
   async createDailyShifts(resourceId: string, shifts: DailyShift[]): Promise<void> {
-    await supabase.from('daily_shifts').insert(
+    const { error } = await supabase.from('daily_shifts').insert(
       shifts.map(s => ({
         resource_id: resourceId,
         date: s.date,
@@ -409,36 +677,88 @@ export const resourcesService = {
         hours: s.hours,
       }))
     );
+
+    if (error) throw error;
   },
 
-  // Actualizar un solo turno (upsert: insert o update)
-  async upsertDailyShift(resourceId: string, shift: DailyShift): Promise<void> {
-    const { error } = await supabase
+  async upsertDailyShiftsForResource(resourceId: string, shifts: DailyShift[]): Promise<void> {
+    if (shifts.length === 0) return;
+
+    const uniqueShifts = [...new Map(shifts.map(shift => [shift.date, shift])).values()];
+    const dates = uniqueShifts.map(shift => shift.date);
+
+    const { error: deleteError } = await supabase
       .from('daily_shifts')
-      .upsert(
-        {
-          resource_id: resourceId,
-          date: shift.date,
-          type: shift.type,
-          hours: shift.hours,
-        },
-        {
-          onConflict: 'resource_id,date',
-        }
-      );
-    
-    if (error) {
-      console.error('❌ Error al actualizar turno:', error);
-      throw error;
+      .delete()
+      .eq('resource_id', resourceId)
+      .in('date', dates);
+
+    if (deleteError) {
+      console.error('❌ Error al eliminar turnos existentes:', deleteError);
+      throw deleteError;
+    }
+
+    const { error: insertError } = await supabase.from('daily_shifts').insert(
+      uniqueShifts.map(shift => ({
+        resource_id: resourceId,
+        date: shift.date,
+        type: shift.type,
+        hours: shift.hours,
+      }))
+    );
+
+    if (insertError) {
+      console.error('❌ Error al insertar turnos:', insertError);
+      throw insertError;
+    }
+  },
+
+  // Actualizar un solo turno (comportamiento tipo upsert sin depender de índices únicos)
+  async upsertDailyShift(resourceId: string, shift: DailyShift): Promise<void> {
+    // 1) Eliminar cualquier turno existente para ese recurso y fecha
+    const { error: deleteError } = await supabase
+      .from('daily_shifts')
+      .delete()
+      .eq('resource_id', resourceId)
+      .eq('date', shift.date);
+
+    if (deleteError) {
+      console.error('❌ Error al eliminar turno existente:', deleteError);
+      throw deleteError;
+    }
+
+    // 2) Insertar el nuevo turno
+    const { error: insertError } = await supabase.from('daily_shifts').insert({
+      resource_id: resourceId,
+      date: shift.date,
+      type: shift.type,
+      hours: shift.hours,
+    });
+
+    if (insertError) {
+      console.error('❌ Error al insertar turno:', insertError);
+      throw insertError;
     }
   },
 
   async getMaintenanceRecords(resourceId: string): Promise<MaintenanceRecord[]> {
-    const { data } = await supabase
-      .from('maintenance_records')
-      .select('*, maintenance_images(*)')
-      .eq('resource_id', resourceId)
-      .order('date', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_records')
+        .select('*, maintenance_images(*)')
+        .eq('resource_id', resourceId)
+        .order('date', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener registros de mantenimiento para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener registros de mantenimiento:', error);
+      return [];
+    }
 
     return data?.map((m) => {
       const images = m.maintenance_images?.map((img: any) => img.image_url) || [];
@@ -456,30 +776,116 @@ export const resourcesService = {
     }) || [];
   },
 
-  async getZoneAssignments(resourceId: string): Promise<string[]> {
-    const { data } = await supabase
-      .from('resource_zone_assignments')
-      .select('zones(name)')
-      .eq('resource_id', resourceId);
+  // Obtener historial de contratos para un recurso
+  async getContractHistory(resourceId: string): Promise<any[]> {
+    try {
+      const { contractService } = await import('./contractService');
+      return await contractService.getContractHistory(resourceId);
+    } catch (error: any) {
+      // Si es un error de red, no loguear como error crítico
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener historial de contratos para ${resourceId}:`, error.message);
+      } else {
+        console.error('Error al obtener historial de contratos:', error);
+      }
+      return [];
+    }
+  },
 
-    return data?.map((item: any) => item.zones.name) || [];
+  async getZoneAssignments(resourceId: string): Promise<string[]> {
+    try {
+      const { data, error } = await supabase
+        .from('resource_zone_assignments')
+        .select('zone_id, zones(name)')
+        .eq('resource_id', resourceId);
+
+      if (error) throw error;
+
+      const fromEmbed = (data || [])
+        .map((item: any) => item.zones?.name)
+        .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0);
+
+      if (fromEmbed.length > 0) {
+        return fromEmbed;
+      }
+
+      const zoneIds = (data || [])
+        .map((row: any) => row.zone_id)
+        .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+
+      if (zoneIds.length === 0) return [];
+
+      const { data: zoneRows, error: zoneErr } = await supabase
+        .from('zones')
+        .select('name')
+        .in('id', zoneIds);
+
+      if (zoneErr) throw zoneErr;
+      return zoneRows?.map((z: { name: string }) => z.name) || [];
+    } catch (error: any) {
+      if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
+        console.warn(`⚠️ Error de red al obtener asignaciones de zonas para ${resourceId}`);
+        return [];
+      }
+      console.error('Error al obtener asignaciones de zonas:', error);
+      return [];
+    }
   },
 
   async createZoneAssignments(resourceId: string, zoneNames: string[]): Promise<void> {
-    // Primero obtener los IDs de las zonas por nombre
-    const { data: zones } = await supabase
+    if (zoneNames.length === 0) return;
+
+    const uniqueRequested = [...new Set(zoneNames.map((z) => z.trim()).filter(Boolean))];
+    if (uniqueRequested.length === 0) return;
+
+    const { data: resource, error: resourceError } = await supabase
+      .from('resources')
+      .select('unit_id')
+      .eq('id', resourceId)
+      .single();
+
+    if (resourceError) throw resourceError;
+
+    const { data: allZones, error: zonesError } = await supabase
       .from('zones')
       .select('id, name')
-      .in('name', zoneNames);
+      .eq('unit_id', resource.unit_id);
 
-    if (zones && zones.length > 0) {
-      await supabase.from('resource_zone_assignments').insert(
-        zones.map(z => ({
-          resource_id: resourceId,
-          zone_id: z.id,
-        }))
+    if (zonesError) throw zonesError;
+
+    const zonesList = allZones || [];
+    const normalize = (s: string) => s.trim().toLocaleLowerCase('es');
+
+    const matchedIds: string[] = [];
+    const unmatched: string[] = [];
+
+    for (const requested of uniqueRequested) {
+      const n = normalize(requested);
+      const found = zonesList.find((z) => normalize(z.name) === n);
+      if (found) {
+        matchedIds.push(found.id);
+      } else {
+        unmatched.push(requested);
+      }
+    }
+
+    if (unmatched.length > 0) {
+      const available = zonesList.map((z) => z.name).join(', ') || '(ninguna)';
+      throw new Error(
+        `No se encontraron zonas para: ${unmatched.join(', ')}. Zonas de la unidad: ${available}`
       );
     }
+
+    const uniqueIds = [...new Set(matchedIds)];
+
+    const { error } = await supabase.from('resource_zone_assignments').insert(
+      uniqueIds.map((zone_id) => ({
+        resource_id: resourceId,
+        zone_id,
+      }))
+    );
+
+    if (error) throw error;
   },
 };
 
@@ -510,39 +916,36 @@ function transformResourceFromDB(
     image: data.image,
     externalId: data.external_id,
     lastSync: data.last_sync,
+    inboundSourceData: data.inbound_source_data ?? undefined,
     trainings,
     assignedAssets: assets,
     workSchedule: shifts,
     maintenanceHistory: maintenance,
     // Nuevos campos para personal
     dni: data.dni,
+    localidad: data.localidad || undefined,
+    phone: data.phone || undefined,
     puesto: data.puesto,
+    birthDate: normalizeDateFromDB(data.birth_date),
     isShared: data.is_shared ?? false, // Por defecto false (único)
     // Normalizar fechas para evitar problemas de timezone
     startDate: normalizeDateFromDB(data.start_date),
     endDate: normalizeDateFromDB(data.end_date),
-    // Si tiene endDate, automáticamente es cesado (a menos que esté explícitamente marcado como activo)
+    // endDate es solo para monitoreo, NO cambia automáticamente el estado
+    // El estado se cambia manualmente mediante el proceso de cese
     personnelStatus: (() => {
-      const normalizedEndDate = normalizeDateFromDB(data.end_date);
-      if (normalizedEndDate) {
-        // Si tiene fecha de fin, es cesado
-        return 'cesado' as const;
-      }
-      // Si no tiene fecha de fin, usar el valor de la BD o 'activo' por defecto
-      return (data.personnel_status as 'activo' | 'cesado') || (data.type === 'Personal' ? 'activo' : undefined);
+      // Usar el valor de la BD directamente, sin lógica automática basada en endDate
+      return (data.personnel_status as 'activo' | 'cesado' | 'archivado') || (data.type === 'Personal' ? 'activo' : undefined);
     })(),
-    // Si tiene endDate o está cesado, debería estar archivado automáticamente
-    archived: (() => {
-      const normalizedEndDate = normalizeDateFromDB(data.end_date);
-      const isCesado = normalizedEndDate || data.personnel_status === 'cesado';
-      // Si está cesado pero no archivado, retornar false (se archivará al guardar)
-      // Si ya está archivado en la BD, mantenerlo
-      return data.archived || false;
-    })(),
+    // archived solo se cambia manualmente mediante el proceso de cese/archivo
+    archived: data.archived || false,
     // Campos de capacitación
     inTraining: data.in_training || false,
     trainingStartDate: normalizeDateFromDB(data.training_start_date),
     contractGenerated: data.contract_generated || false,
+    // Campos de salario
+    monthlySalary: data.monthly_salary ? Number(data.monthly_salary) : undefined,
+    workConditionAmount: data.work_condition_amount ? Number(data.work_condition_amount) : undefined,
   };
 }
 
@@ -565,8 +968,9 @@ function normalizeDateFromDB(dateValue: any): string | undefined {
 }
 
 // Función helper para normalizar fechas antes de guardar en la BD
-function normalizeDateToDB(dateValue: any): string | undefined {
-  if (!dateValue) return undefined;
+function normalizeDateToDB(dateValue: any): string | null | undefined {
+  if (dateValue === null || dateValue === undefined) return null; // null elimina el campo en BD
+  if (!dateValue) return null;
   
   // Si es un string, extraer solo la parte de la fecha (YYYY-MM-DD)
   if (typeof dateValue === 'string') {
@@ -582,37 +986,92 @@ function normalizeDateToDB(dateValue: any): string | undefined {
   return undefined;
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
 function transformResourceToDB(resource: Partial<Resource>, unitId?: string): any {
-  const result: any = {
-    unit_id: unitId,
-    name: resource.name,
-    type: resource.type,
-    quantity: resource.quantity,
-    unit_of_measure: resource.unitOfMeasure,
-    status: resource.status,
-    assigned_shift: resource.assignedShift,
-    compliance_percentage: resource.compliancePercentage,
-    last_restock: resource.lastRestock,
-    next_maintenance: resource.nextMaintenance,
-    image: resource.image,
-    external_id: resource.externalId,
-    last_sync: resource.lastSync,
+  const result: any = {};
+  const setIfDefined = (key: string, value: any) => {
+    if (value !== undefined) {
+      result[key] = value;
+    }
   };
 
-  // Incluir nuevos campos solo si el recurso es de tipo Personal
-  if (resource.type === ResourceType.PERSONNEL) {
+  setIfDefined('name', resource.name);
+  setIfDefined('type', resource.type);
+  setIfDefined('quantity', resource.quantity);
+  setIfDefined('unit_of_measure', resource.unitOfMeasure);
+  setIfDefined('status', resource.status);
+  setIfDefined('assigned_shift', resource.assignedShift);
+  setIfDefined('compliance_percentage', resource.compliancePercentage);
+  setIfDefined('last_restock', resource.lastRestock);
+  setIfDefined('next_maintenance', resource.nextMaintenance);
+  // No persistir null para image: las recargas antiguas pueden traer image=null y
+  // borrar accidentalmente una foto ya subida cuando se actualiza la unidad completa.
+  // Para quitar una foto explícitamente se usa string vacío.
+  if (resource.image !== undefined && resource.image !== null) {
+    result.image = resource.image;
+  }
+  setIfDefined('external_id', resource.externalId);
+  setIfDefined('last_sync', resource.lastSync);
+  setIfDefined('inbound_source_data', resource.inboundSourceData);
+
+  // Solo incluir unit_id si se proporciona (para actualizaciones que cambian de unidad)
+  if (unitId !== undefined) {
+    result.unit_id = unitId;
+  }
+
+  // Incluir nuevos campos de personal si están presentes
+  // Procesar campos de personal si el tipo es PERSONNEL o si hay campos de personal presentes
+  // (esto permite actualizaciones parciales sin requerir el type)
+  const hasPersonnelFields = resource.type === ResourceType.PERSONNEL || 
+                             resource.personnelStatus !== undefined ||
+                             resource.dni !== undefined ||
+                             resource.localidad !== undefined ||
+                             resource.puesto !== undefined ||
+                             resource.archived !== undefined ||
+                             resource.endDate !== undefined ||
+                             resource.startDate !== undefined;
+  
+  if (hasPersonnelFields) {
     if (resource.dni !== undefined) result.dni = resource.dni;
+    if (resource.localidad !== undefined) result.localidad = resource.localidad;
+    if (resource.phone !== undefined) result.phone = resource.phone;
     if (resource.puesto !== undefined) result.puesto = resource.puesto;
+    if (resource.birthDate !== undefined) result.birth_date = normalizeDateToDB(resource.birthDate);
     if (resource.isShared !== undefined) result.is_shared = resource.isShared;
     // Normalizar fechas antes de guardar para evitar problemas de timezone
+    // endDate es solo referencial, NO debe archivar automáticamente
     if (resource.startDate !== undefined) result.start_date = normalizeDateToDB(resource.startDate);
-    if (resource.endDate !== undefined) result.end_date = normalizeDateToDB(resource.endDate);
+    if (resource.endDate !== undefined) {
+      // Si endDate es null, establecerlo explícitamente para eliminar la fecha de fin
+      result.end_date = normalizeDateToDB(resource.endDate);
+    }
     if (resource.personnelStatus !== undefined) result.personnel_status = resource.personnelStatus;
     if (resource.archived !== undefined) result.archived = resource.archived;
     // Campos de capacitación
     if (resource.inTraining !== undefined) result.in_training = resource.inTraining;
     if (resource.trainingStartDate !== undefined) result.training_start_date = normalizeDateToDB(resource.trainingStartDate);
     if (resource.contractGenerated !== undefined) result.contract_generated = resource.contractGenerated;
+    // Campos de salario
+    if (resource.monthlySalary !== undefined) result.monthly_salary = resource.monthlySalary;
+    if (resource.workConditionAmount !== undefined) result.work_condition_amount = resource.workConditionAmount;
   }
 
   return result;

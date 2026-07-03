@@ -1,5 +1,34 @@
 import { supabase, handleSupabaseError } from './supabase';
-import { ClientRequest, RequestComment } from '../types';
+import { ClientRequest, RequestComment, UserRole } from '../types';
+
+/**
+ * Coincide con el CHECK en BD: role IN ('ADMIN','OPERATIONS','OPERATIONS_SUPERVISOR','CLIENT').
+ * SUPER_ADMIN no existe en la tabla → se guarda como ADMIN.
+ */
+export function mapUserRoleToRequestCommentDbRole(
+  role: UserRole | string
+): 'CLIENT' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' {
+  const r = String(role);
+  if (r === 'CLIENT') return 'CLIENT';
+  if (r === 'OPERATIONS_SUPERVISOR') return 'OPERATIONS_SUPERVISOR';
+  if (r === 'OPERATIONS') return 'OPERATIONS';
+  if (r === 'ADMIN' || r === 'SUPER_ADMIN') return 'ADMIN';
+  return 'OPERATIONS';
+}
+
+/** Comparar si el comentario es “del usuario actual” en burbuja (tras mapeo a rol BD). */
+export function requestCommentIsFromViewer(commentRole: UserRole | string, viewerRole: UserRole): boolean {
+  return mapUserRoleToRequestCommentDbRole(commentRole) === mapUserRoleToRequestCommentDbRole(viewerRole);
+}
+
+function mapDbRequestCommentRoleToUserRole(db: string): UserRole {
+  const r = String(db);
+  if (r === 'CLIENT') return 'CLIENT';
+  if (r === 'OPERATIONS_SUPERVISOR') return 'OPERATIONS_SUPERVISOR';
+  if (r === 'OPERATIONS') return 'OPERATIONS';
+  if (r === 'ADMIN') return 'ADMIN';
+  return 'OPERATIONS';
+}
 
 // ============================================
 // CRUD PARA CLIENT_REQUESTS
@@ -181,6 +210,21 @@ export const requestsService = {
     }
   },
 
+  // Eliminar todas las solicitudes de una unidad
+  async deleteByUnitId(unitId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('client_requests')
+        .delete()
+        .eq('unit_id', unitId);
+
+      if (error) throw error;
+    } catch (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+
   // Agregar un comentario a una solicitud
   async addComment(requestId: string, comment: RequestComment): Promise<void> {
     try {
@@ -189,7 +233,7 @@ export const requestsService = {
         .insert({
           client_request_id: requestId,
           author: comment.author,
-          role: comment.role,
+          role: mapUserRoleToRequestCommentDbRole(comment.role),
           date: comment.date,
           text: comment.text,
         });
@@ -207,11 +251,47 @@ export const requestsService = {
       comments.map(c => ({
         client_request_id: requestId,
         author: c.author,
-        role: c.role,
+        role: mapUserRoleToRequestCommentDbRole(c.role),
         date: c.date,
         text: c.text,
       }))
     );
+  },
+
+  /**
+   * Suscripción a cambios en la tabla de comentarios para los requerimientos dados.
+   * Requiere que en Supabase la tabla `request_comments` esté en la publicación Realtime.
+   * Si Realtime no está habilitado, la app puede seguir sincronizando vía polling.
+   */
+  subscribeToRequestComments(requestIds: string[], onChange: () => void): () => void {
+    const unique = [...new Set(requestIds)].filter(Boolean);
+    if (unique.length === 0) return () => {};
+
+    const channelName =
+      `request_comments:${unique.sort().join('|').slice(0, 180)}:${unique.length}`;
+    let channel = supabase.channel(channelName);
+    for (const requestId of unique) {
+      channel = channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'request_comments',
+          filter: `client_request_id=eq.${requestId}`,
+        },
+        () => onChange()
+      );
+    }
+    channel.subscribe((status) => {
+      if (status === 'CHANNEL_ERROR') {
+        console.warn(
+          '[requestsService] Realtime (request_comments) no disponible; se usará solo polling si está activo.'
+        );
+      }
+    });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   },
 };
 
@@ -237,13 +317,16 @@ function transformRequestFromDB(data: any): ClientRequest {
     response: data.response,
     responseAttachments,
     resolvedDate: data.resolved_date,
-    comments: data.request_comments?.map((c: any) => ({
-      id: c.id,
-      author: c.author,
-      role: c.role as any,
-      date: c.date,
-      text: c.text,
-    })) || [],
+    comments:
+      (data.request_comments?.map((c: any) => ({
+        id: c.id,
+        author: c.author,
+        role: mapDbRequestCommentRoleToUserRole(c.role),
+        date: c.date,
+        text: c.text,
+      })) || []).sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      ),
   };
 }
 

@@ -21,4 +21,6 @@ export * from './nightSupervisionPdfService';
 export * from './nightSupervisionHistoricalService';
 export * from './vacationService';
 export * from './vacationPdfService';
+export * from './variableCompensationsService';
+export * from './inboundWorkerHandoffService';
 

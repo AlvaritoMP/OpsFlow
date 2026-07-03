@@ -72,8 +72,10 @@ export const unitsService = {
       if (process.env.NODE_ENV === 'development') {
         console.log('🔄 Cargando datos relacionados (recursos, logs, requests, zones, imágenes)...');
       }
-      const units = await Promise.all(
-        data.map(async (unitData) => {
+      const units = await mapWithConcurrency(
+        data,
+        6,
+        async (unitData) => {
           try {
             // Cargar assignedStaff primero
             let assignedStaff: string[] = [];
@@ -129,7 +131,7 @@ export const unitsService = {
             // Retornar unidad básica sin datos relacionados
             return transformUnitFromDB(unitData, [], [], [], [], [], []);
           }
-        })
+        }
       );
 
       return units;
@@ -259,9 +261,19 @@ export const unitsService = {
 
   // Actualizar una unidad
   async update(id: string, unit: Partial<Unit>, skipAuditLog: boolean = false): Promise<Unit> {
+    let oldUnit: Unit | null = null;
+    
     try {
       // Obtener la unidad antes de actualizar para el log (solo si vamos a registrar)
-      const oldUnit = skipAuditLog ? null : await this.getById(id);
+      // Si falla, continuar sin el log (no es crítico)
+      if (!skipAuditLog) {
+        try {
+          oldUnit = await this.getById(id);
+        } catch (getError: any) {
+          console.warn('⚠️ No se pudo obtener unidad antes de actualizar (para log). Continuando...', getError);
+          // Continuar sin oldUnit - el log de auditoría se omitirá
+        }
+      }
       
       const unitData = transformUnitToDB(unit);
 
@@ -341,9 +353,17 @@ export const unitsService = {
         const { resourcesService } = await import('./resourcesService');
         
         // Actualizar cada recurso
+        // IMPORTANTE: Excluir assignedAssets, trainings, workSchedule y assignedZones del objeto de actualización
+        // cuando se actualiza la unidad completa, para evitar duplicaciones o sobrescrituras con datos incompletos.
+        // Las zonas se persisten solo vía resourcesService.update/create cuando el cliente guarda un recurso explícitamente.
         for (const resource of unit.resources) {
           if (resource.id) {
-            await resourcesService.update(resource.id, resource);
+            // Separar los campos relacionados que se manejan por separado
+            const { assignedAssets, trainings, workSchedule, assignedZones, ...resourceData } = resource;
+            
+            // Solo actualizar el recurso base (sin campos relacionados)
+            // Esto evita que se actualicen innecesariamente los activos cuando solo se cambian otros campos
+            await resourcesService.update(resource.id, resourceData);
           }
         }
       }
@@ -398,8 +418,69 @@ export const unitsService = {
         }
       }
 
-      const updatedUnit = await this.getById(id);
-      if (!updatedUnit) throw new Error('Unidad no encontrada');
+      // Intentar obtener la unidad actualizada con reintentos en caso de error de red
+      let updatedUnit: Unit | null = null;
+      let retries = 3;
+      let lastError: any = null;
+      
+      while (retries > 0 && !updatedUnit) {
+        try {
+          updatedUnit = await this.getById(id);
+          if (updatedUnit) break;
+        } catch (getError: any) {
+          lastError = getError;
+          console.warn(`⚠️ Error al obtener unidad actualizada (intentos restantes: ${retries - 1}):`, getError);
+          
+          // Si es un error de red, esperar un poco antes de reintentar
+          if (getError.message?.includes('Failed to fetch') || getError.message?.includes('ERR_FAILED') || getError.name === 'TypeError') {
+            retries--;
+            if (retries > 0) {
+              console.log(`🔄 Reintentando en 1 segundo... (${retries} intentos restantes)`);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          } else {
+            // Si no es error de red, no reintentar
+            break;
+          }
+        }
+      }
+      
+      if (!updatedUnit) {
+        // Si no pudimos obtener la unidad actualizada, intentar construirla desde los datos que tenemos
+        console.warn('⚠️ No se pudo obtener unidad actualizada después de actualizar. Construyendo desde datos locales...');
+        
+        // Construir unidad básica desde los datos que tenemos
+        const fallbackUnit: Unit = {
+          ...unit as Unit,
+          id,
+          name: unit.name || 'Unidad sin nombre',
+          clientName: unit.clientName || '',
+          address: unit.address || '',
+          status: unit.status || UnitStatus.ACTIVE,
+          resources: unit.resources || [],
+          logs: unit.logs || [],
+          requests: unit.requests || [],
+          zones: unit.zones || [],
+          images: unit.images || [],
+          blueprintLayers: unit.blueprintLayers || [],
+          complianceHistory: unit.complianceHistory || [],
+          requiredPositions: unit.requiredPositions || [],
+          documents: unit.documents || [],
+          assignedStaff: unit.assignedStaff || [],
+        };
+        
+        // Si tenemos oldUnit, usar sus datos como base
+        if (oldUnit) {
+          updatedUnit = {
+            ...oldUnit,
+            ...fallbackUnit,
+          };
+        } else {
+          updatedUnit = fallbackUnit;
+        }
+        
+        console.warn('⚠️ Usando unidad construida desde datos locales. Algunos datos pueden estar desactualizados.');
+      }
 
       // Registrar en auditoría solo si no se omite explícitamente (para evitar logs de actualizaciones optimistas)
       if (!skipAuditLog && oldUnit) {
@@ -469,7 +550,128 @@ export const unitsService = {
     try {
       // Obtener la unidad antes de eliminar para el log
       const unit = await this.getById(id);
+      if (!unit) {
+        throw new Error('Unidad no encontrada');
+      }
+
+      // Obtener todos los recursos de la unidad
+      const resources = await resourcesService.getByUnitId(id, true); // Incluir archivados
       
+      // Eliminar registros relacionados en maintenance_responsible y maintenance_records para cada recurso
+      for (const resource of resources) {
+        try {
+          // Eliminar registros de maintenance_responsible que referencian este recurso
+          const { error: maintenanceError } = await supabase
+            .from('maintenance_responsible')
+            .delete()
+            .eq('resource_id', resource.id);
+          
+          if (maintenanceError && maintenanceError.code !== '42P01') {
+            // Si la tabla no existe (42P01), continuar; de lo contrario, lanzar error
+            console.warn(`⚠️ Error al eliminar maintenance_responsible para recurso ${resource.id}:`, maintenanceError);
+          }
+        } catch (err) {
+          console.warn(`⚠️ Error al eliminar maintenance_responsible para recurso ${resource.id}:`, err);
+          // Continuar con la eliminación aunque falle esto
+        }
+
+        try {
+          // Obtener maintenance_records para este recurso
+          const { data: maintenanceRecords } = await supabase
+            .from('maintenance_records')
+            .select('id')
+            .eq('resource_id', resource.id);
+
+          if (maintenanceRecords && maintenanceRecords.length > 0) {
+            const recordIds = maintenanceRecords.map(r => r.id);
+            
+            // Eliminar maintenance_images asociadas
+            await supabase
+              .from('maintenance_images')
+              .delete()
+              .in('maintenance_record_id', recordIds);
+            
+            // Eliminar maintenance_records
+            await supabase
+              .from('maintenance_records')
+              .delete()
+              .eq('resource_id', resource.id);
+          }
+        } catch (err) {
+          console.warn(`⚠️ Error al eliminar maintenance_records para recurso ${resource.id}:`, err);
+          // Continuar con la eliminación aunque falle esto
+        }
+      }
+
+      // Eliminar recursos de la unidad
+      for (const resource of resources) {
+        try {
+          await resourcesService.delete(resource.id);
+        } catch (err) {
+          console.warn(`⚠️ Error al eliminar recurso ${resource.id}:`, err);
+          // Continuar con la eliminación aunque falle algún recurso
+        }
+      }
+
+      // Eliminar otros datos relacionados
+      try {
+        // Eliminar logs
+        await logsService.deleteByUnitId(id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar logs de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar requests
+        await requestsService.deleteByUnitId(id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar requests de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar zones
+        await zonesService.deleteByUnitId(id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar zones de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar imágenes de la unidad
+        await supabase.from('unit_images').delete().eq('unit_id', id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar imágenes de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar blueprint layers
+        await supabase.from('blueprint_layers').delete().eq('unit_id', id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar blueprint layers de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar compliance history
+        await supabase.from('compliance_history').delete().eq('unit_id', id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar compliance history de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar unit_management_staff
+        await supabase.from('unit_management_staff').delete().eq('unit_id', id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar unit_management_staff de unidad ${id}:`, err);
+      }
+
+      try {
+        // Eliminar documentos de la unidad
+        const { documentsService } = await import('./documentsService');
+        await documentsService.deleteByUnitId(id);
+      } catch (err) {
+        console.warn(`⚠️ Error al eliminar documentos de unidad ${id}:`, err);
+      }
+
+      // Finalmente, eliminar la unidad
       const { error } = await supabase
         .from('units')
         .delete()
@@ -478,23 +680,21 @@ export const unitsService = {
       if (error) throw error;
 
       // Registrar en auditoría
-      if (unit) {
-        await auditService.log({
-          actionType: 'DELETE',
-          entityType: 'UNIT',
-          entityId: unit.id,
-          entityName: unit.name,
-          description: `Unidad "${unit.name}" eliminada`,
-          changes: {
-            before: {
-              name: unit.name,
-              clientName: unit.clientName,
-              address: unit.address,
-              status: unit.status,
-            },
+      await auditService.log({
+        actionType: 'DELETE',
+        entityType: 'UNIT',
+        entityId: unit.id,
+        entityName: unit.name,
+        description: `Unidad "${unit.name}" eliminada`,
+        changes: {
+          before: {
+            name: unit.name,
+            clientName: unit.clientName,
+            address: unit.address,
+            status: unit.status,
           },
-        });
-      }
+        },
+      });
     } catch (error) {
       handleSupabaseError(error);
       throw error;
@@ -595,6 +795,25 @@ function transformUnitToDB(unit: Partial<Unit>): any {
   }
   
   return data;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }
 
 function transformZoneFromDB(zone: any) {

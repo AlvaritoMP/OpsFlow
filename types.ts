@@ -38,7 +38,10 @@ export type AppFeature =
   | 'VACATIONS'
   | 'ASSETS_CATALOG'
   | 'DOCUMENTS'
-  | 'SETTINGS';
+  | 'ARCHIVE'
+  | 'SETTINGS'
+  | 'ATS_RECEPTION'
+  | 'HR_OPALOSIS';
 
 export interface PermissionRule {
   view: boolean;
@@ -72,7 +75,7 @@ export interface User {
   password_hash?: string; // Hash de la contraseña (solo para comparación interna)
 }
 
-export type StaffStatus = 'activo' | 'cesado';
+export type StaffStatus = 'activo' | 'cesado' | 'archivado';
 
 export interface ManagementStaff {
   id: string;
@@ -141,6 +144,7 @@ export interface AssignedAsset {
   type: 'EPP' | 'Uniforme' | 'Tecnologia' | 'Herramienta' | 'Otro';
   dateAssigned: string;
   serialNumber?: string;
+  phoneNumber?: string; // Número telefónico cuando aplica (ej: celular corporativo)
   notes?: string;
   constancyCode?: string; // Código correlativo de constancia
   constancyGeneratedAt?: string; // Fecha de generación de constancia
@@ -227,18 +231,69 @@ export interface Resource {
   // Integration Fields
   externalId?: string; // SKU or External ID from Inventory App
   lastSync?: string; // Timestamp of last sync
+  /** Snapshot ATS + trazabilidad al registrar desde Recepción ATS */
+  inboundSourceData?: ResourceInboundSourceData;
   
   // Personnel-specific fields (only for type = PERSONNEL)
   dni?: string; // Documento Nacional de Identidad
+  /** Lugar de residencia o localidad de referencia del trabajador (ej. distrito, ciudad) */
+  localidad?: string;
+  /** Teléfono de contacto del trabajador */
+  phone?: string;
   puesto?: string; // Puesto o cargo del trabajador
-  startDate?: string; // Fecha de inicio de labores (YYYY-MM-DD)
-  endDate?: string; // Fecha de fin de labores (YYYY-MM-DD)
-  personnelStatus?: 'activo' | 'cesado'; // Estado: activo o cesado (solo para personal)
+  birthDate?: string; // Fecha de nacimiento (YYYY-MM-DD)
+  startDate?: string; // Fecha de inicio de la relación laboral (YYYY-MM-DD): primer contrato; no se actualiza en renovaciones
+  endDate?: string; // Fecha de fin del último contrato (YYYY-MM-DD); referencial para monitoreo, NO archiva automáticamente
+  personnelStatus?: 'activo' | 'cesado' | 'archivado'; // Estado: activo, cesado (despido) o archivado (fin de contrato)
   archived?: boolean; // Si está archivado (no se muestra en vista normal)
+  contractHistory?: ContractHistory[]; // Historial de contratos y renovaciones
   inTraining?: boolean; // Si está en periodo de capacitación
   trainingStartDate?: string; // Fecha de inicio de capacitación (YYYY-MM-DD)
   contractGenerated?: boolean; // Si ya se generó el contrato de trabajo (resuelve la alerta)
   isShared?: boolean; // Si el trabajador es compartido entre múltiples unidades (true) o único (false). Por defecto false (único)
+  monthlySalary?: number; // Salario bruto mensual del trabajador
+  workConditionAmount?: number; // Monto adicional por condición de trabajo
+  salaryIncrements?: SalaryIncrement[]; // Historial de incrementos salariales
+}
+
+export interface SalaryIncrement {
+  id: string;
+  resourceId: string;
+  previousSalary: number;
+  newSalary: number;
+  incrementDate: string; // Fecha en que se registró el incremento (YYYY-MM-DD)
+  effectiveDate: string; // Fecha de aplicación del incremento (YYYY-MM-DD)
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VariableCompensation {
+  id: string;
+  unitId: string;
+  resourceId: string;
+  periodMonth: string; // YYYY-MM
+  amount: number;
+  concept: string;
+  paymentDate?: string; // YYYY-MM-DD
+  notes?: string;
+  source: 'manual' | 'import';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContractHistory {
+  id: string;
+  resourceId: string;
+  contractNumber: number; // 1 = contrato inicial, 2+ = renovaciones
+  startDate: string; // Fecha de inicio del contrato (YYYY-MM-DD)
+  endDate: string; // Fecha de fin del contrato (YYYY-MM-DD)
+  status: 'activo' | 'finalizado' | 'renovado'; // Estado del contrato
+  notes?: string;
+  monthlySalary?: number; // Salario bruto mensual vigente en este contrato
+  workConditionAmount?: number; // Condición de trabajo vigente en este contrato
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ZoneLayout {
@@ -317,6 +372,7 @@ export interface RequiredPosition {
   positionId: string; // ID del puesto predefinido
   positionName?: string; // Nombre del puesto (cached para evitar joins)
   quantity: number; // Cantidad requerida
+  shift?: string; // Turno requerido: 'Day', 'Afternoon', 'Night', o undefined para cualquier turno
 }
 
 export interface Unit {
@@ -493,6 +549,229 @@ export interface NightSupervisionReport {
   calls: NightSupervisionCall[];
   camera_reviews: NightSupervisionCameraReview[];
   alerts: NightSupervisionAlert[];
+}
+
+// --- INBOUND WORKER HANDOFF (Opalo ATS → OpsFlow) ---
+
+export type InboundHandoffPackageStatus =
+  | 'received'
+  | 'processing'
+  | 'completed'
+  | 'rejected'
+  | 'partially_completed';
+
+export type InboundHandoffItemStatus = 'pending' | 'accepted' | 'rejected' | 'assigned';
+
+export interface WorkerSnapshotIdentity {
+  fullName?: string;
+  dni?: string;
+  email?: string;
+  phone?: string;
+  phone2?: string;
+}
+
+export interface WorkerSnapshotMeta {
+  sourceCandidateId?: string;
+  sourceProcessId?: string;
+  sourceApp?: string;
+  snapshotVersion?: number;
+  includedFieldKeys?: string[];
+  capturedAt?: string;
+}
+
+export interface WorkerSnapshot {
+  identity?: WorkerSnapshotIdentity;
+  fields?: Record<string, string | number | boolean | null>;
+  meta?: WorkerSnapshotMeta;
+}
+
+export interface InboundHandoffPackage {
+  id: string;
+  sourceApp: string;
+  sourcePackageId: string;
+  status: InboundHandoffPackageStatus;
+  workerCount: number;
+  senderNote?: string;
+  sourceCreatedByName?: string;
+  sourceSentAt: string;
+  payloadVersion: number;
+  receivedAt: string;
+  processingStartedAt?: string;
+  completedAt?: string;
+  receiverNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InboundHandoffItem {
+  id: string;
+  packageId: string;
+  sourceCandidateId?: string;
+  sourceProcessId?: string;
+  workerName: string;
+  workerSnapshot: WorkerSnapshot;
+  itemStatus: InboundHandoffItemStatus;
+  assignedWorkUnitId?: string;
+  assignedAt?: string;
+  createdResourceId?: string;
+  createdAt: string;
+}
+
+export interface InboundHandoffPackageWithItems extends InboundHandoffPackage {
+  items: InboundHandoffItem[];
+}
+
+/** Datos ATS persistidos en resources.inbound_source_data al registrar colaborador */
+export interface ResourceInboundSourceData {
+  sourceApp: string;
+  sourcePackageId?: string;
+  sourceCandidateId?: string;
+  sourceProcessId?: string;
+  handoffItemId?: string;
+  capturedAt?: string;
+  workerSnapshot: WorkerSnapshot;
+}
+
+// --- HR OPALOSIS INTEGRATION (OpsFlow → Opalosis RRHH) ---
+
+export type HrOutboundQueueStatus = 'pendiente_envio' | 'incluido_paquete' | 'excluido';
+
+export type HrOutboundPackageStatus =
+  | 'pendiente'
+  | 'enviado'
+  | 'simulado'
+  | 'error'
+  | 'procesado'
+  | 'observado'
+  | 'rechazado'
+  | 'parcialmente_procesado';
+
+export type HrOutboundItemStatus = 'pendiente' | 'procesado' | 'observado' | 'rechazado';
+
+/** Campos mapeados al contrato Opalosis POST /api/empleados (referencial). */
+export interface HrOpalosisIngresoFields {
+  tipo: 'ingreso';
+  empresa_codigo: number;
+  tipo_documento: string;
+  documento: string;
+  apellido_paterno: string;
+  apellido_materno: string;
+  nombres: string;
+  sexo: string;
+  cargo: string;
+  unidad_id: number;
+  fecha_ingreso: string;
+  fecha_nacimiento: string;
+  estado_civil: string;
+  correo_personal: string;
+  telefono?: string;
+  direccion?: string;
+  pais?: string;
+  asignacion_familiar?: boolean;
+  ref_operaciones: string;
+}
+
+/** Snapshot completo enviado a Opalosis (todo lo disponible). */
+export interface HrOutboundWorkerSnapshot {
+  capturedAt: string;
+  opsflow: {
+    resourceId: string;
+    unitId: string;
+    unitName: string;
+    clientName: string;
+    name: string;
+    dni?: string;
+    puesto?: string;
+    localidad?: string;
+    phone?: string;
+    birthDate?: string;
+    startDate?: string;
+    endDate?: string;
+    assignedShift?: string;
+    assignedZones?: string[];
+    monthlySalary?: number;
+    personnelStatus?: string;
+    externalId?: string;
+  };
+  ats: {
+    sourceApp: string;
+    sourcePackageId?: string;
+    sourceCandidateId?: string;
+    sourceProcessId?: string;
+    handoffItemId?: string;
+    workerName: string;
+    identity?: WorkerSnapshotIdentity;
+    fields?: Record<string, string | number | boolean | null>;
+    meta?: WorkerSnapshotMeta;
+  };
+}
+
+export interface HrOutboundIngresoQueueItem {
+  id: string;
+  resourceId: string;
+  inboundHandoffItemId?: string;
+  opsflowUnitId: string;
+  workerName: string;
+  assignedAt: string;
+  reportDate: string;
+  workerSnapshot: HrOutboundWorkerSnapshot;
+  hrFields?: HrOpalosisIngresoFields;
+  refOperaciones: string;
+  queueStatus: HrOutboundQueueStatus;
+  packageId?: string;
+  exclusionNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrOutboundIngresoPackage {
+  id: string;
+  sourcePackageId: string;
+  reportDate: string;
+  workerCount: number;
+  status: HrOutboundPackageStatus;
+  senderNote?: string;
+  sentByName?: string;
+  sentAt?: string;
+  fechaRecepcion?: string;
+  opalosisResponse?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrOutboundIngresoPackageItem {
+  id: string;
+  packageId: string;
+  queueItemId?: string;
+  refOperaciones: string;
+  resourceId: string;
+  workerName: string;
+  workerSnapshot: HrOutboundWorkerSnapshot;
+  hrFields?: HrOpalosisIngresoFields;
+  itemStatus: HrOutboundItemStatus;
+  mensaje?: string;
+  empleadoIdRrhh?: number;
+  createdAt: string;
+}
+
+export interface HrOutboundIngresoPackageWithItems extends HrOutboundIngresoPackage {
+  items: HrOutboundIngresoPackageItem[];
+}
+
+export interface HrUnitCacheEntry {
+  opalosisUnidadId: number;
+  nombre: string;
+  activo: boolean;
+  fetchedAt: string;
+}
+
+export interface HrUnitMapping {
+  id: string;
+  opsflowUnitId: string;
+  opalosisUnidadId: number;
+  opalosisUnidadNombre?: string;
+  empresaCodigo?: number;
+  activo: boolean;
 }
 
 // ============================================

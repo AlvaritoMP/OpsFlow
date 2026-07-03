@@ -5,6 +5,7 @@ import { Sparkles, BrainCircuit, FileText, Download, Filter, Table2, CheckSquare
 import { generateExecutiveReport } from '../services/geminiService';
 import { managementStaffService } from '../services/managementStaffService';
 import { excelService } from '../services/excelService';
+import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 
 interface ReportsProps {
   units: Unit[];
@@ -112,6 +113,7 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
           : u.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
         
         personnel.forEach(r => {
+          const rel = getLaborRelationshipDisplayDates(r, r.contractHistory);
           data.push({
             'Unidad': u.name,
             'Nombre': r.name,
@@ -119,8 +121,8 @@ export const Reports: React.FC<ReportsProps> = ({ units }) => {
             'Turno': r.assignedShift || '-',
             'Estado': r.status || '-',
             'Estado Personal': r.personnelStatus === 'cesado' ? 'Cesado' : 'Activo',
-            'Fecha Inicio': r.startDate ? new Date(r.startDate).toLocaleDateString('es-ES') : '-',
-            'Fecha Fin': r.endDate ? new Date(r.endDate).toLocaleDateString('es-ES') : '-',
+            'Fecha Inicio': rel.start ? new Date(rel.start).toLocaleDateString('es-ES') : '-',
+            'Fecha Fin': rel.end ? new Date(rel.end).toLocaleDateString('es-ES') : '-',
             'Cumplimiento': (r.compliancePercentage || 0) + '%',
             'Zonas Asignadas': r.assignedZones?.join(', ') || '-',
             'Archivado': r.archived ? 'Sí' : 'No'
