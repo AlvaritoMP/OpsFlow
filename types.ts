@@ -846,3 +846,13 @@ export interface VacationBalanceSummary {
   canIssuePapeleta: boolean;
   pendingDayDates: string[];
 }
+
+export interface VacationCalendarEvent {
+  date: string;
+  unitId: string;
+  unitName: string;
+  resourceId: string;
+  workerName: string;
+  eventType: 'papeleta' | 'day_entry';
+  code?: string;
+}

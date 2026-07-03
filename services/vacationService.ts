@@ -7,6 +7,7 @@ import {
   Resource,
   Unit,
   ResourceType,
+  VacationCalendarEvent,
 } from '../types';
 import { resourcesService } from './resourcesService';
 
@@ -607,5 +608,63 @@ export const vacationService = {
     });
 
     return results;
+  },
+
+  async getCalendarEvents(units: Unit[], fromDate: string, toDate: string): Promise<VacationCalendarEvent[]> {
+    const unitIds = units.map(u => u.id);
+    if (unitIds.length === 0) return [];
+
+    const { data: papeletas } = await supabase
+      .from('vacation_papeletas')
+      .select('*')
+      .in('unit_id', unitIds)
+      .neq('status', 'cancelled')
+      .lte('start_date', toDate)
+      .gte('end_date', fromDate);
+
+    const { data: dayEntries } = await supabase
+      .from('vacation_day_entries')
+      .select('*')
+      .in('unit_id', unitIds)
+      .in('status', ['pending_batch', 'batched'])
+      .gte('vacation_date', fromDate)
+      .lte('vacation_date', toDate);
+
+    const resourceMap = new Map<string, string>();
+    units.forEach(u => {
+      (u.resources || []).forEach(r => resourceMap.set(r.id, r.name));
+    });
+
+    const events: VacationCalendarEvent[] = [];
+
+    (papeletas || []).forEach(p => {
+      for (const d of dateRange(p.start_date, p.end_date)) {
+        if (d >= fromDate && d <= toDate) {
+          events.push({
+            date: d,
+            unitId: p.unit_id,
+            unitName: p.unit_name,
+            resourceId: p.resource_id,
+            workerName: p.worker_name,
+            eventType: 'papeleta',
+            code: p.code,
+          });
+        }
+      }
+    });
+
+    (dayEntries || []).forEach(d => {
+      const unit = units.find(u => u.id === d.unit_id);
+      events.push({
+        date: d.vacation_date,
+        unitId: d.unit_id,
+        unitName: unit?.name || '',
+        resourceId: d.resource_id,
+        workerName: resourceMap.get(d.resource_id) || 'Desconocido',
+        eventType: 'day_entry',
+      });
+    });
+
+    return events.sort((a, b) => a.date.localeCompare(b.date) || a.workerName.localeCompare(b.workerName));
   },
 };

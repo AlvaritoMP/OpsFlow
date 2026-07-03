@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
-import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search } from 'lucide-react';
+import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation, User } from '../types';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
@@ -9,13 +9,14 @@ import { requestsService, requestCommentIsFromViewer } from '../services/request
 import { variableCompensationsService } from '../services/variableCompensationsService';
 import { SafeImage } from './SafeImage';
 import { AttendanceReportsTab } from './AttendanceReportsTab';
+import { Vacations } from './Vacations';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 
 interface UnitDetailProps {
   unit: Unit;
   userRole: UserRole;
   availableStaff: ManagementStaff[]; // GLOBAL REGISTRY PASSED DOWN
-  currentUser?: { role: UserRole; linkedClientNames?: string[] }; // Usuario actual para restricciones
+  currentUser?: User;
   availableClients?: { id: string; name: string }[]; // Lista de clientes disponibles
   onBack: () => void;
   onUpdate?: (updatedUnit: Unit) => void | Promise<void>;
@@ -210,7 +211,7 @@ const getMonday = (d: Date) => {
   return new Date(date.setDate(diff));
 }
 
-type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation' | 'attendance';
+type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation' | 'attendance' | 'vacations';
 type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones' | 'localidad' | 'phone';
 type SortDirection = 'asc' | 'desc';
 
@@ -7327,6 +7328,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {canViewPersonnel && (
               <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'attendance' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Asistencia</button>
           )}
+          {checkPermission(userRole, 'VACATIONS', 'view') && (
+              <button onClick={() => setActiveTab('vacations')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 flex items-center gap-1.5 ${activeTab === 'vacations' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                <Palmtree size={14} className="text-emerald-600" /> Vacaciones
+              </button>
+          )}
           {checkPermission(userRole, 'PERSONNEL', 'view') && (
               <button onClick={() => setActiveTab('compensation')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'compensation' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Variables</button>
           )}
@@ -7367,6 +7373,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'documents' && renderDocuments()}
         {activeTab === 'attendance' && (
           <AttendanceReportsTab unit={unit} canUpload={canEditPersonnel} />
+        )}
+        {activeTab === 'vacations' && currentUser && (
+          <Vacations
+            units={[unit]}
+            currentUser={currentUser}
+            fixedUnitId={unit.id}
+            embedded
+          />
         )}
       </div>
       

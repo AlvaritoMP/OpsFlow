@@ -10,24 +10,40 @@ import {
   MIN_PAPELETA_DAYS,
 } from '../services/vacationService';
 import { vacationPdfService } from '../services/vacationPdfService';
+import { VacationCalendarView } from './VacationCalendarView';
 
 interface VacationsProps {
   units: Unit[];
   currentUser: User;
+  /** Si se define, el panel queda fijado a una sola unidad (p. ej. desde UnitDetail) */
+  fixedUnitId?: string;
+  /** Modo embebido dentro de UnitDetail: sin padding externo ni banner largo */
+  embedded?: boolean;
 }
 
-type ActiveView = 'balances' | 'monitoring' | 'papeletas' | 'day-entries';
+type ActiveView = 'balances' | 'monitoring' | 'calendar' | 'papeletas' | 'day-entries';
 
-export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
-  const [activeView, setActiveView] = useState<ActiveView>('balances');
+export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedUnitId, embedded = false }) => {
+  const [activeView, setActiveView] = useState<ActiveView>(embedded ? 'calendar' : 'balances');
   const [loading, setLoading] = useState(true);
   const [summaries, setSummaries] = useState<VacationBalanceSummary[]>([]);
   const [papeletas, setPapeletas] = useState<VacationPapeleta[]>([]);
   const [dayEntries, setDayEntries] = useState<VacationDayEntry[]>([]);
   const [onVacation, setOnVacation] = useState<Awaited<ReturnType<typeof vacationService.getWorkersOnVacation>>>([]);
 
-  const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
+  const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>(fixedUnitId ? [fixedUnitId] : []);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const scopedUnits = useMemo(() => {
+    if (fixedUnitId) return units.filter(u => u.id === fixedUnitId);
+    return units;
+  }, [units, fixedUnitId]);
+
+  const filteredUnits = useMemo(() => {
+    if (fixedUnitId) return scopedUnits;
+    if (selectedUnitIds.length === 0) return units;
+    return units.filter(u => selectedUnitIds.includes(u.id));
+  }, [units, selectedUnitIds, fixedUnitId, scopedUnits]);
 
   // Modales
   const [showHistoricalModal, setShowHistoricalModal] = useState(false);
@@ -49,11 +65,6 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
   });
 
   const [detailPapeleta, setDetailPapeleta] = useState<VacationPapeleta | null>(null);
-
-  const filteredUnits = useMemo(() => {
-    if (selectedUnitIds.length === 0) return units;
-    return units.filter(u => selectedUnitIds.includes(u.id));
-  }, [units, selectedUnitIds]);
 
   const allPersonnel = useMemo(() => {
     const list: { resourceId: string; name: string; dni?: string; unitId: string; unitName: string; startDate?: string }[] = [];
@@ -250,14 +261,18 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
 
   const tabs: { id: ActiveView; label: string; icon: React.ReactNode }[] = [
     { id: 'balances', label: 'Saldos y Control', icon: <Users size={16} /> },
-    { id: 'monitoring', label: 'Monitoreo', icon: <Calendar size={16} /> },
+    { id: 'calendar', label: 'Calendario', icon: <Calendar size={16} /> },
+    { id: 'monitoring', label: 'Monitoreo', icon: <Clock size={16} /> },
     { id: 'papeletas', label: 'Papeletas', icon: <FileText size={16} /> },
-    { id: 'day-entries', label: 'Días a Cuenta', icon: <Clock size={16} /> },
+    { id: 'day-entries', label: 'Días a Cuenta', icon: <Building size={16} /> },
   ];
 
+  const fixedUnitName = fixedUnitId ? scopedUnits[0]?.name : undefined;
+
   return (
-    <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500">
+    <div className={embedded ? 'space-y-4' : 'p-6 md:p-8 space-y-6 animate-in fade-in duration-500'}>
       {/* Header */}
+      {!embedded && (
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -283,8 +298,50 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
           </button>
         </div>
       </div>
+      )}
+
+      {embedded && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <Palmtree className="text-emerald-600" size={22} />
+              Vacaciones — {fixedUnitName || 'Unidad'}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Gestión de saldos, papeletas y días a cuenta del personal de esta unidad
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                setDayForm({
+                  resourceId: '',
+                  unitId: fixedUnitId || '',
+                  date: new Date().toISOString().split('T')[0],
+                  notes: '',
+                });
+                setShowDayModal(true);
+              }}
+              className="bg-amber-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-amber-600 text-sm"
+            >
+              <Plus size={14} /> Día a cuenta
+            </button>
+            <button
+              onClick={() => {
+                setPapeletaMode('direct');
+                setPapeletaForm({ resourceId: '', unitId: fixedUnitId || '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [] });
+                setShowPapeletaModal(true);
+              }}
+              className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-emerald-700 text-sm"
+            >
+              <FileText size={14} /> Nueva Papeleta
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Info banner */}
+      {!embedded && (
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3 text-sm text-blue-800">
         <Info size={18} className="shrink-0 mt-0.5" />
         <div>
@@ -296,6 +353,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
           </p>
         </div>
       </div>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-col md:flex-row gap-3">
@@ -303,12 +361,13 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input
             type="text"
-            placeholder="Buscar trabajador, DNI o unidad..."
+            placeholder={fixedUnitId ? 'Buscar trabajador o DNI...' : 'Buscar trabajador, DNI o unidad...'}
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
           />
         </div>
+        {!fixedUnitId && (
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-slate-400" />
           <select
@@ -322,6 +381,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
             ))}
           </select>
         </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -356,7 +416,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
                   <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
                     <tr>
                       <th className="text-left p-3">Trabajador</th>
-                      <th className="text-left p-3">Unidad</th>
+                      {!fixedUnitId && <th className="text-left p-3">Unidad</th>}
                       <th className="text-left p-3">Ingreso</th>
                       <th className="text-center p-3">Ganados</th>
                       <th className="text-center p-3">Histórico</th>
@@ -374,7 +434,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
                           {s.workerDni && <div className="text-xs text-slate-400">DNI: {s.workerDni}</div>}
                           {s.puesto && <div className="text-xs text-slate-400">{s.puesto}</div>}
                         </td>
-                        <td className="p-3 text-slate-600">{s.unitName}</td>
+                        {!fixedUnitId && <td className="p-3 text-slate-600">{s.unitName}</td>}
                         <td className="p-3 text-slate-600">{s.startDate || '—'}</td>
                         <td className="p-3 text-center font-medium text-blue-600">{s.accruedDays}</td>
                         <td className="p-3 text-center text-slate-600">{s.historicalTakenDays}</td>
@@ -415,7 +475,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
                     ))}
                     {filteredSummaries.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-slate-400">
+                        <td colSpan={fixedUnitId ? 8 : 9} className="p-8 text-center text-slate-400">
                           No hay trabajadores con fecha de ingreso registrada. Configure la fecha de ingreso en el personal de cada unidad.
                         </td>
                       </tr>
@@ -424,6 +484,15 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
                 </table>
               </div>
             </div>
+          )}
+
+          {/* TAB: Calendario visual */}
+          {activeView === 'calendar' && (
+            <VacationCalendarView
+              units={filteredUnits}
+              fixedUnitId={fixedUnitId}
+              showUnitLegend={!fixedUnitId}
+            />
           )}
 
           {/* TAB: Monitoreo */}
@@ -440,9 +509,11 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser }) => {
                     <div className="flex items-start justify-between">
                       <div>
                         <h3 className="font-semibold text-slate-800">{v.workerName}</h3>
+                        {!fixedUnitId && (
                         <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
                           <Building size={12} /> {v.unitName}
                         </p>
+                        )}
                       </div>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${v.type === 'papeleta' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                         {v.type === 'papeleta' ? 'Papeleta' : 'Día a cuenta'}
