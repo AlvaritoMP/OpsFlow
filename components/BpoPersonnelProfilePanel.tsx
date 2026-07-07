@@ -113,6 +113,41 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const msg = (error as { message?: string }).message;
+    if (msg) return msg;
+  }
+  return fallback;
+}
+
+function profileForForm(
+  prof: BpoPersonnelProfile | null,
+  resourceId: string,
+  unitId: string
+): Partial<BpoPersonnelProfile> {
+  if (!prof) {
+    return { ...EMPTY_PROFILE, resourceId, unitId };
+  }
+  return {
+    ...prof,
+    nationality: prof.nationality ?? '',
+    address: prof.address ?? '',
+    gender: prof.gender ?? '',
+    afpName: prof.afpName ?? '',
+    afpAffiliationDate: prof.afpAffiliationDate ?? '',
+    afpEmail: prof.afpEmail ?? '',
+    afpCuspp: prof.afpCuspp ?? '',
+    emergencyContactName: prof.emergencyContactName ?? '',
+    emergencyContactPhone: prof.emergencyContactPhone ?? '',
+    emergencyContactRelationship: prof.emergencyContactRelationship ?? '',
+    educationInstitution: prof.educationInstitution ?? '',
+    educationCareer: prof.educationCareer ?? '',
+    notes: prof.notes ?? '',
+  };
+}
+
 function Section({
   title,
   icon,
@@ -170,21 +205,21 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
 
   const loadAll = useCallback(async () => {
     setLoading(true);
+    setMessage(null);
     try {
       const [prof, deps, docs] = await Promise.all([
         bpoPersonnelService.getProfile(resourceId),
         bpoPersonnelService.getDependents(resourceId),
         bpoPersonnelService.getDocuments(resourceId),
       ]);
-      setProfile(
-        prof
-          ? { ...prof }
-          : { ...EMPTY_PROFILE, resourceId, unitId }
-      );
+      setProfile(profileForForm(prof, resourceId, unitId));
       setDependents(deps);
       setDocuments(docs);
-    } catch {
-      setMessage({ type: 'err', text: 'Error al cargar expediente BPO.' });
+    } catch (error) {
+      setMessage({
+        type: 'err',
+        text: getErrorMessage(error, 'Error al cargar expediente BPO. Verifique que ejecutó el script SQL y las políticas RLS.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -198,10 +233,17 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
     setSaving(true);
     setMessage(null);
     try {
-      await bpoPersonnelService.upsertProfile(resourceId, unitId, profile);
-      setMessage({ type: 'ok', text: 'Expediente guardado correctamente.' });
-    } catch {
-      setMessage({ type: 'err', text: 'No se pudo guardar el expediente.' });
+      const saved = await bpoPersonnelService.upsertProfile(resourceId, unitId, profile);
+      setProfile(profileForForm(saved, resourceId, unitId));
+      setMessage({ type: 'ok', text: 'Expediente guardado. Puede completar los demás campos cuando los tenga.' });
+    } catch (error) {
+      setMessage({
+        type: 'err',
+        text: getErrorMessage(
+          error,
+          'No se pudo guardar el expediente. Si el error menciona RLS, ejecute database/bpo_rls_policies.sql en Supabase.'
+        ),
+      });
     } finally {
       setSaving(false);
     }
@@ -343,7 +385,7 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
               ...profile,
               [key]:
                 type === 'number'
-                  ? e.target.value
+                  ? e.target.value.trim()
                     ? Number(e.target.value)
                     : undefined
                   : e.target.value,
@@ -370,7 +412,7 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
             <FolderOpen size={16} /> Expediente BPO — {workerName}
           </h5>
           <p className="text-xs text-violet-600 mt-0.5">
-            Información sociodemográfica, AFP, familiares, educación y documentos de respaldo.
+            Puede guardar con los campos que tenga disponibles y completar el resto después.
           </p>
         </div>
         <div className="flex gap-2">

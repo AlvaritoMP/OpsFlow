@@ -83,21 +83,71 @@ async function removeStorageFile(fileUrl: string): Promise<void> {
   }
 }
 
+const MARITAL_STATUSES = ['soltero', 'casado', 'conviviente', 'divorciado', 'viudo', 'otro'] as const;
+const EDUCATION_LEVELS = [
+  'sin_estudios', 'primaria', 'secundaria', 'tecnico',
+  'universitario_incompleto', 'universitario_completo', 'postgrado', 'otro',
+] as const;
+
+function toNullableText(value?: string | null): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function toNullableDate(value?: string | null): string | null {
+  const text = toNullableText(value);
+  if (!text) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function toNullableEnum<T extends string>(value: T | undefined | null, allowed: readonly T[]): T | null {
+  if (!value) return null;
+  const trimmed = String(value).trim() as T;
+  return allowed.includes(trimmed) ? trimmed : null;
+}
+
+function toNullableYear(value?: number | null): number | null {
+  if (value === undefined || value === null || Number.isNaN(value)) return null;
+  const year = Math.trunc(Number(value));
+  if (year < 1900 || year > 2100) return null;
+  return year;
+}
+
+function buildProfilePayload(resourceId: string, unitId: string, profile: Partial<BpoPersonnelProfile>) {
+  return {
+    resource_id: resourceId,
+    unit_id: unitId,
+    nationality: toNullableText(profile.nationality),
+    address: toNullableText(profile.address),
+    marital_status: toNullableEnum(profile.maritalStatus, MARITAL_STATUSES),
+    gender: toNullableText(profile.gender),
+    afp_name: toNullableText(profile.afpName),
+    afp_affiliation_date: toNullableDate(profile.afpAffiliationDate),
+    afp_email: toNullableText(profile.afpEmail),
+    afp_cuspp: toNullableText(profile.afpCuspp),
+    emergency_contact_name: toNullableText(profile.emergencyContactName),
+    emergency_contact_phone: toNullableText(profile.emergencyContactPhone),
+    emergency_contact_relationship: toNullableText(profile.emergencyContactRelationship),
+    education_level: toNullableEnum(profile.educationLevel, EDUCATION_LEVELS),
+    education_institution: toNullableText(profile.educationInstitution),
+    education_career: toNullableText(profile.educationCareer),
+    education_completion_year: toNullableYear(profile.educationCompletionYear),
+    notes: toNullableText(profile.notes),
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export const bpoPersonnelService = {
   async getProfile(resourceId: string): Promise<BpoPersonnelProfile | null> {
-    try {
-      const { data, error } = await supabase
-        .from('resource_bpo_profiles')
-        .select('*')
-        .eq('resource_id', resourceId)
-        .maybeSingle();
+    const { data, error } = await supabase
+      .from('resource_bpo_profiles')
+      .select('*')
+      .eq('resource_id', resourceId)
+      .maybeSingle();
 
-      if (error) throw error;
-      return data ? transformProfileFromDB(data) : null;
-    } catch (error) {
-      handleSupabaseError(error);
-      return null;
-    }
+    if (error) throw error;
+    return data ? transformProfileFromDB(data) : null;
   },
 
   async upsertProfile(
@@ -105,41 +155,16 @@ export const bpoPersonnelService = {
     unitId: string,
     profile: Partial<BpoPersonnelProfile>
   ): Promise<BpoPersonnelProfile> {
-    try {
-      const payload = {
-        resource_id: resourceId,
-        unit_id: unitId,
-        nationality: profile.nationality || null,
-        address: profile.address || null,
-        marital_status: profile.maritalStatus || null,
-        gender: profile.gender || null,
-        afp_name: profile.afpName || null,
-        afp_affiliation_date: profile.afpAffiliationDate || null,
-        afp_email: profile.afpEmail || null,
-        afp_cuspp: profile.afpCuspp || null,
-        emergency_contact_name: profile.emergencyContactName || null,
-        emergency_contact_phone: profile.emergencyContactPhone || null,
-        emergency_contact_relationship: profile.emergencyContactRelationship || null,
-        education_level: profile.educationLevel || null,
-        education_institution: profile.educationInstitution || null,
-        education_career: profile.educationCareer || null,
-        education_completion_year: profile.educationCompletionYear ?? null,
-        notes: profile.notes || null,
-        updated_at: new Date().toISOString(),
-      };
+    const payload = buildProfilePayload(resourceId, unitId, profile);
 
-      const { data, error } = await supabase
-        .from('resource_bpo_profiles')
-        .upsert(payload, { onConflict: 'resource_id' })
-        .select()
-        .single();
+    const { data, error } = await supabase
+      .from('resource_bpo_profiles')
+      .upsert(payload, { onConflict: 'resource_id' })
+      .select()
+      .single();
 
-      if (error) throw error;
-      return transformProfileFromDB(data);
-    } catch (error) {
-      handleSupabaseError(error);
-      throw error;
-    }
+    if (error) throw error;
+    return transformProfileFromDB(data);
   },
 
   async getDependents(resourceId: string): Promise<BpoPersonnelDependent[]> {

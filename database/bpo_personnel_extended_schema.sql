@@ -67,3 +67,6 @@ CREATE INDEX IF NOT EXISTS idx_resource_bpo_profiles_unit ON resource_bpo_profil
 CREATE INDEX IF NOT EXISTS idx_resource_bpo_dependents_resource ON resource_bpo_dependents(resource_id);
 CREATE INDEX IF NOT EXISTS idx_resource_bpo_personnel_docs_resource ON resource_bpo_personnel_documents(resource_id);
 CREATE INDEX IF NOT EXISTS idx_resource_bpo_personnel_docs_dependent ON resource_bpo_personnel_documents(dependent_id);
+
+-- IMPORTANTE: después de crear las tablas, ejecutar también:
+-- database/bpo_rls_policies.sql
