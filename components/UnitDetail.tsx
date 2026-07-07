@@ -10,7 +10,19 @@ import { variableCompensationsService } from '../services/variableCompensationsS
 import { SafeImage } from './SafeImage';
 import { AttendanceReportsTab } from './AttendanceReportsTab';
 import { Vacations } from './Vacations';
+import { BpoContactsTab } from './BpoContactsTab';
+import { BpoBanksTab } from './BpoBanksTab';
+import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
+import {
+  UnitDetailTab,
+  resolveUnitClass,
+  isTabVisibleForUnitClass,
+  getTabLabelForUnitClass,
+  getManagementSectionLabels,
+  isNightSupervisionVisibleForUnitClass,
+  UNIT_CLASS_LABELS,
+} from '../utils/unitClassConfig';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -211,11 +223,12 @@ const getMonday = (d: Date) => {
   return new Date(date.setDate(diff));
 }
 
-type UnitDetailTab = 'personnel' | 'logistics' | 'management' | 'overview' | 'blueprint' | 'requests' | 'documents' | 'compensation' | 'attendance' | 'vacations';
 type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones' | 'localidad' | 'phone';
 type SortDirection = 'asc' | 'desc';
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, replaceUnitInState, googleMapsApiKey }) => {
+  const unitClass = resolveUnitClass(unit.unitClass);
+  const managementSectionLabels = getManagementSectionLabels(unit.unitClass);
   // Cargar activos estándar al montar el componente
   React.useEffect(() => {
     const loadStandardAssets = async () => {
@@ -382,6 +395,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       previousUnitIdRef.current = unit.id;
     }
   }, [unit.id, activeTab]); // Solo cuando cambia el ID de la unidad
+
+  // Si el tab activo no aplica a la clase de unidad (ej. Logística en BPO), volver a General
+  useEffect(() => {
+    if (!isTabVisibleForUnitClass(activeTab, unit.unitClass)) {
+      setActiveTab('overview');
+      activeTabRef.current = 'overview';
+    }
+  }, [unit.unitClass, unit.id, activeTab]);
   
   // Edit Unit General Info State
   const [isEditing, setIsEditing] = useState(false);
@@ -5071,6 +5092,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const renderOverview = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+      {unitClass === 'BPO' && (
+        <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 flex items-start gap-3">
+          <Briefcase className="w-5 h-5 text-violet-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-violet-900">Unidad BPO</p>
+            <p className="text-sm text-violet-700 mt-1">
+              Servicios administrativos: planilla, contabilidad, bienestar social y otros. La configuración específica de esta unidad se irá definiendo en las pestañas disponibles.
+            </p>
+          </div>
+        </div>
+      )}
       {/* Photo Gallery */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 aspect-video md:aspect-auto md:h-80 rounded-xl overflow-hidden shadow-sm relative group bg-slate-200">
@@ -6544,6 +6576,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 </div>
                             </div>
                         </div>
+
+                        {unitClass === 'BPO' && (
+                          <div className="md:col-span-2">
+                            <BpoPersonnelProfilePanel
+                              resourceId={worker.id}
+                              unitId={unit.id}
+                              workerName={worker.name}
+                              canEdit={canEditPersonnel}
+                            />
+                          </div>
+                        )}
                     </div>
                  )}
                 </div>
@@ -7176,8 +7219,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
        <div className="flex justify-between items-center">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800">Supervisión y Bitácora</h3>
-          <p className="text-slate-500 text-sm">Registro de eventos, incidencias y visitas.</p>
+          <h3 className="text-lg font-semibold text-slate-800">{managementSectionLabels.title}</h3>
+          <p className="text-slate-500 text-sm">{managementSectionLabels.subtitle}</p>
         </div>
         {canEditLogs && (
               <button onClick={() => {
@@ -7314,43 +7357,54 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               <h1 className="text-2xl font-bold text-slate-900">{unit.name}</h1>
               <div className="flex items-center space-x-2 text-sm text-slate-500">
                 <span className={`w-2 h-2 rounded-full ${unit.status === 'Activo' ? 'bg-green-500' : 'bg-red-500'}`}></span><span>{unit.status}</span><span>•</span><span>{unit.clientName}</span>
+                <span>•</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${unitClass === 'BPO' ? 'bg-violet-100 text-violet-700' : 'bg-slate-200 text-slate-600'}`}>
+                  {UNIT_CLASS_LABELS[unitClass]}
+                </span>
               </div>
             </div>
           </div>
         </div>
         <div className="flex flex-nowrap gap-1 bg-slate-100 p-1 rounded-lg w-full md:w-fit overflow-x-auto">
-          {checkPermission(userRole, 'UNIT_OVERVIEW', 'view') && (
-              <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'overview' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>General</button>
+          {checkPermission(userRole, 'UNIT_OVERVIEW', 'view') && isTabVisibleForUnitClass('overview', unit.unitClass) && (
+              <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'overview' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('overview', unit.unitClass)}</button>
           )}
-          {checkPermission(userRole, 'PERSONNEL', 'view') && (
-              <button onClick={() => setActiveTab('personnel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'personnel' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Personal</button>
+          {checkPermission(userRole, 'PERSONNEL', 'view') && isTabVisibleForUnitClass('personnel', unit.unitClass) && (
+              <button onClick={() => setActiveTab('personnel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'personnel' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('personnel', unit.unitClass)}</button>
           )}
-          {canViewPersonnel && (
-              <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'attendance' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Asistencia</button>
+          {canViewPersonnel && isTabVisibleForUnitClass('attendance', unit.unitClass) && (
+              <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'attendance' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('attendance', unit.unitClass)}</button>
           )}
-          {checkPermission(userRole, 'VACATIONS', 'view') && (
+          {checkPermission(userRole, 'VACATIONS', 'view') && isTabVisibleForUnitClass('vacations', unit.unitClass) && (
               <button onClick={() => setActiveTab('vacations')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 flex items-center gap-1.5 ${activeTab === 'vacations' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                <Palmtree size={14} className="text-emerald-600" /> Vacaciones
+                <Palmtree size={14} className="text-emerald-600" /> {getTabLabelForUnitClass('vacations', unit.unitClass)}
               </button>
           )}
-          {checkPermission(userRole, 'PERSONNEL', 'view') && (
-              <button onClick={() => setActiveTab('compensation')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'compensation' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Variables</button>
+          {checkPermission(userRole, 'PERSONNEL', 'view') && isTabVisibleForUnitClass('compensation', unit.unitClass) && (
+              <button onClick={() => setActiveTab('compensation')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'compensation' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('compensation', unit.unitClass)}</button>
           )}
-          {checkPermission(userRole, 'LOGISTICS', 'view') && (
-              <button onClick={() => setActiveTab('logistics')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'logistics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Logística</button>
+          {checkPermission(userRole, 'UNIT_OVERVIEW', 'view') && isTabVisibleForUnitClass('contacts', unit.unitClass) && (
+              <button onClick={() => setActiveTab('contacts')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'contacts' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('contacts', unit.unitClass)}</button>
           )}
-          {checkPermission(userRole, 'LOGS', 'view') && (
-              <button onClick={() => setActiveTab('management')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'management' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Supervisión</button>
+          {checkPermission(userRole, 'UNIT_OVERVIEW', 'view') && isTabVisibleForUnitClass('banks', unit.unitClass) && (
+              <button onClick={() => setActiveTab('banks')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'banks' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('banks', unit.unitClass)}</button>
           )}
-          {checkPermission(userRole, 'BLUEPRINT', 'view') && (
-              <button onClick={() => setActiveTab('blueprint')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'blueprint' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Plano</button>
+          {checkPermission(userRole, 'LOGISTICS', 'view') && isTabVisibleForUnitClass('logistics', unit.unitClass) && (
+              <button onClick={() => setActiveTab('logistics')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'logistics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('logistics', unit.unitClass)}</button>
           )}
-          {checkPermission(userRole, 'CLIENT_REQUESTS', 'view') && (
-              <button onClick={() => setActiveTab('requests')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'requests' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Requerimientos</button>
+          {checkPermission(userRole, 'LOGS', 'view') && isTabVisibleForUnitClass('management', unit.unitClass) && (
+              <button onClick={() => setActiveTab('management')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'management' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('management', unit.unitClass)}</button>
           )}
-          {canViewPersonnel && (
-              <button onClick={() => setActiveTab('documents')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'documents' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Documentos</button>
+          {checkPermission(userRole, 'BLUEPRINT', 'view') && isTabVisibleForUnitClass('blueprint', unit.unitClass) && (
+              <button onClick={() => setActiveTab('blueprint')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'blueprint' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('blueprint', unit.unitClass)}</button>
           )}
+          {checkPermission(userRole, 'CLIENT_REQUESTS', 'view') && isTabVisibleForUnitClass('requests', unit.unitClass) && (
+              <button onClick={() => setActiveTab('requests')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'requests' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('requests', unit.unitClass)}</button>
+          )}
+          {canViewPersonnel && isTabVisibleForUnitClass('documents', unit.unitClass) && (
+              <button onClick={() => setActiveTab('documents')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'documents' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('documents', unit.unitClass)}</button>
+          )}
+          {isNightSupervisionVisibleForUnitClass(unit.unitClass) && (
           <button 
             onClick={openNightSupervisionModal}
             className="px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap text-blue-600 hover:text-blue-800 hover:bg-blue-50 flex items-center gap-2 shrink-0"
@@ -7359,6 +7413,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             <Moon className="w-4 h-4" />
             Supervisión Nocturna
           </button>
+          )}
         </div>
       </div>
 
@@ -7366,6 +7421,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'personnel' && renderPersonnel()}
         {activeTab === 'compensation' && renderVariableCompensations()}
+        {activeTab === 'contacts' && (
+          <BpoContactsTab unitId={unit.id} canEdit={canEditGeneral} />
+        )}
+        {activeTab === 'banks' && (
+          <BpoBanksTab unitId={unit.id} canEdit={canEditGeneral} />
+        )}
         {activeTab === 'logistics' && renderLogistics()}
         {activeTab === 'management' && renderManagement()}
         {activeTab === 'blueprint' && renderBlueprint()}

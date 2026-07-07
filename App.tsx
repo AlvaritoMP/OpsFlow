@@ -11,7 +11,7 @@ import { StandardAssetsCatalog } from './components/StandardAssetsCatalog';
 import { Retenes } from './components/Retenes';
 import { NightSupervision } from './components/NightSupervision';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
-import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position } from './types';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position, UnitClass } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
 import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission } from './services/permissionService';
@@ -34,6 +34,7 @@ import { PasswordReset } from './components/PasswordReset';
 import { WorkersManagement } from './components/WorkersManagement';
 import { InboundWorkerHandoff } from './components/InboundWorkerHandoff';
 import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
+import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -102,7 +103,8 @@ const App: React.FC = () => {
     name: '',
     clientName: '',
     address: '',
-    status: UnitStatus.ACTIVE
+    status: UnitStatus.ACTIVE,
+    unitClass: 'STANDARD',
   });
   // New Unit Images State
   const [newUnitImages, setNewUnitImages] = useState<string[]>([]);
@@ -899,12 +901,15 @@ const App: React.FC = () => {
         }
       }
 
+      const unitClass = (newUnitForm.unitClass === 'BPO' ? 'BPO' : 'STANDARD') as UnitClass;
+
       const newUnitData: Partial<Unit> = {
         name: newUnitForm.name!,
         clientName: newUnitForm.clientName!,
         address: newUnitForm.address || '',
         status: newUnitForm.status as UnitStatus || UnitStatus.ACTIVE,
-        description: 'Nueva unidad registrada. Configure zonas y recursos.',
+        unitClass,
+        description: getDefaultUnitDescription(unitClass),
         images: uploadedImages,
         zones: [],
         latitude,
@@ -923,7 +928,7 @@ const App: React.FC = () => {
       
       // Limpiar el formulario y cerrar el modal
       setShowAddUnitModal(false);
-      setNewUnitForm({ name: '', clientName: '', address: '', status: UnitStatus.ACTIVE });
+      setNewUnitForm({ name: '', clientName: '', address: '', status: UnitStatus.ACTIVE, unitClass: 'STANDARD' });
       setNewUnitImages([]);
       setNewUnitImageUrl('');
     } catch (error: any) {
@@ -1976,6 +1981,20 @@ const App: React.FC = () => {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Dirección</label>
                       <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500" value={newUnitForm.address} onChange={e => setNewUnitForm({...newUnitForm, address: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Clase de Unidad</label>
+                      <select
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                        value={newUnitForm.unitClass || 'STANDARD'}
+                        onChange={e => setNewUnitForm({ ...newUnitForm, unitClass: e.target.value as UnitClass })}
+                      >
+                        <option value="STANDARD">{UNIT_CLASS_LABELS.STANDARD}</option>
+                        <option value="BPO">{UNIT_CLASS_LABELS.BPO}</option>
+                      </select>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {UNIT_CLASS_DESCRIPTIONS[newUnitForm.unitClass === 'BPO' ? 'BPO' : 'STANDARD']}
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Estado Inicial</label>

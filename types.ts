@@ -11,6 +11,9 @@ export enum UnitStatus {
   ISSUE = 'Con Incidencias',
 }
 
+/** Clase de unidad: operaciones de campo vs servicios BPO (payroll, contabilidad, etc.) */
+export type UnitClass = 'STANDARD' | 'BPO';
+
 export enum StaffStatus {
   ACTIVE = 'Activo',
   ON_LEAVE = 'De Licencia',
@@ -381,6 +384,8 @@ export interface Unit {
   clientName: string;
   address: string;
   status: UnitStatus;
+  /** STANDARD = unidades operativas de campo; BPO = servicios administrativos (payroll, contabilidad, etc.) */
+  unitClass?: UnitClass;
   description?: string; // Brief description of operations
   images: string[]; // Array of image URLs. Index 0 is cover.
   zones: Zone[];
@@ -405,6 +410,158 @@ export interface Unit {
   
   // Required Positions
   requiredPositions?: RequiredPosition[]; // Puestos requeridos en la unidad
+}
+
+// ============================================
+// BPO: CONTACTOS Y BANCOS
+// ============================================
+
+export type BpoContactCategory = 'client' | 'provider' | 'support' | 'other';
+
+export interface BpoUnitContact {
+  id: string;
+  unitId: string;
+  category: BpoContactCategory;
+  name: string;
+  phone?: string;
+  email?: string;
+  organization?: string;
+  roleTitle?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BpoBankAccountType = 'own' | 'provider' | 'detraction';
+export type BpoCurrency = 'PEN' | 'USD' | 'EUR' | 'OTHER';
+
+export interface BpoBankAccount {
+  id: string;
+  unitId: string;
+  accountType: BpoBankAccountType;
+  bankName: string;
+  accountHolderName?: string;
+  accountNumber?: string;
+  interbankAccount?: string;
+  currency: BpoCurrency;
+  currencyOther?: string;
+  swiftCode?: string;
+  providerName?: string;
+  executiveName?: string;
+  executivePhone?: string;
+  executiveEmail?: string;
+  notes?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BpoBankStatement {
+  id: string;
+  unitId: string;
+  bankAccountId: string;
+  label: string;
+  periodMonth?: string;
+  fileUrl: string;
+  fileName: string;
+  fileSize: number;
+  mimeType?: string;
+  uploadedAt: string;
+  uploadedBy?: string;
+}
+
+// ============================================
+// BPO: EXPEDIENTE AMPLIADO DE PERSONAL
+// ============================================
+
+export type BpoMaritalStatus =
+  | 'soltero'
+  | 'casado'
+  | 'conviviente'
+  | 'divorciado'
+  | 'viudo'
+  | 'otro';
+
+export type BpoEducationLevel =
+  | 'sin_estudios'
+  | 'primaria'
+  | 'secundaria'
+  | 'tecnico'
+  | 'universitario_incompleto'
+  | 'universitario_completo'
+  | 'postgrado'
+  | 'otro';
+
+export type BpoDependentRelationship =
+  | 'conyuge'
+  | 'hijo'
+  | 'hija'
+  | 'padre'
+  | 'madre'
+  | 'hermano'
+  | 'hermana'
+  | 'otro';
+
+export type BpoPersonnelDocumentCategory =
+  | 'dni_trabajador'
+  | 'dni_familiar'
+  | 'constancia'
+  | 'afp'
+  | 'educacion'
+  | 'otro';
+
+export interface BpoPersonnelProfile {
+  resourceId: string;
+  unitId: string;
+  nationality?: string;
+  address?: string;
+  maritalStatus?: BpoMaritalStatus;
+  gender?: string;
+  afpName?: string;
+  afpAffiliationDate?: string;
+  afpEmail?: string;
+  afpCuspp?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelationship?: string;
+  educationLevel?: BpoEducationLevel;
+  educationInstitution?: string;
+  educationCareer?: string;
+  educationCompletionYear?: number;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BpoPersonnelDependent {
+  id: string;
+  resourceId: string;
+  unitId: string;
+  relationship: BpoDependentRelationship;
+  fullName: string;
+  documentType?: string;
+  documentNumber?: string;
+  birthDate?: string;
+  isDependent: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BpoPersonnelDocument {
+  id: string;
+  resourceId: string;
+  unitId: string;
+  dependentId?: string;
+  category: BpoPersonnelDocumentCategory;
+  name: string;
+  description?: string;
+  fileUrl: string;
+  fileName: string;
+  fileSize: number;
+  mimeType?: string;
+  uploadedAt: string;
+  uploadedBy?: string;
 }
 
 // ============================================

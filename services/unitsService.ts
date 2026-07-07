@@ -1,5 +1,5 @@
 import { supabase, handleSupabaseError } from './supabase';
-import { Unit, UnitStatus } from '../types';
+import { Unit, UnitStatus, UnitClass } from '../types';
 import { resourcesService } from './resourcesService';
 import { logsService } from './logsService';
 import { requestsService } from './requestsService';
@@ -13,6 +13,7 @@ interface UnitRow {
   client_name: string;
   address: string;
   status: string;
+  unit_class?: string;
   description?: string;
   coordinator_id?: string;
   roving_supervisor_id?: string;
@@ -721,6 +722,7 @@ function transformUnitFromDB(
     clientName: data.client_name,
     address: data.address,
     status: data.status as UnitStatus,
+    unitClass: (data.unit_class === 'BPO' ? 'BPO' : 'STANDARD') as UnitClass,
     description: data.description,
     latitude: data.latitude ? Number(data.latitude) : undefined,
     longitude: data.longitude ? Number(data.longitude) : undefined,
@@ -788,6 +790,10 @@ function transformUnitToDB(unit: Partial<Unit>): any {
     latitude: unit.latitude,
     longitude: unit.longitude,
   };
+
+  if (unit.unitClass !== undefined) {
+    data.unit_class = unit.unitClass;
+  }
   
   // Incluir required_positions si está definido
   if (unit.requiredPositions !== undefined) {
