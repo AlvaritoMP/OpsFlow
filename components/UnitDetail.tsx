@@ -430,6 +430,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Salary increments states
   const [showSalaryIncrementModal, setShowSalaryIncrementModal] = useState(false);
   const [selectedWorkerForIncrement, setSelectedWorkerForIncrement] = useState<Resource | null>(null);
+  const [editingSalaryIncrement, setEditingSalaryIncrement] = useState<SalaryIncrement | null>(null);
   
   // Cese y renovación de contrato states
   const [showTerminateModal, setShowTerminateModal] = useState(false);
@@ -2792,7 +2793,36 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // Funciones para gestionar incrementos salariales
+  const persistWorkerResourceInUnit = async (workerId: string, monthlySalary: number) => {
+    const { resourcesService } = await import('../services/resourcesService');
+    const updatedResource = await resourcesService.update(workerId, {
+      type: ResourceType.PERSONNEL,
+      monthlySalary,
+    });
+
+    const updatedUnit = {
+      ...unit,
+      resources: unit.resources.map((r) => (r.id === workerId ? updatedResource : r)),
+    };
+
+    if (replaceUnitInState) {
+      replaceUnitInState(updatedUnit);
+    } else if (onUpdate) {
+      await onUpdate(updatedUnit);
+    }
+
+    return updatedResource;
+  };
+
+  const reloadSalaryIncrements = async (workerId: string) => {
+    const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
+    const increments = await salaryIncrementsService.getByResourceId(workerId);
+    setSalaryIncrements((prev) => ({ ...prev, [workerId]: increments }));
+    return increments;
+  };
+
   const handleOpenSalaryIncrementModal = async (worker: Resource) => {
+    setEditingSalaryIncrement(null);
     setSelectedWorkerForIncrement(worker);
     setNewIncrementForm({
       previousSalary: worker.monthlySalary || 0,
@@ -2803,23 +2833,39 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     });
     setShowSalaryIncrementModal(true);
     
-    // Cargar incrementos si no están cargados
     if (!salaryIncrements[worker.id]) {
       try {
-        const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
-        const increments = await salaryIncrementsService.getByResourceId(worker.id);
-        setSalaryIncrements(prev => ({ ...prev, [worker.id]: increments }));
+        await reloadSalaryIncrements(worker.id);
       } catch (error) {
         console.error('Error al cargar incrementos salariales:', error);
       }
     }
   };
 
+  const handleOpenEditSalaryIncrement = (worker: Resource, increment: SalaryIncrement) => {
+    setSelectedWorkerForIncrement(worker);
+    setEditingSalaryIncrement(increment);
+    setNewIncrementForm({
+      previousSalary: increment.previousSalary,
+      newSalary: increment.newSalary,
+      incrementDate: increment.incrementDate,
+      effectiveDate: increment.effectiveDate,
+      notes: increment.notes || '',
+    });
+    setShowSalaryIncrementModal(true);
+  };
+
   const handleSaveSalaryIncrement = async () => {
-    if (!selectedWorkerForIncrement || !onUpdate) return;
+    if (!selectedWorkerForIncrement) return;
     
-    if (newIncrementForm.newSalary <= newIncrementForm.previousSalary) {
+    if (!editingSalaryIncrement && newIncrementForm.newSalary <= newIncrementForm.previousSalary) {
       setNotification({ type: 'error', message: 'El nuevo salario debe ser mayor al salario anterior' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    if (newIncrementForm.newSalary <= 0) {
+      setNotification({ type: 'error', message: 'El nuevo salario debe ser mayor a cero' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
@@ -2827,42 +2873,73 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setIsSavingIncrement(true);
     try {
       const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
-      const increment = await salaryIncrementsService.create({
-        resourceId: selectedWorkerForIncrement.id,
-        previousSalary: newIncrementForm.previousSalary,
-        newSalary: newIncrementForm.newSalary,
-        incrementDate: newIncrementForm.incrementDate,
-        effectiveDate: newIncrementForm.effectiveDate,
-        notes: newIncrementForm.notes || undefined
-      });
-      
-      // Actualizar la lista de incrementos
-      setSalaryIncrements(prev => ({
-        ...prev,
-        [selectedWorkerForIncrement.id]: [
-          increment,
-          ...(prev[selectedWorkerForIncrement.id] || [])
-        ]
-      }));
-      
-      // Actualizar el trabajador con el nuevo salario
-      const updatedWorker = {
-        ...selectedWorkerForIncrement,
-        monthlySalary: newIncrementForm.newSalary
-      };
-      
-      // Actualizar en la unidad
-      const updatedResources = unit.resources.map(r => 
-        r.id === selectedWorkerForIncrement.id ? updatedWorker : r
-      );
-      onUpdate({ ...unit, resources: updatedResources });
+      const workerId = selectedWorkerForIncrement.id;
+
+      if (editingSalaryIncrement) {
+        await salaryIncrementsService.update(editingSalaryIncrement.id, {
+          previousSalary: newIncrementForm.previousSalary,
+          newSalary: newIncrementForm.newSalary,
+          incrementDate: newIncrementForm.incrementDate,
+          effectiveDate: newIncrementForm.effectiveDate,
+          notes: newIncrementForm.notes || undefined,
+        });
+      } else {
+        await salaryIncrementsService.create({
+          resourceId: workerId,
+          previousSalary: newIncrementForm.previousSalary,
+          newSalary: newIncrementForm.newSalary,
+          incrementDate: newIncrementForm.incrementDate,
+          effectiveDate: newIncrementForm.effectiveDate,
+          notes: newIncrementForm.notes || undefined,
+        });
+      }
+
+      const syncedSalary = await salaryIncrementsService.syncWorkerSalaryFromIncrements(workerId);
+      if (syncedSalary !== null) {
+        await persistWorkerResourceInUnit(workerId, syncedSalary);
+      }
+
+      await reloadSalaryIncrements(workerId);
       
       setShowSalaryIncrementModal(false);
-      setNotification({ type: 'success', message: 'Incremento salarial registrado correctamente' });
+      setEditingSalaryIncrement(null);
+      setNotification({
+        type: 'success',
+        message: editingSalaryIncrement ? 'Incremento actualizado correctamente' : 'Incremento salarial registrado correctamente',
+      });
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       console.error('Error al guardar incremento salarial:', error);
       setNotification({ type: 'error', message: 'Error al guardar el incremento salarial' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsSavingIncrement(false);
+    }
+  };
+
+  const handleDeleteSalaryIncrement = async (worker: Resource, increment: SalaryIncrement) => {
+    if (!window.confirm(`¿Eliminar el incremento del ${increment.effectiveDate} (S/ ${increment.previousSalary.toFixed(2)} → S/ ${increment.newSalary.toFixed(2)})?`)) {
+      return;
+    }
+
+    setIsSavingIncrement(true);
+    try {
+      const { salaryIncrementsService } = await import('../services/salaryIncrementsService');
+      await salaryIncrementsService.delete(increment.id);
+
+      const syncedSalary = await salaryIncrementsService.syncWorkerSalaryFromIncrements(worker.id);
+      if (syncedSalary !== null) {
+        await persistWorkerResourceInUnit(worker.id, syncedSalary);
+      } else if (worker.monthlySalary !== undefined) {
+        await persistWorkerResourceInUnit(worker.id, worker.monthlySalary);
+      }
+
+      await reloadSalaryIncrements(worker.id);
+      setNotification({ type: 'success', message: 'Incremento eliminado' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al eliminar incremento salarial:', error);
+      setNotification({ type: 'error', message: 'Error al eliminar el incremento salarial' });
       setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsSavingIncrement(false);
@@ -6553,10 +6630,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 <p className="text-xs font-semibold text-slate-500 mb-2">Historial de Incrementos</p>
                                 <div className="space-y-2 max-h-48 overflow-y-auto">
                                     {(salaryIncrements[worker.id] || []).length > 0 ? (salaryIncrements[worker.id] || []).map(increment => (
-                                        <div key={increment.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 bg-green-50/50 p-2 rounded">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <TrendingUp size={12} className="text-green-600" />
+                                        <div key={increment.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 bg-green-50/50 p-2 rounded gap-2">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                    <TrendingUp size={12} className="text-green-600 shrink-0" />
                                                     <p className="font-medium text-slate-700">
                                                         S/ {increment.previousSalary.toFixed(2)} → S/ {increment.newSalary.toFixed(2)}
                                                     </p>
@@ -6571,6 +6648,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                     <p className="text-xs text-slate-400 italic mt-1">{increment.notes}</p>
                                                 )}
                                             </div>
+                                            {canEditPersonnel && (
+                                              <div className="flex gap-1 shrink-0">
+                                                <button
+                                                  onClick={() => handleOpenEditSalaryIncrement(worker, increment)}
+                                                  className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                                  title="Editar incremento"
+                                                >
+                                                  <Edit2 size={14} />
+                                                </button>
+                                                <button
+                                                  onClick={() => handleDeleteSalaryIncrement(worker, increment)}
+                                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                                  title="Eliminar incremento"
+                                                  disabled={isSavingIncrement}
+                                                >
+                                                  <Trash2 size={14} />
+                                                </button>
+                                              </div>
+                                            )}
                                         </div>
                                     )) : <p className="text-xs text-slate-400 italic">Sin incrementos registrados.</p>}
                                 </div>
@@ -8310,8 +8406,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           <div className="bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto md:max-w-md md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative overflow-hidden">
              {/* Header fijo para móvil */}
              <div className="bg-green-600 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-none md:rounded-t-xl flex justify-between items-center flex-shrink-0 min-h-[60px] w-full">
-                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><TrendingUp className="mr-2 shrink-0" size={18}/> <span className="truncate">Registrar Incremento Salarial</span></h3>
-                <button onClick={() => setShowSalaryIncrementModal(false)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
+                <h3 className="font-bold text-base md:text-lg flex items-center min-w-0"><TrendingUp className="mr-2 shrink-0" size={18}/> <span className="truncate">{editingSalaryIncrement ? 'Editar Incremento Salarial' : 'Registrar Incremento Salarial'}</span></h3>
+                <button onClick={() => { setShowSalaryIncrementModal(false); setEditingSalaryIncrement(null); }} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
              <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
@@ -8392,7 +8488,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                 <button 
                   onClick={handleSaveSalaryIncrement} 
-                  disabled={isSavingIncrement || newIncrementForm.newSalary <= newIncrementForm.previousSalary}
+                  disabled={
+                    isSavingIncrement ||
+                    newIncrementForm.newSalary <= 0 ||
+                    (!editingSalaryIncrement && newIncrementForm.newSalary <= newIncrementForm.previousSalary)
+                  }
                   className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                   {isSavingIncrement ? (
@@ -8402,8 +8502,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </>
                   ) : (
                     <>
-                      <TrendingUp size={16} className="mr-2" />
-                      Registrar Incremento
+                      <Save size={18} className="mr-2" />
+                      {editingSalaryIncrement ? 'Guardar cambios' : 'Registrar Incremento'}
                     </>
                   )}
                 </button>

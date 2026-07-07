@@ -1047,7 +1047,9 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
                              resource.puesto !== undefined ||
                              resource.archived !== undefined ||
                              resource.endDate !== undefined ||
-                             resource.startDate !== undefined;
+                             resource.startDate !== undefined ||
+                             resource.monthlySalary !== undefined ||
+                             resource.workConditionAmount !== undefined;
   
   if (hasPersonnelFields) {
     if (resource.dni !== undefined) result.dni = resource.dni;

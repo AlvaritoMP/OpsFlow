@@ -49,16 +49,7 @@ export const salaryIncrementsService = {
 
       if (error) throw error;
 
-      // Actualizar el salario actual del trabajador
-      const { error: updateError } = await supabase
-        .from('resources')
-        .update({ monthly_salary: increment.newSalary })
-        .eq('id', increment.resourceId);
-
-      if (updateError) {
-        console.error('Error al actualizar salario del trabajador:', updateError);
-        // No lanzamos error aquí para no revertir el incremento ya creado
-      }
+      await this.syncWorkerSalaryFromIncrements(increment.resourceId);
 
       return transformFromDB(data);
     } catch (error) {
@@ -115,20 +106,7 @@ export const salaryIncrementsService = {
 
       if (error) throw error;
 
-      // Si se actualizó el nuevo salario, actualizar también el salario del trabajador
-      if (updates.newSalary !== undefined) {
-        const increment = await this.getById(id);
-        if (increment) {
-          const { error: updateError } = await supabase
-            .from('resources')
-            .update({ monthly_salary: updates.newSalary })
-            .eq('id', increment.resourceId);
-
-          if (updateError) {
-            console.error('Error al actualizar salario del trabajador:', updateError);
-          }
-        }
-      }
+      await this.syncWorkerSalaryFromIncrements(data.resource_id);
 
       return transformFromDB(data);
     } catch (error) {
@@ -137,15 +115,35 @@ export const salaryIncrementsService = {
     }
   },
 
+  /** Alinea monthly_salary del trabajador con el incremento vigente (fecha de aplicación más reciente). */
+  async syncWorkerSalaryFromIncrements(resourceId: string): Promise<number | null> {
+    const increments = await this.getByResourceId(resourceId);
+    if (increments.length === 0) return null;
+
+    const latestSalary = increments[0].newSalary;
+    const { error } = await supabase
+      .from('resources')
+      .update({ monthly_salary: latestSalary })
+      .eq('id', resourceId);
+
+    if (error) throw error;
+    return latestSalary;
+  },
+
   // Eliminar un incremento
   async delete(id: string): Promise<void> {
     try {
+      const increment = await this.getById(id);
+      if (!increment) return;
+
       const { error } = await supabase
         .from('salary_increments')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      await this.syncWorkerSalaryFromIncrements(increment.resourceId);
     } catch (error) {
       handleSupabaseError(error);
       throw error;
