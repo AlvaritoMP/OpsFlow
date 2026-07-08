@@ -952,6 +952,8 @@ export interface VacationDayEntry {
   resourceId: string;
   unitId: string;
   vacationDate: string;
+  /** 1 = día completo, 0.5 = medio día */
+  daysCount?: number;
   status: VacationDayEntryStatus;
   papeletaId?: string;
   notes?: string;
@@ -984,6 +986,26 @@ export interface VacationPapeleta {
   accumulatedDays?: VacationDayEntry[];
 }
 
+/** Bloque 15+15 de un periodo vacacional (año de servicios) */
+export interface VacationPeriodBlock {
+  /** Índice del periodo (1 = primer año de servicios, etc.) */
+  periodIndex: number;
+  periodStart: string;
+  periodEnd: string;
+  /** Días ganados en el periodo (máx. 30) */
+  accruedInPeriod: number;
+  /** Primeros 15 ganados (fraccionables libremente / desde 0.5) */
+  firstBlockEarned: number;
+  /** Segundos 15 ganados (goce en múltiplos de 7) */
+  secondBlockEarned: number;
+  firstBlockUsed: number;
+  secondBlockUsed: number;
+  firstBlockAvailable: number;
+  secondBlockAvailable: number;
+}
+
+export type VacationFractionationBucket = 'first15' | 'second15' | 'mixed';
+
 export interface VacationBalanceSummary {
   resourceId: string;
   workerName: string;
@@ -1000,8 +1022,16 @@ export interface VacationBalanceSummary {
   availableDays: number;
   fullYears: number;
   monthsInCurrentPeriod: number;
+  /** True si tiene saldo y puede emitir según reglas 15+15 */
   canIssuePapeleta: boolean;
   pendingDayDates: string[];
+  /** Desglose primeros/segundos 15 por año de trabajo */
+  periodBlocks: VacationPeriodBlock[];
+  first15Available: number;
+  second15Available: number;
+  /** Día semanal de descanso (0=domingo … 6=sábado), inferido o por defecto */
+  weeklyRestDay: number;
+  weeklyRestDayLabel: string;
 }
 
 export interface VacationCalendarEvent {

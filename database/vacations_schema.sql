@@ -14,12 +14,14 @@ CREATE TABLE IF NOT EXISTS vacation_balances (
   UNIQUE(resource_id)
 );
 
--- Días individuales gozados "a cuenta" (acumulables hasta mínimo 7 para papeleta)
+-- Días individuales gozados "a cuenta" (pueden formalizarse en papeleta; primeros 15 fraccionables)
 CREATE TABLE IF NOT EXISTS vacation_day_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
   unit_id UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
   vacation_date DATE NOT NULL,
+  days_count NUMERIC(4,2) NOT NULL DEFAULT 1
+    CHECK (days_count > 0 AND days_count <= 1),
   status TEXT NOT NULL DEFAULT 'pending_batch'
     CHECK (status IN ('pending_batch', 'batched', 'cancelled')),
   papeleta_id UUID,
@@ -41,7 +43,7 @@ CREATE TABLE IF NOT EXISTS vacation_papeletas (
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   return_date DATE NOT NULL,
-  calendar_days INTEGER NOT NULL CHECK (calendar_days >= 1),
+  calendar_days NUMERIC(6,2) NOT NULL CHECK (calendar_days >= 0.5),
   source_type TEXT NOT NULL DEFAULT 'direct'
     CHECK (source_type IN ('direct', 'accumulated')),
   status TEXT NOT NULL DEFAULT 'issued'

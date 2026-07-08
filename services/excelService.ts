@@ -660,6 +660,9 @@ export const excelService = {
       availableDays: number;
       canIssuePapeleta: boolean;
       pendingDayDates: string[];
+      first15Available?: number;
+      second15Available?: number;
+      weeklyRestDayLabel?: string;
     }>,
     options: { includeUnit?: boolean; unitName?: string } = {}
   ): Promise<void> {
@@ -673,11 +676,14 @@ export const excelService = {
       'Años completos',
       'Meses periodo actual',
       'Días ganados',
+      'Primeros 15 disponibles',
+      'Segundos 15 disponibles',
       'Días históricos (pre-sistema)',
       'Días en papeletas',
       'Días a cuenta',
       'Total usado',
       'Saldo disponible',
+      'Descanso semanal',
       'Puede emitir papeleta',
       'Fechas días a cuenta',
     ];
@@ -691,11 +697,14 @@ export const excelService = {
         'Años completos': s.fullYears,
         'Meses periodo actual': s.monthsInCurrentPeriod,
         'Días ganados': s.accruedDays,
+        'Primeros 15 disponibles': s.first15Available ?? '',
+        'Segundos 15 disponibles': s.second15Available ?? '',
         'Días históricos (pre-sistema)': s.historicalTakenDays,
         'Días en papeletas': s.papeletaDays,
         'Días a cuenta': s.pendingIndividualDays,
         'Total usado': s.totalUsedDays,
         'Saldo disponible': s.availableDays,
+        'Descanso semanal': s.weeklyRestDayLabel || '',
         'Puede emitir papeleta': s.canIssuePapeleta ? 'Sí' : 'No',
         'Fechas días a cuenta': s.pendingDayDates.join(', '),
       };

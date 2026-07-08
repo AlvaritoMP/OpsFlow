@@ -7,7 +7,13 @@ import { Unit, ResourceType, VacationBalanceSummary, VacationPapeleta, VacationD
 import {
   vacationService,
   DAYS_PER_YEAR,
-  MIN_PAPELETA_DAYS,
+  FIRST_BLOCK_DAYS,
+  SECOND_BLOCK_DAYS,
+  MIN_FRACTION_DAYS,
+  SECOND_BLOCK_MULTIPLE,
+  finalizeVacationPeriod,
+  expandVacationWithRestDays,
+  allocatePapeletaDays,
 } from '../services/vacationService';
 import { vacationPdfService } from '../services/vacationPdfService';
 import { VacationCalendarView } from './VacationCalendarView';
@@ -51,7 +57,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
   const [historicalForm, setHistoricalForm] = useState({ resourceId: '', days: 0, notes: '' });
 
   const [showDayModal, setShowDayModal] = useState(false);
-  const [dayForm, setDayForm] = useState({ resourceId: '', unitId: '', date: '', notes: '' });
+  const [dayForm, setDayForm] = useState({ resourceId: '', unitId: '', date: '', notes: '', daysCount: 1 as 0.5 | 1 });
 
   const [showPapeletaModal, setShowPapeletaModal] = useState(false);
   const [papeletaMode, setPapeletaMode] = useState<'direct' | 'accumulated'>('direct');
@@ -63,9 +69,12 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     returnDate: '',
     notes: '',
     selectedDayIds: [] as string[],
+    /** Días laborales solicitados; si > 0, se expanden con descanso semanal */
+    requestedWorkDays: '' as string,
   });
 
   const [detailPapeleta, setDetailPapeleta] = useState<VacationPapeleta | null>(null);
+  const [detailSummary, setDetailSummary] = useState<VacationBalanceSummary | null>(null);
   const [exporting, setExporting] = useState<'balances' | 'papeletas' | null>(null);
 
   const allPersonnel = useMemo(() => {
@@ -224,15 +233,94 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
         dayForm.unitId,
         dayForm.date,
         dayForm.notes,
-        currentUser.id
+        currentUser.id,
+        dayForm.daysCount
       );
       setShowDayModal(false);
-      setDayForm({ resourceId: '', unitId: '', date: '', notes: '' });
+      setDayForm({ resourceId: '', unitId: '', date: '', notes: '', daysCount: 1 });
       await loadData();
     } catch (err: any) {
       alert(err.message || 'Error al registrar día');
     }
   };
+
+  const selectedWorkerSummary = useMemo(
+    () => summaries.find(s => s.resourceId === papeletaForm.resourceId) || null,
+    [summaries, papeletaForm.resourceId]
+  );
+
+  const papeletaPreview = useMemo(() => {
+    const summary = selectedWorkerSummary;
+    const restDay = summary?.weeklyRestDay ?? 0;
+    if (!papeletaForm.startDate) return null;
+
+    if (papeletaMode === 'direct') {
+      const workDays = Number(papeletaForm.requestedWorkDays);
+      if (workDays > 0) {
+        try {
+          const expanded = expandVacationWithRestDays(papeletaForm.startDate, workDays, restDay);
+          const alloc = allocatePapeletaDays(
+            expanded.calendarDays,
+            summary?.first15Available ?? 0,
+            summary?.second15Available ?? 0
+          );
+          return { ...expanded, allocation: alloc, restDayLabel: summary?.weeklyRestDayLabel || 'Domingo' };
+        } catch {
+          return null;
+        }
+      }
+      if (papeletaForm.endDate) {
+        try {
+          const finalized = finalizeVacationPeriod(papeletaForm.startDate, papeletaForm.endDate, restDay);
+          const alloc = allocatePapeletaDays(
+            finalized.calendarDays,
+            summary?.first15Available ?? 0,
+            summary?.second15Available ?? 0
+          );
+          return {
+            endDate: finalized.endDate,
+            returnDate: finalized.returnDate,
+            calendarDays: finalized.calendarDays,
+            includedRestDates: finalized.includedRestDates,
+            workDays: 0,
+            allocation: alloc,
+            restDayLabel: summary?.weeklyRestDayLabel || 'Domingo',
+          };
+        } catch {
+          return null;
+        }
+      }
+    }
+
+    if (papeletaMode === 'accumulated' && papeletaForm.selectedDayIds.length > 0) {
+      const selected = dayEntries.filter(d => papeletaForm.selectedDayIds.includes(d.id));
+      const daysCount = selected.reduce((s, d) => s + Number(d.daysCount ?? 1), 0);
+      // Liberar cupo de pendientes seleccionados al estimar imputación
+      const pendingSelected = daysCount;
+      const first = Math.round(((summary?.first15Available ?? 0) + pendingSelected) * 10) / 10;
+      // Aproximación UI; el servicio recalcula con precisión
+      const second = summary?.second15Available ?? 0;
+      const alloc = allocatePapeletaDays(daysCount, first, second);
+      let period = null as ReturnType<typeof finalizeVacationPeriod> | null;
+      if (papeletaForm.startDate && papeletaForm.endDate) {
+        try {
+          period = finalizeVacationPeriod(papeletaForm.startDate, papeletaForm.endDate, restDay);
+        } catch {
+          period = null;
+        }
+      }
+      return {
+        endDate: period?.endDate || papeletaForm.endDate,
+        returnDate: period?.returnDate || papeletaForm.returnDate,
+        calendarDays: daysCount,
+        includedRestDates: period?.includedRestDates || [],
+        workDays: daysCount,
+        allocation: alloc,
+        restDayLabel: summary?.weeklyRestDayLabel || 'Domingo',
+      };
+    }
+    return null;
+  }, [papeletaForm, papeletaMode, selectedWorkerSummary, dayEntries]);
 
   const handleCreatePapeleta = async () => {
     const worker = allPersonnel.find(p => p.resourceId === papeletaForm.resourceId);
@@ -240,6 +328,10 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
 
     try {
       let result: VacationPapeleta;
+      const workDays = Number(papeletaForm.requestedWorkDays);
+      const endDate = papeletaPreview?.endDate || papeletaForm.endDate;
+      const returnDate = papeletaForm.returnDate || papeletaPreview?.returnDate || '';
+
       if (papeletaMode === 'direct') {
         result = await vacationService.createDirectPapeleta({
           resourceId: papeletaForm.resourceId,
@@ -248,10 +340,12 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           workerName: worker.name,
           workerDni: worker.dni,
           startDate: papeletaForm.startDate,
-          endDate: papeletaForm.endDate,
-          returnDate: papeletaForm.returnDate,
+          endDate: endDate || papeletaForm.endDate,
+          returnDate: returnDate || papeletaForm.returnDate,
           notes: papeletaForm.notes,
           issuedBy: currentUser.id,
+          requestedWorkDays: workDays > 0 ? workDays : undefined,
+          weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
         });
       } else {
         result = await vacationService.createPapeletaFromAccumulated({
@@ -261,16 +355,19 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           workerName: worker.name,
           workerDni: worker.dni,
           startDate: papeletaForm.startDate,
-          endDate: papeletaForm.endDate,
-          returnDate: papeletaForm.returnDate,
+          endDate: endDate || papeletaForm.endDate,
+          returnDate: returnDate || papeletaForm.returnDate,
           dayEntryIds: papeletaForm.selectedDayIds,
           notes: papeletaForm.notes,
           issuedBy: currentUser.id,
+          weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
         });
       }
 
       setShowPapeletaModal(false);
-      setPapeletaForm({ resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [] });
+      setPapeletaForm({
+        resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [], requestedWorkDays: '',
+      });
       await loadData();
 
       const full = await vacationService.getPapeletaWithDays(result.id);
@@ -296,11 +393,12 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
       returnDate: '',
       notes: '',
       selectedDayIds: mode === 'accumulated' ? pending.map(d => d.id) : [],
+      requestedWorkDays: '',
     });
     setShowPapeletaModal(true);
 
-    if (mode === 'accumulated' && summary && !summary.canIssuePapeleta) {
-      alert(`Se requieren al menos ${MIN_PAPELETA_DAYS} días acumulados. Actualmente: ${summary.pendingIndividualDays}`);
+    if (mode === 'accumulated' && summary && pending.length === 0) {
+      alert('No hay días a cuenta pendientes para agrupar en papeleta.');
     }
   };
 
@@ -339,18 +437,18 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
             Control de Vacaciones
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Régimen general Perú — {DAYS_PER_YEAR} días calendario/año · Mínimo {MIN_PAPELETA_DAYS} días por papeleta
+            Régimen general Perú — {DAYS_PER_YEAR} días calendario/año · Primeros {FIRST_BLOCK_DAYS} fraccionables · Segundos {SECOND_BLOCK_DAYS} en múltiplos de {SECOND_BLOCK_MULTIPLE}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
-            onClick={() => { setDayForm({ resourceId: '', unitId: '', date: new Date().toISOString().split('T')[0], notes: '' }); setShowDayModal(true); }}
+            onClick={() => { setDayForm({ resourceId: '', unitId: '', date: new Date().toISOString().split('T')[0], notes: '', daysCount: 1 }); setShowDayModal(true); }}
             className="bg-amber-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-amber-600 text-sm"
           >
             <Plus size={16} /> Día a cuenta
           </button>
           <button
-            onClick={() => { setPapeletaMode('direct'); setPapeletaForm({ resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [] }); setShowPapeletaModal(true); }}
+            onClick={() => { setPapeletaMode('direct'); setPapeletaForm({ resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [], requestedWorkDays: '' }); setShowPapeletaModal(true); }}
             className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700 text-sm"
           >
             <FileText size={16} /> Nueva Papeleta
@@ -378,6 +476,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                   unitId: fixedUnitId || '',
                   date: new Date().toISOString().split('T')[0],
                   notes: '',
+                  daysCount: 1,
                 });
                 setShowDayModal(true);
               }}
@@ -388,7 +487,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
             <button
               onClick={() => {
                 setPapeletaMode('direct');
-                setPapeletaForm({ resourceId: '', unitId: fixedUnitId || '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [] });
+                setPapeletaForm({ resourceId: '', unitId: fixedUnitId || '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [], requestedWorkDays: '' });
                 setShowPapeletaModal(true);
               }}
               className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-emerald-700 text-sm"
@@ -404,11 +503,12 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3 text-sm text-blue-800">
         <Info size={18} className="shrink-0 mt-0.5" />
         <div>
-          <p className="font-medium">Normativa aplicada</p>
+          <p className="font-medium">Normativa aplicada (fracción 15 + 15)</p>
           <p className="text-blue-700 mt-1">
-            Cada trabajador acumula 2.5 días por mes trabajado (30 días/año). Puede registrar días gozados individualmente
-            que se acumulan hasta alcanzar el mínimo de 7 días para emitir una papeleta. También puede ingresar días
-            gozados antes de implementar el sistema como saldo histórico.
+            Cada trabajador acumula 2.5 días por mes ({DAYS_PER_YEAR}/año). Los primeros {FIRST_BLOCK_DAYS} días
+            ganados de cada año son fraccionables desde medio día. Los segundos {SECOND_BLOCK_DAYS} se gozan en
+            múltiplos de {SECOND_BLOCK_MULTIPLE}. El periodo vacacional es calendario e incluye el día de descanso
+            semanal (p. ej. 6 días laborales → 7 en papeleta).
           </p>
         </div>
       </div>
@@ -490,9 +590,9 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                       {!fixedUnitId && <th className="text-left p-3">Unidad</th>}
                       <th className="text-left p-3">Ingreso</th>
                       <th className="text-center p-3">Ganados</th>
-                      <th className="text-center p-3">Histórico</th>
-                      <th className="text-center p-3">Papeletas</th>
-                      <th className="text-center p-3">A cuenta</th>
+                      <th className="text-center p-3" title="Primeros 15: fraccionables desde 0.5">1.ºs 15</th>
+                      <th className="text-center p-3" title="Segundos 15: múltiplos de 7">2.ºs 15</th>
+                      <th className="text-center p-3">Usado</th>
                       <th className="text-center p-3">Saldo</th>
                       <th className="text-center p-3">Acciones</th>
                     </tr>
@@ -504,27 +604,39 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                           <div className="font-medium text-slate-800">{s.workerName}</div>
                           {s.workerDni && <div className="text-xs text-slate-400">DNI: {s.workerDni}</div>}
                           {s.puesto && <div className="text-xs text-slate-400">{s.puesto}</div>}
+                          <div className="text-[10px] text-slate-400 mt-0.5">Descanso: {s.weeklyRestDayLabel}</div>
                         </td>
                         {!fixedUnitId && <td className="p-3 text-slate-600">{s.unitName}</td>}
                         <td className="p-3 text-slate-600">{s.startDate || '—'}</td>
                         <td className="p-3 text-center font-medium text-blue-600">{s.accruedDays}</td>
-                        <td className="p-3 text-center text-slate-600">{s.historicalTakenDays}</td>
-                        <td className="p-3 text-center text-slate-600">{s.papeletaDays}</td>
                         <td className="p-3 text-center">
-                          <span className={s.pendingIndividualDays > 0 ? 'text-amber-600 font-medium' : 'text-slate-400'}>
-                            {s.pendingIndividualDays}
-                            {s.canIssuePapeleta && (
-                              <CheckCircle size={14} className="inline ml-1 text-emerald-500" title="Puede emitir papeleta" />
-                            )}
-                          </span>
+                          <div className="font-semibold text-sky-700">{s.first15Available}</div>
+                          <div className="text-[10px] text-slate-400">disp. / frac.</div>
                         </td>
                         <td className="p-3 text-center">
-                          <span className={`font-bold ${s.availableDays < 0 ? 'text-red-600' : s.availableDays < 7 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          <div className="font-semibold text-violet-700">{s.second15Available}</div>
+                          <div className="text-[10px] text-slate-400">×{SECOND_BLOCK_MULTIPLE}</div>
+                        </td>
+                        <td className="p-3 text-center text-slate-600">
+                          <div>{s.totalUsedDays}</div>
+                          <div className="text-[10px] text-slate-400">
+                            H {s.historicalTakenDays} · P {s.papeletaDays} · A {s.pendingIndividualDays}
+                          </div>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className={`font-bold ${s.availableDays < 0 ? 'text-red-600' : s.availableDays < MIN_FRACTION_DAYS ? 'text-amber-600' : 'text-emerald-600'}`}>
                             {s.availableDays}
                           </span>
                         </td>
                         <td className="p-3">
                           <div className="flex gap-1 justify-center flex-wrap">
+                            <button
+                              onClick={() => setDetailSummary(s)}
+                              className="text-xs px-2 py-1 bg-sky-100 hover:bg-sky-200 rounded text-sky-800"
+                              title="Ver bloques por año"
+                            >
+                              Bloques
+                            </button>
                             <button
                               onClick={() => { setHistoricalForm({ resourceId: s.resourceId, days: s.historicalTakenDays, notes: '' }); setShowHistoricalModal(true); }}
                               className="text-xs px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700"
@@ -534,7 +646,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                             </button>
                             {s.canIssuePapeleta && (
                               <button
-                                onClick={() => openPapeletaForWorker(s.resourceId, 'accumulated')}
+                                onClick={() => openPapeletaForWorker(s.resourceId, 'direct')}
                                 className="text-xs px-2 py-1 bg-emerald-100 hover:bg-emerald-200 rounded text-emerald-700"
                               >
                                 Papeleta
@@ -702,6 +814,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                     <th className="text-left p-3">Trabajador</th>
                     <th className="text-left p-3">Unidad</th>
                     <th className="text-left p-3">Fecha</th>
+                    <th className="text-center p-3">Días</th>
                     <th className="text-center p-3">Estado</th>
                     <th className="text-center p-3">Acción</th>
                   </tr>
@@ -717,6 +830,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                           <td className="p-3 font-medium">{worker?.name || '—'}</td>
                           <td className="p-3 text-slate-600">{worker?.unitName}</td>
                           <td className="p-3">{d.vacationDate}</td>
+                          <td className="p-3 text-center">{d.daysCount ?? 1}</td>
                           <td className="p-3 text-center">
                             <span className={`text-xs px-2 py-0.5 rounded-full ${
                               d.status === 'pending_batch' ? 'bg-amber-100 text-amber-700' :
@@ -828,6 +942,25 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium mb-1">Duración</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDayForm({ ...dayForm, daysCount: 1 })}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium ${dayForm.daysCount === 1 ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600'}`}
+                  >
+                    1 día
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDayForm({ ...dayForm, daysCount: 0.5 })}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium ${dayForm.daysCount === 0.5 ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600'}`}
+                  >
+                    Medio día (0.5)
+                  </button>
+                </div>
+              </div>
+              <div>
                 <label className="block text-sm font-medium mb-1">Notas (opcional)</label>
                 <input
                   className="w-full border rounded-lg p-2 text-sm"
@@ -882,6 +1015,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                       ...papeletaForm,
                       resourceId: e.target.value,
                       selectedDayIds: papeletaMode === 'accumulated' ? pending.map(d => d.id) : [],
+                      requestedWorkDays: '',
                     });
                   }}
                 >
@@ -892,10 +1026,27 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                 </select>
               </div>
 
+              {selectedWorkerSummary && (
+                <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <div>
+                    <span className="text-slate-500">1.ºs 15 disp.</span>
+                    <div className="font-bold text-sky-700 text-sm">{selectedWorkerSummary.first15Available}</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">2.ºs 15 disp.</span>
+                    <div className="font-bold text-violet-700 text-sm">{selectedWorkerSummary.second15Available}</div>
+                  </div>
+                  <div className="col-span-2 text-slate-500">
+                    Descanso semanal: <strong>{selectedWorkerSummary.weeklyRestDayLabel}</strong>
+                    {' '}· Saldo total: <strong>{selectedWorkerSummary.availableDays}</strong>
+                  </div>
+                </div>
+              )}
+
               {papeletaMode === 'accumulated' && papeletaForm.resourceId && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                   <p className="text-sm font-medium text-amber-800 mb-2">
-                    Seleccione los días acumulados (mín. {MIN_PAPELETA_DAYS}):
+                    Seleccione los días a cuenta a formalizar:
                   </p>
                   <div className="space-y-1 max-h-32 overflow-y-auto">
                     {dayEntries
@@ -908,11 +1059,36 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                             onChange={() => toggleDaySelection(d.id)}
                           />
                           {d.vacationDate}
+                          <span className="text-xs text-slate-400">({d.daysCount ?? 1} d)</span>
                         </label>
                       ))}
                   </div>
                   <p className="text-xs text-amber-700 mt-2">
-                    Seleccionados: {papeletaForm.selectedDayIds.length} día(s)
+                    Seleccionados:{' '}
+                    {dayEntries
+                      .filter(d => papeletaForm.selectedDayIds.includes(d.id))
+                      .reduce((s, d) => s + Number(d.daysCount ?? 1), 0)}{' '}
+                    día(s)
+                  </p>
+                </div>
+              )}
+
+              {papeletaMode === 'direct' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Días laborales solicitados (opcional)
+                  </label>
+                  <input
+                    type="number"
+                    min={MIN_FRACTION_DAYS}
+                    step={MIN_FRACTION_DAYS}
+                    className="w-full border rounded-lg p-2"
+                    placeholder="Ej: 6 → genera 7 calendario con descanso"
+                    value={papeletaForm.requestedWorkDays}
+                    onChange={e => setPapeletaForm({ ...papeletaForm, requestedWorkDays: e.target.value, endDate: '' })}
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Si indica días laborales, el sistema amplia automáticamente el periodo con el descanso semanal.
                   </p>
                 </div>
               )}
@@ -932,13 +1108,15 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                   <input
                     type="date"
                     className="w-full border rounded-lg p-2"
-                    value={papeletaForm.endDate}
+                    disabled={papeletaMode === 'direct' && Number(papeletaForm.requestedWorkDays) > 0}
+                    value={papeletaPreview?.endDate || papeletaForm.endDate}
                     onChange={e => {
                       const end = e.target.value;
                       setPapeletaForm({
                         ...papeletaForm,
                         endDate: end,
                         returnDate: calcReturnDate(end),
+                        requestedWorkDays: '',
                       });
                     }}
                   />
@@ -949,19 +1127,36 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                 <input
                   type="date"
                   className="w-full border rounded-lg p-2"
-                  value={papeletaForm.returnDate}
+                  value={papeletaForm.returnDate || papeletaPreview?.returnDate || ''}
                   onChange={e => setPapeletaForm({ ...papeletaForm, returnDate: e.target.value })}
                 />
               </div>
-              {papeletaMode === 'direct' && papeletaForm.startDate && papeletaForm.endDate && (
-                <p className="text-xs text-slate-500 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Días calendario: {Math.max(0, Math.round((parseDate(papeletaForm.endDate).getTime() - parseDate(papeletaForm.startDate).getTime()) / 86400000) + 1)}
-                  {Math.max(0, Math.round((parseDate(papeletaForm.endDate).getTime() - parseDate(papeletaForm.startDate).getTime()) / 86400000) + 1) < MIN_PAPELETA_DAYS && (
-                    <span className="text-red-500"> — Mínimo {MIN_PAPELETA_DAYS} días requeridos</span>
+
+              {papeletaPreview && (
+                <div className={`rounded-lg border p-3 text-xs space-y-1 ${papeletaPreview.allocation.valid ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                  <p className="font-medium flex items-center gap-1">
+                    {papeletaPreview.allocation.valid ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                    Resumen del goce
+                  </p>
+                  <p>Días a descontar del saldo: <strong>{papeletaPreview.calendarDays}</strong></p>
+                  {papeletaPreview.endDate && <p>Término efectivo: <strong>{papeletaPreview.endDate}</strong></p>}
+                  {papeletaPreview.returnDate && <p>Retorno sugerido: <strong>{papeletaPreview.returnDate}</strong></p>}
+                  {papeletaPreview.includedRestDates.length > 0 && (
+                    <p>Incluye descanso ({papeletaPreview.restDayLabel}): {papeletaPreview.includedRestDates.join(', ')}</p>
                   )}
-                </p>
+                  {papeletaPreview.allocation.valid ? (
+                    <p>
+                      Imputación → 1.ºs 15: {papeletaPreview.allocation.fromFirst15}
+                      {papeletaPreview.allocation.fromSecond15 > 0 && (
+                        <> · 2.ºs 15: {papeletaPreview.allocation.fromSecond15}</>
+                      )}
+                    </p>
+                  ) : (
+                    <p>{papeletaPreview.allocation.error}</p>
+                  )}
+                </div>
               )}
+
               <div>
                 <label className="block text-sm font-medium mb-1">Observaciones</label>
                 <textarea
@@ -974,13 +1169,87 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
               <button
                 onClick={handleCreatePapeleta}
                 disabled={
-                  !papeletaForm.resourceId || !papeletaForm.startDate || !papeletaForm.endDate || !papeletaForm.returnDate ||
-                  (papeletaMode === 'accumulated' && papeletaForm.selectedDayIds.length < MIN_PAPELETA_DAYS)
+                  !papeletaForm.resourceId ||
+                  !papeletaForm.startDate ||
+                  !(papeletaForm.endDate || papeletaPreview?.endDate) ||
+                  !(papeletaForm.returnDate || papeletaPreview?.returnDate) ||
+                  (papeletaMode === 'accumulated' && papeletaForm.selectedDayIds.length < 1) ||
+                  (papeletaPreview != null && !papeletaPreview.allocation.valid)
                 }
                 className="w-full bg-emerald-600 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 disabled:opacity-50"
               >
                 <FileText size={16} /> Emitir y descargar PDF
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Bloques 15+15 por año */}
+      {detailSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-sky-700 text-white px-6 py-4 rounded-t-xl flex justify-between items-center sticky top-0">
+              <div>
+                <span className="font-bold">Bloques vacacionales — {detailSummary.workerName}</span>
+                <p className="text-xs text-sky-100 mt-0.5">
+                  Primeros {FIRST_BLOCK_DAYS} fraccionables · Segundos {SECOND_BLOCK_DAYS} en ×{SECOND_BLOCK_MULTIPLE}
+                </p>
+              </div>
+              <button onClick={() => setDetailSummary(null)}><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <div className="text-xs text-slate-500">Ganados</div>
+                  <div className="text-xl font-bold text-blue-600">{detailSummary.accruedDays}</div>
+                </div>
+                <div className="bg-sky-50 rounded-lg p-3">
+                  <div className="text-xs text-slate-500">1.ºs 15 disp.</div>
+                  <div className="text-xl font-bold text-sky-700">{detailSummary.first15Available}</div>
+                </div>
+                <div className="bg-violet-50 rounded-lg p-3">
+                  <div className="text-xs text-slate-500">2.ºs 15 disp.</div>
+                  <div className="text-xl font-bold text-violet-700">{detailSummary.second15Available}</div>
+                </div>
+              </div>
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="text-left p-2">Año / periodo</th>
+                    <th className="text-center p-2">Ganados</th>
+                    <th className="text-center p-2">1.º 15</th>
+                    <th className="text-center p-2">2.º 15</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {detailSummary.periodBlocks.map(b => (
+                    <tr key={b.periodIndex}>
+                      <td className="p-2">
+                        <div className="font-medium">Periodo {b.periodIndex}</div>
+                        <div className="text-[11px] text-slate-400">{b.periodStart} → {b.periodEnd}</div>
+                      </td>
+                      <td className="p-2 text-center">{b.accruedInPeriod}</td>
+                      <td className="p-2 text-center">
+                        <div className="text-sky-700 font-semibold">{b.firstBlockAvailable} disp.</div>
+                        <div className="text-[10px] text-slate-400">
+                          {b.firstBlockEarned} gan. · {b.firstBlockUsed} us.
+                        </div>
+                      </td>
+                      <td className="p-2 text-center">
+                        <div className="text-violet-700 font-semibold">{b.secondBlockAvailable} disp.</div>
+                        <div className="text-[10px] text-slate-400">
+                          {b.secondBlockEarned} gan. · {b.secondBlockUsed} us.
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-xs text-slate-500">
+                Descanso semanal inferido: <strong>{detailSummary.weeklyRestDayLabel}</strong>. Los 30 días del año
+                incluyen ese descanso (mes teórico). Fraccionamiento mínimo de primeros 15: {MIN_FRACTION_DAYS} día.
+              </p>
             </div>
           </div>
         </div>
@@ -1003,7 +1272,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                 {detailPapeleta.accumulatedDays?.map(d => (
                   <li key={d.id} className="text-sm bg-slate-50 px-3 py-2 rounded flex justify-between">
                     <span>{d.vacationDate}</span>
-                    <span className="text-slate-400 text-xs">Gozado a cuenta</span>
+                    <span className="text-slate-400 text-xs">{d.daysCount ?? 1} d · a cuenta</span>
                   </li>
                 ))}
               </ul>
