@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Palmtree, Users, FileText, Calendar, Plus, X, Save, Download,
   Search, Filter, AlertCircle, CheckCircle, Clock, Building, Info, FileSpreadsheet
@@ -52,6 +52,21 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     return units.filter(u => selectedUnitIds.includes(u.id));
   }, [units, selectedUnitIds, fixedUnitId, scopedUnits]);
 
+  /**
+   * Clave estable: evita recargas cuando el padre refresca `units` con la misma
+   * composición (p. ej. visibilitychange / silent reload de useUnits).
+   */
+  const filteredUnitIdsKey = useMemo(
+    () => filteredUnits.map(u => u.id).sort().join(','),
+    [filteredUnits]
+  );
+
+  const filteredUnitsRef = useRef(filteredUnits);
+  filteredUnitsRef.current = filteredUnits;
+
+  const loadSeqRef = useRef(0);
+  const hasLoadedOnceRef = useRef(false);
+
   // Modales
   const [showHistoricalModal, setShowHistoricalModal] = useState(false);
   const [historicalForm, setHistoricalForm] = useState({ resourceId: '', days: 0, notes: '' });
@@ -98,8 +113,21 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
 
   const fixedUnitName = fixedUnitId ? scopedUnits[0]?.name : undefined;
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (options?: { silent?: boolean }) => {
+    const unitsSnapshot = filteredUnitsRef.current;
+    if (unitsSnapshot.length === 0) {
+      setSummaries([]);
+      setPapeletas([]);
+      setDayEntries([]);
+      setOnVacation([]);
+      setLoading(false);
+      return;
+    }
+
+    const silent = options?.silent === true && hasLoadedOnceRef.current;
+    const seq = ++loadSeqRef.current;
+    if (!silent) setLoading(true);
+
     try {
       const today = new Date().toISOString().split('T')[0];
       const in30 = new Date();
@@ -107,26 +135,35 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
       const toDate = in30.toISOString().split('T')[0];
 
       const [sums, paps, days, onVac] = await Promise.all([
-        vacationService.getUnitSummaries(filteredUnits),
-        Promise.all(filteredUnits.map(u => vacationService.getPapeletas(undefined, u.id))).then(r => r.flat()),
-        Promise.all(filteredUnits.map(u => vacationService.getDayEntries(undefined, u.id))).then(r => r.flat()),
-        vacationService.getWorkersOnVacation(filteredUnits, today, toDate),
+        vacationService.getUnitSummaries(unitsSnapshot),
+        Promise.all(unitsSnapshot.map(u => vacationService.getPapeletas(undefined, u.id))).then(r => r.flat()),
+        Promise.all(unitsSnapshot.map(u => vacationService.getDayEntries(undefined, u.id))).then(r => r.flat()),
+        vacationService.getWorkersOnVacation(unitsSnapshot, today, toDate),
       ]);
+
+      // Descarta respuestas obsoletas si hubo otra carga más reciente
+      if (seq !== loadSeqRef.current) return;
 
       setSummaries(sums);
       setPapeletas(paps);
       setDayEntries(days);
       setOnVacation(onVac);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
-      console.error('Error cargando vacaciones:', err);
+      if (seq === loadSeqRef.current) {
+        console.error('Error cargando vacaciones:', err);
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current && !silent) {
+        setLoading(false);
+      }
     }
-  }, [filteredUnits]);
+  }, []);
 
+  // Solo recargar cuando cambian las unidades filtradas (por id), no por referencia del array
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    void loadData();
+  }, [filteredUnitIdsKey, loadData]);
 
   const filteredSummaries = useMemo(() => {
     if (!searchTerm.trim()) return summaries;

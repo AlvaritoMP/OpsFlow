@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Building2, Palmtree } from 'lucide-react';
 import { Unit, VacationCalendarEvent } from '../types';
 import { vacationService } from '../services/vacationService';
@@ -75,20 +75,32 @@ export const VacationCalendarView: React.FC<VacationCalendarViewProps> = ({
     return { from, to, start: parseDate(from), end: parseDate(to) };
   }, [anchorDate, viewMode]);
 
+  const unitsKey = useMemo(
+    () => units.map(u => u.id).sort().join(','),
+    [units]
+  );
+  const unitsRef = useRef(units);
+  unitsRef.current = units;
+  const loadSeqRef = useRef(0);
+
   const loadEvents = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
-      const data = await vacationService.getCalendarEvents(units, range.from, range.to);
+      const data = await vacationService.getCalendarEvents(unitsRef.current, range.from, range.to);
+      if (seq !== loadSeqRef.current) return;
       setEvents(data);
     } catch (err) {
-      console.error('Error cargando calendario de vacaciones:', err);
+      if (seq === loadSeqRef.current) {
+        console.error('Error cargando calendario de vacaciones:', err);
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
-  }, [units, range.from, range.to]);
+  }, [unitsKey, range.from, range.to]);
 
   useEffect(() => {
-    loadEvents();
+    void loadEvents();
   }, [loadEvents]);
 
   const eventsByDate = useMemo(() => {
