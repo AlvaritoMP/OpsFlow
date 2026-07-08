@@ -11,6 +11,7 @@ import {
   SECOND_BLOCK_DAYS,
   MIN_FRACTION_DAYS,
   SECOND_BLOCK_MULTIPLE,
+  SERVICE_DAYS_PER_YEAR,
   finalizeVacationPeriod,
   expandVacationWithRestDays,
   allocatePapeletaDays,
@@ -474,7 +475,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
             Control de Vacaciones
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Régimen general Perú — {DAYS_PER_YEAR} días calendario/año · Primeros {FIRST_BLOCK_DAYS} fraccionables · Segundos {SECOND_BLOCK_DAYS} en múltiplos de {SECOND_BLOCK_MULTIPLE}
+            Régimen general Perú — {DAYS_PER_YEAR} días/año proporcional ({SERVICE_DAYS_PER_YEAR} días servicio) · Primeros {FIRST_BLOCK_DAYS} fraccionables · Segundos {SECOND_BLOCK_DAYS} en múltiplos de {SECOND_BLOCK_MULTIPLE}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -542,7 +543,8 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
         <div>
           <p className="font-medium">Normativa aplicada (fracción 15 + 15)</p>
           <p className="text-blue-700 mt-1">
-            Cada trabajador acumula 2.5 días por mes ({DAYS_PER_YEAR}/año). Los primeros {FIRST_BLOCK_DAYS} días
+            Cada trabajador acumula vacaciones de forma proporcional: {DAYS_PER_YEAR} días por cada {SERVICE_DAYS_PER_YEAR} días
+            de servicio calendario (≈ {DAYS_PER_MONTH} por mes completo de 30 días). Los primeros {FIRST_BLOCK_DAYS} días
             ganados de cada año son fraccionables desde medio día. Los segundos {SECOND_BLOCK_DAYS} se gozan en
             múltiplos de {SECOND_BLOCK_MULTIPLE}. El periodo vacacional es calendario e incluye el día de descanso
             semanal (p. ej. 6 días laborales → 7 en papeleta).
@@ -645,7 +647,10 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                         </td>
                         {!fixedUnitId && <td className="p-3 text-slate-600">{s.unitName}</td>}
                         <td className="p-3 text-slate-600">{s.startDate || '—'}</td>
-                        <td className="p-3 text-center font-medium text-blue-600">{s.accruedDays}</td>
+                        <td className="p-3 text-center font-medium text-blue-600">
+                          <div>{s.accruedDays}</div>
+                          <div className="text-[10px] text-slate-400 font-normal">{s.serviceDays} d. servicio</div>
+                        </td>
                         <td className="p-3 text-center">
                           <div className="font-semibold text-sky-700">{s.first15Available}</div>
                           <div className="text-[10px] text-slate-400">disp. / frac.</div>
@@ -1284,8 +1289,9 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                 </tbody>
               </table>
               <p className="text-xs text-slate-500">
-                Descanso semanal inferido: <strong>{detailSummary.weeklyRestDayLabel}</strong>. Los 30 días del año
-                incluyen ese descanso (mes teórico). Fraccionamiento mínimo de primeros 15: {MIN_FRACTION_DAYS} día.
+                Descanso semanal inferido: <strong>{detailSummary.weeklyRestDayLabel}</strong>. Acumulación proporcional:
+                {detailSummary.serviceDays} días de servicio → {detailSummary.accruedDays} días ganados
+                ({DAYS_PER_YEAR}/{SERVICE_DAYS_PER_YEAR}). Fraccionamiento mínimo de primeros 15: {MIN_FRACTION_DAYS} día.
               </p>
             </div>
           </div>

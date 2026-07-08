@@ -13,9 +13,11 @@ import {
 } from '../types';
 import { resourcesService } from './resourcesService';
 
-/** Régimen general Perú: 30 días calendario / año (= 2.5 por mes) */
+/** Régimen general Perú: 30 días calendario / año (= 2.5 por mes completo de 30 días) */
 export const DAYS_PER_YEAR = 30;
 export const DAYS_PER_MONTH = 2.5;
+/** Año comercial de récord vacacional (días de servicio computables / 360 × 30) */
+export const SERVICE_DAYS_PER_YEAR = 360;
 /** Primer bloque: fraccionable libremente (mín. medio día) */
 export const FIRST_BLOCK_DAYS = 15;
 /** Segundo bloque: goce en múltiplos de 7 */
@@ -65,6 +67,23 @@ function monthsWorkedSince(hireDate: string, asOf: Date = new Date()): number {
   let months = (asOf.getFullYear() - hire.getFullYear()) * 12 + (asOf.getMonth() - hire.getMonth());
   if (asOf.getDate() < hire.getDate()) months--;
   return Math.max(0, months);
+}
+
+/** Días calendario de servicio desde ingreso hasta la fecha (ambos inclusive). */
+export function countServiceDays(startDate: string, asOf: Date = new Date()): number {
+  const hire = parseDate(startDate);
+  const end = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  if (end < hire) return 0;
+  return daysBetweenInclusive(startDate, formatDate(end));
+}
+
+/** Tasa diaria: 30 días vacaciones / 360 días de servicio (≈ 0.0833/día). */
+export function dailyVacationAccrualRate(annualEntitlement: number = DAYS_PER_YEAR): number {
+  return annualEntitlement / SERVICE_DAYS_PER_YEAR;
+}
+
+function normalizeAsOfDate(asOf: Date): Date {
+  return new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
 }
 
 function round1(n: number): number {
@@ -202,16 +221,53 @@ export function calculateAccruedDays(
   startDate: string,
   annualEntitlement: number = DAYS_PER_YEAR,
   asOf: Date = new Date()
-): { accruedDays: number; fullYears: number; monthsInCurrentPeriod: number } {
-  const months = monthsWorkedSince(startDate, asOf);
-  const fullYears = Math.floor(months / 12);
-  const monthsInCurrentPeriod = months % 12;
-  const daysPerMonth = annualEntitlement / 12;
-  const accruedDays = fullYears * annualEntitlement + monthsInCurrentPeriod * daysPerMonth;
+): {
+  accruedDays: number;
+  fullYears: number;
+  monthsInCurrentPeriod: number;
+  serviceDays: number;
+  daysInCurrentPeriod: number;
+} {
+  const end = normalizeAsOfDate(asOf);
+  const hire = parseDate(startDate);
+  const serviceDays = countServiceDays(startDate, end);
+
+  if (end < hire) {
+    return {
+      accruedDays: 0,
+      fullYears: 0,
+      monthsInCurrentPeriod: 0,
+      serviceDays: 0,
+      daysInCurrentPeriod: 0,
+    };
+  }
+
+  const periods = buildPeriodAccruals(startDate, annualEntitlement, end);
+  const accruedDays = round1(periods.reduce((sum, p) => sum + p.accruedInPeriod, 0));
+
+  // Aniversarios de ingreso completos
+  let fullYears = 0;
+  let periodStart = new Date(hire);
+  while (true) {
+    const nextAnniversary = new Date(periodStart);
+    nextAnniversary.setFullYear(nextAnniversary.getFullYear() + 1);
+    if (nextAnniversary <= end) {
+      fullYears++;
+      periodStart = nextAnniversary;
+    } else {
+      break;
+    }
+  }
+
+  const daysInCurrentPeriod = daysBetweenInclusive(formatDate(periodStart), formatDate(end));
+  const monthsInCurrentPeriod = round1(daysInCurrentPeriod / 30);
+
   return {
-    accruedDays: round1(accruedDays),
+    accruedDays,
     fullYears,
     monthsInCurrentPeriod,
+    serviceDays,
+    daysInCurrentPeriod,
   };
 }
 
@@ -219,42 +275,48 @@ function buildPeriodAccruals(
   hireDate: string,
   annualEntitlement: number,
   asOf: Date = new Date()
-): Array<{ periodIndex: number; periodStart: string; periodEnd: string; accruedInPeriod: number }> {
+): Array<{ periodIndex: number; periodStart: string; periodEnd: string; accruedInPeriod: number; serviceDaysInPeriod: number }> {
   const hire = parseDate(hireDate);
-  const months = monthsWorkedSince(hireDate, asOf);
-  const fullYears = Math.floor(months / 12);
-  const monthsInCurrent = months % 12;
-  const daysPerMonth = annualEntitlement / 12;
-  const periods: Array<{ periodIndex: number; periodStart: string; periodEnd: string; accruedInPeriod: number }> = [];
+  const end = normalizeAsOfDate(asOf);
+  if (end < hire) return [];
 
-  for (let y = 0; y < fullYears; y++) {
-    const start = new Date(hire);
-    start.setFullYear(hire.getFullYear() + y);
-    const end = new Date(hire);
-    end.setFullYear(hire.getFullYear() + y + 1);
-    end.setDate(end.getDate() - 1);
-    periods.push({
-      periodIndex: y + 1,
-      periodStart: formatDate(start),
-      periodEnd: formatDate(end),
-      accruedInPeriod: annualEntitlement,
-    });
-  }
+  const dailyRate = dailyVacationAccrualRate(annualEntitlement);
+  const periods: Array<{
+    periodIndex: number;
+    periodStart: string;
+    periodEnd: string;
+    accruedInPeriod: number;
+    serviceDaysInPeriod: number;
+  }> = [];
 
-  // Periodo actual (parcial)
-  const curStart = new Date(hire);
-  curStart.setFullYear(hire.getFullYear() + fullYears);
-  const curEnd = new Date(hire);
-  curEnd.setFullYear(hire.getFullYear() + fullYears + 1);
-  curEnd.setDate(curEnd.getDate() - 1);
-  const accruedCurrent = round1(monthsInCurrent * daysPerMonth);
-  if (accruedCurrent > 0 || fullYears === 0) {
+  let periodStart = new Date(hire);
+  let periodIndex = 1;
+
+  while (periodStart <= end) {
+    const theoreticalEnd = new Date(periodStart);
+    theoreticalEnd.setFullYear(theoreticalEnd.getFullYear() + 1);
+    theoreticalEnd.setDate(theoreticalEnd.getDate() - 1);
+
+    const actualEnd = theoreticalEnd > end ? end : theoreticalEnd;
+    const from = formatDate(periodStart);
+    const to = formatDate(actualEnd);
+    const serviceDaysInPeriod = daysBetweenInclusive(from, to);
+    const accruedInPeriod = round1(
+      Math.min(annualEntitlement, serviceDaysInPeriod * dailyRate)
+    );
+
     periods.push({
-      periodIndex: fullYears + 1,
-      periodStart: formatDate(curStart),
-      periodEnd: formatDate(curEnd),
-      accruedInPeriod: Math.min(annualEntitlement, accruedCurrent),
+      periodIndex,
+      periodStart: from,
+      periodEnd: formatDate(theoreticalEnd),
+      accruedInPeriod,
+      serviceDaysInPeriod,
     });
+
+    periodIndex++;
+    if (theoreticalEnd >= end) break;
+    periodStart = new Date(theoreticalEnd);
+    periodStart.setDate(periodStart.getDate() + 1);
   }
 
   return periods;
@@ -369,10 +431,8 @@ export function buildBalanceSummary(
   if (!resource.startDate) return null;
 
   const annualEntitlement = balance?.annualEntitlement ?? DAYS_PER_YEAR;
-  const { accruedDays, fullYears, monthsInCurrentPeriod } = calculateAccruedDays(
-    resource.startDate,
-    annualEntitlement
-  );
+  const { accruedDays, fullYears, monthsInCurrentPeriod, serviceDays, daysInCurrentPeriod } =
+    calculateAccruedDays(resource.startDate, annualEntitlement);
 
   const activePapeletas = papeletas.filter(p => p.status !== 'cancelled');
   const papeletaDays = round1(activePapeletas.reduce((s, p) => s + Number(p.calendarDays), 0));
@@ -415,6 +475,8 @@ export function buildBalanceSummary(
     availableDays,
     fullYears,
     monthsInCurrentPeriod,
+    serviceDays,
+    daysInCurrentPeriod,
     canIssuePapeleta,
     pendingDayDates,
     periodBlocks,
@@ -554,12 +616,15 @@ async function getSummaryForValidation(
 export const vacationService = {
   DAYS_PER_YEAR,
   DAYS_PER_MONTH,
+  SERVICE_DAYS_PER_YEAR,
   FIRST_BLOCK_DAYS,
   SECOND_BLOCK_DAYS,
   MIN_FRACTION_DAYS,
   SECOND_BLOCK_MULTIPLE,
   MIN_PAPELETA_DAYS,
   calculateAccruedDays,
+  countServiceDays,
+  dailyVacationAccrualRate,
   buildBalanceSummary,
   allocatePapeletaDays,
   expandVacationWithRestDays,

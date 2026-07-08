@@ -1022,6 +1022,10 @@ export interface VacationBalanceSummary {
   availableDays: number;
   fullYears: number;
   monthsInCurrentPeriod: number;
+  /** Días calendario de servicio acumulados desde ingreso */
+  serviceDays: number;
+  /** Días de servicio en el periodo anual actual (desde último aniversario) */
+  daysInCurrentPeriod: number;
   /** True si tiene saldo y puede emitir según reglas 15+15 */
   canIssuePapeleta: boolean;
   pendingDayDates: string[];

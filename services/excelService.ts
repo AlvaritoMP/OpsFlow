@@ -653,6 +653,8 @@ export const excelService = {
       fullYears: number;
       monthsInCurrentPeriod: number;
       accruedDays: number;
+      serviceDays?: number;
+      daysInCurrentPeriod?: number;
       historicalTakenDays: number;
       papeletaDays: number;
       pendingIndividualDays: number;
@@ -675,6 +677,7 @@ export const excelService = {
       'Fecha ingreso',
       'Años completos',
       'Meses periodo actual',
+      'Días de servicio',
       'Días ganados',
       'Primeros 15 disponibles',
       'Segundos 15 disponibles',
@@ -696,6 +699,7 @@ export const excelService = {
         'Fecha ingreso': s.startDate || '',
         'Años completos': s.fullYears,
         'Meses periodo actual': s.monthsInCurrentPeriod,
+        'Días de servicio': s.serviceDays ?? '',
         'Días ganados': s.accruedDays,
         'Primeros 15 disponibles': s.first15Available ?? '',
         'Segundos 15 disponibles': s.second15Available ?? '',
