@@ -959,6 +959,10 @@ export interface VacationDayEntry {
   notes?: string;
   createdAt?: string;
   createdBy?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 export type VacationPapeletaSource = 'direct' | 'accumulated';
@@ -981,6 +985,10 @@ export interface VacationPapeleta {
   notes?: string;
   issuedAt?: string;
   issuedBy?: string;
+  authorizedBy?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
+  updatedBy?: string;
   createdAt?: string;
   updatedAt?: string;
   accumulatedDays?: VacationDayEntry[];

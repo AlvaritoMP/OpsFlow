@@ -12,6 +12,14 @@ import {
   DailyShift,
 } from '../types';
 import { resourcesService } from './resourcesService';
+import { vacationAuditService } from './vacationAuditService';
+import {
+  MAX_VACATION_DAYS_WITHOUT_AUTH,
+  requiresVacationAuthorization,
+  type VerifiedAuthorizer,
+} from './vacationAuthService';
+
+export { MAX_VACATION_DAYS_WITHOUT_AUTH, requiresVacationAuthorization };
 
 /** Régimen general Perú: 30 días calendario / año (= 2.5 por mes completo de 30 días) */
 export const DAYS_PER_YEAR = 30;
@@ -515,6 +523,10 @@ function transformDayEntryFromDB(data: any): VacationDayEntry {
     notes: data.notes,
     createdAt: data.created_at,
     createdBy: data.created_by,
+    cancelledBy: data.cancelled_by,
+    cancelledAt: data.cancelled_at,
+    updatedBy: data.updated_by,
+    updatedAt: data.updated_at,
   };
 }
 
@@ -536,9 +548,45 @@ function transformPapeletaFromDB(data: any): VacationPapeleta {
     notes: data.notes,
     issuedAt: data.issued_at,
     issuedBy: data.issued_by,
+    authorizedBy: data.authorized_by,
+    cancelledBy: data.cancelled_by,
+    cancelledAt: data.cancelled_at,
+    updatedBy: data.updated_by,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
   };
+}
+
+function papeletaSnapshot(p: VacationPapeleta) {
+  return {
+    code: p.code,
+    workerName: p.workerName,
+    startDate: p.startDate,
+    endDate: p.endDate,
+    returnDate: p.returnDate,
+    calendarDays: p.calendarDays,
+    status: p.status,
+    notes: p.notes,
+  };
+}
+
+function dayEntrySnapshot(d: VacationDayEntry) {
+  return {
+    vacationDate: d.vacationDate,
+    daysCount: d.daysCount ?? 1,
+    status: d.status,
+    notes: d.notes,
+  };
+}
+
+async function revertShiftsToOff(resourceId: string, start: string, end: string): Promise<void> {
+  for (const date of dateRange(start, end)) {
+    await resourcesService.upsertDailyShift(resourceId, {
+      date,
+      type: 'OFF',
+      hours: 0,
+    });
+  }
 }
 
 async function syncVacationShifts(resourceId: string, dates: string[]): Promise<void> {
@@ -679,8 +727,10 @@ export const vacationService = {
     historicalTakenDays: number,
     notes?: string,
     updatedBy?: string,
-    annualEntitlement: number = DAYS_PER_YEAR
+    annualEntitlement: number = DAYS_PER_YEAR,
+    workerName?: string
   ): Promise<VacationBalance> {
+    const previous = await this.getBalance(resourceId);
     const { data, error } = await supabase
       .from('vacation_balances')
       .upsert(
@@ -701,7 +751,20 @@ export const vacationService = {
       handleSupabaseError(error);
       throw error;
     }
-    return transformBalanceFromDB(data);
+    const balance = transformBalanceFromDB(data);
+    await vacationAuditService.logChange({
+      actionType: previous ? 'UPDATE' : 'CREATE',
+      entityType: 'VACATION_BALANCE',
+      entityId: resourceId,
+      entityName: workerName || resourceId,
+      description: `Saldo histórico actualizado: ${historicalTakenDays} días`,
+      before: previous
+        ? { historicalTakenDays: previous.historicalTakenDays, notes: previous.notes }
+        : undefined,
+      after: { historicalTakenDays: balance.historicalTakenDays, notes: balance.notes },
+      fields: ['historicalTakenDays', 'notes'],
+    });
+    return balance;
   },
 
   // --- Day entries ---
@@ -786,23 +849,108 @@ export const vacationService = {
     }
 
     await syncVacationShifts(resourceId, [vacationDate]);
-    return transformDayEntryFromDB(data);
+    const entry = transformDayEntryFromDB(data);
+    await vacationAuditService.logChange({
+      actionType: 'CREATE',
+      entityType: 'VACATION_DAY_ENTRY',
+      entityId: entry.id,
+      entityName: `${entry.vacationDate} (${entry.daysCount ?? 1} d)`,
+      description: `Día a cuenta registrado para ${vacationDate}`,
+      after: dayEntrySnapshot(entry),
+    });
+    return entry;
   },
 
-  async cancelDayEntry(id: string, resourceId: string): Promise<void> {
+  async updateDayEntry(
+    id: string,
+    updates: { vacationDate?: string; daysCount?: number; notes?: string },
+    updatedBy: string
+  ): Promise<VacationDayEntry> {
+    const { data: current, error: fetchError } = await supabase
+      .from('vacation_day_entries')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !current) throw new Error('Día a cuenta no encontrado');
+    if (current.status !== 'pending_batch') {
+      throw new Error('Solo se pueden editar días pendientes de agrupar');
+    }
+
+    const before = transformDayEntryFromDB(current);
+    const newDate = updates.vacationDate ?? before.vacationDate;
+    const newCount = round1(updates.daysCount ?? before.daysCount ?? 1);
+    if (newCount !== 0.5 && newCount !== 1) {
+      throw new Error('El día a cuenta debe ser 1 día completo o 0.5 (medio día)');
+    }
+
+    const { data, error } = await supabase
+      .from('vacation_day_entries')
+      .update({
+        vacation_date: newDate,
+        days_count: newCount,
+        notes: updates.notes ?? before.notes,
+        updated_by: updatedBy,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    if (before.vacationDate !== newDate) {
+      await revertShiftsToOff(before.resourceId, before.vacationDate, before.vacationDate);
+      await syncVacationShifts(before.resourceId, [newDate]);
+    }
+
+    const entry = transformDayEntryFromDB(data);
+    await vacationAuditService.logChange({
+      actionType: 'UPDATE',
+      entityType: 'VACATION_DAY_ENTRY',
+      entityId: entry.id,
+      entityName: `${entry.vacationDate} (${entry.daysCount ?? 1} d)`,
+      description: `Día a cuenta actualizado`,
+      before: dayEntrySnapshot(before),
+      after: dayEntrySnapshot(entry),
+      fields: ['vacationDate', 'daysCount', 'notes'].filter(
+        f =>
+          (f === 'vacationDate' && before.vacationDate !== entry.vacationDate) ||
+          (f === 'daysCount' && (before.daysCount ?? 1) !== (entry.daysCount ?? 1)) ||
+          (f === 'notes' && before.notes !== entry.notes)
+      ),
+    });
+    return entry;
+  },
+
+  async cancelDayEntry(
+    id: string,
+    resourceId: string,
+    cancelledBy: string,
+    authorizedBy: VerifiedAuthorizer,
+    reason?: string
+  ): Promise<void> {
     const { data: entry } = await supabase
       .from('vacation_day_entries')
-      .select('vacation_date, status')
+      .select('*')
       .eq('id', id)
       .single();
 
     if (!entry || entry.status !== 'pending_batch') {
-      throw new Error('Solo se pueden cancelar días pendientes de agrupar');
+      throw new Error('Solo se pueden anular días pendientes de agrupar');
     }
 
+    const before = transformDayEntryFromDB(entry);
     const { error } = await supabase
       .from('vacation_day_entries')
-      .update({ status: 'cancelled' })
+      .update({
+        status: 'cancelled',
+        cancelled_by: cancelledBy,
+        cancelled_at: new Date().toISOString(),
+      })
       .eq('id', id);
 
     if (error) {
@@ -814,6 +962,16 @@ export const vacationService = {
       date: entry.vacation_date,
       type: 'OFF',
       hours: 0,
+    });
+
+    await vacationAuditService.logChange({
+      actionType: 'DELETE',
+      entityType: 'VACATION_DAY_ENTRY',
+      entityId: id,
+      entityName: `${before.vacationDate} (${before.daysCount ?? 1} d)`,
+      description: reason || `Día a cuenta anulado (${before.vacationDate})`,
+      before: dayEntrySnapshot(before),
+      authorizedBy: { id: authorizedBy.id, name: authorizedBy.name, email: authorizedBy.email },
     });
   },
 
@@ -866,6 +1024,8 @@ export const vacationService = {
     returnDate: string;
     notes?: string;
     issuedBy?: string;
+    authorizedBy?: VerifiedAuthorizer;
+    justification?: string;
     /** Si se indica, se expanden fechas con descanso semanal a partir de días laborales */
     requestedWorkDays?: number;
     weeklyRestDay?: number;
@@ -911,11 +1071,25 @@ export const vacationService = {
       throw new Error(allocation.error || 'Goce no permitido según reglas de fraccionamiento');
     }
 
+    if (requiresVacationAuthorization(calendarDays) && !params.authorizedBy) {
+      throw new Error(
+        `Goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días requiere autorización de otro usuario`
+      );
+    }
+    if (requiresVacationAuthorization(calendarDays) && !params.justification?.trim()) {
+      throw new Error(
+        `Debe registrar la justificación del goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días`
+      );
+    }
+
+    const justificationNote = params.justification?.trim()
+      ? `Justificación (>7 días): ${params.justification.trim()}`
+      : '';
     const allocNote =
       `Imputación: ${allocation.fromFirst15} día(s) a primeros 15` +
       (allocation.fromSecond15 > 0 ? ` + ${allocation.fromSecond15} a segundos 15 (múltiplos de 7)` : '') +
       '.';
-    const notes = [params.notes, restNote, allocNote].filter(Boolean).join(' ');
+    const notes = [params.notes, justificationNote, restNote, allocNote].filter(Boolean).join(' ');
 
     const code = await this.generatePapeletaCode();
 
@@ -936,6 +1110,7 @@ export const vacationService = {
         status: 'issued',
         notes,
         issued_by: params.issuedBy,
+        authorized_by: params.authorizedBy?.id ?? null,
       })
       .select()
       .single();
@@ -948,7 +1123,20 @@ export const vacationService = {
     const dates = dateRange(startDate, endDate);
     await syncVacationShifts(params.resourceId, dates);
 
-    return transformPapeletaFromDB(data);
+    const result = transformPapeletaFromDB(data);
+    await vacationAuditService.logChange({
+      actionType: 'CREATE',
+      entityType: 'VACATION_PAPELETA',
+      entityId: result.id,
+      entityName: result.code,
+      description: `Papeleta ${result.code} emitida (${calendarDays} días) — ${params.workerName}`,
+      after: papeletaSnapshot(result),
+      authorizedBy: params.authorizedBy
+        ? { id: params.authorizedBy.id, name: params.authorizedBy.name, email: params.authorizedBy.email }
+        : undefined,
+      justification: params.justification?.trim() || undefined,
+    });
+    return result;
   },
 
   async createPapeletaFromAccumulated(params: {
@@ -963,6 +1151,8 @@ export const vacationService = {
     dayEntryIds: string[];
     notes?: string;
     issuedBy?: string;
+    authorizedBy?: VerifiedAuthorizer;
+    justification?: string;
     weeklyRestDay?: number;
   }): Promise<VacationPapeleta> {
     const { data: entries, error: entriesError } = await supabase
@@ -1020,6 +1210,20 @@ export const vacationService = {
       throw new Error(allocation.error || 'Goce no permitido según reglas de fraccionamiento');
     }
 
+    if (requiresVacationAuthorization(calendarDays) && !params.authorizedBy) {
+      throw new Error(
+        `Goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días requiere autorización de otro usuario`
+      );
+    }
+    if (requiresVacationAuthorization(calendarDays) && !params.justification?.trim()) {
+      throw new Error(
+        `Debe registrar la justificación del goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días`
+      );
+    }
+
+    const justificationNote = params.justification?.trim()
+      ? `Justificación (>7 días): ${params.justification.trim()}`
+      : '';
     const restNote = finalized.includedRestDates.length
       ? `Incluye descanso semanal (${weeklyRestDayLabel(restDay)}): ${finalized.includedRestDates.join(', ')}.`
       : '';
@@ -1027,7 +1231,7 @@ export const vacationService = {
       `Imputación: ${allocation.fromFirst15} día(s) a primeros 15` +
       (allocation.fromSecond15 > 0 ? ` + ${allocation.fromSecond15} a segundos 15` : '') +
       '.';
-    const notes = [params.notes, restNote, allocNote].filter(Boolean).join(' ');
+    const notes = [params.notes, justificationNote, restNote, allocNote].filter(Boolean).join(' ');
 
     const code = await this.generatePapeletaCode();
 
@@ -1048,6 +1252,7 @@ export const vacationService = {
         status: 'issued',
         notes,
         issued_by: params.issuedBy,
+        authorized_by: params.authorizedBy?.id ?? null,
       })
       .select()
       .single();
@@ -1064,19 +1269,153 @@ export const vacationService = {
 
     const result = transformPapeletaFromDB(data);
     result.accumulatedDays = entries.map(transformDayEntryFromDB);
+    await vacationAuditService.logChange({
+      actionType: 'CREATE',
+      entityType: 'VACATION_PAPELETA',
+      entityId: result.id,
+      entityName: result.code,
+      description: `Papeleta acumulada ${result.code} (${calendarDays} días) — ${params.workerName}`,
+      after: papeletaSnapshot(result),
+      authorizedBy: params.authorizedBy
+        ? { id: params.authorizedBy.id, name: params.authorizedBy.name, email: params.authorizedBy.email }
+        : undefined,
+      justification: params.justification?.trim() || undefined,
+    });
     return result;
   },
 
-  async cancelPapeleta(id: string): Promise<void> {
+  async updatePapeleta(
+    id: string,
+    updates: {
+      startDate: string;
+      endDate: string;
+      returnDate: string;
+      notes?: string;
+      weeklyRestDay?: number;
+    },
+    updatedBy: string
+  ): Promise<VacationPapeleta> {
+    const current = await this.getPapeletaWithDays(id);
+    if (!current || current.status !== 'issued') {
+      throw new Error('Solo se pueden editar papeletas emitidas');
+    }
+
+    const summary = await getSummaryForValidation(
+      current.resourceId,
+      current.unitId,
+      current.unitName,
+      current.workerName,
+      current.workerDni
+    );
+    const restDay = updates.weeklyRestDay ?? summary?.weeklyRestDay ?? 0;
+    const finalized = finalizeVacationPeriod(updates.startDate, updates.endDate, restDay);
+    const calendarDays = round1(finalized.calendarDays);
+
+    const excludeDays = Number(current.calendarDays);
+    let firstForValidation = summary?.first15Available ?? 0;
+    let secondForValidation = summary?.second15Available ?? 0;
+    if (summary?.startDate) {
+      const periodAccruals = buildPeriodAccruals(summary.startDate, DAYS_PER_YEAR);
+      const withoutCurrent = allocateUsageToBlocks(
+        periodAccruals,
+        round1(Math.max(0, (summary.totalUsedDays || 0) - excludeDays))
+      );
+      firstForValidation = round1(withoutCurrent.reduce((s, b) => s + b.firstBlockAvailable, 0));
+      secondForValidation = round1(withoutCurrent.reduce((s, b) => s + b.secondBlockAvailable, 0));
+    } else {
+      firstForValidation = round1(firstForValidation + excludeDays);
+    }
+
+    const allocation = allocatePapeletaDays(calendarDays, firstForValidation, secondForValidation);
+    if (!allocation.valid) {
+      throw new Error(allocation.error || 'Goce no permitido con el saldo disponible');
+    }
+
+    const oldStart = current.startDate;
+    const oldEnd = current.endDate;
+
+    const { data, error } = await supabase
+      .from('vacation_papeletas')
+      .update({
+        start_date: updates.startDate,
+        end_date: finalized.endDate,
+        return_date: updates.returnDate || finalized.returnDate,
+        calendar_days: calendarDays,
+        notes: updates.notes ?? current.notes,
+        updated_by: updatedBy,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    await revertShiftsToOff(current.resourceId, oldStart, oldEnd);
+    await syncVacationShifts(current.resourceId, dateRange(updates.startDate, finalized.endDate));
+
+    const result = transformPapeletaFromDB(data);
+    await vacationAuditService.logChange({
+      actionType: 'UPDATE',
+      entityType: 'VACATION_PAPELETA',
+      entityId: result.id,
+      entityName: result.code,
+      description: `Papeleta ${result.code} editada — ${current.workerName}`,
+      before: papeletaSnapshot(current),
+      after: papeletaSnapshot(result),
+      fields: ['startDate', 'endDate', 'returnDate', 'calendarDays', 'notes'],
+    });
+    return result;
+  },
+
+  async cancelPapeleta(
+    id: string,
+    cancelledBy: string,
+    authorizedBy: VerifiedAuthorizer,
+    reason?: string
+  ): Promise<void> {
+    const current = await this.getPapeletaWithDays(id);
+    if (!current || current.status !== 'issued') {
+      throw new Error('Solo se pueden anular papeletas emitidas');
+    }
+
     const { error } = await supabase
       .from('vacation_papeletas')
-      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .update({
+        status: 'cancelled',
+        cancelled_by: cancelledBy,
+        cancelled_at: new Date().toISOString(),
+        authorized_by: authorizedBy.id,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
 
     if (error) {
       handleSupabaseError(error);
       throw error;
     }
+
+    await revertShiftsToOff(current.resourceId, current.startDate, current.endDate);
+
+    if (current.sourceType === 'accumulated') {
+      await supabase
+        .from('vacation_day_entries')
+        .update({ status: 'pending_batch', papeleta_id: null })
+        .eq('papeleta_id', id);
+    }
+
+    await vacationAuditService.logChange({
+      actionType: 'DELETE',
+      entityType: 'VACATION_PAPELETA',
+      entityId: current.id,
+      entityName: current.code,
+      description: reason || `Papeleta ${current.code} anulada — ${current.workerName}`,
+      before: papeletaSnapshot(current),
+      authorizedBy: { id: authorizedBy.id, name: authorizedBy.name, email: authorizedBy.email },
+    });
   },
 
   // --- Agregados ---

@@ -798,5 +798,53 @@ export const excelService = {
       filename: `reporte_papeletas_vacaciones${unitSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`,
     });
   },
+
+  /** Historial de cambios en vacaciones (auditoría) */
+  async exportVacationChangeLog(
+    logs: Array<{
+      createdAt: string;
+      userName: string;
+      userEmail: string;
+      actionType: string;
+      entityType: string;
+      entityName?: string;
+      description?: string;
+      authorizedByName?: string;
+      authorizedByEmail?: string;
+      justification?: string;
+      changesJson?: string;
+    }>
+  ): Promise<void> {
+    const headers = [
+      'Fecha',
+      'Usuario',
+      'Email',
+      'Acción',
+      'Tipo entidad',
+      'Referencia',
+      'Descripción',
+      'Autorizado por',
+      'Email autorizador',
+      'Justificación',
+      'Detalle cambios',
+    ];
+    const rows = logs.map(l => ({
+      Fecha: l.createdAt,
+      Usuario: l.userName,
+      Email: l.userEmail,
+      Acción: l.actionType,
+      'Tipo entidad': l.entityType,
+      Referencia: l.entityName || '',
+      Descripción: l.description || '',
+      'Autorizado por': l.authorizedByName || '',
+      'Email autorizador': l.authorizedByEmail || '',
+      Justificación: l.justification || '',
+      'Detalle cambios': l.changesJson || '',
+    }));
+    await this.exportToExcel(rows, headers, {
+      sheetName: 'Historial vacaciones',
+      filename: `historial_cambios_vacaciones_${new Date().toISOString().split('T')[0]}.xlsx`,
+    });
+  },
 };
 

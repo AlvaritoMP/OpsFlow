@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Palmtree, Users, FileText, Calendar, Plus, X, Save, Download,
-  Search, Filter, AlertCircle, CheckCircle, Clock, Building, Info, FileSpreadsheet
+  Search, Filter, AlertCircle, CheckCircle, Clock, Building, Info, FileSpreadsheet,
+  Pencil, Trash2, History,
 } from 'lucide-react';
 import { Unit, ResourceType, VacationBalanceSummary, VacationPapeleta, VacationDayEntry, User } from '../types';
+import type { AuditLog } from '../services/auditService';
 import {
   vacationService,
   DAYS_PER_YEAR,
@@ -12,13 +14,19 @@ import {
   MIN_FRACTION_DAYS,
   SECOND_BLOCK_MULTIPLE,
   SERVICE_DAYS_PER_YEAR,
+  MAX_VACATION_DAYS_WITHOUT_AUTH,
+  requiresVacationAuthorization,
   finalizeVacationPeriod,
   expandVacationWithRestDays,
   allocatePapeletaDays,
 } from '../services/vacationService';
 import { vacationPdfService } from '../services/vacationPdfService';
+import { vacationAuditService } from '../services/vacationAuditService';
+import type { VerifiedAuthorizer } from '../services/vacationAuthService';
 import { VacationCalendarView } from './VacationCalendarView';
+import { VacationAuthorizationModal } from './VacationAuthorizationModal';
 import { excelService } from '../services/excelService';
+import { useUsers } from '../hooks/useUsers';
 
 interface VacationsProps {
   units: Unit[];
@@ -29,9 +37,17 @@ interface VacationsProps {
   embedded?: boolean;
 }
 
-type ActiveView = 'balances' | 'monitoring' | 'calendar' | 'papeletas' | 'day-entries';
+type ActiveView = 'balances' | 'monitoring' | 'calendar' | 'papeletas' | 'day-entries' | 'history';
+
+type AuthModalState = {
+  title: string;
+  message: string;
+  justification?: string;
+  onConfirm: (authorizer: VerifiedAuthorizer) => Promise<void>;
+};
 
 export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedUnitId, embedded = false }) => {
+  const { users } = useUsers(true);
   const [activeView, setActiveView] = useState<ActiveView>(embedded ? 'calendar' : 'balances');
   const [loading, setLoading] = useState(true);
   const [summaries, setSummaries] = useState<VacationBalanceSummary[]>([]);
@@ -84,6 +100,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     endDate: '',
     returnDate: '',
     notes: '',
+    justification: '',
     selectedDayIds: [] as string[],
     /** Días laborales solicitados; si > 0, se expanden con descanso semanal */
     requestedWorkDays: '' as string,
@@ -91,7 +108,20 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
 
   const [detailPapeleta, setDetailPapeleta] = useState<VacationPapeleta | null>(null);
   const [detailSummary, setDetailSummary] = useState<VacationBalanceSummary | null>(null);
-  const [exporting, setExporting] = useState<'balances' | 'papeletas' | null>(null);
+  const [exporting, setExporting] = useState<'balances' | 'papeletas' | 'history' | null>(null);
+
+  const [authModal, setAuthModal] = useState<AuthModalState | null>(null);
+  const [editPapeleta, setEditPapeleta] = useState<VacationPapeleta | null>(null);
+  const [editPapeletaForm, setEditPapeletaForm] = useState({
+    startDate: '', endDate: '', returnDate: '', notes: '',
+  });
+  const [editDayEntry, setEditDayEntry] = useState<VacationDayEntry | null>(null);
+  const [editDayForm, setEditDayForm] = useState({ date: '', daysCount: 1 as 0.5 | 1, notes: '' });
+
+  const [changeLogs, setChangeLogs] = useState<AuditLog[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyFrom, setHistoryFrom] = useState('');
+  const [historyTo, setHistoryTo] = useState('');
 
   const allPersonnel = useMemo(() => {
     const list: { resourceId: string; name: string; dni?: string; unitId: string; unitName: string; startDate?: string }[] = [];
@@ -165,6 +195,65 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
   useEffect(() => {
     void loadData();
   }, [filteredUnitIdsKey, loadData]);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const logs = await vacationAuditService.getChangeLogs({
+        startDate: historyFrom || undefined,
+        endDate: historyTo || undefined,
+      });
+      setChangeLogs(logs);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyFrom, historyTo]);
+
+  useEffect(() => {
+    if (activeView === 'history') {
+      void loadHistory();
+    }
+  }, [activeView, loadHistory]);
+
+  const openAuthModal = (
+    title: string,
+    message: string,
+    onConfirm: AuthModalState['onConfirm'],
+    justification?: string
+  ) => {
+    setAuthModal({ title, message, onConfirm, justification });
+  };
+
+  const handleExportHistory = async () => {
+    if (changeLogs.length === 0) {
+      alert('No hay registros para exportar.');
+      return;
+    }
+    try {
+      setExporting('history');
+      await excelService.exportVacationChangeLog(
+        changeLogs.map(l => ({
+          createdAt: l.createdAt,
+          userName: l.userName,
+          userEmail: l.userEmail,
+          actionType: l.actionType,
+          entityType: l.entityType,
+          entityName: l.entityName,
+          description: l.description,
+          authorizedByName: (l.changes as any)?.authorizedBy?.name,
+          authorizedByEmail: (l.changes as any)?.authorizedBy?.email,
+          justification: (l.changes as any)?.justification,
+          changesJson: l.changes ? JSON.stringify(l.changes) : '',
+        }))
+      );
+    } catch {
+      alert('Error al exportar historial.');
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const filteredSummaries = useMemo(() => {
     if (!searchTerm.trim()) return summaries;
@@ -248,16 +337,20 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
 
   const handleSaveHistorical = async () => {
     if (!historicalForm.resourceId) return;
+    const worker = allPersonnel.find(p => p.resourceId === historicalForm.resourceId);
     try {
       await vacationService.upsertBalance(
         historicalForm.resourceId,
         historicalForm.days,
         historicalForm.notes,
-        currentUser.id
+        currentUser.id,
+        undefined,
+        worker?.name
       );
       setShowHistoricalModal(false);
       setHistoricalForm({ resourceId: '', days: 0, notes: '' });
       await loadData();
+      if (activeView === 'history') await loadHistory();
     } catch (err: any) {
       alert(err.message || 'Error al guardar saldo histórico');
     }
@@ -360,9 +453,28 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     return null;
   }, [papeletaForm, papeletaMode, selectedWorkerSummary, dayEntries]);
 
-  const handleCreatePapeleta = async () => {
+  const handleCreatePapeleta = async (authorizer?: VerifiedAuthorizer) => {
     const worker = allPersonnel.find(p => p.resourceId === papeletaForm.resourceId);
     if (!worker) return;
+
+    const calendarDays = papeletaPreview?.calendarDays ?? 0;
+    const needsJustification = requiresVacationAuthorization(calendarDays);
+    const justification = papeletaForm.justification.trim();
+
+    if (needsJustification && !justification) {
+      alert(`Debe ingresar la justificación del goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días.`);
+      return;
+    }
+
+    if (needsJustification && !authorizer) {
+      openAuthModal(
+        'Autorización para otorgar vacaciones',
+        `El goce de ${calendarDays} días supera el máximo de ${MAX_VACATION_DAYS_WITHOUT_AUTH} días sin autorización de otro usuario.`,
+        async auth => handleCreatePapeleta(auth),
+        justification
+      );
+      return;
+    }
 
     try {
       let result: VacationPapeleta;
@@ -381,7 +493,9 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           endDate: endDate || papeletaForm.endDate,
           returnDate: returnDate || papeletaForm.returnDate,
           notes: papeletaForm.notes,
+          justification: needsJustification ? justification : undefined,
           issuedBy: currentUser.id,
+          authorizedBy: authorizer,
           requestedWorkDays: workDays > 0 ? workDays : undefined,
           weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
         });
@@ -397,14 +511,16 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           returnDate: returnDate || papeletaForm.returnDate,
           dayEntryIds: papeletaForm.selectedDayIds,
           notes: papeletaForm.notes,
+          justification: needsJustification ? justification : undefined,
           issuedBy: currentUser.id,
+          authorizedBy: authorizer,
           weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
         });
       }
 
       setShowPapeletaModal(false);
       setPapeletaForm({
-        resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [], requestedWorkDays: '',
+        resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', justification: '', selectedDayIds: [], requestedWorkDays: '',
       });
       await loadData();
 
@@ -414,6 +530,71 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
       }
     } catch (err: any) {
       alert(err.message || 'Error al crear papeleta');
+    }
+  };
+
+  const requestCancelPapeleta = (p: VacationPapeleta) => {
+    openAuthModal(
+      'Autorizar anulación de papeleta',
+      `Se anulará la papeleta ${p.code} de ${p.workerName} (${p.calendarDays} días). Esta acción quedará registrada.`,
+      async authorizer => {
+        await vacationService.cancelPapeleta(p.id, currentUser.id, authorizer);
+        await loadData();
+        if (activeView === 'history') await loadHistory();
+      }
+    );
+  };
+
+  const requestCancelDayEntry = (d: VacationDayEntry) => {
+    openAuthModal(
+      'Autorizar anulación de día a cuenta',
+      `Se anulará el día ${d.vacationDate} (${d.daysCount ?? 1} d) del trabajador.`,
+      async authorizer => {
+        await vacationService.cancelDayEntry(d.id, d.resourceId, currentUser.id, authorizer);
+        await loadData();
+        if (activeView === 'history') await loadHistory();
+      }
+    );
+  };
+
+  const handleSaveEditPapeleta = async () => {
+    if (!editPapeleta) return;
+    try {
+      await vacationService.updatePapeleta(
+        editPapeleta.id,
+        {
+          startDate: editPapeletaForm.startDate,
+          endDate: editPapeletaForm.endDate,
+          returnDate: editPapeletaForm.returnDate,
+          notes: editPapeletaForm.notes,
+        },
+        currentUser.id
+      );
+      setEditPapeleta(null);
+      await loadData();
+      if (activeView === 'history') await loadHistory();
+    } catch (err: any) {
+      alert(err.message || 'Error al editar papeleta');
+    }
+  };
+
+  const handleSaveEditDayEntry = async () => {
+    if (!editDayEntry) return;
+    try {
+      await vacationService.updateDayEntry(
+        editDayEntry.id,
+        {
+          vacationDate: editDayForm.date,
+          daysCount: editDayForm.daysCount,
+          notes: editDayForm.notes,
+        },
+        currentUser.id
+      );
+      setEditDayEntry(null);
+      await loadData();
+      if (activeView === 'history') await loadHistory();
+    } catch (err: any) {
+      alert(err.message || 'Error al editar día');
     }
   };
 
@@ -430,6 +611,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
       endDate: '',
       returnDate: '',
       notes: '',
+      justification: '',
       selectedDayIds: mode === 'accumulated' ? pending.map(d => d.id) : [],
       requestedWorkDays: '',
     });
@@ -462,6 +644,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     { id: 'monitoring', label: 'Monitoreo', icon: <Clock size={16} /> },
     { id: 'papeletas', label: 'Papeletas', icon: <FileText size={16} /> },
     { id: 'day-entries', label: 'Días a Cuenta', icon: <Building size={16} /> },
+    { id: 'history', label: 'Historial', icon: <History size={16} /> },
   ];
 
   return (
@@ -486,7 +669,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
             <Plus size={16} /> Día a cuenta
           </button>
           <button
-            onClick={() => { setPapeletaMode('direct'); setPapeletaForm({ resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [], requestedWorkDays: '' }); setShowPapeletaModal(true); }}
+            onClick={() => { setPapeletaMode('direct'); setPapeletaForm({ resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', justification: '', selectedDayIds: [], requestedWorkDays: '' }); setShowPapeletaModal(true); }}
             className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700 text-sm"
           >
             <FileText size={16} /> Nueva Papeleta
@@ -525,7 +708,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
             <button
               onClick={() => {
                 setPapeletaMode('direct');
-                setPapeletaForm({ resourceId: '', unitId: fixedUnitId || '', startDate: '', endDate: '', returnDate: '', notes: '', selectedDayIds: [], requestedWorkDays: '' });
+                setPapeletaForm({ resourceId: '', unitId: fixedUnitId || '', startDate: '', endDate: '', returnDate: '', notes: '', justification: '', selectedDayIds: [], requestedWorkDays: '' });
                 setShowPapeletaModal(true);
               }}
               className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-emerald-700 text-sm"
@@ -547,7 +730,8 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
             de servicio calendario (≈ {DAYS_PER_MONTH} por mes completo de 30 días). Los primeros {FIRST_BLOCK_DAYS} días
             ganados de cada año son fraccionables desde medio día. Los segundos {SECOND_BLOCK_DAYS} se gozan en
             múltiplos de {SECOND_BLOCK_MULTIPLE}. El periodo vacacional es calendario e incluye el día de descanso
-            semanal (p. ej. 6 días laborales → 7 en papeleta).
+            semanal (p. ej. 6 días laborales → 7 en papeleta). Otorgar más de {MAX_VACATION_DAYS_WITHOUT_AUTH} días o
+            anular vacaciones requiere autorización de otro usuario (queda en Historial).
           </p>
         </div>
       </div>
@@ -793,7 +977,8 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                     <th className="text-left p-3">Retorno</th>
                     <th className="text-center p-3">Días</th>
                     <th className="text-center p-3">Tipo</th>
-                    <th className="text-center p-3">PDF</th>
+                    <th className="text-center p-3">Estado</th>
+                    <th className="text-center p-3">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -812,33 +997,68 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                         </span>
                       </td>
                       <td className="p-3 text-center">
-                        <button
-                          onClick={async () => {
-                            const full = await vacationService.getPapeletaWithDays(p.id);
-                            if (full) await vacationPdfService.downloadPapeletaPDF(full);
-                          }}
-                          className="text-emerald-600 hover:text-emerald-800"
-                          title="Descargar PDF"
-                        >
-                          <Download size={16} />
-                        </button>
-                        {p.sourceType === 'accumulated' && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${p.status === 'issued' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {p.status === 'issued' ? 'Emitida' : p.status === 'cancelled' ? 'Anulada' : p.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-1 flex-wrap">
                           <button
                             onClick={async () => {
                               const full = await vacationService.getPapeletaWithDays(p.id);
-                              setDetailPapeleta(full);
+                              if (full) await vacationPdfService.downloadPapeletaPDF(full);
                             }}
-                            className="ml-2 text-blue-600 hover:text-blue-800 text-xs"
+                            className="text-emerald-600 hover:text-emerald-800 p-1"
+                            title="Descargar PDF"
                           >
-                            Ver días
+                            <Download size={16} />
                           </button>
-                        )}
+                          {p.status === 'issued' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditPapeleta(p);
+                                  setEditPapeletaForm({
+                                    startDate: p.startDate,
+                                    endDate: p.endDate,
+                                    returnDate: p.returnDate,
+                                    notes: p.notes || '',
+                                  });
+                                }}
+                                className="text-blue-600 hover:text-blue-800 p-1"
+                                title="Editar"
+                              >
+                                <Pencil size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => requestCancelPapeleta(p)}
+                                className="text-red-600 hover:text-red-800 p-1"
+                                title="Anular (requiere autorización)"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </>
+                          )}
+                          {p.sourceType === 'accumulated' && (
+                            <button
+                              onClick={async () => {
+                                const full = await vacationService.getPapeletaWithDays(p.id);
+                                setDetailPapeleta(full);
+                              }}
+                              className="text-blue-600 hover:text-blue-800 text-xs px-1"
+                            >
+                              Ver días
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
                   {filteredPapeletas.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-slate-400">No hay papeletas emitidas</td>
+                      <td colSpan={10} className="p-8 text-center text-slate-400">No hay papeletas emitidas</td>
                     </tr>
                   )}
                 </tbody>
@@ -883,17 +1103,29 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                           </td>
                           <td className="p-3 text-center">
                             {d.status === 'pending_batch' && (
-                              <button
-                                onClick={async () => {
-                                  if (confirm('¿Cancelar este día de vacaciones?')) {
-                                    await vacationService.cancelDayEntry(d.id, d.resourceId);
-                                    await loadData();
-                                  }
-                                }}
-                                className="text-red-500 hover:text-red-700 text-xs"
-                              >
-                                Cancelar
-                              </button>
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditDayEntry(d);
+                                    setEditDayForm({
+                                      date: d.vacationDate,
+                                      daysCount: (d.daysCount === 0.5 ? 0.5 : 1) as 0.5 | 1,
+                                      notes: d.notes || '',
+                                    });
+                                  }}
+                                  className="text-blue-600 hover:text-blue-800 text-xs inline-flex items-center gap-0.5"
+                                >
+                                  <Pencil size={12} /> Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => requestCancelDayEntry(d)}
+                                  className="text-red-500 hover:text-red-700 text-xs inline-flex items-center gap-0.5"
+                                >
+                                  <Trash2 size={12} /> Anular
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -901,6 +1133,100 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                     })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* TAB: Historial de cambios */}
+          {activeView === 'history' && (
+            <div className="space-y-3">
+              <div className="flex flex-col md:flex-row gap-3 md:items-end justify-between">
+                <div className="flex flex-wrap gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Desde</label>
+                    <input
+                      type="date"
+                      className="border rounded-lg px-3 py-2 text-sm"
+                      value={historyFrom}
+                      onChange={e => setHistoryFrom(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Hasta</label>
+                    <input
+                      type="date"
+                      className="border rounded-lg px-3 py-2 text-sm"
+                      value={historyTo}
+                      onChange={e => setHistoryTo(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadHistory()}
+                    className="self-end px-4 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm hover:bg-slate-200"
+                  >
+                    Filtrar
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportHistory}
+                  disabled={exporting === 'history' || changeLogs.length === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <FileSpreadsheet size={16} />
+                  {exporting === 'history' ? 'Exportando...' : 'Exportar historial a Excel'}
+                </button>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                {historyLoading ? (
+                  <div className="flex justify-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600" />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 text-slate-600 text-xs uppercase sticky top-0">
+                        <tr>
+                          <th className="text-left p-3">Fecha</th>
+                          <th className="text-left p-3">Usuario</th>
+                          <th className="text-left p-3">Acción</th>
+                          <th className="text-left p-3">Entidad</th>
+                          <th className="text-left p-3">Referencia</th>
+                          <th className="text-left p-3">Autorizador</th>
+                          <th className="text-left p-3">Justificación</th>
+                          <th className="text-left p-3">Detalle</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {changeLogs.map(log => (
+                          <tr key={log.id} className="hover:bg-slate-50">
+                            <td className="p-3 text-xs whitespace-nowrap">{new Date(log.createdAt).toLocaleString('es-PE')}</td>
+                            <td className="p-3">
+                              <div className="font-medium">{log.userName}</div>
+                              <div className="text-[10px] text-slate-400">{log.userEmail}</div>
+                            </td>
+                            <td className="p-3">
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100">{log.actionType}</span>
+                            </td>
+                            <td className="p-3 text-xs">{log.entityType}</td>
+                            <td className="p-3 text-xs font-mono">{log.entityName || '—'}</td>
+                            <td className="p-3 text-xs">{(log.changes as any)?.authorizedBy?.name || '—'}</td>
+                            <td className="p-3 text-xs text-slate-600 max-w-[200px] truncate" title={(log.changes as any)?.justification || ''}>
+                              {(log.changes as any)?.justification || '—'}
+                            </td>
+                            <td className="p-3 text-xs text-slate-600 max-w-xs truncate" title={log.description}>{log.description}</td>
+                          </tr>
+                        ))}
+                        {changeLogs.length === 0 && (
+                          <tr>
+                            <td colSpan={8} className="p-8 text-center text-slate-400">No hay cambios registrados en el periodo</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </>
@@ -1187,15 +1513,40 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                     <p>Incluye descanso ({papeletaPreview.restDayLabel}): {papeletaPreview.includedRestDates.join(', ')}</p>
                   )}
                   {papeletaPreview.allocation.valid ? (
-                    <p>
-                      Imputación → 1.ºs 15: {papeletaPreview.allocation.fromFirst15}
-                      {papeletaPreview.allocation.fromSecond15 > 0 && (
-                        <> · 2.ºs 15: {papeletaPreview.allocation.fromSecond15}</>
+                    <>
+                      <p>
+                        Imputación → 1.ºs 15: {papeletaPreview.allocation.fromFirst15}
+                        {papeletaPreview.allocation.fromSecond15 > 0 && (
+                          <> · 2.ºs 15: {papeletaPreview.allocation.fromSecond15}</>
+                        )}
+                      </p>
+                      {requiresVacationAuthorization(papeletaPreview.calendarDays) && (
+                        <p className="text-amber-700 font-medium">
+                          Requiere justificación y autorización de otro usuario (supera {MAX_VACATION_DAYS_WITHOUT_AUTH} días).
+                        </p>
                       )}
-                    </p>
+                    </>
                   ) : (
                     <p>{papeletaPreview.allocation.error}</p>
                   )}
+                </div>
+              )}
+
+              {papeletaPreview && requiresVacationAuthorization(papeletaPreview.calendarDays) && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Justificación del goce <span className="text-red-600">*</span>
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Obligatorio para solicitudes mayores a {MAX_VACATION_DAYS_WITHOUT_AUTH} días. El autorizador verá este texto.
+                  </p>
+                  <textarea
+                    className="w-full border border-amber-200 rounded-lg p-2 text-sm bg-amber-50/50"
+                    rows={3}
+                    value={papeletaForm.justification}
+                    onChange={e => setPapeletaForm({ ...papeletaForm, justification: e.target.value })}
+                    placeholder="Indique el motivo o sustento del otorgamiento de vacaciones por más de 7 días..."
+                  />
                 </div>
               )}
 
@@ -1209,14 +1560,17 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                 />
               </div>
               <button
-                onClick={handleCreatePapeleta}
+                onClick={() => void handleCreatePapeleta()}
                 disabled={
                   !papeletaForm.resourceId ||
                   !papeletaForm.startDate ||
                   !(papeletaForm.endDate || papeletaPreview?.endDate) ||
                   !(papeletaForm.returnDate || papeletaPreview?.returnDate) ||
                   (papeletaMode === 'accumulated' && papeletaForm.selectedDayIds.length < 1) ||
-                  (papeletaPreview != null && !papeletaPreview.allocation.valid)
+                  (papeletaPreview != null && !papeletaPreview.allocation.valid) ||
+                  (papeletaPreview != null &&
+                    requiresVacationAuthorization(papeletaPreview.calendarDays) &&
+                    !papeletaForm.justification.trim())
                 }
                 className="w-full bg-emerald-600 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 disabled:opacity-50"
               >
@@ -1323,6 +1677,93 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           </div>
         </div>
       )}
+
+      {authModal && (
+        <VacationAuthorizationModal
+          open
+          title={authModal.title}
+          message={authModal.message}
+          currentUser={currentUser}
+          users={users}
+          justification={authModal.justification}
+          onConfirm={authModal.onConfirm}
+          onClose={() => setAuthModal(null)}
+        />
+      )}
+
+      {editPapeleta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+              <span className="font-bold">Editar papeleta {editPapeleta.code}</span>
+              <button type="button" onClick={() => setEditPapeleta(null)}><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">{editPapeleta.workerName} — {editPapeleta.unitName}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Salida</label>
+                  <input type="date" className="w-full border rounded-lg p-2" value={editPapeletaForm.startDate}
+                    onChange={e => setEditPapeletaForm({ ...editPapeletaForm, startDate: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Término</label>
+                  <input type="date" className="w-full border rounded-lg p-2" value={editPapeletaForm.endDate}
+                    onChange={e => setEditPapeletaForm({ ...editPapeletaForm, endDate: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Retorno</label>
+                <input type="date" className="w-full border rounded-lg p-2" value={editPapeletaForm.returnDate}
+                  onChange={e => setEditPapeletaForm({ ...editPapeletaForm, returnDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Observaciones</label>
+                <textarea className="w-full border rounded-lg p-2 text-sm" rows={2} value={editPapeletaForm.notes}
+                  onChange={e => setEditPapeletaForm({ ...editPapeletaForm, notes: e.target.value })} />
+              </div>
+              <button type="button" onClick={() => void handleSaveEditPapeleta()}
+                className="w-full bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700">
+                Guardar cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editDayEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="bg-amber-500 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
+              <span className="font-bold">Editar día a cuenta</span>
+              <button type="button" onClick={() => setEditDayEntry(null)}><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Fecha</label>
+                <input type="date" className="w-full border rounded-lg p-2" value={editDayForm.date}
+                  onChange={e => setEditDayForm({ ...editDayForm, date: e.target.value })} />
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setEditDayForm({ ...editDayForm, daysCount: 1 })}
+                  className={`flex-1 py-2 rounded-lg text-sm ${editDayForm.daysCount === 1 ? 'bg-amber-500 text-white' : 'bg-slate-100'}`}>1 día</button>
+                <button type="button" onClick={() => setEditDayForm({ ...editDayForm, daysCount: 0.5 })}
+                  className={`flex-1 py-2 rounded-lg text-sm ${editDayForm.daysCount === 0.5 ? 'bg-amber-500 text-white' : 'bg-slate-100'}`}>0.5 día</button>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Notas</label>
+                <input className="w-full border rounded-lg p-2 text-sm" value={editDayForm.notes}
+                  onChange={e => setEditDayForm({ ...editDayForm, notes: e.target.value })} />
+              </div>
+              <button type="button" onClick={() => void handleSaveEditDayEntry()}
+                className="w-full bg-amber-500 text-white py-2.5 rounded-lg hover:bg-amber-600">
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

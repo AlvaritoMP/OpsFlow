@@ -25,7 +25,10 @@ export type AuditEntityType =
   | 'ZONE' 
   | 'MANAGEMENT_STAFF'
   | 'SETTINGS'
-  | 'PERMISSIONS';
+  | 'PERMISSIONS'
+  | 'VACATION_PAPELETA'
+  | 'VACATION_DAY_ENTRY'
+  | 'VACATION_BALANCE';
 
 export interface AuditLog {
   id: string;
@@ -344,6 +347,44 @@ export const auditService = {
     } catch (error: any) {
       console.error('Error al obtener logs de entidad:', error);
       throw new Error(error.message || 'Error al obtener logs de entidad');
+    }
+  },
+
+  // Obtener logs de vacaciones (cambios en papeletas, días y saldos)
+  async getVacationLogs(filters?: {
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  }): Promise<AuditLog[]> {
+    try {
+      const types: AuditEntityType[] = [
+        'VACATION_PAPELETA',
+        'VACATION_DAY_ENTRY',
+        'VACATION_BALANCE',
+      ];
+      let query = supabase
+        .from('audit_logs')
+        .select('*')
+        .in('entity_type', types)
+        .order('created_at', { ascending: false })
+        .limit(filters?.limit ?? 5000);
+
+      if (filters?.startDate) {
+        query = query.gte('created_at', `${filters.startDate}T00:00:00`);
+      }
+      if (filters?.endDate) {
+        query = query.lte('created_at', `${filters.endDate}T23:59:59`);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        handleSupabaseError(error);
+        return [];
+      }
+      return (data || []).map(transformAuditLogFromDB);
+    } catch (error) {
+      console.error('Error al obtener historial de vacaciones:', error);
+      return [];
     }
   },
 
