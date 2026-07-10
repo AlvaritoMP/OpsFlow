@@ -229,6 +229,23 @@ export const Vacations: React.FC<VacationsProps> = ({
     }
   }, [historyFrom, historyTo]);
 
+  const loadAuthRequests = useCallback(async () => {
+    setAuthRequestsLoading(true);
+    try {
+      const [forMe, byMe] = await Promise.all([
+        canActAsVacationAuthorizer(currentUser.role)
+          ? vacationAuthorizationRequestService.listPendingForAuthorizer(currentUser.id)
+          : Promise.resolve([]),
+        vacationAuthorizationRequestService.listPendingByRequester(currentUser.id),
+      ]);
+      setAuthRequestsForMe(forMe);
+      setAuthRequestsByMe(byMe);
+      onPendingAuthCountChange?.(forMe.length);
+    } finally {
+      setAuthRequestsLoading(false);
+    }
+  }, [currentUser.id, currentUser.role, onPendingAuthCountChange]);
+
   useEffect(() => {
     if (initialActiveView) setActiveView(initialActiveView);
   }, [initialActiveView]);
@@ -266,23 +283,6 @@ export const Vacations: React.FC<VacationsProps> = ({
   ) => {
     setAuthModal({ title, message, onSubmit, justification });
   };
-
-  const loadAuthRequests = useCallback(async () => {
-    setAuthRequestsLoading(true);
-    try {
-      const [forMe, byMe] = await Promise.all([
-        canActAsVacationAuthorizer(currentUser.role)
-          ? vacationAuthorizationRequestService.listPendingForAuthorizer(currentUser.id)
-          : Promise.resolve([]),
-        vacationAuthorizationRequestService.listPendingByRequester(currentUser.id),
-      ]);
-      setAuthRequestsForMe(forMe);
-      setAuthRequestsByMe(byMe);
-      onPendingAuthCountChange?.(forMe.length);
-    } finally {
-      setAuthRequestsLoading(false);
-    }
-  }, [currentUser.id, currentUser.role, onPendingAuthCountChange]);
 
   const handleExportHistory = async () => {
     if (changeLogs.length === 0) {
