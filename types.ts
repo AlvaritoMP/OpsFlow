@@ -1055,3 +1055,26 @@ export interface VacationCalendarEvent {
   eventType: 'papeleta' | 'day_entry';
   code?: string;
 }
+
+export type VacationAuthRequestType = 'create_papeleta' | 'cancel_papeleta' | 'cancel_day_entry';
+export type VacationAuthRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface VacationAuthorizationRequest {
+  id: string;
+  status: VacationAuthRequestStatus;
+  requestType: VacationAuthRequestType;
+  requesterId: string;
+  requesterName?: string;
+  assignedAuthorizerId: string;
+  assignedAuthorizerName?: string;
+  resourceId?: string;
+  unitId?: string;
+  payload: Record<string, unknown>;
+  justification?: string;
+  rejectionReason?: string;
+  summary: string;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  resolvedByName?: string;
+}

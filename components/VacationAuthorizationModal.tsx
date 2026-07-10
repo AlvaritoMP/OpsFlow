@@ -1,11 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { ShieldCheck, X, AlertCircle } from 'lucide-react';
+import { Send, X, AlertCircle } from 'lucide-react';
 import { User } from '../types';
-import {
-  verifyVacationAuthorizer,
-  canActAsVacationAuthorizer,
-  VerifiedAuthorizer,
-} from '../services/vacationAuthService';
+import { canActAsVacationAuthorizer } from '../services/vacationAuthService';
 
 interface VacationAuthorizationModalProps {
   open: boolean;
@@ -13,9 +9,9 @@ interface VacationAuthorizationModalProps {
   message: string;
   currentUser: User;
   users: User[];
-  /** Justificación del solicitante (visible para el autorizador) */
+  /** Justificación del solicitante (visible para el autorizador al revisar) */
   justification?: string;
-  onConfirm: (authorizer: VerifiedAuthorizer) => Promise<void>;
+  onSubmit: (assignedAuthorizerId: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -26,11 +22,10 @@ export const VacationAuthorizationModal: React.FC<VacationAuthorizationModalProp
   currentUser,
   users,
   justification,
-  onConfirm,
+  onSubmit,
   onClose,
 }) => {
   const [authorizerId, setAuthorizerId] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -45,20 +40,18 @@ export const VacationAuthorizationModal: React.FC<VacationAuthorizationModalProp
   if (!open) return null;
 
   const handleSubmit = async () => {
+    if (!authorizerId) {
+      setError('Debe seleccionar un usuario autorizador');
+      return;
+    }
     setError('');
     setSubmitting(true);
     try {
-      const verified = await verifyVacationAuthorizer(
-        authorizerId,
-        password,
-        currentUser.id
-      );
-      await onConfirm(verified);
-      setPassword('');
+      await onSubmit(authorizerId);
       setAuthorizerId('');
       onClose();
     } catch (err: any) {
-      setError(err.message || 'No se pudo verificar la autorización');
+      setError(err.message || 'No se pudo enviar la solicitud');
     } finally {
       setSubmitting(false);
     }
@@ -69,7 +62,7 @@ export const VacationAuthorizationModal: React.FC<VacationAuthorizationModalProp
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
         <div className="bg-indigo-700 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
           <span className="font-bold flex items-center gap-2">
-            <ShieldCheck size={18} /> {title}
+            <Send size={18} /> {title}
           </span>
           <button type="button" onClick={onClose} disabled={submitting}>
             <X size={20} />
@@ -78,13 +71,13 @@ export const VacationAuthorizationModal: React.FC<VacationAuthorizationModalProp
         <div className="p-6 space-y-4">
           <p className="text-sm text-slate-600">{message}</p>
           <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">
-            Solicitante: <strong>{currentUser.name}</strong>. Debe ingresar las credenciales de
-            otro usuario autorizado (distinto al solicitante).
+            Solicitante: <strong>{currentUser.name}</strong>. Seleccione quién debe autorizar esta acción.
+            El usuario designado recibirá una alerta y deberá ingresar a Vacaciones para aprobar o rechazar.
           </p>
 
           {justification?.trim() && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <p className="text-xs font-semibold text-amber-900 mb-1">Justificación del solicitante</p>
+              <p className="text-xs font-semibold text-amber-900 mb-1">Justificación registrada</p>
               <p className="text-sm text-amber-950 whitespace-pre-wrap">{justification}</p>
             </div>
           )}
@@ -105,18 +98,6 @@ export const VacationAuthorizationModal: React.FC<VacationAuthorizationModalProp
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Contraseña del autorizador</label>
-            <input
-              type="password"
-              className="w-full border rounded-lg p-2 text-sm"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Contraseña del usuario seleccionado"
-              autoComplete="current-password"
-            />
-          </div>
-
           {error && (
             <p className="text-sm text-red-600 flex items-center gap-1">
               <AlertCircle size={14} /> {error}
@@ -135,10 +116,10 @@ export const VacationAuthorizationModal: React.FC<VacationAuthorizationModalProp
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting || !authorizerId || !password}
+              disabled={submitting || !authorizerId}
               className="flex-1 py-2.5 rounded-lg bg-indigo-700 text-white text-sm font-medium hover:bg-indigo-800 disabled:opacity-50"
             >
-              {submitting ? 'Verificando...' : 'Autorizar y continuar'}
+              {submitting ? 'Enviando...' : 'Enviar solicitud'}
             </button>
           </div>
         </div>

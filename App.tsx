@@ -29,6 +29,8 @@ import { SafeImage } from './components/SafeImage';
 import { PositionsManagementSection } from './components/PositionsManagement';
 import { Headcount } from './components/Headcount';
 import { Vacations } from './components/Vacations';
+import { vacationAuthorizationRequestService } from './services/vacationAuthorizationRequestService';
+import { canActAsVacationAuthorizer } from './services/vacationAuthService';
 import { Archive } from './components/Archive';
 import { PasswordReset } from './components/PasswordReset';
 import { WorkersManagement } from './components/WorkersManagement';
@@ -59,6 +61,9 @@ const App: React.FC = () => {
   // Estado para alertas de cumpleaños
   const [birthdayAlerts, setBirthdayAlerts] = useState<Array<{ name: string; unitName: string; age: number; daysUntil: number }>>([]);
   const [showBirthdayAlerts, setShowBirthdayAlerts] = useState(false);
+
+  const [pendingVacationAuthCount, setPendingVacationAuthCount] = useState(0);
+  const [vacationsNavTab, setVacationsNavTab] = useState<'approvals' | undefined>();
   
   // Settings accordion state
   const [settingsSections, setSettingsSections] = useState<Record<string, boolean>>({
@@ -451,6 +456,27 @@ const App: React.FC = () => {
       }
     }
   }, [units, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser || !canActAsVacationAuthorizer(currentUser.role)) {
+      setPendingVacationAuthCount(0);
+      return;
+    }
+    const loadPendingVacationAuth = async () => {
+      const count = await vacationAuthorizationRequestService.countPendingForAuthorizer(currentUser.id);
+      setPendingVacationAuthCount(count);
+    };
+    void loadPendingVacationAuth();
+    const interval = setInterval(() => void loadPendingVacationAuth(), 20000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadPendingVacationAuth();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isAuthenticated, currentUser?.id, currentUser?.role]);
 
   // Manejar login exitoso
   const handleLoginSuccess = async (user: User) => {
@@ -1649,7 +1675,14 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'vacations') {
-      return <Vacations units={visibleUnits} currentUser={currentUser} />;
+      return (
+        <Vacations
+          units={visibleUnits}
+          currentUser={currentUser}
+          initialActiveView={vacationsNavTab}
+          onPendingAuthCountChange={setPendingVacationAuthCount}
+        />
+      );
     }
 
     if (currentView === 'workers-management') {
@@ -3346,11 +3379,21 @@ const App: React.FC = () => {
               {/* Vacaciones */}
               {checkPermission(currentUser.role, 'VACATIONS', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('vacations'); setSelectedUnitId(null); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'vacations' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    onClick={() => {
+                      setVacationsNavTab(pendingVacationAuthCount > 0 ? 'approvals' : undefined);
+                      setCurrentView('vacations');
+                      setSelectedUnitId(null);
+                      setSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 relative ${currentView === 'vacations' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Palmtree size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Vacaciones</span>
+                    <span className="truncate min-w-0 flex-1 text-left">Vacaciones</span>
+                    {pendingVacationAuthCount > 0 && (
+                      <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                        {pendingVacationAuthCount}
+                      </span>
+                    )}
                   </button>
               )}
 
@@ -3536,6 +3579,30 @@ const App: React.FC = () => {
 
         {/* Scrollable Content Area - FIXED LAYOUT for Control Center */}
         <div className={`flex-1 relative ${currentView === 'control-center' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          {pendingVacationAuthCount > 0 &&
+            currentView !== 'vacations' &&
+            canActAsVacationAuthorizer(currentUser.role) && (
+            <div className="bg-indigo-600 text-white px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 text-sm">
+                <Bell size={16} className="shrink-0" />
+                <span>
+                  Tiene <strong>{pendingVacationAuthCount}</strong> solicitud
+                  {pendingVacationAuthCount !== 1 ? 'es' : ''} de vacaciones por autorizar.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setVacationsNavTab('approvals');
+                  setCurrentView('vacations');
+                  setSelectedUnitId(null);
+                }}
+                className="self-start sm:self-auto px-3 py-1 rounded-lg bg-white text-indigo-700 text-sm font-medium hover:bg-indigo-50"
+              >
+                Ir a Autorizaciones
+              </button>
+            </div>
+          )}
            {renderContent()}
         </div>
       </main>

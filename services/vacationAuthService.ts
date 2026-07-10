@@ -27,8 +27,23 @@ export function canActAsVacationAuthorizer(role: UserRole): boolean {
   return AUTHORIZER_ROLES.includes(role);
 }
 
+export function toVerifiedAuthorizer(user: {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+}): VerifiedAuthorizer {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+  };
+}
+
 /**
  * Verifica credenciales de un segundo usuario sin cambiar la sesión activa.
+ * @deprecated Usar flujo asíncrono de solicitudes de autorización.
  */
 export async function verifyVacationAuthorizer(
   authorizerUserId: string,

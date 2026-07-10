@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Palmtree, Users, FileText, Calendar, Plus, X, Save, Download,
   Search, Filter, AlertCircle, CheckCircle, Clock, Building, Info, FileSpreadsheet,
-  Pencil, Trash2, History,
+  Pencil, Trash2, History, ShieldCheck, XCircle,
 } from 'lucide-react';
-import { Unit, ResourceType, VacationBalanceSummary, VacationPapeleta, VacationDayEntry, User } from '../types';
+import { Unit, ResourceType, VacationBalanceSummary, VacationPapeleta, VacationDayEntry, User, VacationAuthorizationRequest } from '../types';
 import type { AuditLog } from '../services/auditService';
 import {
   vacationService,
@@ -23,7 +23,8 @@ import {
 } from '../services/vacationService';
 import { vacationPdfService } from '../services/vacationPdfService';
 import { vacationAuditService } from '../services/vacationAuditService';
-import type { VerifiedAuthorizer } from '../services/vacationAuthService';
+import { canActAsVacationAuthorizer } from '../services/vacationAuthService';
+import { vacationAuthorizationRequestService } from '../services/vacationAuthorizationRequestService';
 import { VacationCalendarView } from './VacationCalendarView';
 import { VacationAuthorizationModal } from './VacationAuthorizationModal';
 import { excelService } from '../services/excelService';
@@ -36,20 +37,31 @@ interface VacationsProps {
   fixedUnitId?: string;
   /** Modo embebido dentro de UnitDetail: sin padding externo ni banner largo */
   embedded?: boolean;
+  /** Vista inicial (p. ej. 'approvals' desde alerta global) */
+  initialActiveView?: ActiveView;
+  /** Notifica al padre el conteo de solicitudes pendientes para el usuario actual */
+  onPendingAuthCountChange?: (count: number) => void;
 }
 
-type ActiveView = 'balances' | 'monitoring' | 'calendar' | 'papeletas' | 'day-entries' | 'history';
+type ActiveView = 'balances' | 'monitoring' | 'calendar' | 'papeletas' | 'day-entries' | 'history' | 'approvals';
 
 type AuthModalState = {
   title: string;
   message: string;
   justification?: string;
-  onConfirm: (authorizer: VerifiedAuthorizer) => Promise<void>;
+  onSubmit: (assignedAuthorizerId: string) => Promise<void>;
 };
 
-export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedUnitId, embedded = false }) => {
+export const Vacations: React.FC<VacationsProps> = ({
+  units,
+  currentUser,
+  fixedUnitId,
+  embedded = false,
+  initialActiveView,
+  onPendingAuthCountChange,
+}) => {
   const { users } = useUsers(true);
-  const [activeView, setActiveView] = useState<ActiveView>(embedded ? 'calendar' : 'balances');
+  const [activeView, setActiveView] = useState<ActiveView>(initialActiveView || (embedded ? 'calendar' : 'balances'));
   const [loading, setLoading] = useState(true);
   const [summaries, setSummaries] = useState<VacationBalanceSummary[]>([]);
   const [papeletas, setPapeletas] = useState<VacationPapeleta[]>([]);
@@ -123,6 +135,11 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFrom, setHistoryFrom] = useState('');
   const [historyTo, setHistoryTo] = useState('');
+
+  const [authRequestsForMe, setAuthRequestsForMe] = useState<VacationAuthorizationRequest[]>([]);
+  const [authRequestsByMe, setAuthRequestsByMe] = useState<VacationAuthorizationRequest[]>([]);
+  const [authRequestsLoading, setAuthRequestsLoading] = useState(false);
+  const [resolvingRequestId, setResolvingRequestId] = useState<string | null>(null);
 
   const allPersonnel = useMemo(() => {
     const list: { resourceId: string; name: string; dni?: string; unitId: string; unitName: string; startDate?: string }[] = [];
@@ -213,19 +230,59 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
   }, [historyFrom, historyTo]);
 
   useEffect(() => {
+    if (initialActiveView) setActiveView(initialActiveView);
+  }, [initialActiveView]);
+
+  useEffect(() => {
     if (activeView === 'history') {
       void loadHistory();
     }
   }, [activeView, loadHistory]);
 
+  useEffect(() => {
+    void loadAuthRequests();
+    const interval = setInterval(() => void loadAuthRequests(), 20000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadAuthRequests();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [loadAuthRequests]);
+
+  useEffect(() => {
+    if (activeView === 'approvals') {
+      void loadAuthRequests();
+    }
+  }, [activeView, loadAuthRequests]);
+
   const openAuthModal = (
     title: string,
     message: string,
-    onConfirm: AuthModalState['onConfirm'],
+    onSubmit: AuthModalState['onSubmit'],
     justification?: string
   ) => {
-    setAuthModal({ title, message, onConfirm, justification });
+    setAuthModal({ title, message, onSubmit, justification });
   };
+
+  const loadAuthRequests = useCallback(async () => {
+    setAuthRequestsLoading(true);
+    try {
+      const [forMe, byMe] = await Promise.all([
+        canActAsVacationAuthorizer(currentUser.role)
+          ? vacationAuthorizationRequestService.listPendingForAuthorizer(currentUser.id)
+          : Promise.resolve([]),
+        vacationAuthorizationRequestService.listPendingByRequester(currentUser.id),
+      ]);
+      setAuthRequestsForMe(forMe);
+      setAuthRequestsByMe(byMe);
+      onPendingAuthCountChange?.(forMe.length);
+    } finally {
+      setAuthRequestsLoading(false);
+    }
+  }, [currentUser.id, currentUser.role, onPendingAuthCountChange]);
 
   const handleExportHistory = async () => {
     if (changeLogs.length === 0) {
@@ -454,24 +511,70 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     return null;
   }, [papeletaForm, papeletaMode, selectedWorkerSummary, dayEntries]);
 
-  const handleCreatePapeleta = async (authorizer?: VerifiedAuthorizer) => {
+  const submitCreatePapeletaRequest = async (assignedAuthorizerId: string) => {
     const worker = allPersonnel.find(p => p.resourceId === papeletaForm.resourceId);
     if (!worker) return;
 
     const calendarDays = papeletaPreview?.calendarDays ?? 0;
-    const needsJustification = requiresVacationAuthorization(calendarDays);
+    const workDays = Number(papeletaForm.requestedWorkDays);
+    const endDate = papeletaPreview?.endDate || papeletaForm.endDate;
+    const returnDate = papeletaForm.returnDate || papeletaPreview?.returnDate || '';
+    const justification = papeletaForm.justification.trim();
+    const authorizerName = users.find(u => u.id === assignedAuthorizerId)?.name || 'el autorizador';
+
+    await vacationAuthorizationRequestService.createRequest({
+      requestType: 'create_papeleta',
+      requesterId: currentUser.id,
+      assignedAuthorizerId,
+      resourceId: papeletaForm.resourceId,
+      unitId: worker.unitId,
+      justification,
+      summary: `Emitir papeleta — ${worker.name} (${calendarDays} días)`,
+      payload: {
+        mode: papeletaMode,
+        resourceId: papeletaForm.resourceId,
+        unitId: worker.unitId,
+        unitName: worker.unitName,
+        workerName: worker.name,
+        workerDni: worker.dni,
+        startDate: papeletaForm.startDate,
+        endDate: endDate || papeletaForm.endDate,
+        returnDate: returnDate || papeletaForm.returnDate,
+        notes: papeletaForm.notes,
+        requestedWorkDays: workDays > 0 ? workDays : undefined,
+        weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
+        selectedDayIds: papeletaForm.selectedDayIds,
+        calendarDays,
+      },
+    });
+
+    setShowPapeletaModal(false);
+    setPapeletaForm({
+      resourceId: '', unitId: '', startDate: '', endDate: '', returnDate: '', notes: '', justification: '', selectedDayIds: [], requestedWorkDays: '',
+    });
+    await loadAuthRequests();
+    setActiveView('approvals');
+    alert(`Solicitud enviada. ${authorizerName} debe ingresar a Vacaciones → Autorizaciones para aprobarla.`);
+  };
+
+  const handleCreatePapeleta = async () => {
+    const worker = allPersonnel.find(p => p.resourceId === papeletaForm.resourceId);
+    if (!worker) return;
+
+    const calendarDays = papeletaPreview?.calendarDays ?? 0;
+    const needsAuthorization = requiresVacationAuthorization(calendarDays);
     const justification = papeletaForm.justification.trim();
 
-    if (needsJustification && !justification) {
+    if (needsAuthorization && !justification) {
       alert(`Debe ingresar la justificación del goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días.`);
       return;
     }
 
-    if (needsJustification && !authorizer) {
+    if (needsAuthorization) {
       openAuthModal(
-        'Autorización para otorgar vacaciones',
-        `El goce de ${calendarDays} días supera el máximo de ${MAX_VACATION_DAYS_WITHOUT_AUTH} días sin autorización de otro usuario.`,
-        async auth => handleCreatePapeleta(auth),
+        'Solicitar autorización de vacaciones',
+        `El goce de ${calendarDays} días supera el máximo de ${MAX_VACATION_DAYS_WITHOUT_AUTH} días. Se enviará una solicitud al usuario que designe.`,
+        submitCreatePapeletaRequest,
         justification
       );
       return;
@@ -494,9 +597,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           endDate: endDate || papeletaForm.endDate,
           returnDate: returnDate || papeletaForm.returnDate,
           notes: papeletaForm.notes,
-          justification: needsJustification ? justification : undefined,
           issuedBy: currentUser.id,
-          authorizedBy: authorizer,
           requestedWorkDays: workDays > 0 ? workDays : undefined,
           weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
         });
@@ -512,9 +613,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           returnDate: returnDate || papeletaForm.returnDate,
           dayEntryIds: papeletaForm.selectedDayIds,
           notes: papeletaForm.notes,
-          justification: needsJustification ? justification : undefined,
           issuedBy: currentUser.id,
-          authorizedBy: authorizer,
           weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
         });
       }
@@ -536,26 +635,106 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
 
   const requestCancelPapeleta = (p: VacationPapeleta) => {
     openAuthModal(
-      'Autorizar anulación de papeleta',
-      `Se anulará la papeleta ${p.code} de ${p.workerName} (${p.calendarDays} días). Esta acción quedará registrada.`,
-      async authorizer => {
-        await vacationService.cancelPapeleta(p.id, currentUser.id, authorizer);
-        await loadData();
-        if (activeView === 'history') await loadHistory();
+      'Solicitar anulación de papeleta',
+      `Se enviará una solicitud para anular la papeleta ${p.code} de ${p.workerName} (${p.calendarDays} días). La anulación se ejecutará cuando el autorizador la apruebe.`,
+      async assignedAuthorizerId => {
+        const authorizerName = users.find(u => u.id === assignedAuthorizerId)?.name || 'el autorizador';
+        await vacationAuthorizationRequestService.createRequest({
+          requestType: 'cancel_papeleta',
+          requesterId: currentUser.id,
+          assignedAuthorizerId,
+          resourceId: p.resourceId,
+          unitId: p.unitId,
+          summary: `Anular papeleta ${p.code} — ${p.workerName} (${p.calendarDays} días)`,
+          payload: {
+            papeletaId: p.id,
+            papeletaCode: p.code,
+            workerName: p.workerName,
+            calendarDays: p.calendarDays,
+            resourceId: p.resourceId,
+            unitId: p.unitId,
+          },
+        });
+        await loadAuthRequests();
+        setActiveView('approvals');
+        alert(`Solicitud enviada. ${authorizerName} debe aprobar la anulación en Autorizaciones.`);
       }
     );
   };
 
   const requestCancelDayEntry = (d: VacationDayEntry) => {
+    const worker = allPersonnel.find(p => p.resourceId === d.resourceId);
     openAuthModal(
-      'Autorizar anulación de día a cuenta',
-      `Se anulará el día ${d.vacationDate} (${d.daysCount ?? 1} d) del trabajador.`,
-      async authorizer => {
-        await vacationService.cancelDayEntry(d.id, d.resourceId, currentUser.id, authorizer);
-        await loadData();
-        if (activeView === 'history') await loadHistory();
+      'Solicitar anulación de día a cuenta',
+      `Se enviará una solicitud para anular el día ${d.vacationDate} (${d.daysCount ?? 1} d). La anulación se ejecutará cuando el autorizador la apruebe.`,
+      async assignedAuthorizerId => {
+        const authorizerName = users.find(u => u.id === assignedAuthorizerId)?.name || 'el autorizador';
+        await vacationAuthorizationRequestService.createRequest({
+          requestType: 'cancel_day_entry',
+          requesterId: currentUser.id,
+          assignedAuthorizerId,
+          resourceId: d.resourceId,
+          unitId: d.unitId,
+          summary: `Anular día a cuenta ${d.vacationDate} — ${worker?.name || 'trabajador'} (${d.daysCount ?? 1} d)`,
+          payload: {
+            dayEntryId: d.id,
+            resourceId: d.resourceId,
+            unitId: d.unitId,
+            vacationDate: d.vacationDate,
+            daysCount: d.daysCount ?? 1,
+            workerName: worker?.name,
+          },
+        });
+        await loadAuthRequests();
+        setActiveView('approvals');
+        alert(`Solicitud enviada. ${authorizerName} debe aprobar la anulación en Autorizaciones.`);
       }
     );
+  };
+
+  const handleApproveAuthRequest = async (req: VacationAuthorizationRequest) => {
+    if (!window.confirm(`¿Aprobar esta solicitud?\n\n${req.summary}`)) return;
+    setResolvingRequestId(req.id);
+    try {
+      const outcome = await vacationAuthorizationRequestService.approve(req.id, currentUser);
+      await loadData();
+      await loadAuthRequests();
+      if (activeView === 'history') await loadHistory();
+      if (outcome.papeletaId) {
+        const full = await vacationService.getPapeletaWithDays(outcome.papeletaId);
+        if (full) await vacationPdfService.downloadPapeletaPDF(full);
+      }
+      alert('Solicitud aprobada y acción ejecutada.');
+    } catch (err: any) {
+      alert(err.message || 'No se pudo aprobar la solicitud');
+    } finally {
+      setResolvingRequestId(null);
+    }
+  };
+
+  const handleRejectAuthRequest = async (req: VacationAuthorizationRequest) => {
+    const reason = window.prompt('Motivo del rechazo (opcional):') ?? '';
+    if (reason === null) return;
+    setResolvingRequestId(req.id);
+    try {
+      await vacationAuthorizationRequestService.reject(req.id, currentUser, reason || undefined);
+      await loadAuthRequests();
+      alert('Solicitud rechazada.');
+    } catch (err: any) {
+      alert(err.message || 'No se pudo rechazar la solicitud');
+    } finally {
+      setResolvingRequestId(null);
+    }
+  };
+
+  const handleCancelAuthRequest = async (req: VacationAuthorizationRequest) => {
+    if (!window.confirm('¿Retirar esta solicitud pendiente?')) return;
+    try {
+      await vacationAuthorizationRequestService.cancelByRequester(req.id, currentUser.id);
+      await loadAuthRequests();
+    } catch (err: any) {
+      alert(err.message || 'No se pudo cancelar la solicitud');
+    }
   };
 
   const handleSaveEditPapeleta = async () => {
@@ -639,12 +818,22 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   };
 
-  const tabs: { id: ActiveView; label: string; icon: React.ReactNode }[] = [
+  const pendingAuthCount = authRequestsForMe.length;
+
+  const tabs: { id: ActiveView; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: 'balances', label: 'Saldos y Control', icon: <Users size={16} /> },
     { id: 'calendar', label: 'Calendario', icon: <Calendar size={16} /> },
     { id: 'monitoring', label: 'Monitoreo', icon: <Clock size={16} /> },
     { id: 'papeletas', label: 'Papeletas', icon: <FileText size={16} /> },
     { id: 'day-entries', label: 'Días a Cuenta', icon: <Building size={16} /> },
+    {
+      id: 'approvals',
+      label: 'Autorizaciones',
+      icon: <ShieldCheck size={16} />,
+      badge: pendingAuthCount + authRequestsByMe.length > 0
+        ? pendingAuthCount + authRequestsByMe.length
+        : undefined,
+    },
     { id: 'history', label: 'Historial', icon: <History size={16} /> },
   ];
 
@@ -732,7 +921,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
             ganados de cada año son fraccionables desde medio día. Los segundos {SECOND_BLOCK_DAYS} se gozan en
             múltiplos de {SECOND_BLOCK_MULTIPLE}. El periodo vacacional es calendario e incluye el día de descanso
             semanal (p. ej. 6 días laborales → 7 en papeleta). Otorgar más de {MAX_VACATION_DAYS_WITHOUT_AUTH} días o
-            anular vacaciones requiere autorización de otro usuario (queda en Historial).
+            anular vacaciones requiere solicitar autorización a otro usuario; el designado la aprueba en la pestaña Autorizaciones.
           </p>
         </div>
       </div>
@@ -781,6 +970,11 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           >
             {tab.icon}
             {tab.label}
+            {tab.badge != null && tab.badge > 0 && (
+              <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+                {tab.badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -1134,6 +1328,125 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                     })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* TAB: Autorizaciones */}
+          {activeView === 'approvals' && (
+            <div className="space-y-6">
+              {pendingAuthCount > 0 && canActAsVacationAuthorizer(currentUser.role) && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex gap-3">
+                  <ShieldCheck className="text-indigo-600 shrink-0 mt-0.5" size={20} />
+                  <div>
+                    <p className="font-semibold text-indigo-900">
+                      Tiene {pendingAuthCount} solicitud{pendingAuthCount !== 1 ? 'es' : ''} pendiente{pendingAuthCount !== 1 ? 's' : ''} de autorizar
+                    </p>
+                    <p className="text-sm text-indigo-700 mt-1">
+                      Revise cada caso y apruebe o rechace. La acción se ejecutará al aprobar.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {canActAsVacationAuthorizer(currentUser.role) && (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+                    <h3 className="font-semibold text-slate-800">Pendientes de mi autorización</h3>
+                  </div>
+                  {authRequestsLoading ? (
+                    <div className="flex justify-center py-10">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+                    </div>
+                  ) : authRequestsForMe.length === 0 ? (
+                    <p className="p-6 text-sm text-slate-500 text-center">No hay solicitudes pendientes para usted.</p>
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {authRequestsForMe
+                        .filter(r => !fixedUnitId || r.unitId === fixedUnitId)
+                        .map(req => (
+                          <div key={req.id} className="p-4 space-y-3">
+                            <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs font-semibold uppercase tracking-wide text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
+                                    {req.requestType === 'create_papeleta' ? 'Emitir papeleta' :
+                                     req.requestType === 'cancel_papeleta' ? 'Anular papeleta' : 'Anular día a cuenta'}
+                                  </span>
+                                  <span className="text-xs text-slate-400">
+                                    {new Date(req.createdAt).toLocaleString('es-PE')}
+                                  </span>
+                                </div>
+                                <p className="font-medium text-slate-800 mt-1">{req.summary}</p>
+                                <p className="text-sm text-slate-600">
+                                  Solicitado por <strong>{req.requesterName}</strong>
+                                </p>
+                                {req.justification && (
+                                  <p className="text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded-lg p-2 mt-2 whitespace-pre-wrap">
+                                    <span className="font-medium">Justificación: </span>{req.justification}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={resolvingRequestId === req.id}
+                                  onClick={() => void handleApproveAuthRequest(req)}
+                                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-50"
+                                >
+                                  <CheckCircle size={14} /> Aprobar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={resolvingRequestId === req.id}
+                                  onClick={() => void handleRejectAuthRequest(req)}
+                                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm hover:bg-red-100 disabled:opacity-50"
+                                >
+                                  <XCircle size={14} /> Rechazar
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+                  <h3 className="font-semibold text-slate-800">Mis solicitudes enviadas</h3>
+                </div>
+                {authRequestsLoading ? (
+                  <div className="flex justify-center py-10">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-400" />
+                  </div>
+                ) : authRequestsByMe.length === 0 ? (
+                  <p className="p-6 text-sm text-slate-500 text-center">No tiene solicitudes en espera.</p>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {authRequestsByMe
+                      .filter(r => !fixedUnitId || r.unitId === fixedUnitId)
+                      .map(req => (
+                        <div key={req.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-slate-800">{req.summary}</p>
+                            <p className="text-sm text-slate-600 mt-1">
+                              Esperando a <strong>{req.assignedAuthorizerName}</strong>
+                              <span className="text-slate-400"> · {new Date(req.createdAt).toLocaleString('es-PE')}</span>
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleCancelAuthRequest(req)}
+                            className="text-sm text-slate-600 hover:text-red-600 border border-slate-200 px-3 py-1.5 rounded-lg"
+                          >
+                            Retirar solicitud
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1523,7 +1836,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
                       </p>
                       {requiresVacationAuthorization(papeletaPreview.calendarDays) && (
                         <p className="text-amber-700 font-medium">
-                          Requiere justificación y autorización de otro usuario (supera {MAX_VACATION_DAYS_WITHOUT_AUTH} días).
+                          Requiere justificación y solicitud de autorización (supera {MAX_VACATION_DAYS_WITHOUT_AUTH} días).
                         </p>
                       )}
                     </>
@@ -1687,7 +2000,7 @@ export const Vacations: React.FC<VacationsProps> = ({ units, currentUser, fixedU
           currentUser={currentUser}
           users={users}
           justification={authModal.justification}
-          onConfirm={authModal.onConfirm}
+          onSubmit={authModal.onSubmit}
           onClose={() => setAuthModal(null)}
         />
       )}
