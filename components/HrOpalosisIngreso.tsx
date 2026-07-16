@@ -12,8 +12,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { hrOutboundIngresoService } from '../services/hrOutboundIngresoService';
-import { listHrFieldWarnings } from '../utils/hrOpalosisMapper';
+import { listHrFieldBlockers, listHrFieldWarnings } from '../utils/hrOpalosisMapper';
 import { toOpsflowDate } from '../utils/hrIntegration';
+import { HrOpalosisEditQueueItemModal } from './HrOpalosisEditQueueItemModal';
 import type {
   HrOutboundIngresoPackage,
   HrOutboundIngresoPackageWithItems,
@@ -96,6 +97,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [simulatedNotice, setSimulatedNotice] = useState(false);
+  const [editingItem, setEditingItem] = useState<HrOutboundIngresoQueueItem | null>(null);
 
   const unitNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -150,6 +152,17 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
   const handleSendPackage = async () => {
     if (!canEdit || selectedIds.size === 0) return;
 
+    const selected = queueItems.filter((i) => selectedIds.has(i.id));
+    const incomplete = selected.filter(
+      (i) => !i.hrFields || listHrFieldBlockers(i.hrFields).length > 0,
+    );
+    if (incomplete.length > 0) {
+      setError(
+        `${incomplete.length} trabajador(es) tienen datos incompletos. Complete el formulario (cargo, lugar, sueldo, movilidad, URL SharePoint, etc.) antes de enviar.`,
+      );
+      return;
+    }
+
     setSending(true);
     setError(null);
     setSuccessMessage(null);
@@ -165,8 +178,10 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
       setSimulatedNotice(result.simulated);
       setSuccessMessage(
         result.simulated
-          ? `Paquete simulado enviado (${result.package.workerCount} trabajador(es)). Configure Opalosis para envío real.`
-          : `Paquete enviado a Opalosis (${result.package.workerCount} trabajador(es)).`,
+          ? `Paquete simulado (${result.package.workerCount} trabajador(es)). Configure secrets Opalosis para envío real.`
+          : result.partial
+            ? `Envío parcial: algunos trabajadores fueron rechazados por Opalosis. Revise el detalle.`
+            : `Solicitudes registradas en Opalosis (${result.package.workerCount} trabajador(es)).`,
       );
       setSenderNote('');
       await loadData();
@@ -278,7 +293,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
               )}
             </dl>
 
-            {canEdit && ['enviado', 'simulado', 'observado', 'parcialmente_procesado'].includes(
+            {canEdit && ['enviado', 'simulado', 'observado', 'parcialmente_procesado', 'recibido'].includes(
               selectedPackage.status,
             ) && (
               <button
@@ -292,7 +307,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                 ) : (
                   <RefreshCw size={16} />
                 )}
-                Consultar estado en Opalosis
+                Actualizar Estado / Etapa
               </button>
             )}
           </div>
@@ -308,23 +323,27 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                     <div className="font-medium text-slate-800">{item.workerName}</div>
                     <span
                       className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                        item.itemStatus === 'procesado'
+                        item.itemStatus === 'procesado' || item.itemStatus === 'recibido'
                           ? 'bg-green-100 text-green-800'
-                          : item.itemStatus === 'rechazado'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-slate-100 text-slate-600'
+                          : item.itemStatus === 'observado'
+                            ? 'bg-orange-100 text-orange-800'
+                            : item.itemStatus === 'rechazado'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-slate-100 text-slate-600'
                       }`}
                     >
-                      {item.itemStatus}
+                      {item.opalosisEstado ?? item.itemStatus}
                     </span>
                   </div>
                   <div className="mt-1 font-mono text-xs text-slate-500">{item.refOperaciones}</div>
-                  {item.empleadoIdRrhh && (
+                  {item.ingresoCod && (
                     <div className="mt-1 text-xs text-emerald-700">
-                      Opalosis: {item.mensaje ?? `Ingreso #${item.empleadoIdRrhh}`}
+                      {item.ingresoCod}
+                      {item.empleadoIdRrhh ? ` (#${item.empleadoIdRrhh})` : ''}
+                      {item.opalosisEtapa ? ` · Etapa: ${item.opalosisEtapa}` : ''}
                     </div>
                   )}
-                  {item.mensaje && !item.empleadoIdRrhh && item.itemStatus === 'rechazado' && (
+                  {item.mensaje && item.itemStatus === 'rechazado' && (
                     <div className="mt-1 text-xs text-red-700">{item.mensaje}</div>
                   )}
                   <div className="mt-1 text-xs text-slate-600">
@@ -364,8 +383,13 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
         <div className="flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 p-4 text-sm text-purple-900">
           <Clock size={18} className="mt-0.5 shrink-0" />
           <div>
-            <strong>Modo simulación.</strong> Opalosis no está configurado. Los paquetes se registran
-            localmente hasta que RRHH entregue URL y API Key.
+            <strong>Modo simulación.</strong> Configure en Supabase{' '}
+            <code className="text-xs">OPALOSIS_API_BASE_URL</code>
+            {' = '}
+            <code className="text-xs">
+              https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow
+            </code>{' '}
+            y <code className="text-xs">OPALOSIS_API_KEY</code>.
           </div>
         </div>
       )}
@@ -492,7 +516,8 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {queueItems.map((item) => {
-                    const warnings = item.hrFields ? listHrFieldWarnings(item.hrFields) : [];
+                    const warnings = item.hrFields ? listHrFieldWarnings(item.hrFields) : ['Sin datos'];
+                    const blockers = item.hrFields ? listHrFieldBlockers(item.hrFields) : ['Sin datos'];
                     return (
                       <tr key={item.id} className="hover:bg-slate-50">
                         {canEdit && (
@@ -515,23 +540,35 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                           {formatDateTime(item.assignedAt)}
                         </td>
                         <td className="px-4 py-3">
-                          {warnings.length === 0 ? (
-                            <span className="text-xs text-green-600">OK</span>
+                          {blockers.length === 0 ? (
+                            <span className="text-xs text-green-600">Listo</span>
                           ) : (
-                            <span className="text-xs text-amber-600" title={warnings.join(', ')}>
-                              {warnings.length} alerta(s)
+                            <span
+                              className="text-xs text-amber-600"
+                              title={[...blockers, ...warnings].join(', ')}
+                            >
+                              {blockers.length} faltante(s)
                             </span>
                           )}
                         </td>
                         {canEdit && (
                           <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => handleExclude(item.id)}
-                              className="text-xs text-red-600 hover:text-red-800"
-                            >
-                              Excluir
-                            </button>
+                            <div className="flex flex-col items-start gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingItem(item)}
+                                className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                              >
+                                Completar / editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleExclude(item.id)}
+                                className="text-xs text-red-600 hover:text-red-800"
+                              >
+                                Excluir
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -542,6 +579,18 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {editingItem && (
+        <HrOpalosisEditQueueItemModal
+          item={editingItem}
+          onClose={() => setEditingItem(null)}
+          onSaved={async () => {
+            setEditingItem(null);
+            await loadQueue();
+            setSuccessMessage('Datos del trabajador actualizados.');
+          }}
+        />
       )}
 
       {tab === 'historial' && (

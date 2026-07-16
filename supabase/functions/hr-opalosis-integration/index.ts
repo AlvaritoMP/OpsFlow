@@ -6,52 +6,57 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const REGISTRO_INGRESO_PATH = '/api/opsflow/registro-ingreso';
+/** Rutas relativas a OPALOSIS_API_BASE_URL (…/api/opsflow). */
+const PATHS = {
+  registro: '/registro-ingreso',
+  solicitudes: '/solicitudes-ingreso',
+} as const;
 
-const TIPO_DOCUMENTO_ID: Record<string, number> = {
-  DNI: 1,
-  PASAPORTE: 2,
-  CE: 3,
-  PTP: 4,
-};
+const CATALOG_PATHS = new Set([
+  'tipo-documento',
+  'estado-civil',
+  'paises',
+  'departamentos',
+  'provincias',
+  'distritos',
+  'empleado-cargo',
+  'lugar-trabajo',
+  'opalos',
+  'regimen-laboral',
+  'modelo-contrato',
+  'fondo-pension',
+  'banco',
+  'supervisores',
+  'centro-costo',
+]);
 
 interface RequestBody {
-  action: 'send-package' | 'fetch-unidades' | 'check-package-status' | 'test-registro-ingreso';
+  action:
+    | 'send-package'
+    | 'fetch-catalog'
+    | 'check-package-status'
+    | 'test-registro-ingreso'
+    | 'fetch-unidades';
   queueItemIds?: string[];
   reportDate?: string;
   senderNote?: string | null;
   sentByName?: string | null;
   packageId?: string;
-  /** Payload directo para prueba de conectividad (opcional). */
   testPayload?: Record<string, unknown>;
-}
-
-interface OpalosisRegistroIngresoPayload {
-  TipoDocumentoId: number;
-  Documento: string;
-  ApellidoPaterno: string;
-  ApellidoMaterno: string;
-  Nombres: string;
-  Sexo: string;
-  FechaIngreso: string;
-  FechaNacimiento?: string | null;
-  Cargo?: string | null;
-  CorreoPersonal?: string | null;
-  Telefono?: string | null;
-  Direccion?: string | null;
-  EstadoCivil?: string | null;
-  EmpresaCodigo?: number | null;
-  UnidadId?: number | null;
-  RefOperaciones?: string | null;
-  Pais?: string | null;
+  catalog?: string;
+  buscar?: string;
+  departamentoId?: number;
+  provinciaId?: number;
 }
 
 interface RegistroIngresoResult {
   queueItemId?: string;
   refOperaciones: string;
   workerName: string;
+  documento: string;
   ok: boolean;
-  itemStatus: 'procesado' | 'rechazado' | 'observado';
+  businessRejected: boolean;
+  itemStatus: 'recibido' | 'rechazado';
   ingresoId?: number;
   ingresoCod?: string;
   mensaje: string;
@@ -83,13 +88,23 @@ function getOpalosisConfig(): { baseUrl: string; apiKey: string } | null {
 
 async function callOpalosis(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; query?: Record<string, string | number | undefined> } = {},
 ): Promise<{ ok: boolean; status: number; data: unknown }> {
   const config = getOpalosisConfig();
   if (!config) throw new Error('Opalosis no configurado');
 
-  const url = `${config.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
-  const response = await fetch(url, {
+  const url = new URL(
+    `${config.baseUrl}${path.startsWith('/') ? path : `/${path}`}`,
+  );
+  if (options.query) {
+    for (const [k, v] of Object.entries(options.query)) {
+      if (v !== undefined && v !== null && String(v).trim() !== '') {
+        url.searchParams.set(k, String(v));
+      }
+    }
+  }
+
+  const response = await fetch(url.toString(), {
     method: options.method ?? 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -109,63 +124,89 @@ async function callOpalosis(
   return { ok: response.ok, status: response.status, data };
 }
 
-function mapHrFieldsToRegistroPayload(
-  hrFields: Record<string, unknown>,
-): OpalosisRegistroIngresoPayload {
-  const tipoDoc = String(hrFields.tipo_documento ?? 'DNI').toUpperCase();
-  const payload: OpalosisRegistroIngresoPayload = {
-    TipoDocumentoId: TIPO_DOCUMENTO_ID[tipoDoc] ?? TIPO_DOCUMENTO_ID.DNI,
-    Documento: String(hrFields.documento ?? ''),
-    ApellidoPaterno: String(hrFields.apellido_paterno ?? ''),
-    ApellidoMaterno: String(hrFields.apellido_materno ?? ''),
-    Nombres: String(hrFields.nombres ?? ''),
-    Sexo: String(hrFields.sexo ?? 'M').slice(0, 1).toUpperCase(),
-    FechaIngreso: String(
-      hrFields.fecha_ingreso ?? new Date().toISOString().slice(0, 10),
-    ),
-  };
-
-  const optionalStringFields: Array<[keyof OpalosisRegistroIngresoPayload, string]> = [
-    ['FechaNacimiento', 'fecha_nacimiento'],
-    ['Cargo', 'cargo'],
-    ['CorreoPersonal', 'correo_personal'],
-    ['Telefono', 'telefono'],
-    ['Direccion', 'direccion'],
-    ['EstadoCivil', 'estado_civil'],
-    ['RefOperaciones', 'ref_operaciones'],
-    ['Pais', 'pais'],
-  ];
-
-  for (const [target, source] of optionalStringFields) {
-    const value = hrFields[source];
-    if (value !== null && value !== undefined && String(value).trim()) {
-      payload[target] = String(value).trim();
-    }
+function pickString(...values: unknown[]): string {
+  for (const v of values) {
+    if (v !== null && v !== undefined && String(v).trim()) return String(v).trim();
   }
-
-  if (hrFields.empresa_codigo) {
-    payload.EmpresaCodigo = Number(hrFields.empresa_codigo);
-  }
-  if (hrFields.unidad_id && Number(hrFields.unidad_id) > 0) {
-    payload.UnidadId = Number(hrFields.unidad_id);
-  }
-
-  return payload;
+  return '';
 }
 
-function parseRegistroResponse(data: unknown): {
-  resultado: boolean;
-  mensaje: string;
-  mensajeError: string;
-  ingresoId?: number;
-  ingresoCod?: string;
-  fechaRegistro?: string;
-} {
+function pickNumber(...values: unknown[]): number | null {
+  for (const v of values) {
+    if (v === null || v === undefined || v === '') continue;
+    const n = Number(v);
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
+}
+
+/** Construye RegistroIngresoDTO desde hr_fields (camelCase o legacy). */
+function buildRegistroPayload(hrFields: Record<string, unknown>): Record<string, unknown> {
+  const isLegacy = hrFields.apellido_paterno !== undefined && hrFields.apellidoPaterno === undefined;
+
+  const documento = pickString(hrFields.documento, hrFields.Documento);
+  const tipoDocumentoId = pickNumber(
+    hrFields.tipoDocumentoId,
+    hrFields.TipoDocumentoId,
+    isLegacy ? 1 : null,
+  ) ?? 1;
+
+  const refOps = pickString(hrFields.refOperaciones, hrFields.ref_operaciones);
+  const observacion = pickString(hrFields.observacion, hrFields.Observacion);
+  const obsParts = [refOps ? `Ref OpsFlow: ${refOps}` : '', observacion].filter(Boolean);
+
+  return {
+    TipoDocumentoId: tipoDocumentoId,
+    Documento: documento,
+    ApellidoPaterno: pickString(hrFields.apellidoPaterno, hrFields.apellido_paterno) || null,
+    ApellidoMaterno: pickString(hrFields.apellidoMaterno, hrFields.apellido_materno) || null,
+    Nombres: pickString(hrFields.nombres, hrFields.Nombres) || null,
+    Sexo: (pickString(hrFields.sexo, hrFields.Sexo) || 'M').slice(0, 1).toUpperCase(),
+    FechaNacimiento: pickString(hrFields.fechaNacimiento, hrFields.fecha_nacimiento) || null,
+    FechaIngreso: pickString(hrFields.fechaIngreso, hrFields.fecha_ingreso) || null,
+    Direccion: pickString(hrFields.direccion) || null,
+    Telefono: pickString(hrFields.telefono) || null,
+    CorreoPersonal: pickString(hrFields.correoPersonal, hrFields.correo_personal) || null,
+    TieneAsignacionFamiliar: Boolean(
+      hrFields.tieneAsignacionFamiliar ?? hrFields.asignacion_familiar ?? false,
+    ),
+    TieneHijos: Boolean(hrFields.tieneHijos ?? false),
+    EmpleadoCargoId: pickNumber(hrFields.empleadoCargoId),
+    LugarTrabajoId: pickNumber(hrFields.lugarTrabajoId, hrFields.unidad_id),
+    OpaloId: pickNumber(hrFields.opaloId, hrFields.empresa_codigo) ?? 103,
+    ModeloContratoId: pickNumber(hrFields.modeloContratoId),
+    RegimenLaboralId: pickNumber(hrFields.regimenLaboralId),
+    MesesContrato: pickNumber(hrFields.mesesContrato),
+    JornadaLaboral: pickString(hrFields.jornadaLaboral) || null,
+    Turno: pickString(hrFields.turno) || null,
+    Sueldo: pickNumber(hrFields.sueldo),
+    Movilidad: pickNumber(hrFields.movilidad) ?? 0,
+    SistemaPension: pickString(hrFields.sistemaPension) || null,
+    BancoPreferencia: pickString(hrFields.bancoPreferencia) || null,
+    NumeroCuentaTrabajador: pickString(hrFields.numeroCuentaTrabajador) || null,
+    UrlDocumentoAdjunto: pickString(hrFields.urlDocumentoAdjunto) || null,
+    TallaPoloCamisa: pickString(hrFields.tallaPoloCamisa) || null,
+    TallaCasaca: pickString(hrFields.tallaCasaca) || null,
+    TallaPantalon: pickString(hrFields.tallaPantalon) || null,
+    TallaZapatos: pickNumber(hrFields.tallaZapatos),
+    PaisId: pickNumber(hrFields.paisId) ?? 173,
+    UbigeoId: pickNumber(hrFields.ubigeoId),
+    SupervisorId: pickNumber(hrFields.supervisorId),
+    CentroCostoId: pickNumber(hrFields.centroCostoId),
+    EstadoCivilId: pickNumber(hrFields.estadoCivilId),
+    Observacion: obsParts.length ? obsParts.join(' | ') : null,
+    UsuarioProcesoId: pickNumber(hrFields.usuarioProcesoId),
+    UsuarioOf: pickString(hrFields.usuarioOf) || 'opsflow',
+    PayloadJson: pickString(hrFields.payloadJson) || null,
+  };
+}
+
+function parseRegistroResponse(data: unknown) {
   const row = (data ?? {}) as Record<string, unknown>;
   return {
-    resultado: Boolean(row.Resultado),
-    mensaje: String(row.Mensaje ?? ''),
-    mensajeError: String(row.MensajeError ?? ''),
+    resultado: Boolean(row.Resultado ?? row.resultado),
+    mensaje: String(row.Mensaje ?? row.mensaje ?? ''),
+    mensajeError: String(row.MensajeError ?? row.mensajeError ?? ''),
     ingresoId: row.IngresoId !== undefined ? Number(row.IngresoId) : undefined,
     ingresoCod: row.IngresoCod !== undefined ? String(row.IngresoCod) : undefined,
     fechaRegistro: row.FechaRegistro !== undefined ? String(row.FechaRegistro) : undefined,
@@ -184,7 +225,7 @@ function simulateRegistroResponse(documento: string): Record<string, unknown> {
   };
 }
 
-function defaultTestPayload(): OpalosisRegistroIngresoPayload {
+function defaultTestPayload(): Record<string, unknown> {
   return {
     TipoDocumentoId: 1,
     Documento: '12345678',
@@ -193,7 +234,132 @@ function defaultTestPayload(): OpalosisRegistroIngresoPayload {
     Nombres: 'Juan Carlos',
     Sexo: 'M',
     FechaIngreso: new Date().toISOString().slice(0, 10),
+    EmpleadoCargoId: null,
+    LugarTrabajoId: null,
+    OpaloId: 103,
+    Sueldo: 1130,
+    Movilidad: 0,
+    PaisId: 173,
+    UsuarioOf: 'opsflow.test',
   };
+}
+
+function normalizeCatalogItems(catalog: string, data: unknown): Array<{ id: number; label: string; raw: Record<string, unknown> }> {
+  if (!Array.isArray(data)) return [];
+
+  return data.map((row) => {
+    const r = row as Record<string, unknown>;
+    let id = 0;
+    let label = '';
+
+    switch (catalog) {
+      case 'tipo-documento':
+        id = Number(r.TipoDocumentoId ?? 0);
+        label = String(r.TipoDocumento ?? '');
+        break;
+      case 'estado-civil':
+        id = Number(r.EstadoCivilId ?? 0);
+        label = String(r.NombreEstadoCivil ?? '');
+        break;
+      case 'paises':
+        id = Number(r.PaisId ?? 0);
+        label = String(r.NombrePais ?? '');
+        break;
+      case 'departamentos':
+      case 'provincias':
+      case 'distritos':
+        id = Number(r.UbigeoId ?? 0);
+        label = String(r.Nombre ?? '');
+        break;
+      case 'empleado-cargo':
+        id = Number(r.EmpleadoCargoId ?? 0);
+        label = String(r.NombreCargo ?? '');
+        break;
+      case 'lugar-trabajo':
+        id = Number(r.LugarTrabajoId ?? 0);
+        label = String(r.NombreLugarTrabajo ?? '');
+        break;
+      case 'opalos':
+        id = Number(r.OpaloId ?? 0);
+        label = String(r.NombreOpalo ?? '');
+        break;
+      case 'regimen-laboral':
+        id = Number(r.RegimenLaboralId ?? 0);
+        label = String(r.NombreRegimen ?? '');
+        break;
+      case 'modelo-contrato':
+        id = Number(r.ModeloContratoId ?? 0);
+        label = String(r.NombreModelo ?? '');
+        break;
+      case 'fondo-pension':
+        id = Number(r.FondoPensionId ?? 0);
+        label = String(r.NombreFondoPension ?? '');
+        break;
+      case 'banco':
+        id = Number(r.BancoId ?? 0);
+        label = String(r.NombreBanco ?? '');
+        break;
+      case 'supervisores':
+        id = Number(r.PersonaId ?? 0);
+        label = String(r.Nombres ?? '');
+        break;
+      case 'centro-costo':
+        id = Number(r.CentroCostoId ?? 0);
+        label = String(r.NombreCentroCosto ?? '');
+        break;
+      default:
+        id = Number(Object.values(r)[0] ?? 0);
+        label = String(Object.values(r)[1] ?? '');
+    }
+
+    return { id, label, raw: r };
+  }).filter((x) => x.id && x.label);
+}
+
+function simulateCatalog(catalog: string) {
+  const samples: Record<string, Array<{ id: number; label: string; raw: Record<string, unknown> }>> = {
+    'tipo-documento': [
+      { id: 1, label: 'Libreta electoral o DNI', raw: {} },
+      { id: 2, label: 'Pasaporte', raw: {} },
+      { id: 4, label: 'Carné de extranjeria', raw: {} },
+      { id: 5, label: 'Permiso temporal de permanencia', raw: {} },
+    ],
+    'estado-civil': [
+      { id: 2159, label: 'Soltero', raw: {} },
+      { id: 2158, label: 'Casado', raw: {} },
+      { id: 3632, label: 'Conviviente', raw: {} },
+    ],
+    opalos: [
+      { id: 103, label: 'Opalo Peru SAC', raw: {} },
+      { id: 104, label: 'Opalo Intermediacion', raw: {} },
+      { id: 153, label: 'Opalo Tercerizacion', raw: {} },
+    ],
+    'regimen-laboral': [
+      { id: 1, label: 'General', raw: {} },
+      { id: 4, label: 'Formacion laboral', raw: {} },
+    ],
+    'modelo-contrato': [
+      { id: 7, label: 'OPINTER - SERVICIO ESPECIFICO RENOVACION', raw: {} },
+    ],
+    'fondo-pension': [
+      { id: 9, label: 'ONP', raw: {} },
+      { id: 4, label: 'PROFUTURO', raw: {} },
+    ],
+    'empleado-cargo': [
+      { id: 1909, label: 'asistente de nominas (simulado)', raw: {} },
+    ],
+    'lugar-trabajo': [
+      { id: 1967, label: 'ESTACION COPACABANA (simulado)', raw: {} },
+    ],
+    paises: [{ id: 173, label: 'Perú', raw: {} }],
+    departamentos: [{ id: 1392, label: 'LIMA', raw: {} }],
+    provincias: [{ id: 1393, label: 'LIMA', raw: {} }],
+    distritos: [{ id: 1394, label: 'LIMA', raw: {} }],
+    banco: [{ id: 1, label: 'Banco de Credito del Peru (BCP)', raw: {} }],
+    supervisores: [{ id: 321201, label: '43635031 | SUPERVISOR SIMULADO', raw: {} }],
+    'centro-costo': [{ id: 233, label: 'HORTIFRUT', raw: {} }],
+  };
+  return samples[catalog] ?? [];
 }
 
 async function registerWorkerInOpalosis(
@@ -201,16 +367,19 @@ async function registerWorkerInOpalosis(
   mock: boolean,
 ): Promise<RegistroIngresoResult> {
   const hrFields = (row.hr_fields ?? {}) as Record<string, unknown>;
-  const payload = mapHrFieldsToRegistroPayload(hrFields);
-  const refOperaciones = String(row.ref_operaciones ?? '');
+  const payload = buildRegistroPayload(hrFields);
+  const documento = String(payload.Documento ?? '');
+  const refOperaciones = pickString(hrFields.refOperaciones, hrFields.ref_operaciones, row.ref_operaciones);
   const workerName = String(row.worker_name ?? '');
 
-  if (!payload.Documento) {
+  if (!documento) {
     return {
       queueItemId: row.id as string | undefined,
       refOperaciones,
       workerName,
+      documento,
       ok: false,
+      businessRejected: true,
       itemStatus: 'rechazado',
       mensaje: 'Sin documento — no se puede registrar en Opalosis',
       response: { Resultado: false, MensajeError: 'Documento requerido' },
@@ -218,44 +387,59 @@ async function registerWorkerInOpalosis(
   }
 
   let responseData: Record<string, unknown>;
-  let httpOk = true;
+  let httpStatus = 200;
 
   if (mock) {
-    responseData = simulateRegistroResponse(payload.Documento);
+    responseData = simulateRegistroResponse(documento);
   } else {
-    const result = await callOpalosis(REGISTRO_INGRESO_PATH, {
-      method: 'POST',
-      body: payload,
-    });
-    httpOk = result.ok;
+    const result = await callOpalosis(PATHS.registro, { method: 'POST', body: payload });
+    httpStatus = result.status;
     responseData = (result.data ?? {}) as Record<string, unknown>;
-    if (!result.ok) {
+
+    // Fallo técnico (≠ 200)
+    if (result.status !== 200) {
       return {
         queueItemId: row.id as string | undefined,
         refOperaciones,
         workerName,
+        documento,
         ok: false,
+        businessRejected: false,
         itemStatus: 'rechazado',
-        mensaje: `HTTP ${result.status}: ${JSON.stringify(responseData)}`,
+        mensaje: `Error técnico HTTP ${result.status}`,
         response: responseData,
       };
     }
   }
 
   const parsed = parseRegistroResponse(responseData);
-  const ok = httpOk && parsed.resultado;
+
+  // HTTP 200 + Resultado false = rechazo de negocio
+  if (!parsed.resultado) {
+    return {
+      queueItemId: row.id as string | undefined,
+      refOperaciones,
+      workerName,
+      documento,
+      ok: false,
+      businessRejected: true,
+      itemStatus: 'rechazado',
+      mensaje: parsed.mensajeError || parsed.mensaje || 'Rechazado por Opalosis',
+      response: responseData,
+    };
+  }
 
   return {
     queueItemId: row.id as string | undefined,
     refOperaciones,
     workerName,
-    ok,
-    itemStatus: ok ? 'procesado' : 'rechazado',
+    documento,
+    ok: true,
+    businessRejected: false,
+    itemStatus: 'recibido',
     ingresoId: parsed.ingresoId,
     ingresoCod: parsed.ingresoCod,
-    mensaje: ok
-      ? `${parsed.ingresoCod ?? parsed.mensaje}`.trim()
-      : parsed.mensajeError || parsed.mensaje || 'Error al registrar ingreso',
+    mensaje: `${parsed.ingresoCod ?? parsed.mensaje}`.trim(),
     response: responseData,
   };
 }
@@ -267,12 +451,13 @@ function derivePackageStatus(results: RegistroIngresoResult[], mock: boolean): s
   return mock ? 'simulado' : 'enviado';
 }
 
-function simulateUnidades() {
-  return [
-    { id: 12, nombre: 'Planta Lima Norte (simulado)', activo: true },
-    { id: 13, nombre: 'Oficina Central (simulado)', activo: true },
-    { id: 14, nombre: 'Almacén Callao (simulado)', activo: false },
-  ];
+function mapEstadoToItemStatus(estado: string): string {
+  const n = estado.toLowerCase();
+  if (n.includes('rechaz')) return 'rechazado';
+  if (n.includes('observ')) return 'observado';
+  if (n.includes('proces')) return 'procesado';
+  if (n.includes('recib')) return 'recibido';
+  return 'recibido';
 }
 
 serve(async (req) => {
@@ -305,40 +490,68 @@ serve(async (req) => {
 
     const mock = isMockMode();
 
+    if (body.action === 'fetch-catalog') {
+      const catalog = (body.catalog ?? '').trim();
+      if (!CATALOG_PATHS.has(catalog)) {
+        return jsonResponse({ error: `Catálogo no soportado: ${catalog}` }, 400);
+      }
+
+      if (mock) {
+        return jsonResponse({
+          catalog,
+          items: simulateCatalog(catalog),
+          simulated: true,
+        });
+      }
+
+      const query: Record<string, string | number | undefined> = {};
+      if (body.buscar?.trim()) query.buscar = body.buscar.trim();
+      if (body.departamentoId) query.DepartamentoId = body.departamentoId;
+      if (body.provinciaId) query.ProvinciaId = body.provinciaId;
+
+      const result = await callOpalosis(`/${catalog}`, { method: 'GET', query });
+      if (!result.ok) {
+        return jsonResponse({
+          error: `Opalosis respondió HTTP ${result.status}`,
+          details: result.data,
+        }, 502);
+      }
+
+      return jsonResponse({
+        catalog,
+        items: normalizeCatalogItems(catalog, result.data),
+        simulated: false,
+      });
+    }
+
     if (body.action === 'test-registro-ingreso') {
-      const payload = (body.testPayload ?? defaultTestPayload()) as OpalosisRegistroIngresoPayload;
+      const payload = body.testPayload ?? defaultTestPayload();
 
       if (mock) {
         return jsonResponse({
           simulated: true,
-          endpoint: REGISTRO_INGRESO_PATH,
+          endpoint: PATHS.registro,
           request: payload,
           response: simulateRegistroResponse(String(payload.Documento ?? '12345678')),
         });
       }
 
-      const result = await callOpalosis(REGISTRO_INGRESO_PATH, {
-        method: 'POST',
-        body: payload,
-      });
-
+      const result = await callOpalosis(PATHS.registro, { method: 'POST', body: payload });
       return jsonResponse({
         simulated: false,
-        endpoint: REGISTRO_INGRESO_PATH,
+        endpoint: PATHS.registro,
         request: payload,
         httpStatus: result.status,
-        ok: result.ok,
+        ok: result.status === 200,
         response: result.data,
-      }, result.ok ? 200 : 502);
+      }, result.status === 200 ? 200 : 502);
     }
 
     if (body.action === 'send-package') {
       const queueItemIds = body.queueItemIds ?? [];
       const reportDate = body.reportDate?.trim();
 
-      if (!reportDate) {
-        return jsonResponse({ error: 'reportDate is required' }, 400);
-      }
+      if (!reportDate) return jsonResponse({ error: 'reportDate is required' }, 400);
       if (queueItemIds.length === 0) {
         return jsonResponse({ error: 'queueItemIds must not be empty' }, 400);
       }
@@ -349,9 +562,7 @@ serve(async (req) => {
         .in('id', queueItemIds)
         .eq('queue_status', 'pendiente_envio');
 
-      if (queueError) {
-        return jsonResponse({ error: 'Database error loading queue' }, 500);
-      }
+      if (queueError) return jsonResponse({ error: 'Database error loading queue' }, 500);
       if (!queueRows || queueRows.length !== queueItemIds.length) {
         return jsonResponse({
           error: 'Algunos trabajadores ya no están pendientes de envío o no existen',
@@ -396,7 +607,7 @@ serve(async (req) => {
 
       if (itemsError || !insertedItems) {
         await supabaseAdmin.from('hr_outbound_ingreso_packages').delete().eq('id', insertedPackage.id);
-        return jsonResponse({ error: 'Failed to create package items' }, 500);
+        return jsonResponse({ error: 'Failed to create package items', details: itemsError }, 500);
       }
 
       const itemIdByQueueId = new Map(
@@ -416,6 +627,9 @@ serve(async (req) => {
               item_status: result.itemStatus,
               mensaje: result.mensaje,
               empleado_id_rrhh: result.ingresoId ?? null,
+              ingreso_cod: result.ingresoCod ?? null,
+              opalosis_estado: result.ok ? 'Recibido' : null,
+              opalosis_etapa: result.ok ? 'Nuevo' : null,
             })
             .eq('id', packageItemId);
         }
@@ -428,14 +642,16 @@ serve(async (req) => {
         | undefined;
 
       const opalosisResponse = {
-        endpoint: REGISTRO_INGRESO_PATH,
+        endpoint: PATHS.registro,
         sourcePackageId,
         workerCount: queueRows.length,
         successCount: registrationResults.filter((r) => r.ok).length,
         results: registrationResults.map((r) => ({
           refOperaciones: r.refOperaciones,
           workerName: r.workerName,
+          documento: r.documento,
           ok: r.ok,
+          businessRejected: r.businessRejected,
           ingresoId: r.ingresoId,
           ingresoCod: r.ingresoCod,
           mensaje: r.mensaje,
@@ -452,6 +668,21 @@ serve(async (req) => {
         })
         .eq('id', insertedPackage.id);
 
+      // Solo sacar de la cola los que se enviaron con éxito
+      const successQueueIds = registrationResults
+        .filter((r) => r.ok && r.queueItemId)
+        .map((r) => r.queueItemId as string);
+
+      if (successQueueIds.length > 0) {
+        await supabaseAdmin
+          .from('hr_outbound_ingreso_queue')
+          .update({
+            queue_status: 'incluido_paquete',
+            package_id: insertedPackage.id,
+          })
+          .in('id', successQueueIds);
+      }
+
       if (packageStatus === 'error') {
         return jsonResponse({
           error: 'Ningún trabajador pudo registrarse en Opalosis',
@@ -459,14 +690,6 @@ serve(async (req) => {
           details: opalosisResponse,
         }, 502);
       }
-
-      await supabaseAdmin
-        .from('hr_outbound_ingreso_queue')
-        .update({
-          queue_status: 'incluido_paquete',
-          package_id: insertedPackage.id,
-        })
-        .in('id', queueItemIds);
 
       const { data: finalPackage } = await supabaseAdmin
         .from('hr_outbound_ingreso_packages')
@@ -482,60 +705,9 @@ serve(async (req) => {
       }, 201);
     }
 
-    if (body.action === 'fetch-unidades') {
-      let units: Array<{ id: number; nombre: string; activo: boolean }>;
-      const fetchedAt = new Date().toISOString();
-
-      if (mock) {
-        units = simulateUnidades();
-      } else {
-        const result = await callOpalosis('/api/unidades');
-        if (!result.ok) {
-          return jsonResponse({
-            error: `Opalosis respondió HTTP ${result.status}`,
-            details: result.data,
-            hint: 'El catálogo de unidades aún no está disponible en el entorno de pruebas.',
-          }, 502);
-        }
-        if (!Array.isArray(result.data)) {
-          return jsonResponse({ error: 'Respuesta inesperada de /api/unidades' }, 502);
-        }
-        units = result.data as Array<{ id: number; nombre: string; activo: boolean }>;
-      }
-
-      const cacheRows = units.map((u) => ({
-        opalosis_unidad_id: u.id,
-        nombre: u.nombre,
-        activo: u.activo ?? true,
-        fetched_at: fetchedAt,
-      }));
-
-      if (cacheRows.length > 0) {
-        await supabaseAdmin.from('hr_units_cache').upsert(cacheRows, { onConflict: 'opalosis_unidad_id' });
-      }
-
-      const { data: cached } = await supabaseAdmin
-        .from('hr_units_cache')
-        .select('*')
-        .order('nombre', { ascending: true });
-
-      return jsonResponse({
-        units: (cached ?? []).map((row) => ({
-          opalosisUnidadId: row.opalosis_unidad_id,
-          nombre: row.nombre,
-          activo: row.activo,
-          fetchedAt: row.fetched_at,
-        })),
-        simulated: mock,
-        fetchedAt,
-      });
-    }
-
     if (body.action === 'check-package-status') {
       const packageId = body.packageId?.trim();
-      if (!packageId) {
-        return jsonResponse({ error: 'packageId is required' }, 400);
-      }
+      if (!packageId) return jsonResponse({ error: 'packageId is required' }, 400);
 
       const { data: pkg, error: pkgError } = await supabaseAdmin
         .from('hr_outbound_ingreso_packages')
@@ -548,18 +720,128 @@ serve(async (req) => {
 
       const { data: items } = await supabaseAdmin
         .from('hr_outbound_ingreso_package_items')
-        .select('id, worker_name, ref_operaciones, item_status, mensaje, empleado_id_rrhh')
-        .eq('package_id', packageId)
-        .order('created_at', { ascending: true });
+        .select('*')
+        .eq('package_id', packageId);
+
+      if (mock) {
+        return jsonResponse({
+          packageId,
+          status: pkg.status,
+          simulated: true,
+          mensaje: 'Modo simulación — configure Opalosis para consultar solicitudes reales.',
+          items: items ?? [],
+        });
+      }
+
+      const updatedItems: unknown[] = [];
+      for (const item of items ?? []) {
+        const hr = (item.hr_fields ?? {}) as Record<string, unknown>;
+        const buscar = pickString(
+          item.ingreso_cod,
+          hr.documento,
+          (item.worker_snapshot as Record<string, unknown>)?.opsflow
+            ? ((item.worker_snapshot as { opsflow?: { dni?: string } }).opsflow?.dni)
+            : '',
+        );
+
+        if (!buscar) {
+          updatedItems.push(item);
+          continue;
+        }
+
+        const result = await callOpalosis(PATHS.solicitudes, {
+          method: 'GET',
+          query: { Buscar: buscar },
+        });
+
+        if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) {
+          updatedItems.push(item);
+          continue;
+        }
+
+        const match = (result.data as Array<Record<string, unknown>>).find((s) => {
+          const cod = String(s.IngresoCod ?? '');
+          return item.ingreso_cod ? cod === item.ingreso_cod : true;
+        }) ?? (result.data as Array<Record<string, unknown>>)[0];
+
+        const estado = String(match.Estado ?? '');
+        const etapa = String(match.Etapa ?? '');
+        const itemStatus = mapEstadoToItemStatus(estado);
+
+        const { data: updated } = await supabaseAdmin
+          .from('hr_outbound_ingreso_package_items')
+          .update({
+            opalosis_estado: estado || null,
+            opalosis_etapa: etapa || null,
+            item_status: itemStatus,
+            empleado_id_rrhh: match.IngresoId ? Number(match.IngresoId) : item.empleado_id_rrhh,
+            ingreso_cod: match.IngresoCod ? String(match.IngresoCod) : item.ingreso_cod,
+            mensaje: `${estado}${etapa ? ` / ${etapa}` : ''}`,
+          })
+          .eq('id', item.id)
+          .select('*')
+          .single();
+
+        updatedItems.push(updated ?? item);
+      }
+
+      // Derivar estado del paquete
+      const statuses = (updatedItems as Array<Record<string, unknown>>).map((i) =>
+        String(i.opalosis_estado ?? i.item_status ?? ''),
+      );
+      let newPkgStatus = pkg.status as string;
+      if (statuses.every((s) => s.toLowerCase().includes('proces'))) newPkgStatus = 'procesado';
+      else if (statuses.every((s) => s.toLowerCase().includes('rechaz'))) newPkgStatus = 'rechazado';
+      else if (statuses.some((s) => s.toLowerCase().includes('observ'))) newPkgStatus = 'observado';
+      else if (statuses.some((s) => s.toLowerCase().includes('proces')) &&
+        statuses.some((s) => !s.toLowerCase().includes('proces'))) {
+        newPkgStatus = 'parcialmente_procesado';
+      }
+
+      await supabaseAdmin
+        .from('hr_outbound_ingreso_packages')
+        .update({ status: newPkgStatus })
+        .eq('id', packageId);
 
       return jsonResponse({
         packageId,
-        status: pkg.status,
-        simulated: mock,
-        mensaje:
-          'El estado por trabajador se registra al enviar. Opalosis aún no expone consulta de paquete en el API de pruebas.',
-        opalosisResponse: pkg.opalosis_response,
-        items: items ?? [],
+        status: newPkgStatus,
+        simulated: false,
+        items: updatedItems,
+      });
+    }
+
+    // Compat: fetch-unidades → lugar-trabajo
+    if (body.action === 'fetch-unidades') {
+      if (mock) {
+        const items = simulateCatalog('lugar-trabajo');
+        return jsonResponse({
+          units: items.map((u) => ({
+            opalosisUnidadId: u.id,
+            nombre: u.label,
+            activo: true,
+            fetchedAt: new Date().toISOString(),
+          })),
+          simulated: true,
+        });
+      }
+
+      const result = await callOpalosis('/lugar-trabajo', {
+        method: 'GET',
+        query: { buscar: body.buscar || 'a' },
+      });
+      if (!result.ok) {
+        return jsonResponse({ error: `HTTP ${result.status}`, details: result.data }, 502);
+      }
+      const items = normalizeCatalogItems('lugar-trabajo', result.data);
+      return jsonResponse({
+        units: items.map((u) => ({
+          opalosisUnidadId: u.id,
+          nombre: u.label,
+          activo: true,
+          fetchedAt: new Date().toISOString(),
+        })),
+        simulated: false,
       });
     }
 

@@ -1,121 +1,57 @@
-# Integración OpsFlow → Opalosis (RRHH) — Bandeja de llegada
+# Integración OpsFlow → Opalosis (RRHH)
 
-Canal de envío de ingresos de personal desde OpsFlow hacia la bandeja de llegada de Opalosis.
+Canal de envío de solicitudes de ingreso desde OpsFlow hacia OpaloSis / PortalEmpleado.
 
 ## Flujo operativo
 
 ```
-Opalo ATS  →  Recepción ATS (OpsFlow)  →  Asignar a unidad
-                                              ↓
-                                    Cola hr_outbound_ingreso_queue
-                                              ↓
-                              Reporte diario (UI Envío Opalosis)
-                                              ↓
-              POST /api/opsflow/registro-ingreso (por trabajador)
-                                              ↓
-                         Bandeja de llegada Opalosis (RRHH)
+Opalo ATS → Recepción ATS → Asignar a unidad
+                                  ↓
+                        Cola Envío Opalosis
+                                  ↓
+              Completar formulario (catálogos + SharePoint)
+                                  ↓
+              POST /registro-ingreso (por trabajador)
+                                  ↓
+              Bandeja OpaloSis (Estado / Etapa)
+                                  ↓
+         GET /solicitudes-ingreso (consulta de avance)
 ```
 
-1. **ATS** envía candidatos a OpsFlow (ya implementado).
-2. El operador **asigna el candidato a una unidad** → se encola automáticamente.
-3. En **Envío Opalosis**, el operador revisa la cola del día y envía el lote.
-4. Por cada trabajador, OpsFlow llama al API de Opalosis y el ingreso aparece en su bandeja.
-
-## API Opalosis (entorno de pruebas)
-
-### Endpoint
+## URL base
 
 ```
-POST https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow/registro-ingreso
+https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow/
 ```
 
-### Headers
+Autenticación: header `X-Api-Key`.
 
-| Header | Valor |
-|--------|--------|
-| `Content-Type` | `application/json` |
-| `X-Api-Key` | Clave entregada por Opalosis (pruebas: ver equipo RRHH) |
+## Secrets Supabase (Edge Function)
 
-### Body mínimo (modo prueba)
+| Variable | Valor de pruebas |
+|----------|------------------|
+| `OPALOSIS_API_BASE_URL` | `https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow` |
+| `OPALOSIS_API_KEY` | *(entregada por Opalo)* |
+| `OPALOSIS_USE_MOCK` | `false` |
 
-```json
-{
-  "TipoDocumentoId": 1,
-  "Documento": "12345678",
-  "ApellidoPaterno": "Perez",
-  "ApellidoMaterno": "Gomez",
-  "Nombres": "Juan Carlos",
-  "Sexo": "M",
-  "FechaIngreso": "2026-07-01"
-}
-```
+## Migraciones SQL
 
-- `FechaIngreso` en formato **ISO `YYYY-MM-DD`**.
-- `TipoDocumentoId`: `1` = DNI (entorno de pruebas).
-- Campos adicionales pueden omitirse o enviarse como `null`; el mismo endpoint acepta el registro completo a medida que avance la integración.
+1. `database/migrations/MIGRATION_HR_OPALOSIS_INTEGRATION.sql`
+2. `database/migrations/MIGRATION_HR_OPALOSIS_SOLICITUD_TRACKING.sql` ← IngresoCod / Estado / Etapa
 
-### Respuesta esperada
-
-```json
-{
-  "Resultado": true,
-  "Mensaje": "Se registro ingreso.",
-  "MensajeError": "sin errores",
-  "IngresoId": 43,
-  "IngresoCod": "ING-020726-08",
-  "FechaRegistro": "2026-07-02T16:58:43.54"
-}
-```
-
-### Prueba directa (sin Supabase)
-
-```powershell
-.\scripts\test-opalosis-registro-ingreso.ps1
-```
-
-## Arquitectura técnica
-
-```
-OpsFlow UI  →  Edge Function hr-opalosis-integration  →  POST registro-ingreso (×N)
-              ↓
-    hr_outbound_ingreso_queue / _packages / _package_items
-```
-
-OpsFlow agrupa el envío del día en un **paquete local** (historial y trazabilidad), pero la comunicación con Opalosis es **un POST por trabajador**.
-
-## 1. Migración SQL
-
-Ejecutar en Supabase OpsFlow:
-
-```
-database/migrations/MIGRATION_HR_OPALOSIS_INTEGRATION.sql
-```
-
-## 2. Edge Function
-
-### Acciones
+## Edge Function `hr-opalosis-integration`
 
 | action | Descripción |
 |--------|-------------|
-| `send-package` | Envía cada trabajador de la cola a `registro-ingreso` |
-| `test-registro-ingreso` | Prueba de conectividad con payload mínimo |
-| `fetch-unidades` | Sincroniza catálogo RRHH (cuando esté disponible) |
-| `check-package-status` | Devuelve estado local guardado al enviar |
-
-### Secrets (Supabase)
-
-| Variable | Descripción | Ejemplo pruebas |
-|----------|-------------|-----------------|
-| `OPALOSIS_API_BASE_URL` | URL base | `https://onyx.opaloperu.com/apiempleadoregistro` |
-| `OPALOSIS_API_KEY` | Header `X-Api-Key` | *(entregada por Opalosis)* |
-| `OPALOSIS_USE_MOCK` | `true` fuerza simulación; `false` fuerza API real | `false` |
-
-Sin URL/Key → **modo simulación** automático.
+| `send-package` | POST registro-ingreso por cada trabajador de la cola |
+| `fetch-catalog` | Proxy a GET catálogos (cargo, lugar, ubigeo, etc.) |
+| `check-package-status` | GET solicitudes-ingreso y actualiza Estado/Etapa |
+| `test-registro-ingreso` | Prueba de conectividad |
 
 ### Despliegue
 
 ```powershell
-$env:OPALOSIS_API_BASE_URL = "https://onyx.opaloperu.com/apiempleadoregistro"
+$env:OPALOSIS_API_BASE_URL = "https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow"
 $env:OPALOSIS_API_KEY = "tu-api-key"
 $env:OPALOSIS_USE_MOCK = "false"
 $env:SUPABASE_ACCESS_TOKEN = "sbp_..."
@@ -123,63 +59,54 @@ $env:SUPABASE_SERVICE_ROLE_KEY = "eyJ..."
 .\scripts\deploy-hr-opalosis-integration.ps1
 ```
 
-## 3. UI OpsFlow
+## Campos recomendados (RegistroIngresoDTO)
 
-Menú: **Envío Opalosis** (permiso `HR_OPALOSIS`).
+Obligatorios de negocio para evitar observaciones RRHH:
 
-- **Cola pendiente**: trabajadores asignados desde ATS (filtro por fecha).
-- Selección / exclusión antes del envío.
-- **Paquetes enviados**: historial con `IngresoCod` / `IngresoId` por trabajador.
+- TipoDocumentoId, Documento, ApellidoPaterno, ApellidoMaterno, Nombres
+- FechaIngreso, EmpleadoCargoId, LugarTrabajoId
+- Sueldo (> 0), Movilidad (puede ser 0)
+- UrlDocumentoAdjunto (carpeta SharePoint por DNI)
 
-## 4. Hook automático
-
-Al registrar colaborador desde **Recepción ATS** (`RegisterHandoffWorkerModal`):
+Biblioteca SharePoint:
 
 ```
-crear resource → registerItemAsResource → enqueueFromAssignment()
+https://opaloperu1.sharepoint.com/:f:/s/INDICADORESRRHH/IgB1TkyjRpcpSLPf-jZj9HUIAZY7gf2sdub0qIvk6ZqyVkU?e=253bjH
 ```
 
-## 5. Mapeo de campos
+## Estados Opalosis
 
-| OpsFlow (`hr_fields`) | Opalosis API |
-|-----------------------|--------------|
-| `tipo_documento` DNI | `TipoDocumentoId` = 1 |
-| `documento` | `Documento` |
-| `apellido_paterno` | `ApellidoPaterno` |
-| `apellido_materno` | `ApellidoMaterno` |
-| `nombres` | `Nombres` |
-| `sexo` | `Sexo` |
-| `fecha_ingreso` | `FechaIngreso` |
-| `fecha_nacimiento` | `FechaNacimiento` |
-| `cargo` | `Cargo` |
-| `correo_personal` | `CorreoPersonal` |
-| `telefono` | `Telefono` |
-| `direccion` | `Direccion` |
-| `empresa_codigo` | `EmpresaCodigo` |
-| `unidad_id` | `UnidadId` |
-| `ref_operaciones` | `RefOperaciones` |
+| Estado | Significado |
+|--------|-------------|
+| Recibido | Solicitud en gestión interna |
+| Observado | RRHH procesando etapas |
+| Procesado | Completada |
+| Rechazado | Rechazada |
 
-Los datos provienen del snapshot OpsFlow + ATS al asignar el trabajador a una unidad.
+Etapas: Nuevo → Empleado Registrado → Contrato Generado → En Aprobación → Contrato Aprobado
 
-## 6. Fechas
+## Reglas de integración
 
-- UI OpsFlow: **dd-MM-yyyy**
-- API Opalosis: **yyyy-MM-dd**
+- HTTP 200 + `Resultado: false` = rechazo de negocio → mostrar Mensaje, no reintentar.
+- HTTP ≠ 200 = fallo técnico → reintentar.
+- PaisId por defecto: **173** (Perú).
+- Un documento con solicitud en Recibido/Observado no admite nuevo registro.
 
-## 7. Pendiente
+## UI OpsFlow
 
-- Cese de personal
-- APIs inbound Opalosis → OpsFlow (reconciliación)
-- UI admin de `hr_unit_mappings`
-- Catálogo `GET /api/unidades` en entorno de pruebas
+Menú **Envío Opalosis** (`HR_OPALOSIS`):
 
-## 8. Código
+1. Cola pendiente → **Completar / editar** (catálogos + adjunto)
+2. Enviar lote
+3. Historial → **Actualizar Estado / Etapa**
 
-| Archivo | Propósito |
-|---------|-----------|
-| `services/hrOutboundIngresoService.ts` | Cola, paquetes, envío |
-| `utils/hrOpalosisMapper.ts` | Snapshot + mapeo hrFields + payload API |
-| `components/HrOpalosisIngreso.tsx` | Reporte diario |
-| `components/RegisterHandoffWorkerModal.tsx` | Hook de encolado |
-| `supabase/functions/hr-opalosis-integration/index.ts` | Proxy outbound |
-| `scripts/test-opalosis-registro-ingreso.ps1` | Prueba directa del API |
+## Código
+
+| Archivo | Rol |
+|---------|-----|
+| `utils/hrOpalosisMapper.ts` | Snapshot + RegistroIngresoDTO |
+| `services/hrOutboundIngresoService.ts` | Cola, catálogos, envío |
+| `components/HrOpalosisIngreso.tsx` | Bandeja / historial |
+| `components/HrOpalosisEditQueueItemModal.tsx` | Formulario completo |
+| `supabase/functions/hr-opalosis-integration/index.ts` | Proxy API |
+| `scripts/test-opalosis-registro-ingreso.ps1` | Prueba directa |

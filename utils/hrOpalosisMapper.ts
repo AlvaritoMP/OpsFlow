@@ -5,35 +5,57 @@ import type {
   Resource,
   Unit,
 } from '../types';
-import { HR_TIPO_DOCUMENTO_OPTIONS, splitFullName, toOpalosisDate } from './hrIntegration';
+import {
+  HR_DEFAULT_OPALO_ID,
+  HR_DEFAULT_PAIS_ID,
+  HR_SHAREPOINT_DOCS_LIBRARY_URL,
+  HR_TIPO_DOCUMENTO_ID_BY_CODE,
+  splitFullName,
+  toOpalosisDate,
+} from './hrIntegration';
 
-/** Mapeo tipo documento OpsFlow → TipoDocumentoId Opalosis (DNI=1 en entorno de pruebas). */
-export const HR_TIPO_DOCUMENTO_ID: Record<string, number> = {
-  DNI: 1,
-  PASAPORTE: 2,
-  CE: 3,
-  PTP: 4,
-};
-
-/** Payload mínimo/extendido para POST /api/opsflow/registro-ingreso */
+/** Payload oficial POST /registro-ingreso (RegistroIngresoDTO). */
 export interface OpalosisRegistroIngresoPayload {
-  TipoDocumentoId: number;
+  TipoDocumentoId: number | null;
   Documento: string;
-  ApellidoPaterno: string;
-  ApellidoMaterno: string;
-  Nombres: string;
-  Sexo: string;
-  FechaIngreso: string;
-  FechaNacimiento?: string | null;
-  Cargo?: string | null;
-  CorreoPersonal?: string | null;
-  Telefono?: string | null;
-  Direccion?: string | null;
-  EstadoCivil?: string | null;
-  EmpresaCodigo?: number | null;
-  UnidadId?: number | null;
-  RefOperaciones?: string | null;
-  Pais?: string | null;
+  ApellidoPaterno: string | null;
+  ApellidoMaterno: string | null;
+  Nombres: string | null;
+  Sexo: string | null;
+  FechaNacimiento: string | null;
+  FechaIngreso: string | null;
+  Direccion: string | null;
+  Telefono: string | null;
+  CorreoPersonal: string | null;
+  TieneAsignacionFamiliar: boolean | null;
+  TieneHijos: boolean | null;
+  EmpleadoCargoId: number | null;
+  LugarTrabajoId: number | null;
+  OpaloId: number | null;
+  ModeloContratoId: number | null;
+  RegimenLaboralId: number | null;
+  MesesContrato: number | null;
+  JornadaLaboral: string | null;
+  Turno: string | null;
+  Sueldo: number | null;
+  Movilidad: number | null;
+  SistemaPension: string | null;
+  BancoPreferencia: string | null;
+  NumeroCuentaTrabajador: string | null;
+  UrlDocumentoAdjunto: string | null;
+  TallaPoloCamisa: string | null;
+  TallaCasaca: string | null;
+  TallaPantalon: string | null;
+  TallaZapatos: number | null;
+  PaisId: number | null;
+  UbigeoId: number | null;
+  SupervisorId: number | null;
+  CentroCostoId: number | null;
+  EstadoCivilId: number | null;
+  Observacion: string | null;
+  UsuarioProcesoId: number | null;
+  UsuarioOf: string | null;
+  PayloadJson: string | null;
 }
 
 export interface OpalosisRegistroIngresoResponse {
@@ -62,6 +84,21 @@ function pickString(...values: unknown[]): string {
   return '';
 }
 
+function pickNumber(...values: unknown[]): number | undefined {
+  for (const v of values) {
+    if (v === null || v === undefined || v === '') continue;
+    const n = Number(v);
+    if (!Number.isNaN(n)) return n;
+  }
+  return undefined;
+}
+
+function nullIfEmpty(value?: string | null): string | null {
+  if (value === null || value === undefined) return null;
+  const t = String(value).trim();
+  return t ? t : null;
+}
+
 export interface EnqueueAssignmentInput {
   resource: Resource;
   unit: Unit;
@@ -70,6 +107,7 @@ export interface EnqueueAssignmentInput {
   sourceApp?: string;
   opalosisUnidadId?: number | null;
   empresaCodigo?: number | null;
+  usuarioOf?: string | null;
 }
 
 export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOutboundWorkerSnapshot {
@@ -112,12 +150,108 @@ export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOu
   };
 }
 
+/** Normaliza hr_fields legacy (snake_case) o actuales (camelCase). */
+export function normalizeHrFields(raw: unknown): HrOpalosisIngresoFields | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+
+  // Ya en formato nuevo
+  if (r.documento !== undefined || r.Documento !== undefined) {
+    const documento = pickString(r.documento, r.Documento);
+    if (!documento && r.apellidoPaterno === undefined && r.apellido_paterno === undefined) {
+      // podría ser vacío
+    }
+
+    if (r.apellidoPaterno !== undefined || r.tipoDocumentoId !== undefined) {
+      return {
+        tipoDocumentoId: pickNumber(r.tipoDocumentoId) ?? 1,
+        documento: pickString(r.documento),
+        apellidoPaterno: pickString(r.apellidoPaterno),
+        apellidoMaterno: pickString(r.apellidoMaterno),
+        nombres: pickString(r.nombres),
+        sexo: pickString(r.sexo) || 'M',
+        fechaIngreso: pickString(r.fechaIngreso) || new Date().toISOString().slice(0, 10),
+        fechaNacimiento: nullIfEmpty(pickString(r.fechaNacimiento)) ,
+        direccion: nullIfEmpty(pickString(r.direccion)),
+        telefono: nullIfEmpty(pickString(r.telefono)),
+        correoPersonal: nullIfEmpty(pickString(r.correoPersonal)),
+        tieneAsignacionFamiliar: Boolean(r.tieneAsignacionFamiliar ?? false),
+        tieneHijos: Boolean(r.tieneHijos ?? false),
+        empleadoCargoId: pickNumber(r.empleadoCargoId) ?? null,
+        lugarTrabajoId: pickNumber(r.lugarTrabajoId) ?? pickNumber(r.unidad_id) ?? null,
+        opaloId: pickNumber(r.opaloId) ?? pickNumber(r.empresa_codigo) ?? HR_DEFAULT_OPALO_ID,
+        modeloContratoId: pickNumber(r.modeloContratoId) ?? null,
+        regimenLaboralId: pickNumber(r.regimenLaboralId) ?? null,
+        mesesContrato: pickNumber(r.mesesContrato) ?? null,
+        jornadaLaboral: nullIfEmpty(pickString(r.jornadaLaboral)),
+        turno: nullIfEmpty(pickString(r.turno)),
+        sueldo: pickNumber(r.sueldo) ?? null,
+        movilidad: pickNumber(r.movilidad) ?? 0,
+        sistemaPension: nullIfEmpty(pickString(r.sistemaPension)),
+        bancoPreferencia: nullIfEmpty(pickString(r.bancoPreferencia)),
+        numeroCuentaTrabajador: nullIfEmpty(pickString(r.numeroCuentaTrabajador)),
+        urlDocumentoAdjunto: nullIfEmpty(pickString(r.urlDocumentoAdjunto)),
+        tallaPoloCamisa: nullIfEmpty(pickString(r.tallaPoloCamisa)),
+        tallaCasaca: nullIfEmpty(pickString(r.tallaCasaca)),
+        tallaPantalon: nullIfEmpty(pickString(r.tallaPantalon)),
+        tallaZapatos: pickNumber(r.tallaZapatos) ?? null,
+        paisId: pickNumber(r.paisId) ?? HR_DEFAULT_PAIS_ID,
+        ubigeoId: pickNumber(r.ubigeoId) ?? null,
+        departamentoId: pickNumber(r.departamentoId) ?? null,
+        provinciaId: pickNumber(r.provinciaId) ?? null,
+        supervisorId: pickNumber(r.supervisorId) ?? null,
+        centroCostoId: pickNumber(r.centroCostoId) ?? null,
+        estadoCivilId: pickNumber(r.estadoCivilId) ?? null,
+        observacion: nullIfEmpty(pickString(r.observacion)),
+        usuarioProcesoId: pickNumber(r.usuarioProcesoId) ?? null,
+        usuarioOf: nullIfEmpty(pickString(r.usuarioOf)),
+        payloadJson: nullIfEmpty(pickString(r.payloadJson)),
+        refOperaciones: nullIfEmpty(pickString(r.refOperaciones, r.ref_operaciones)) ?? undefined,
+        labels: (r.labels as HrOpalosisIngresoFields['labels']) ?? undefined,
+      };
+    }
+  }
+
+  // Legacy snake_case
+  if (r.apellido_paterno !== undefined || r.tipo_documento !== undefined) {
+    const tipoDoc = pickString(r.tipo_documento, 'DNI').toUpperCase();
+    return {
+      tipoDocumentoId: HR_TIPO_DOCUMENTO_ID_BY_CODE[tipoDoc] ?? 1,
+      documento: pickString(r.documento),
+      apellidoPaterno: pickString(r.apellido_paterno),
+      apellidoMaterno: pickString(r.apellido_materno),
+      nombres: pickString(r.nombres),
+      sexo: pickString(r.sexo) || 'M',
+      fechaIngreso: pickString(r.fecha_ingreso) || new Date().toISOString().slice(0, 10),
+      fechaNacimiento: nullIfEmpty(pickString(r.fecha_nacimiento)),
+      direccion: nullIfEmpty(pickString(r.direccion)),
+      telefono: nullIfEmpty(pickString(r.telefono)),
+      correoPersonal: nullIfEmpty(pickString(r.correo_personal)),
+      tieneAsignacionFamiliar: Boolean(r.asignacion_familiar ?? false),
+      tieneHijos: false,
+      empleadoCargoId: null,
+      lugarTrabajoId: pickNumber(r.unidad_id) || null,
+      opaloId: pickNumber(r.empresa_codigo) ?? HR_DEFAULT_OPALO_ID,
+      sueldo: null,
+      movilidad: 0,
+      paisId: HR_DEFAULT_PAIS_ID,
+      refOperaciones: pickString(r.ref_operaciones) || undefined,
+      labels: {
+        empleadoCargo: pickString(r.cargo) || undefined,
+      },
+    };
+  }
+
+  return null;
+}
+
 export function mapSnapshotToHrFields(
   snapshot: HrOutboundWorkerSnapshot,
   refOperaciones: string,
   options?: {
     opalosisUnidadId?: number | null;
     empresaCodigo?: number | null;
+    usuarioOf?: string | null;
   },
 ): HrOpalosisIngresoFields {
   const { apellido_paterno, apellido_materno, nombres } = splitFullName(
@@ -135,85 +269,151 @@ export function mapSnapshotToHrFields(
   const fechaNacimiento =
     normalizeIsoDate(snapshot.opsflow.birthDate) ??
     normalizeIsoDate(fields.birthDate as string | undefined) ??
-    '';
+    null;
 
-  const hrFields: HrOpalosisIngresoFields = {
-    tipo: 'ingreso',
-    empresa_codigo: options?.empresaCodigo ?? 103,
-    tipo_documento: 'DNI',
+  const sueldo =
+    pickNumber(snapshot.opsflow.monthlySalary, fields.agreedSalary, fields.sueldo, fields.salary) ??
+    null;
+
+  const cargoLabel = pickString(snapshot.opsflow.puesto, fields.processTitle, fields.cargo);
+  const turno = pickString(snapshot.opsflow.assignedShift, fields.turno, fields.shift) || null;
+
+  return {
+    tipoDocumentoId: 1,
     documento: pickString(snapshot.opsflow.dni, identity.dni),
-    apellido_paterno,
-    apellido_materno,
+    apellidoPaterno: apellido_paterno,
+    apellidoMaterno: apellido_materno,
     nombres: nombres || pickString(identity.fullName, snapshot.opsflow.name),
-    sexo: pickString(fields.sexo, fields.gender) || 'M',
-    cargo: pickString(snapshot.opsflow.puesto, fields.processTitle),
-    unidad_id: options?.opalosisUnidadId ?? 0,
-    fecha_ingreso: fechaIngreso,
-    fecha_nacimiento: fechaNacimiento,
-    estado_civil: pickString(fields.estadoCivil, fields.estado_civil) || 'SOLTERO',
-    correo_personal: pickString(identity.email, fields.email, fields.correo),
-    ref_operaciones: refOperaciones,
-    pais: pickString(fields.pais, fields.country) || 'PE',
-    asignacion_familiar: false,
+    sexo: (pickString(fields.sexo, fields.gender) || 'M').slice(0, 1).toUpperCase(),
+    fechaIngreso,
+    fechaNacimiento,
+    direccion: nullIfEmpty(
+      pickString(fields.address, fields.direccion, snapshot.opsflow.localidad),
+    ),
+    telefono: nullIfEmpty(
+      pickString(snapshot.opsflow.phone, identity.phone, identity.phone2, fields.phone),
+    ),
+    correoPersonal: nullIfEmpty(pickString(identity.email, fields.email, fields.correo)),
+    tieneAsignacionFamiliar: false,
+    tieneHijos: false,
+    empleadoCargoId: pickNumber(fields.empleadoCargoId) ?? null,
+    lugarTrabajoId: options?.opalosisUnidadId ?? pickNumber(fields.lugarTrabajoId) ?? null,
+    opaloId: options?.empresaCodigo ?? HR_DEFAULT_OPALO_ID,
+    modeloContratoId: pickNumber(fields.modeloContratoId) ?? null,
+    regimenLaboralId: pickNumber(fields.regimenLaboralId) ?? null,
+    mesesContrato: pickNumber(fields.mesesContrato) ?? null,
+    jornadaLaboral: nullIfEmpty(pickString(fields.jornadaLaboral)) ?? '8 Horas',
+    turno,
+    sueldo,
+    movilidad: pickNumber(fields.movilidad) ?? 0,
+    sistemaPension: nullIfEmpty(pickString(fields.sistemaPension, fields.fondoPension)),
+    bancoPreferencia: nullIfEmpty(pickString(fields.bancoPreferencia, fields.bancoId)),
+    numeroCuentaTrabajador: nullIfEmpty(pickString(fields.numeroCuenta, fields.bankAccount)),
+    urlDocumentoAdjunto: nullIfEmpty(pickString(fields.urlDocumentoAdjunto, fields.documentUrl)),
+    paisId: HR_DEFAULT_PAIS_ID,
+    ubigeoId: pickNumber(fields.ubigeoId) ?? null,
+    estadoCivilId: pickNumber(fields.estadoCivilId) ?? null,
+    observacion: nullIfEmpty(pickString(fields.observacion, fields.notes)),
+    usuarioOf: options?.usuarioOf ?? 'opsflow',
+    refOperaciones,
+    labels: {
+      tipoDocumento: 'Libreta electoral o DNI',
+      empleadoCargo: cargoLabel || undefined,
+      lugarTrabajo: snapshot.opsflow.unitName || undefined,
+      opalo: undefined,
+    },
   };
-
-  const telefono = pickString(snapshot.opsflow.phone, identity.phone, identity.phone2, fields.phone);
-  if (telefono) hrFields.telefono = telefono;
-
-  const direccion = pickString(
-    fields.address,
-    fields.direccion,
-    snapshot.opsflow.localidad,
-    fields.province,
-    fields.district,
-  );
-  if (direccion) hrFields.direccion = direccion;
-
-  return hrFields;
 }
 
 export function mapHrFieldsToRegistroIngresoPayload(
   hrFields: HrOpalosisIngresoFields,
 ): OpalosisRegistroIngresoPayload {
-  const tipoDoc = (hrFields.tipo_documento || 'DNI').toUpperCase();
-  const tipoDocumentoId =
-    HR_TIPO_DOCUMENTO_ID[tipoDoc] ??
-    HR_TIPO_DOCUMENTO_ID.DNI;
+  const obsParts: string[] = [];
+  if (hrFields.refOperaciones) obsParts.push(`Ref OpsFlow: ${hrFields.refOperaciones}`);
+  if (hrFields.observacion) obsParts.push(hrFields.observacion);
 
-  const payload: OpalosisRegistroIngresoPayload = {
-    TipoDocumentoId: tipoDocumentoId,
+  return {
+    TipoDocumentoId: hrFields.tipoDocumentoId ?? 1,
     Documento: hrFields.documento,
-    ApellidoPaterno: hrFields.apellido_paterno,
-    ApellidoMaterno: hrFields.apellido_materno,
-    Nombres: hrFields.nombres,
-    Sexo: (hrFields.sexo || 'M').slice(0, 1).toUpperCase(),
-    FechaIngreso: hrFields.fecha_ingreso,
+    ApellidoPaterno: nullIfEmpty(hrFields.apellidoPaterno),
+    ApellidoMaterno: nullIfEmpty(hrFields.apellidoMaterno),
+    Nombres: nullIfEmpty(hrFields.nombres),
+    Sexo: nullIfEmpty(hrFields.sexo)?.slice(0, 1).toUpperCase() ?? 'M',
+    FechaNacimiento: nullIfEmpty(hrFields.fechaNacimiento),
+    FechaIngreso: nullIfEmpty(hrFields.fechaIngreso),
+    Direccion: nullIfEmpty(hrFields.direccion),
+    Telefono: nullIfEmpty(hrFields.telefono),
+    CorreoPersonal: nullIfEmpty(hrFields.correoPersonal),
+    TieneAsignacionFamiliar: hrFields.tieneAsignacionFamiliar ?? false,
+    TieneHijos: hrFields.tieneHijos ?? false,
+    EmpleadoCargoId: hrFields.empleadoCargoId ?? null,
+    LugarTrabajoId: hrFields.lugarTrabajoId ?? null,
+    OpaloId: hrFields.opaloId ?? HR_DEFAULT_OPALO_ID,
+    ModeloContratoId: hrFields.modeloContratoId ?? null,
+    RegimenLaboralId: hrFields.regimenLaboralId ?? null,
+    MesesContrato: hrFields.mesesContrato ?? null,
+    JornadaLaboral: nullIfEmpty(hrFields.jornadaLaboral),
+    Turno: nullIfEmpty(hrFields.turno),
+    Sueldo: hrFields.sueldo ?? null,
+    Movilidad: hrFields.movilidad ?? 0,
+    SistemaPension: nullIfEmpty(hrFields.sistemaPension),
+    BancoPreferencia: nullIfEmpty(hrFields.bancoPreferencia),
+    NumeroCuentaTrabajador: nullIfEmpty(hrFields.numeroCuentaTrabajador),
+    UrlDocumentoAdjunto: nullIfEmpty(hrFields.urlDocumentoAdjunto),
+    TallaPoloCamisa: nullIfEmpty(hrFields.tallaPoloCamisa),
+    TallaCasaca: nullIfEmpty(hrFields.tallaCasaca),
+    TallaPantalon: nullIfEmpty(hrFields.tallaPantalon),
+    TallaZapatos: hrFields.tallaZapatos ?? null,
+    PaisId: hrFields.paisId ?? HR_DEFAULT_PAIS_ID,
+    UbigeoId: hrFields.ubigeoId ?? null,
+    SupervisorId: hrFields.supervisorId ?? null,
+    CentroCostoId: hrFields.centroCostoId ?? null,
+    EstadoCivilId: hrFields.estadoCivilId ?? null,
+    Observacion: obsParts.length ? obsParts.join(' | ') : null,
+    UsuarioProcesoId: hrFields.usuarioProcesoId ?? null,
+    UsuarioOf: nullIfEmpty(hrFields.usuarioOf) ?? 'opsflow',
+    PayloadJson: nullIfEmpty(hrFields.payloadJson),
   };
-
-  if (hrFields.fecha_nacimiento) payload.FechaNacimiento = hrFields.fecha_nacimiento;
-  if (hrFields.cargo) payload.Cargo = hrFields.cargo;
-  if (hrFields.correo_personal) payload.CorreoPersonal = hrFields.correo_personal;
-  if (hrFields.telefono) payload.Telefono = hrFields.telefono;
-  if (hrFields.direccion) payload.Direccion = hrFields.direccion;
-  if (hrFields.estado_civil) payload.EstadoCivil = hrFields.estado_civil;
-  if (hrFields.empresa_codigo) payload.EmpresaCodigo = hrFields.empresa_codigo;
-  if (hrFields.unidad_id && hrFields.unidad_id > 0) payload.UnidadId = hrFields.unidad_id;
-  if (hrFields.ref_operaciones) payload.RefOperaciones = hrFields.ref_operaciones;
-  if (hrFields.pais) payload.Pais = hrFields.pais;
-
-  return payload;
-}
-
-export function isValidTipoDocumento(value: string): value is (typeof HR_TIPO_DOCUMENTO_OPTIONS)[number] {
-  return (HR_TIPO_DOCUMENTO_OPTIONS as readonly string[]).includes(value);
 }
 
 export function listHrFieldWarnings(fields: HrOpalosisIngresoFields): string[] {
   const warnings: string[] = [];
   if (!fields.documento) warnings.push('Sin documento');
-  if (!fields.correo_personal) warnings.push('Sin correo personal');
-  if (!fields.fecha_nacimiento) warnings.push('Sin fecha de nacimiento');
-  if (!fields.unidad_id) warnings.push('Sin unidad_id Opalosis (configurar mapeo)');
-  if (!fields.cargo) warnings.push('Sin cargo');
+  if (!fields.apellidoPaterno) warnings.push('Sin apellido paterno');
+  if (!fields.apellidoMaterno) warnings.push('Sin apellido materno');
+  if (!fields.nombres) warnings.push('Sin nombres');
+  if (!fields.fechaIngreso) warnings.push('Sin fecha de ingreso');
+  if (!fields.empleadoCargoId) warnings.push('Sin cargo Opalosis (EmpleadoCargoId)');
+  if (!fields.lugarTrabajoId) warnings.push('Sin lugar de trabajo (LugarTrabajoId)');
+  if (fields.sueldo === null || fields.sueldo === undefined || fields.sueldo <= 0) {
+    warnings.push('Sueldo obligatorio (> 0)');
+  }
+  if (fields.movilidad === null || fields.movilidad === undefined) {
+    warnings.push('Movilidad debe enviarse (puede ser 0)');
+  }
+  if (!fields.urlDocumentoAdjunto) {
+    warnings.push('Sin UrlDocumentoAdjunto (carpeta SharePoint)');
+  }
+  if (!fields.correoPersonal) warnings.push('Sin correo personal');
+  if (!fields.fechaNacimiento) warnings.push('Sin fecha de nacimiento');
   return warnings;
 }
+
+export function listHrFieldBlockers(fields: HrOpalosisIngresoFields): string[] {
+  const blockers: string[] = [];
+  if (!fields.documento?.trim()) blockers.push('Documento');
+  if (!fields.apellidoPaterno?.trim()) blockers.push('Apellido paterno');
+  if (!fields.apellidoMaterno?.trim()) blockers.push('Apellido materno');
+  if (!fields.nombres?.trim()) blockers.push('Nombres');
+  if (!fields.fechaIngreso) blockers.push('Fecha de ingreso');
+  if (!fields.empleadoCargoId) blockers.push('Cargo');
+  if (!fields.lugarTrabajoId) blockers.push('Lugar de trabajo');
+  if (fields.sueldo === null || fields.sueldo === undefined || Number(fields.sueldo) <= 0) {
+    blockers.push('Sueldo');
+  }
+  if (fields.movilidad === null || fields.movilidad === undefined) blockers.push('Movilidad');
+  if (!fields.urlDocumentoAdjunto?.trim()) blockers.push('URL documentos (SharePoint)');
+  return blockers;
+}
+
+export { HR_SHAREPOINT_DOCS_LIBRARY_URL };

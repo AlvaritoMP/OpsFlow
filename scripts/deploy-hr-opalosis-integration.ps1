@@ -81,7 +81,7 @@ try {
 Write-Step 'Configurando secrets Opalosis'
 if (-not $env:OPALOSIS_API_BASE_URL) {
   Write-Host 'OPALOSIS_API_BASE_URL no definida — la función usará modo simulación.' -ForegroundColor Yellow
-  Write-Host '  Ejemplo: https://onyx.opaloperu.com/apiempleadoregistro' -ForegroundColor DarkGray
+  Write-Host '  Ejemplo: https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow' -ForegroundColor DarkGray
 } else {
   npx supabase secrets set "OPALOSIS_API_BASE_URL=$env:OPALOSIS_API_BASE_URL"
 }
@@ -101,8 +101,9 @@ Pop-Location
 
 Write-Host "`nDespliegue completado." -ForegroundColor Green
 Write-Host "Endpoint: $EndpointUrl" -ForegroundColor Yellow
-Write-Host "`nIMPORTANTE: Ejecute la migración SQL antes de usar la UI:" -ForegroundColor Yellow
+Write-Host "`nIMPORTANTE: Ejecute ambas migraciones SQL:" -ForegroundColor Yellow
 Write-Host "  database/migrations/MIGRATION_HR_OPALOSIS_INTEGRATION.sql" -ForegroundColor White
+Write-Host "  database/migrations/MIGRATION_HR_OPALOSIS_SOLICITUD_TRACKING.sql" -ForegroundColor White
 
 if (-not $SkipTest) {
   Write-Step 'Prueba test-registro-ingreso'

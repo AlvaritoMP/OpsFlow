@@ -96,8 +96,26 @@ export function splitFullName(fullName: string): {
 export const HR_EMPRESA_OPTIONS = [
   { code: 103, label: 'Opalo Peru S.A.C.', alias: 'Opalo Peru' },
   { code: 104, label: 'Opalo Intermediación S.A.C.', alias: 'Opalo Intermediación' },
-  { code: 153, label: 'Opinter S.A.C.', alias: 'Opinter' },
+  { code: 153, label: 'Opalo Tercerización', alias: 'Opterc' },
 ] as const;
+
+/** PaisId por defecto = Perú (catálogo Opalosis). */
+export const HR_DEFAULT_PAIS_ID = 173;
+
+/** OpaloId por defecto = Opalo Peru SAC. */
+export const HR_DEFAULT_OPALO_ID = 103;
+
+/** Biblioteca SharePoint RRHH para UrlDocumentoAdjunto. */
+export const HR_SHAREPOINT_DOCS_LIBRARY_URL =
+  'https://opaloperu1.sharepoint.com/:f:/s/INDICADORESRRHH/IgB1TkyjRpcpSLPf-jZj9HUIAZY7gf2sdub0qIvk6ZqyVkU?e=253bjH';
+
+/** TipoDocumentoId según catálogo Opalosis GET /tipo-documento. */
+export const HR_TIPO_DOCUMENTO_ID_BY_CODE: Record<string, number> = {
+  DNI: 1,
+  PASAPORTE: 2,
+  CE: 4,
+  PTP: 5,
+};
 
 export const HR_TIPO_DOCUMENTO_OPTIONS = ['DNI', 'PASAPORTE', 'CE', 'PTP'] as const;
 export const HR_SEXO_OPTIONS = ['M', 'F'] as const;
@@ -112,3 +130,6 @@ export const HR_ESTADO_CIVIL_OPTIONS = [
 export type HrTipoDocumento = (typeof HR_TIPO_DOCUMENTO_OPTIONS)[number];
 export type HrSexo = (typeof HR_SEXO_OPTIONS)[number];
 export type HrEstadoCivil = (typeof HR_ESTADO_CIVIL_OPTIONS)[number];
+
+/** Compat: alias anterior. */
+export const HR_TIPO_DOCUMENTO_ID = HR_TIPO_DOCUMENTO_ID_BY_CODE;

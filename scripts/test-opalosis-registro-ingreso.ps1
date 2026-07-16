@@ -11,7 +11,7 @@
   .\scripts\test-opalosis-registro-ingreso.ps1 -Documento "87654321"
 #>
 param(
-  [string]$BaseUrl = 'https://onyx.opaloperu.com/apiempleadoregistro',
+  [string]$BaseUrl = 'https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow',
   [string]$ApiKey = $env:OPALOSIS_API_KEY,
   [string]$Documento = '12345678',
   [string]$ApellidoPaterno = 'Perez',
@@ -28,7 +28,7 @@ if ([string]::IsNullOrWhiteSpace($ApiKey)) {
   Write-Host 'Usando API Key de pruebas por defecto.' -ForegroundColor Yellow
 }
 
-$endpoint = "$($BaseUrl.TrimEnd('/'))/api/opsflow/registro-ingreso"
+$endpoint = "$($BaseUrl.TrimEnd('/'))/registro-ingreso"
 $body = @{
   TipoDocumentoId = 1
   Documento       = $Documento

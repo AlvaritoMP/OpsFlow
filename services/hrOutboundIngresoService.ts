@@ -3,15 +3,19 @@ import { generateRefOperaciones } from '../utils/hrIntegration';
 import {
   buildOutboundWorkerSnapshot,
   mapSnapshotToHrFields,
+  normalizeHrFields,
   type EnqueueAssignmentInput,
 } from '../utils/hrOpalosisMapper';
 import type {
+  HrOpalosisIngresoFields,
   HrOutboundIngresoPackage,
   HrOutboundIngresoPackageItem,
   HrOutboundIngresoPackageWithItems,
   HrOutboundIngresoQueueItem,
   HrUnitCacheEntry,
   HrUnitMapping,
+  OpalosisCatalogItem,
+  OpalosisCatalogName,
 } from '../types';
 
 function transformQueueFromDB(data: Record<string, unknown>): HrOutboundIngresoQueueItem {
@@ -24,7 +28,7 @@ function transformQueueFromDB(data: Record<string, unknown>): HrOutboundIngresoQ
     assignedAt: data.assigned_at as string,
     reportDate: data.report_date as string,
     workerSnapshot: data.worker_snapshot as HrOutboundIngresoQueueItem['workerSnapshot'],
-    hrFields: (data.hr_fields as HrOutboundIngresoQueueItem['hrFields']) ?? undefined,
+    hrFields: normalizeHrFields(data.hr_fields) ?? undefined,
     refOperaciones: data.ref_operaciones as string,
     queueStatus: data.queue_status as HrOutboundIngresoQueueItem['queueStatus'],
     packageId: (data.package_id as string) ?? undefined,
@@ -60,10 +64,13 @@ function transformPackageItemFromDB(data: Record<string, unknown>): HrOutboundIn
     resourceId: data.resource_id as string,
     workerName: data.worker_name as string,
     workerSnapshot: data.worker_snapshot as HrOutboundIngresoPackageItem['workerSnapshot'],
-    hrFields: (data.hr_fields as HrOutboundIngresoPackageItem['hrFields']) ?? undefined,
+    hrFields: normalizeHrFields(data.hr_fields) ?? undefined,
     itemStatus: data.item_status as HrOutboundIngresoPackageItem['itemStatus'],
     mensaje: (data.mensaje as string) ?? undefined,
     empleadoIdRrhh: (data.empleado_id_rrhh as number) ?? undefined,
+    ingresoCod: (data.ingreso_cod as string) ?? undefined,
+    opalosisEstado: (data.opalosis_estado as string) ?? undefined,
+    opalosisEtapa: (data.opalosis_etapa as string) ?? undefined,
     createdAt: data.created_at as string,
   };
 }
@@ -90,12 +97,12 @@ export const hrOutboundIngresoService = {
       if (!data) return null;
 
       return {
-        id: data.id as string,
-        opsflowUnitId: data.opsflow_unit_id as string,
-        opalosisUnidadId: data.opalosis_unidad_id as number,
-        opalosisUnidadNombre: (data.opalosis_unidad_nombre as string) ?? undefined,
-        empresaCodigo: (data.empresa_codigo as number) ?? undefined,
-        activo: data.activo as boolean,
+        id: (data as any).id as string,
+        opsflowUnitId: (data as any).opsflow_unit_id as string,
+        opalosisUnidadId: (data as any).opalosis_unidad_id as number,
+        opalosisUnidadNombre: ((data as any).opalosis_unidad_nombre as string) ?? undefined,
+        empresaCodigo: ((data as any).empresa_codigo as number) ?? undefined,
+        activo: (data as any).activo as boolean,
       };
     } catch {
       return null;
@@ -116,7 +123,6 @@ export const hrOutboundIngresoService = {
     }
   },
 
-  /** Encola trabajador tras asignación ATS → unidad. */
   async enqueueFromAssignment(input: EnqueueAssignmentInput): Promise<HrOutboundIngresoQueueItem | null> {
     try {
       const existing = await supabase
@@ -140,7 +146,15 @@ export const hrOutboundIngresoService = {
       const hrFields = mapSnapshotToHrFields(workerSnapshot, refOperaciones, {
         opalosisUnidadId: mapping?.opalosisUnidadId ?? null,
         empresaCodigo: mapping?.empresaCodigo ?? 103,
+        usuarioOf: input.usuarioOf ?? 'opsflow',
       });
+
+      if (mapping?.opalosisUnidadNombre) {
+        hrFields.labels = {
+          ...hrFields.labels,
+          lugarTrabajo: mapping.opalosisUnidadNombre,
+        };
+      }
 
       const { data, error } = await supabase
         .from('hr_outbound_ingreso_queue')
@@ -160,11 +174,30 @@ export const hrOutboundIngresoService = {
         .single();
 
       if (error) throw error;
-      return transformQueueFromDB(data as Record<string, unknown>);
+      return transformQueueFromDB(data as unknown as Record<string, unknown>);
     } catch (error) {
       console.error('enqueueFromAssignment error:', error);
       return null;
     }
+  },
+
+  async updateQueueItemHrFields(
+    queueItemId: string,
+    hrFields: HrOpalosisIngresoFields,
+  ): Promise<HrOutboundIngresoQueueItem> {
+    const { data, error } = await supabase
+      .from('hr_outbound_ingreso_queue')
+      .update({
+        hr_fields: hrFields,
+        worker_name: `${hrFields.apellidoPaterno} ${hrFields.apellidoMaterno} ${hrFields.nombres}`.trim(),
+      })
+      .eq('id', queueItemId)
+      .eq('queue_status', 'pendiente_envio')
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    return transformQueueFromDB(data as unknown as Record<string, unknown>);
   },
 
   async listQueueItems(options?: {
@@ -199,7 +232,7 @@ export const hrOutboundIngresoService = {
       const { data, error } = await query;
       if (error) throw error;
 
-      return (data ?? []).map((row) => transformQueueFromDB(row as Record<string, unknown>));
+      return (data ?? []).map((row) => transformQueueFromDB(row as unknown as Record<string, unknown>));
     } catch (error) {
       handleSupabaseError(error);
       return [];
@@ -228,7 +261,7 @@ export const hrOutboundIngresoService = {
         .limit(limit);
 
       if (error) throw error;
-      return (data ?? []).map((row) => transformPackageFromDB(row as Record<string, unknown>));
+      return (data ?? []).map((row) => transformPackageFromDB(row as unknown as Record<string, unknown>));
     } catch (error) {
       handleSupabaseError(error);
       return [];
@@ -255,8 +288,8 @@ export const hrOutboundIngresoService = {
       if (itemsError) throw itemsError;
 
       return {
-        ...transformPackageFromDB(pkg as Record<string, unknown>),
-        items: (items ?? []).map((row) => transformPackageItemFromDB(row as Record<string, unknown>)),
+        ...transformPackageFromDB(pkg as unknown as Record<string, unknown>),
+        items: (items ?? []).map((row) => transformPackageItemFromDB(row as unknown as Record<string, unknown>)),
       };
     } catch (error) {
       handleSupabaseError(error);
@@ -269,7 +302,7 @@ export const hrOutboundIngresoService = {
     reportDate: string;
     senderNote?: string;
     sentByName?: string;
-  }): Promise<{ package: HrOutboundIngresoPackage; simulated: boolean }> {
+  }): Promise<{ package: HrOutboundIngresoPackage; simulated: boolean; partial?: boolean }> {
     if (options.queueItemIds.length === 0) {
       throw new Error('Seleccione al menos un trabajador para enviar.');
     }
@@ -294,6 +327,7 @@ export const hrOutboundIngresoService = {
     return {
       package: transformPackageFromDB(data.package as Record<string, unknown>),
       simulated: Boolean(data.simulated),
+      partial: Boolean(data.partial),
     };
   },
 
@@ -320,6 +354,31 @@ export const hrOutboundIngresoService = {
     return data as Record<string, unknown>;
   },
 
+  async fetchCatalog(options: {
+    catalog: OpalosisCatalogName;
+    buscar?: string;
+    departamentoId?: number;
+    provinciaId?: number;
+  }): Promise<{ items: OpalosisCatalogItem[]; simulated: boolean }> {
+    const { data, error } = await supabase.functions.invoke('hr-opalosis-integration', {
+      body: {
+        action: 'fetch-catalog',
+        catalog: options.catalog,
+        buscar: options.buscar ?? null,
+        departamentoId: options.departamentoId ?? null,
+        provinciaId: options.provinciaId ?? null,
+      },
+    });
+
+    if (error) throw new Error(error.message);
+    if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+
+    return {
+      items: (data.items ?? []) as OpalosisCatalogItem[],
+      simulated: Boolean(data.simulated),
+    };
+  },
+
   async fetchUnidadesFromOpalosis(): Promise<{ units: HrUnitCacheEntry[]; simulated: boolean }> {
     const { data, error } = await supabase.functions.invoke('hr-opalosis-integration', {
       body: { action: 'fetch-unidades' },
@@ -343,7 +402,7 @@ export const hrOutboundIngresoService = {
 
       if (error) throw error;
 
-      return (data ?? []).map((row) => ({
+      return (data ?? []).map((row: any) => ({
         opalosisUnidadId: row.opalosis_unidad_id as number,
         nombre: row.nombre as string,
         activo: row.activo as boolean,

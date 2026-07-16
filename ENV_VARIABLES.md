@@ -80,7 +80,7 @@ La integración outbound hacia Opalosis usa la Edge Function `hr-opalosis-integr
 
 | Variable | Descripción | Ejemplo (pruebas) |
 |----------|-------------|-------------------|
-| `OPALOSIS_API_BASE_URL` | URL base del API Opalosis | `https://onyx.opaloperu.com/apiempleadoregistro` |
+| `OPALOSIS_API_BASE_URL` | URL base del API Opalosis | `https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow` |
 | `OPALOSIS_API_KEY` | Header `X-Api-Key` | *(entregada por Opalosis)* |
 | `OPALOSIS_USE_MOCK` | `true` = simulación; `false` = API real | `false` |
 
@@ -93,10 +93,16 @@ Prueba directa del API (sin Supabase):
 Despliegue de la Edge Function:
 
 ```powershell
-$env:OPALOSIS_API_BASE_URL = "https://onyx.opaloperu.com/apiempleadoregistro"
+$env:OPALOSIS_API_BASE_URL = "https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow"
 $env:OPALOSIS_API_KEY = "tu-api-key"
+$env:OPALOSIS_USE_MOCK = "false"
 .\scripts\deploy-hr-opalosis-integration.ps1
 ```
+
+Migraciones SQL requeridas:
+
+1. `MIGRATION_HR_OPALOSIS_INTEGRATION.sql`
+2. `MIGRATION_HR_OPALOSIS_SOLICITUD_TRACKING.sql`
 
 Ver `HR_OPALOSIS_INTEGRATION.md` para el flujo completo ATS → Opalosis.
 

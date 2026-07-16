@@ -803,29 +803,105 @@ export type HrOutboundPackageStatus =
   | 'rechazado'
   | 'parcialmente_procesado';
 
-export type HrOutboundItemStatus = 'pendiente' | 'procesado' | 'observado' | 'rechazado';
+export type HrOutboundItemStatus = 'pendiente' | 'procesado' | 'observado' | 'rechazado' | 'recibido';
 
-/** Campos mapeados al contrato Opalosis POST /api/empleados (referencial). */
+/** Campos de solicitud de ingreso alineados a RegistroIngresoDTO (Opalosis). */
 export interface HrOpalosisIngresoFields {
-  tipo: 'ingreso';
-  empresa_codigo: number;
-  tipo_documento: string;
+  tipoDocumentoId: number;
   documento: string;
-  apellido_paterno: string;
-  apellido_materno: string;
+  apellidoPaterno: string;
+  apellidoMaterno: string;
   nombres: string;
   sexo: string;
-  cargo: string;
-  unidad_id: number;
-  fecha_ingreso: string;
-  fecha_nacimiento: string;
-  estado_civil: string;
-  correo_personal: string;
-  telefono?: string;
-  direccion?: string;
-  pais?: string;
-  asignacion_familiar?: boolean;
-  ref_operaciones: string;
+  fechaIngreso: string;
+  fechaNacimiento?: string | null;
+  direccion?: string | null;
+  telefono?: string | null;
+  correoPersonal?: string | null;
+  tieneAsignacionFamiliar?: boolean;
+  tieneHijos?: boolean;
+  empleadoCargoId?: number | null;
+  lugarTrabajoId?: number | null;
+  opaloId?: number | null;
+  modeloContratoId?: number | null;
+  regimenLaboralId?: number | null;
+  mesesContrato?: number | null;
+  jornadaLaboral?: string | null;
+  turno?: string | null;
+  sueldo?: number | null;
+  movilidad?: number | null;
+  sistemaPension?: string | null;
+  bancoPreferencia?: string | null;
+  numeroCuentaTrabajador?: string | null;
+  urlDocumentoAdjunto?: string | null;
+  tallaPoloCamisa?: string | null;
+  tallaCasaca?: string | null;
+  tallaPantalon?: string | null;
+  tallaZapatos?: number | null;
+  paisId?: number | null;
+  ubigeoId?: number | null;
+  departamentoId?: number | null;
+  provinciaId?: number | null;
+  supervisorId?: number | null;
+  centroCostoId?: number | null;
+  estadoCivilId?: number | null;
+  observacion?: string | null;
+  usuarioProcesoId?: number | null;
+  usuarioOf?: string | null;
+  payloadJson?: string | null;
+  /** Referencia interna OpsFlow (también puede ir en Observacion). */
+  refOperaciones?: string;
+  /** Etiquetas de catálogo para UI (no se envían a Opalosis). */
+  labels?: {
+    tipoDocumento?: string;
+    empleadoCargo?: string;
+    lugarTrabajo?: string;
+    opalo?: string;
+    modeloContrato?: string;
+    regimenLaboral?: string;
+    estadoCivil?: string;
+    departamento?: string;
+    provincia?: string;
+    distrito?: string;
+    banco?: string;
+    supervisor?: string;
+    centroCosto?: string;
+    fondoPension?: string;
+  };
+}
+
+export type OpalosisCatalogName =
+  | 'tipo-documento'
+  | 'estado-civil'
+  | 'paises'
+  | 'departamentos'
+  | 'provincias'
+  | 'distritos'
+  | 'empleado-cargo'
+  | 'lugar-trabajo'
+  | 'opalos'
+  | 'regimen-laboral'
+  | 'modelo-contrato'
+  | 'fondo-pension'
+  | 'banco'
+  | 'supervisores'
+  | 'centro-costo';
+
+export interface OpalosisCatalogItem {
+  id: number;
+  label: string;
+  raw?: Record<string, unknown>;
+}
+
+export interface OpalosisSolicitudIngreso {
+  ingresoId: number;
+  ingresoCod: string;
+  documento: string;
+  nombresCompletos: string;
+  lugarTrabajo: string;
+  fechaProcesada?: string | null;
+  estado: string;
+  etapa: string;
 }
 
 /** Snapshot completo enviado a Opalosis (todo lo disponible). */
@@ -908,6 +984,9 @@ export interface HrOutboundIngresoPackageItem {
   itemStatus: HrOutboundItemStatus;
   mensaje?: string;
   empleadoIdRrhh?: number;
+  ingresoCod?: string;
+  opalosisEstado?: string;
+  opalosisEtapa?: string;
   createdAt: string;
 }
 
