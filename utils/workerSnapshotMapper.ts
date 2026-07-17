@@ -101,8 +101,23 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
 
 export const HANDOFF_FIELD_LABELS: Record<string, string> = {
   name: 'Nombre',
+  fullName: 'Nombre completo',
+  /** Etiqueta del camino OpsFlow/ATS (genérica; no tipifica DNI vs CE vs pasaporte). */
   dni: 'DNI',
+  email: 'Correo',
+  phone: 'Teléfono',
+  phone2: 'Teléfono 2',
   birthDate: 'Fecha de nacimiento',
   startDate: 'Fecha de ingreso',
+  hireDate: 'Fecha de contratación',
   monthlySalary: 'Salario mensual',
+  agreedSalary: 'Salario acordado',
+  address: 'Dirección',
+  province: 'Provincia',
+  district: 'Distrito',
+  processTitle: 'Proceso / puesto',
+  clientName: 'Cliente',
+  sexo: 'Sexo',
+  gender: 'Género',
+  estadoCivil: 'Estado civil',
 };

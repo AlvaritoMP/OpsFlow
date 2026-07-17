@@ -3,6 +3,7 @@ import { ExternalLink, Loader2, Search, X } from 'lucide-react';
 import { hrOutboundIngresoService } from '../services/hrOutboundIngresoService';
 import {
   HR_SHAREPOINT_DOCS_LIBRARY_URL,
+  buildWorkerFieldInventory,
   listHrFieldBlockers,
   listHrFieldWarnings,
 } from '../utils/hrOpalosisMapper';
@@ -167,6 +168,10 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
 
   const blockers = useMemo(() => listHrFieldBlockers(form), [form]);
   const warnings = useMemo(() => listHrFieldWarnings(form), [form]);
+  const fieldInventory = useMemo(
+    () => buildWorkerFieldInventory(item.workerSnapshot, form),
+    [item.workerSnapshot, form],
+  );
 
   const setField = <K extends keyof HrOpalosisIngresoFields>(key: K, value: HrOpalosisIngresoFields[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -217,6 +222,51 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
               <strong>Campos recomendados faltantes:</strong> {blockers.join(', ')}
             </div>
           )}
+
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Todos los datos del camino ATS → OpsFlow
+            </h4>
+            <p className="text-xs text-slate-500">
+              Incluye campos conocidos y dinámicos (ej. un dato &quot;mascotas&quot; nacido en el
+              ATS). Se envían a Opalosis con estas etiquetas; allí RRHH decide por cada uno si lo
+              usa, lo descarta, y con qué nombre de su BD (ej. mascotas → animales). No hay
+              estándar 1:1 entre sistemas.
+            </p>
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50">
+              <table className="min-w-full text-xs">
+                <thead className="sticky top-0 bg-slate-100 text-left text-slate-600">
+                  <tr>
+                    <th className="px-2 py-1.5">Origen</th>
+                    <th className="px-2 py-1.5">Clave</th>
+                    <th className="px-2 py-1.5">Etiqueta (camino)</th>
+                    <th className="px-2 py-1.5">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fieldInventory.map((f) => (
+                    <tr key={`${f.source}-${f.key}`} className="border-t border-slate-200">
+                      <td className="px-2 py-1 font-mono uppercase text-slate-400">{f.source}</td>
+                      <td className="px-2 py-1 font-mono text-slate-500">{f.key}</td>
+                      <td className="px-2 py-1 text-slate-700" title={f.note}>
+                        {f.label}
+                      </td>
+                      <td className="max-w-[180px] truncate px-2 py-1 text-slate-800">
+                        {String(f.value)}
+                      </td>
+                    </tr>
+                  ))}
+                  {fieldInventory.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-3 text-center text-slate-400">
+                        Sin datos adicionales en el snapshot
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
           <section className="space-y-3">
             <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Datos personales</h4>

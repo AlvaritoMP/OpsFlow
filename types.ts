@@ -904,6 +904,20 @@ export interface OpalosisSolicitudIngreso {
   etapa: string;
 }
 
+/** Campo con etiqueta del camino ATS/OpsFlow (para retiquetado en Opalosis). */
+export interface HrWorkerFieldInventoryItem {
+  source: 'ats' | 'opsflow' | 'operator';
+  /** Clave original en el sistema de origen (inmutable). */
+  key: string;
+  /** Etiqueta tal como se conoce en ATS/OpsFlow (no la de Opalosis). */
+  label: string;
+  value: string | number | boolean;
+  /** Aviso opcional; Opalosis decide si usa el dato y con qué etiqueta propia. */
+  note?: string;
+  /** Siempre true: RRHH debe clasificar o descartar el dato en Opalosis. */
+  classificationRequired?: boolean;
+}
+
 /** Snapshot completo enviado a Opalosis (todo lo disponible). */
 export interface HrOutboundWorkerSnapshot {
   capturedAt: string;

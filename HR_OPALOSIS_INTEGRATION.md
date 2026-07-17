@@ -59,6 +59,23 @@ $env:SUPABASE_SERVICE_ROLE_KEY = "eyJ..."
 .\scripts\deploy-hr-opalosis-integration.ps1
 ```
 
+## Inventario de campos (retiquetado dinámico en Opalosis)
+
+No hay mapeo estándar 1:1 entre ATS, OpsFlow y Opalosis. En el camino pueden nacer
+campos arbitrarios (ej. `mascotas` en un proceso del ATS). OpsFlow envía **todos** esos
+datos con la etiqueta/clave del origen; el usuario de Opalosis, al procesar al trabajador,
+decide por cada ítem:
+
+1. ¿Lo usa o lo descarta?
+2. Si lo usa, ¿con qué etiqueta de su BD? (ej. `mascotas` → `animales`)
+
+El caso DNI es solo un ejemplo: en OpsFlow/ATS se llama `DNI` aunque el valor pueda ser
+pasaporte o CE; en Opalosis pueden ser campos tipados distintos. El mismo patrón aplica
+a **cualquier** dato dinámico.
+
+Cada `POST /registro-ingreso` incluye en `PayloadJson.fieldInventory` ítems con
+`classificationRequired: true`, más `raw.ats.fields` completo para no perder claves nuevas.
+
 ## Campos recomendados (RegistroIngresoDTO)
 
 Obligatorios de negocio para evitar observaciones RRHH:

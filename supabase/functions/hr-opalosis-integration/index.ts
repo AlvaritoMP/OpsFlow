@@ -140,8 +140,184 @@ function pickNumber(...values: unknown[]): number | null {
   return null;
 }
 
-/** Construye RegistroIngresoDTO desde hr_fields (camelCase o legacy). */
-function buildRegistroPayload(hrFields: Record<string, unknown>): Record<string, unknown> {
+const ATS_LABELS: Record<string, string> = {
+  fullName: 'Nombre completo',
+  dni: 'DNI',
+  email: 'Correo',
+  phone: 'Teléfono',
+  phone2: 'Teléfono 2',
+  hireDate: 'Fecha de contratación',
+  birthDate: 'Fecha de nacimiento',
+  agreedSalary: 'Salario acordado',
+  address: 'Dirección',
+  processTitle: 'Proceso / puesto',
+  clientName: 'Cliente',
+};
+
+const OPSFLOW_LABELS: Record<string, string> = {
+  name: 'Nombre',
+  dni: 'DNI',
+  puesto: 'Puesto',
+  localidad: 'Localidad',
+  phone: 'Teléfono',
+  birthDate: 'Fecha de nacimiento',
+  startDate: 'Fecha de ingreso',
+  endDate: 'Fecha de cese',
+  assignedShift: 'Turno asignado',
+  assignedZones: 'Zonas asignadas',
+  monthlySalary: 'Salario mensual',
+  personnelStatus: 'Estado de personal',
+  externalId: 'ID externo',
+  unitName: 'Unidad',
+  clientName: 'Cliente',
+  resourceId: 'ID recurso',
+  unitId: 'ID unidad',
+};
+
+function pushField(
+  items: Array<Record<string, unknown>>,
+  source: string,
+  key: string,
+  label: string,
+  value: unknown,
+  note?: string,
+) {
+  if (value === null || value === undefined) return;
+  if (typeof value === 'string' && !value.trim()) return;
+  if (Array.isArray(value) && value.length === 0) return;
+  items.push({
+    source,
+    key,
+    label,
+    value: typeof value === 'object' ? JSON.stringify(value) : value,
+    note: note ?? null,
+    classificationRequired: true,
+  });
+}
+
+/** Inventario con etiquetas del camino ATS→OpsFlow (incluidos campos dinámicos). */
+function buildPayloadJsonFromSnapshot(
+  snapshot: Record<string, unknown> | null,
+  hrFields: Record<string, unknown>,
+  refOps: string,
+): string {
+  const fieldInventory: Array<Record<string, unknown>> = [];
+  const ats = (snapshot?.ats ?? {}) as Record<string, unknown>;
+  const ops = (snapshot?.opsflow ?? {}) as Record<string, unknown>;
+  const identity = (ats.identity ?? {}) as Record<string, unknown>;
+  const fields = (ats.fields ?? {}) as Record<string, unknown>;
+
+  pushField(fieldInventory, 'ats', 'fullName', ATS_LABELS.fullName ?? 'fullName', identity.fullName);
+  pushField(
+    fieldInventory,
+    'ats',
+    'dni',
+    ATS_LABELS.dni ?? 'dni',
+    identity.dni,
+    'Etiqueta del camino ATS/OpsFlow. Opalosis tipifica al reclasificar.',
+  );
+  pushField(fieldInventory, 'ats', 'email', ATS_LABELS.email ?? 'email', identity.email);
+  pushField(fieldInventory, 'ats', 'phone', ATS_LABELS.phone ?? 'phone', identity.phone);
+  pushField(fieldInventory, 'ats', 'phone2', ATS_LABELS.phone2 ?? 'phone2', identity.phone2);
+
+  // Todos los campos ATS, incluidos dinámicos (ej. mascotas)
+  for (const [key, value] of Object.entries(fields)) {
+    pushField(
+      fieldInventory,
+      'ats',
+      key,
+      ATS_LABELS[key] ?? key,
+      value,
+      ATS_LABELS[key] ? undefined : 'Campo dinámico del ATS: clasificar o descartar en Opalosis.',
+    );
+  }
+
+  pushField(fieldInventory, 'ats', 'workerName', 'workerName', ats.workerName);
+  pushField(fieldInventory, 'ats', 'sourceApp', 'sourceApp', ats.sourceApp);
+  pushField(fieldInventory, 'ats', 'sourceCandidateId', 'sourceCandidateId', ats.sourceCandidateId);
+  pushField(fieldInventory, 'ats', 'sourceProcessId', 'sourceProcessId', ats.sourceProcessId);
+
+  for (const [key, label] of Object.entries(OPSFLOW_LABELS)) {
+    pushField(fieldInventory, 'opsflow', key, label, ops[key]);
+  }
+
+  for (const [key, value] of Object.entries(ops)) {
+    if (key in OPSFLOW_LABELS) continue;
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'object' && !Array.isArray(value)) continue;
+    pushField(
+      fieldInventory,
+      'opsflow',
+      key,
+      key,
+      value,
+      'Campo OpsFlow adicional: clasificar o descartar en Opalosis.',
+    );
+  }
+
+  pushField(
+    fieldInventory,
+    'operator',
+    'urlDocumentoAdjunto',
+    'urlDocumentoAdjunto',
+    hrFields.urlDocumentoAdjunto,
+  );
+  pushField(fieldInventory, 'operator', 'observacion', 'observacion', hrFields.observacion);
+  pushField(fieldInventory, 'operator', 'refOperaciones', 'refOperaciones', refOps);
+
+  const labels = (hrFields.labels ?? {}) as Record<string, unknown>;
+  pushField(
+    fieldInventory,
+    'operator',
+    'empleadoCargoLabel',
+    'empleadoCargoLabel',
+    labels.empleadoCargo,
+  );
+  pushField(
+    fieldInventory,
+    'operator',
+    'lugarTrabajoLabel',
+    'lugarTrabajoLabel',
+    labels.lugarTrabajo,
+  );
+
+  return JSON.stringify({
+    payloadVersion: 2,
+    purpose:
+      'Todos los datos del trabajador con etiquetas del camino ATS→OpsFlow. Opalosis reclasifica o descarta cada ítem (no hay estándar 1:1).',
+    sourceApp: 'OpsFlow',
+    refOperaciones: refOps || null,
+    capturedAt: snapshot?.capturedAt ?? new Date().toISOString(),
+    classificationModel: {
+      rule:
+        'Cada ítem de fieldInventory es independiente. El usuario de Opalosis decide si lo usa y con qué etiqueta de su BD (ej. origen "mascotas" → "animales"), o lo descarta.',
+      examples: [
+        { originLabel: 'DNI', possibleOpalosis: 'TipoDocumentoId + Documento tipificado' },
+        { originLabel: 'mascotas', possibleOpalosis: 'animales | descartar' },
+      ],
+    },
+    fieldInventory,
+    raw: {
+      ats: {
+        sourceApp: ats.sourceApp,
+        sourcePackageId: ats.sourcePackageId,
+        sourceCandidateId: ats.sourceCandidateId,
+        sourceProcessId: ats.sourceProcessId,
+        workerName: ats.workerName,
+        identity,
+        fields,
+        meta: ats.meta ?? {},
+      },
+      opsflow: ops,
+    },
+  });
+}
+
+/** Construye RegistroIngresoDTO desde hr_fields + snapshot (inventario en PayloadJson). */
+function buildRegistroPayload(
+  hrFields: Record<string, unknown>,
+  workerSnapshot?: Record<string, unknown> | null,
+): Record<string, unknown> {
   const isLegacy = hrFields.apellido_paterno !== undefined && hrFields.apellidoPaterno === undefined;
 
   const documento = pickString(hrFields.documento, hrFields.Documento);
@@ -153,7 +329,16 @@ function buildRegistroPayload(hrFields: Record<string, unknown>): Record<string,
 
   const refOps = pickString(hrFields.refOperaciones, hrFields.ref_operaciones);
   const observacion = pickString(hrFields.observacion, hrFields.Observacion);
-  const obsParts = [refOps ? `Ref OpsFlow: ${refOps}` : '', observacion].filter(Boolean);
+  const obsParts = [
+    refOps ? `Ref OpsFlow: ${refOps}` : '',
+    observacion,
+    'Ver PayloadJson.fieldInventory: etiquetas originales ATS/OpsFlow para retiquetado en Opalosis.',
+  ].filter(Boolean);
+
+  const existingPayload = pickString(hrFields.payloadJson);
+  const payloadJson =
+    existingPayload ||
+    buildPayloadJsonFromSnapshot(workerSnapshot ?? null, hrFields, refOps);
 
   return {
     TipoDocumentoId: tipoDocumentoId,
@@ -197,7 +382,7 @@ function buildRegistroPayload(hrFields: Record<string, unknown>): Record<string,
     Observacion: obsParts.length ? obsParts.join(' | ') : null,
     UsuarioProcesoId: pickNumber(hrFields.usuarioProcesoId),
     UsuarioOf: pickString(hrFields.usuarioOf) || 'opsflow',
-    PayloadJson: pickString(hrFields.payloadJson) || null,
+    PayloadJson: payloadJson,
   };
 }
 
@@ -367,7 +552,8 @@ async function registerWorkerInOpalosis(
   mock: boolean,
 ): Promise<RegistroIngresoResult> {
   const hrFields = (row.hr_fields ?? {}) as Record<string, unknown>;
-  const payload = buildRegistroPayload(hrFields);
+  const workerSnapshot = (row.worker_snapshot ?? null) as Record<string, unknown> | null;
+  const payload = buildRegistroPayload(hrFields, workerSnapshot);
   const documento = String(payload.Documento ?? '');
   const refOperaciones = pickString(hrFields.refOperaciones, hrFields.ref_operaciones, row.ref_operaciones);
   const workerName = String(row.worker_name ?? '');

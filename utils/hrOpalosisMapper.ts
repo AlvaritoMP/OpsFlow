@@ -1,6 +1,7 @@
 import type {
   HrOpalosisIngresoFields,
   HrOutboundWorkerSnapshot,
+  HrWorkerFieldInventoryItem,
   InboundHandoffItem,
   Resource,
   Unit,
@@ -13,6 +14,257 @@ import {
   splitFullName,
   toOpalosisDate,
 } from './hrIntegration';
+import { HANDOFF_FIELD_LABELS } from './workerSnapshotMapper';
+
+const OPSFLOW_FIELD_LABELS: Record<string, string> = {
+  name: 'Nombre',
+  dni: 'DNI',
+  puesto: 'Puesto',
+  localidad: 'Localidad',
+  phone: 'Teléfono',
+  birthDate: 'Fecha de nacimiento',
+  startDate: 'Fecha de ingreso',
+  endDate: 'Fecha de cese',
+  assignedShift: 'Turno asignado',
+  assignedZones: 'Zonas asignadas',
+  monthlySalary: 'Salario mensual',
+  personnelStatus: 'Estado de personal',
+  externalId: 'ID externo',
+  unitName: 'Unidad',
+  clientName: 'Cliente',
+  resourceId: 'ID recurso',
+  unitId: 'ID unidad',
+};
+
+/** Etiqueta del camino: preferir nombre conocido en UI; si es dinámico, usar la clave tal cual. */
+function labelForSourceKey(
+  key: string,
+  source: 'ats' | 'opsflow' | 'operator',
+  dictionary: Record<string, string>,
+): string {
+  if (dictionary[key]) return dictionary[key];
+  // Campos dinámicos (ej. "mascotas"): conservar la clave original como etiqueta
+  return key;
+}
+
+function pushInventoryItem(
+  items: HrWorkerFieldInventoryItem[],
+  source: HrWorkerFieldInventoryItem['source'],
+  key: string,
+  label: string,
+  value: unknown,
+  note?: string,
+) {
+  if (value === null || value === undefined) return;
+  if (typeof value === 'string' && !value.trim()) return;
+  if (Array.isArray(value) && value.length === 0) return;
+
+  const normalized =
+    typeof value === 'object' ? JSON.stringify(value) : (value as string | number | boolean);
+
+  items.push({
+    source,
+    key,
+    label,
+    value: normalized,
+    note,
+    classificationRequired: true,
+  });
+}
+
+/**
+ * Inventario plano de TODOS los datos disponibles (conocidos y dinámicos).
+ * Las etiquetas son las del camino ATS → OpsFlow. Opalosis decide por cada ítem
+ * si lo usa, lo descarta, y con qué etiqueta de su BD (ej. mascotas → animales).
+ */
+export function buildWorkerFieldInventory(
+  snapshot: HrOutboundWorkerSnapshot,
+  hrFields?: HrOpalosisIngresoFields | null,
+): HrWorkerFieldInventoryItem[] {
+  const items: HrWorkerFieldInventoryItem[] = [];
+
+  const identity = snapshot.ats.identity ?? {};
+  pushInventoryItem(
+    items,
+    'ats',
+    'fullName',
+    labelForSourceKey('fullName', 'ats', HANDOFF_FIELD_LABELS),
+    identity.fullName,
+  );
+  pushInventoryItem(
+    items,
+    'ats',
+    'dni',
+    labelForSourceKey('dni', 'ats', HANDOFF_FIELD_LABELS),
+    identity.dni,
+    'Etiqueta del camino ATS/OpsFlow. Opalosis tipifica (DNI/CE/pasaporte/…) al reclasificar.',
+  );
+  pushInventoryItem(
+    items,
+    'ats',
+    'email',
+    labelForSourceKey('email', 'ats', HANDOFF_FIELD_LABELS),
+    identity.email,
+  );
+  pushInventoryItem(
+    items,
+    'ats',
+    'phone',
+    labelForSourceKey('phone', 'ats', HANDOFF_FIELD_LABELS),
+    identity.phone,
+  );
+  pushInventoryItem(
+    items,
+    'ats',
+    'phone2',
+    labelForSourceKey('phone2', 'ats', HANDOFF_FIELD_LABELS),
+    identity.phone2,
+  );
+
+  const atsFields = snapshot.ats.fields ?? {};
+  // Todos los campos ATS, incluidos los dinámicos (mascotas, etc.)
+  for (const [key, value] of Object.entries(atsFields)) {
+    pushInventoryItem(
+      items,
+      'ats',
+      key,
+      labelForSourceKey(key, 'ats', HANDOFF_FIELD_LABELS),
+      value,
+      HANDOFF_FIELD_LABELS[key]
+        ? undefined
+        : 'Campo dinámico del ATS: Opalosis debe clasificar o descartar.',
+    );
+  }
+
+  pushInventoryItem(items, 'ats', 'workerName', 'workerName', snapshot.ats.workerName);
+  pushInventoryItem(items, 'ats', 'sourceApp', 'sourceApp', snapshot.ats.sourceApp);
+  pushInventoryItem(
+    items,
+    'ats',
+    'sourceCandidateId',
+    'sourceCandidateId',
+    snapshot.ats.sourceCandidateId,
+  );
+  pushInventoryItem(
+    items,
+    'ats',
+    'sourceProcessId',
+    'sourceProcessId',
+    snapshot.ats.sourceProcessId,
+  );
+
+  const ops = snapshot.opsflow;
+  for (const key of Object.keys(OPSFLOW_FIELD_LABELS) as Array<keyof typeof ops>) {
+    pushInventoryItem(
+      items,
+      'opsflow',
+      key,
+      labelForSourceKey(key, 'opsflow', OPSFLOW_FIELD_LABELS),
+      ops[key],
+      key === 'dni'
+        ? 'Etiqueta del camino OpsFlow. Opalosis tipifica el documento al reclasificar.'
+        : undefined,
+    );
+  }
+
+  // Cualquier otra propiedad opsflow no listada (por si el snapshot crece)
+  for (const [key, value] of Object.entries(ops)) {
+    if (key in OPSFLOW_FIELD_LABELS) continue;
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'object' && !Array.isArray(value)) continue;
+    pushInventoryItem(
+      items,
+      'opsflow',
+      key,
+      labelForSourceKey(key, 'opsflow', OPSFLOW_FIELD_LABELS),
+      value,
+      'Campo OpsFlow adicional: Opalosis debe clasificar o descartar.',
+    );
+  }
+
+  if (hrFields) {
+    pushInventoryItem(
+      items,
+      'operator',
+      'urlDocumentoAdjunto',
+      'urlDocumentoAdjunto',
+      hrFields.urlDocumentoAdjunto,
+    );
+    pushInventoryItem(
+      items,
+      'operator',
+      'observacion',
+      'observacion',
+      hrFields.observacion,
+    );
+    pushInventoryItem(
+      items,
+      'operator',
+      'refOperaciones',
+      'refOperaciones',
+      hrFields.refOperaciones,
+    );
+    if (hrFields.labels?.empleadoCargo) {
+      pushInventoryItem(
+        items,
+        'operator',
+        'empleadoCargoLabel',
+        'empleadoCargoLabel',
+        hrFields.labels.empleadoCargo,
+      );
+    }
+    if (hrFields.labels?.lugarTrabajo) {
+      pushInventoryItem(
+        items,
+        'operator',
+        'lugarTrabajoLabel',
+        'lugarTrabajoLabel',
+        hrFields.labels.lugarTrabajo,
+      );
+    }
+  }
+
+  return items;
+}
+
+/** Bundle que Opalosis muestra en bandeja para reclasificar etiquetas. */
+export function buildOpalosisPayloadBundle(
+  snapshot: HrOutboundWorkerSnapshot,
+  hrFields: HrOpalosisIngresoFields,
+): string {
+  const fieldInventory = buildWorkerFieldInventory(snapshot, hrFields);
+  const bundle = {
+    payloadVersion: 2,
+    purpose:
+      'Todos los datos del trabajador con etiquetas del camino ATS→OpsFlow. Opalosis reclasifica o descarta cada ítem hacia su modelo (no hay estándar 1:1).',
+    sourceApp: 'OpsFlow',
+    refOperaciones: hrFields.refOperaciones ?? null,
+    capturedAt: snapshot.capturedAt,
+    classificationModel: {
+      rule:
+        'Cada ítem de fieldInventory es un dato independiente. El usuario de Opalosis decide si lo usa y con qué etiqueta de su BD (ej. clave origen "mascotas" → etiqueta Opalosis "animales"), o lo deja atrás.',
+      examples: [
+        { originLabel: 'DNI', possibleOpalosis: 'TipoDocumentoId + Documento tipificado' },
+        { originLabel: 'mascotas', possibleOpalosis: 'animales | descartar' },
+      ],
+    },
+    fieldInventory,
+    raw: {
+      ats: {
+        sourceApp: snapshot.ats.sourceApp,
+        sourcePackageId: snapshot.ats.sourcePackageId,
+        sourceCandidateId: snapshot.ats.sourceCandidateId,
+        sourceProcessId: snapshot.ats.sourceProcessId,
+        workerName: snapshot.ats.workerName,
+        identity: snapshot.ats.identity ?? {},
+        fields: snapshot.ats.fields ?? {},
+        meta: snapshot.ats.meta ?? {},
+      },
+      opsflow: snapshot.opsflow,
+    },
+  };
+  return JSON.stringify(bundle);
+}
 
 /** Payload oficial POST /registro-ingreso (RegistroIngresoDTO). */
 export interface OpalosisRegistroIngresoPayload {
@@ -317,7 +569,7 @@ export function mapSnapshotToHrFields(
     usuarioOf: options?.usuarioOf ?? 'opsflow',
     refOperaciones,
     labels: {
-      tipoDocumento: 'Libreta electoral o DNI',
+      tipoDocumento: 'Documento (selección Opalosis; el valor origen puede ser DNI/CE/pasaporte)',
       empleadoCargo: cargoLabel || undefined,
       lugarTrabajo: snapshot.opsflow.unitName || undefined,
       opalo: undefined,
@@ -327,10 +579,18 @@ export function mapSnapshotToHrFields(
 
 export function mapHrFieldsToRegistroIngresoPayload(
   hrFields: HrOpalosisIngresoFields,
+  snapshot?: HrOutboundWorkerSnapshot | null,
 ): OpalosisRegistroIngresoPayload {
   const obsParts: string[] = [];
   if (hrFields.refOperaciones) obsParts.push(`Ref OpsFlow: ${hrFields.refOperaciones}`);
   if (hrFields.observacion) obsParts.push(hrFields.observacion);
+  obsParts.push(
+    'Ver PayloadJson.fieldInventory: etiquetas originales ATS/OpsFlow para retiquetado en Opalosis.',
+  );
+
+  const payloadJson =
+    nullIfEmpty(hrFields.payloadJson) ??
+    (snapshot ? buildOpalosisPayloadBundle(snapshot, hrFields) : null);
 
   return {
     TipoDocumentoId: hrFields.tipoDocumentoId ?? 1,
@@ -372,7 +632,7 @@ export function mapHrFieldsToRegistroIngresoPayload(
     Observacion: obsParts.length ? obsParts.join(' | ') : null,
     UsuarioProcesoId: hrFields.usuarioProcesoId ?? null,
     UsuarioOf: nullIfEmpty(hrFields.usuarioOf) ?? 'opsflow',
-    PayloadJson: nullIfEmpty(hrFields.payloadJson),
+    PayloadJson: payloadJson,
   };
 }
 
