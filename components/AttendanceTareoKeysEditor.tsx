@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, Save, Trash2, X, Settings2 } from 'lucide-react';
 import {
   attendanceTareoService,
@@ -145,8 +145,9 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
   onKeysChanged,
 }) => {
   const [keys, setKeys] = useState<AttendanceTareoKey[]>([]);
+  const [baseline, setBaseline] = useState<AttendanceTareoKey[]>([]);
   const [loading, setLoading] = useState(false);
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({
@@ -164,7 +165,9 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
     setLoading(true);
     setError(null);
     try {
-      setKeys(await attendanceTareoService.listKeys(true));
+      const list = await attendanceTareoService.listKeys(true);
+      setKeys(list);
+      setBaseline(list.map((k) => ({ ...k })));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'No se pudieron cargar las claves');
     } finally {
@@ -176,31 +179,56 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
     if (open) void load();
   }, [open, load]);
 
+  const dirtyKeys = useMemo(() => {
+    const baseById = new Map<string, AttendanceTareoKey>(baseline.map((k) => [k.id, k]));
+    return keys.filter((k) => {
+      const b = baseById.get(k.id);
+      if (!b) return false;
+      return (
+        k.name !== b.name ||
+        resolveKeyEmoji(k.icon) !== resolveKeyEmoji(b.icon) ||
+        k.color !== b.color ||
+        k.valueKind !== b.valueKind ||
+        Number(k.valueAmount) !== Number(b.valueAmount) ||
+        k.countsAsPresentismo !== b.countsAsPresentismo ||
+        k.payrollField !== b.payrollField ||
+        k.sortOrder !== b.sortOrder ||
+        k.isActive !== b.isActive
+      );
+    });
+  }, [keys, baseline]);
+
   if (!open) return null;
 
-  const saveKey = async (key: AttendanceTareoKey) => {
-    if (!canEdit) return;
-    setSavingId(key.id);
+  const saveAllChanges = async () => {
+    if (!canEdit || dirtyKeys.length === 0) return;
+    setSavingAll(true);
     setError(null);
     try {
-      await attendanceTareoService.updateKey(key.id, {
-        name: key.name,
-        icon: resolveKeyEmoji(key.icon),
-        color: key.color,
-        valueKind: key.valueKind,
-        valueAmount: key.valueAmount,
-        countsAsPresentismo: key.countsAsPresentismo,
-        payrollField: key.payrollField,
-        sortOrder: key.sortOrder,
-        isActive: key.isActive,
-      });
-      setMessage('Clave actualizada');
+      for (const key of dirtyKeys) {
+        await attendanceTareoService.updateKey(key.id, {
+          name: key.name,
+          icon: resolveKeyEmoji(key.icon),
+          color: key.color,
+          valueKind: key.valueKind,
+          valueAmount: key.valueAmount,
+          countsAsPresentismo: key.countsAsPresentismo,
+          payrollField: key.payrollField,
+          sortOrder: key.sortOrder,
+          isActive: key.isActive,
+        });
+      }
+      setMessage(
+        dirtyKeys.length === 1
+          ? 'Cambios guardados'
+          : `Se guardaron ${dirtyKeys.length} claves`
+      );
       onKeysChanged();
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al guardar');
     } finally {
-      setSavingId(null);
+      setSavingAll(false);
     }
   };
 
@@ -209,6 +237,12 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
     if (!draft.code.trim() || !draft.name.trim()) {
       setError('Código y nombre son obligatorios');
       return;
+    }
+    if (dirtyKeys.length > 0) {
+      const ok = confirm(
+        `Hay ${dirtyKeys.length} cambio(s) sin guardar. ¿Guardarlos antes de crear la nueva clave?`
+      );
+      if (ok) await saveAllChanges();
     }
     setError(null);
     try {
@@ -248,6 +282,17 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
 
   const patchLocal = (id: string, patch: Partial<AttendanceTareoKey>) => {
     setKeys((prev) => prev.map((k) => (k.id === id ? { ...k, ...patch } : k)));
+    setMessage(null);
+  };
+
+  const handleClose = () => {
+    if (dirtyKeys.length > 0) {
+      const discard = confirm(
+        `Hay ${dirtyKeys.length} cambio(s) sin guardar. ¿Cerrar sin guardar?`
+      );
+      if (!discard) return;
+    }
+    onClose();
   };
 
   return (
@@ -257,19 +302,18 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
             <Settings2 size={18} /> Editor de claves (emoticones)
           </h3>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+          <button type="button" onClick={handleClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
             <X size={18} />
           </button>
         </div>
 
-        <div className="p-4 space-y-4 overflow-y-auto">
+        <div className="p-4 space-y-4 overflow-y-auto flex-1">
           <p className="text-sm text-slate-600">
             Cada clave usa un <strong>emoticon</strong> fácil de reconocer en la grilla, con un <strong>valor</strong>{' '}
             detrás (en días suele ser 1). Ese valor se suma en el <strong>Tareo</strong> (paso 2) a la columna
             indicada.
             <br />
-            <strong>Tipo Días</strong> = 1.ª clave en novedades. <strong>Tipo Horas</strong> = 2.ª clave (HE, bono,
-            etc.).
+            Edita lo que necesites y pulsa <strong>Guardar todos los cambios</strong> al final.
           </p>
 
           {message && (
@@ -281,11 +325,11 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
             <div className="text-sm rounded-lg bg-red-50 text-red-900 border border-red-200 px-3 py-2">{error}</div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
             <button
               type="button"
               onClick={() => void load()}
-              className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-indigo-700"
+              className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-indigo-700 px-3 py-1.5"
             >
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Recargar
             </button>
@@ -304,16 +348,21 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                   <th className="px-2 py-2 text-center">Presentismo</th>
                   <th className="px-2 py-2 text-left">Suma en columna Tareo</th>
                   <th className="px-2 py-2 text-center">Activa</th>
-                  <th className="px-2 py-2 text-right">Acciones</th>
+                  <th className="px-2 py-2 text-right"> </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {keys.map((k) => (
-                  <tr key={k.id} className={!k.isActive ? 'opacity-50' : ''}>
+                {keys.map((k) => {
+                  const dirty = dirtyKeys.some((d) => d.id === k.id);
+                  return (
+                  <tr key={k.id} className={`${!k.isActive ? 'opacity-50' : ''} ${dirty ? 'bg-amber-50/40' : ''}`}>
                     <td className="px-2 py-2">
                       <KeyGlyph icon={k.icon} size="lg" title={k.name} />
                     </td>
-                    <td className="px-2 py-2 font-mono text-xs font-semibold">{k.code}</td>
+                    <td className="px-2 py-2 font-mono text-xs font-semibold">
+                      {k.code}
+                      {dirty ? <span className="ml-1 text-amber-600">•</span> : null}
+                    </td>
                     <td className="px-2 py-2">
                       <input
                         className="border border-slate-200 rounded px-2 py-1 w-full min-w-[120px]"
@@ -384,30 +433,20 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                       />
                     </td>
                     <td className="px-2 py-2 text-right whitespace-nowrap">
-                      {canEdit && (
-                        <>
-                          <button
-                            type="button"
-                            disabled={savingId === k.id}
-                            onClick={() => void saveKey(k)}
-                            className="inline-flex items-center gap-1 text-indigo-700 hover:text-indigo-900 text-xs font-medium mr-2"
-                          >
-                            <Save size={14} /> Guardar
-                          </button>
-                          {!k.isSystem && (
-                            <button
-                              type="button"
-                              onClick={() => void removeKey(k)}
-                              className="inline-flex items-center gap-1 text-red-600 hover:text-red-800 text-xs"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </>
+                      {canEdit && !k.isSystem && (
+                        <button
+                          type="button"
+                          onClick={() => void removeKey(k)}
+                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-800 text-xs"
+                          title="Eliminar clave"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -503,6 +542,25 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
             </div>
           )}
         </div>
+
+        {canEdit && (
+          <div className="border-t border-slate-200 px-4 py-3 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm text-slate-600">
+              {dirtyKeys.length === 0
+                ? 'Sin cambios pendientes'
+                : `${dirtyKeys.length} clave${dirtyKeys.length === 1 ? '' : 's'} con cambios sin guardar`}
+            </span>
+            <button
+              type="button"
+              disabled={savingAll || dirtyKeys.length === 0}
+              onClick={() => void saveAllChanges()}
+              className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-45"
+            >
+              <Save size={16} />
+              {savingAll ? 'Guardando…' : 'Guardar todos los cambios'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
