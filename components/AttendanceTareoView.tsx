@@ -204,7 +204,7 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
       );
       setMessage(
         n > 0
-          ? `Se autocompletaron ${n} día(s) con clave de asistencia (según turno).`
+          ? `Se autocompletaron ${n} día(s): vacaciones otorgadas y/o asistencia (ingreso o marcación completa → clave OK del turno).`
           : 'No había días nuevos para sugerir.'
       );
       await load();

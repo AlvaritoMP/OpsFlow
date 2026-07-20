@@ -3,12 +3,13 @@ import { Resource, Unit, ResourceType } from '../types';
 import {
   attendanceReportService,
   AttendanceRowWithImportMeta,
-  classifyAttendanceStatus,
   effectiveAttendanceDate,
   filterRowsMatchedActivePersonnel,
+  isAttendancePresentForTareo,
   isPersonnelActiveForUnitView,
 } from './attendanceReportService';
 import { excelService } from './excelService';
+import { vacationService } from './vacationService';
 
 /** Columnas del Tareo (paso 2) — no son las claves de novedades. */
 export type TareoPayrollField =
@@ -509,14 +510,42 @@ export const attendanceTareoService = {
     dateTo: string,
     updatedBy?: string | null
   ): Promise<number> {
-    const [keys, existing, history] = await Promise.all([
+    const [keys, existing, history, papeletas, dayEntries] = await Promise.all([
       this.listKeys(false),
       this.listNovedades(unit.id, dateFrom, dateTo),
       attendanceReportService.getUnitAttendanceRowsWithMeta(unit.id),
+      vacationService.getPapeletas(undefined, unit.id),
+      vacationService.getDayEntries(undefined, unit.id),
     ]);
 
     const keyByCode = new Map<string, AttendanceTareoKey>(keys.map((k) => [k.code, k]));
+    const vacationKey = keyByCode.get('V');
+    const existingByCell = new Map<string, AttendanceTareoNovedad>(
+      existing.map((n) => [`${n.resourceId}|${n.day}`, n])
+    );
     const existingDay = new Set(existing.filter((n) => n.dayKeyId).map((n) => `${n.resourceId}|${n.day}`));
+
+    const workers = new Map<string, Resource>(
+      (unit.resources || []).filter((r) => r.type === ResourceType.PERSONNEL).map((r) => [r.id, r])
+    );
+    const activeIds = new Set(workers.keys());
+
+    /** Vacaciones otorgadas: papeletas emitidas + días a cuenta no anulados. */
+    const vacationDays = new Set<string>();
+    for (const p of papeletas) {
+      if (p.status === 'cancelled' || p.status === 'draft') continue;
+      if (!activeIds.has(p.resourceId)) continue;
+      for (const day of eachDateInRange(p.startDate, p.endDate)) {
+        if (day < dateFrom || day > dateTo) continue;
+        vacationDays.add(`${p.resourceId}|${day}`);
+      }
+    }
+    for (const d of dayEntries) {
+      if (d.status === 'cancelled') continue;
+      if (!activeIds.has(d.resourceId)) continue;
+      if (d.vacationDate < dateFrom || d.vacationDate > dateTo) continue;
+      vacationDays.add(`${d.resourceId}|${d.vacationDate}`);
+    }
 
     const matched = filterRowsMatchedActivePersonnel(unit, history) as AttendanceRowWithImportMeta[];
     const latestByWorkerDay = new Map<string, AttendanceRowWithImportMeta>();
@@ -531,33 +560,48 @@ export const attendanceTareoService = {
       }
     }
 
-    const workers = new Map<string, Resource>(
-      (unit.resources || []).filter((r) => r.type === ResourceType.PERSONNEL).map((r) => [r.id, r])
-    );
-
-    let created = 0;
-    for (const [k, row] of latestByWorkerDay) {
-      if (existingDay.has(k)) continue;
-      if (classifyAttendanceStatus(row.attendance_status) !== 'complete') continue;
-      const [resourceId, day] = k.split('|');
-      const worker = workers.get(resourceId);
-      const code = suggestOkKeyCodeForShift(worker?.assignedShift);
-      const key = keyByCode.get(code) || keyByCode.get('OK_TM');
-      if (!key) continue;
-      const prev = existing.find((n) => n.resourceId === resourceId && n.day === day);
+    const upsertSuggested = async (resourceId: string, day: string, dayKeyId: string) => {
+      const cell = `${resourceId}|${day}`;
+      if (existingDay.has(cell)) return false;
+      const prev = existingByCell.get(cell);
       await this.upsertNovedad({
         unitId: unit.id,
         resourceId,
         day,
-        dayKeyId: key.id,
+        dayKeyId,
         hoursKeyId: prev?.hoursKeyId || null,
         hoursValue: prev?.hoursValue ?? null,
         comment: prev?.comment || null,
         source: 'suggested',
         updatedBy: updatedBy || null,
       });
-      created += 1;
+      existingDay.add(cell);
+      return true;
+    };
+
+    let created = 0;
+
+    // 1) Vacaciones otorgadas tienen prioridad
+    if (vacationKey) {
+      for (const cell of vacationDays) {
+        const [resourceId, day] = cell.split('|');
+        if (await upsertSuggested(resourceId, day, vacationKey.id)) created += 1;
+      }
     }
+
+    // 2) Asistencia: marcación completa O al menos ingreso → OK del turno
+    for (const [cell, row] of latestByWorkerDay) {
+      if (existingDay.has(cell)) continue;
+      if (vacationDays.has(cell)) continue;
+      if (!isAttendancePresentForTareo(row)) continue;
+      const [resourceId, day] = cell.split('|');
+      const worker = workers.get(resourceId);
+      const code = suggestOkKeyCodeForShift(worker?.assignedShift);
+      const key = keyByCode.get(code) || keyByCode.get('OK_TM');
+      if (!key) continue;
+      if (await upsertSuggested(resourceId, day, key.id)) created += 1;
+    }
+
     return created;
   },
 

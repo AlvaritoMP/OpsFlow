@@ -70,6 +70,27 @@ export function classifyAttendanceStatus(attendanceStatus: string | null): Atten
   return 'other';
 }
 
+/** True si hay una marca de ingreso usable (no vacía / "No marco"). */
+export function hasArrivalPunch(row: Pick<AttendanceReportRowDTO, 'punch_arrival'>): boolean {
+  const raw = String(row.punch_arrival ?? '').trim();
+  if (!raw) return false;
+  if (/^no\s*marco$/i.test(raw)) return false;
+  if (/^sin\s*marca/i.test(raw)) return false;
+  return true;
+}
+
+/**
+ * Para tareo/novedades: marcación completa O al menos ingreso
+ * (el ingreso basta para asumir asistencia del turno).
+ */
+export function isAttendancePresentForTareo(row: AttendanceReportRowDTO): boolean {
+  const c = classifyAttendanceStatus(row.attendance_status);
+  if (c === 'none') return false;
+  if (c === 'complete') return true;
+  if (hasArrivalPunch(row)) return true;
+  return false;
+}
+
 export function workerRangeStats(rows: AttendanceReportRowDTO[]) {
   const n = rows.length;
   let complete = 0;
