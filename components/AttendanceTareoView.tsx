@@ -396,8 +396,8 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
       );
       setMessage(
         n > 0
-          ? `Se autocompletaron ${n} día(s): vacaciones otorgadas y/o asistencia (ingreso o marcación completa → clave OK del turno).`
-          : 'No había días nuevos para sugerir.'
+          ? `Se autocompletaron ${n} celda(s) vacía(s). Las celdas que ya tenían tareo no se modificaron.`
+          : 'No había celdas vacías para sugerir (o no hay datos de consolidado/vacaciones). El tareo ya cargado se mantiene.'
       );
       await load();
     } catch (e: unknown) {
@@ -536,10 +536,11 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
             type="button"
             onClick={() => void handleSuggest()}
             disabled={suggesting || loading}
+            title="Solo rellena celdas vacías; no modifica el tareo ya cargado"
             className="inline-flex items-center gap-2 text-sm font-medium text-indigo-800 hover:text-indigo-950 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 disabled:opacity-50"
           >
             <Wand2 size={16} />
-            {suggesting ? 'Autocompletando…' : 'Autocompletar desde consolidado'}
+            {suggesting ? 'Autocompletando…' : 'Autocompletar vacías'}
           </button>
         )}
         {step === 'tareo' && (

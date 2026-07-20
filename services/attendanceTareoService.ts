@@ -520,10 +520,12 @@ export const attendanceTareoService = {
 
     const keyByCode = new Map<string, AttendanceTareoKey>(keys.map((k) => [k.code, k]));
     const vacationKey = keyByCode.get('V');
-    const existingByCell = new Map<string, AttendanceTareoNovedad>(
-      existing.map((n) => [`${n.resourceId}|${n.day}`, n])
+    /** Celda ocupada = ya tiene novedad (clave de días y/o horas). El tareo cargado prevalece. */
+    const occupiedCells = new Set(
+      existing
+        .filter((n) => !!(n.dayKeyId || n.hoursKeyId))
+        .map((n) => `${n.resourceId}|${n.day}`)
     );
-    const existingDay = new Set(existing.filter((n) => n.dayKeyId).map((n) => `${n.resourceId}|${n.day}`));
 
     const workers = new Map<string, Resource>(
       (unit.resources || []).filter((r) => r.type === ResourceType.PERSONNEL).map((r) => [r.id, r])
@@ -562,26 +564,26 @@ export const attendanceTareoService = {
 
     const upsertSuggested = async (resourceId: string, day: string, dayKeyId: string) => {
       const cell = `${resourceId}|${day}`;
-      if (existingDay.has(cell)) return false;
-      const prev = existingByCell.get(cell);
+      // Nunca pisar tareo ya cargado: solo celdas vacías
+      if (occupiedCells.has(cell)) return false;
       await this.upsertNovedad({
         unitId: unit.id,
         resourceId,
         day,
         dayKeyId,
-        hoursKeyId: prev?.hoursKeyId || null,
-        hoursValue: prev?.hoursValue ?? null,
-        comment: prev?.comment || null,
+        hoursKeyId: null,
+        hoursValue: null,
+        comment: null,
         source: 'suggested',
         updatedBy: updatedBy || null,
       });
-      existingDay.add(cell);
+      occupiedCells.add(cell);
       return true;
     };
 
     let created = 0;
 
-    // 1) Vacaciones otorgadas tienen prioridad
+    // 1) Vacaciones otorgadas tienen prioridad (solo celdas vacías)
     if (vacationKey) {
       for (const cell of vacationDays) {
         const [resourceId, day] = cell.split('|');
@@ -589,10 +591,10 @@ export const attendanceTareoService = {
       }
     }
 
-    // 2) Asistencia: marcación completa O al menos ingreso → OK del turno
+    // 2) Asistencia: marcación completa O al menos ingreso → OK del turno (solo vacías)
     for (const [cell, row] of latestByWorkerDay) {
-      if (existingDay.has(cell)) continue;
-      if (vacationDays.has(cell)) continue;
+      if (occupiedCells.has(cell)) continue;
+      if (vacationDays.has(cell)) continue; // vacaciones ya se resolvieron arriba (o no hay clave V)
       if (!isAttendancePresentForTareo(row)) continue;
       const [resourceId, day] = cell.split('|');
       const worker = workers.get(resourceId);

@@ -20,16 +20,25 @@ export const vacationPdfService = {
     const darkGray: [number, number, number] = [51, 51, 51];
 
     // Encabezado
-    doc.setFillColor(...primaryColor);
+    const isAdvance = Boolean(papeleta.isAdvance);
+    const headerTitle = isAdvance ? 'ADELANTO DE VACACIONES' : 'PAPELETA DE VACACIONES';
+    doc.setFillColor(...(isAdvance ? ([180, 83, 9] as [number, number, number]) : primaryColor));
     doc.rect(0, 0, pageWidth, 40, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text('PAPELETA DE VACACIONES', pageWidth / 2, 18, { align: 'center' });
+    doc.text(headerTitle, pageWidth / 2, 18, { align: 'center' });
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.text(`Código: ${papeleta.code}`, pageWidth / 2, 28, { align: 'center' });
-    doc.text('Régimen General - D.L. 713 / Ley de Productividad y Competitividad Laboral', pageWidth / 2, 35, { align: 'center' });
+    doc.text(
+      isAdvance
+        ? 'Goce otorgado antes de completar 30 días ganados — Régimen General D.L. 713'
+        : 'Régimen General - D.L. 713 / Ley de Productividad y Competitividad Laboral',
+      pageWidth / 2,
+      35,
+      { align: 'center' }
+    );
 
     y = 55;
     doc.setTextColor(...darkGray);
@@ -43,7 +52,14 @@ export const vacationPdfService = {
       ['Fecha de término:', formatDate(papeleta.endDate)],
       ['Fecha de retorno (reincorporación):', formatDate(papeleta.returnDate)],
       ['Días calendario:', `${papeleta.calendarDays} día(s)`],
-      ['Tipo:', papeleta.sourceType === 'accumulated' ? 'Vacaciones acumuladas (días a cuenta)' : 'Vacaciones continuas'],
+      [
+        'Tipo:',
+        isAdvance
+          ? 'Adelanto de vacaciones'
+          : papeleta.sourceType === 'accumulated'
+            ? 'Vacaciones acumuladas (días a cuenta)'
+            : 'Vacaciones continuas',
+      ],
     ];
 
     doc.setFontSize(11);
@@ -75,9 +91,14 @@ export const vacationPdfService = {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'italic');
     const legalText = doc.splitTextToSize(
-      'Por la presente se autoriza al trabajador indicado a hacer uso de su periodo vacacional conforme al artículo 11° del Decreto Legislativo N° 713 y normas complementarias. ' +
-      'El trabajador en régimen general tiene derecho a 30 días calendario de vacaciones por cada año completo de servicios. ' +
-      'La fraccionamiento del periodo vacacional solo procede cuando cada fracción sea de un mínimo de 7 días calendario.',
+      isAdvance
+        ? 'Por la presente se autoriza al trabajador indicado a hacer uso de un ADELANTO DE VACACIONES, ' +
+          'otorgado antes de haber ganado los 30 días calendario correspondientes al año de servicios. ' +
+          'Los días gozados se descontarán del derecho vacacional que se complete al cumplir el año de servicios, ' +
+          'conforme al Decreto Legislativo N° 713 y normas complementarias.'
+        : 'Por la presente se autoriza al trabajador indicado a hacer uso de su periodo vacacional conforme al artículo 11° del Decreto Legislativo N° 713 y normas complementarias. ' +
+          'El trabajador en régimen general tiene derecho a 30 días calendario de vacaciones por cada año completo de servicios. ' +
+          'El fraccionamiento del periodo vacacional solo procede cuando cada fracción sea de un mínimo de 7 días calendario.',
       pageWidth - 2 * margin
     );
     doc.text(legalText, margin, y);

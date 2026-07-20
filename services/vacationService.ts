@@ -273,6 +273,20 @@ export function calculateAccruedDays(
   };
 }
 
+/**
+ * Adelanto: al inicio del goce el trabajador aún no ha ganado el derecho completo
+ * de 30 días (no completó el primer año de servicios / acumulación < 30).
+ */
+export function isVacationAdvance(
+  hireDate: string | undefined | null,
+  asOfDate: string,
+  annualEntitlement: number = DAYS_PER_YEAR
+): boolean {
+  if (!hireDate || !asOfDate) return false;
+  const { accruedDays } = calculateAccruedDays(hireDate, annualEntitlement, parseDate(asOfDate));
+  return accruedDays < annualEntitlement;
+}
+
 function buildPeriodAccruals(
   hireDate: string,
   annualEntitlement: number,
@@ -539,6 +553,7 @@ function transformPapeletaFromDB(data: any): VacationPapeleta {
     calendarDays: Number(data.calendar_days),
     sourceType: data.source_type,
     status: data.status,
+    isAdvance: Boolean(data.is_advance),
     notes: data.notes,
     issuedAt: data.issued_at,
     issuedBy: data.issued_by,
@@ -559,7 +574,9 @@ function papeletaSnapshot(p: VacationPapeleta) {
     endDate: p.endDate,
     returnDate: p.returnDate,
     calendarDays: p.calendarDays,
+    sourceType: p.sourceType,
     status: p.status,
+    isAdvance: p.isAdvance,
     notes: p.notes,
   };
 }
@@ -1086,6 +1103,7 @@ export const vacationService = {
     const notes = [params.notes, justificationNote, restNote, allocNote].filter(Boolean).join(' ');
 
     const code = await this.generatePapeletaCode();
+    const isAdvance = isVacationAdvance(summary?.startDate, startDate);
 
     const { data, error } = await supabase
       .from('vacation_papeletas')
@@ -1102,6 +1120,7 @@ export const vacationService = {
         calendar_days: calendarDays,
         source_type: 'direct',
         status: 'issued',
+        is_advance: isAdvance,
         notes,
         issued_by: params.issuedBy,
         authorized_by: params.authorizedBy?.id ?? null,
@@ -1123,7 +1142,7 @@ export const vacationService = {
       entityType: 'VACATION_PAPELETA',
       entityId: result.id,
       entityName: result.code,
-      description: `Papeleta ${result.code} emitida (${calendarDays} días) — ${params.workerName}`,
+      description: `${isAdvance ? 'Adelanto de vacaciones' : 'Papeleta'} ${result.code} emitida (${calendarDays} días) — ${params.workerName}`,
       after: papeletaSnapshot(result),
       authorizedBy: params.authorizedBy
         ? { id: params.authorizedBy.id, name: params.authorizedBy.name, email: params.authorizedBy.email }
@@ -1228,6 +1247,7 @@ export const vacationService = {
     const notes = [params.notes, justificationNote, restNote, allocNote].filter(Boolean).join(' ');
 
     const code = await this.generatePapeletaCode();
+    const isAdvance = isVacationAdvance(summary?.startDate, params.startDate);
 
     const { data, error } = await supabase
       .from('vacation_papeletas')
@@ -1244,6 +1264,7 @@ export const vacationService = {
         calendar_days: calendarDays,
         source_type: 'accumulated',
         status: 'issued',
+        is_advance: isAdvance,
         notes,
         issued_by: params.issuedBy,
         authorized_by: params.authorizedBy?.id ?? null,
@@ -1268,7 +1289,7 @@ export const vacationService = {
       entityType: 'VACATION_PAPELETA',
       entityId: result.id,
       entityName: result.code,
-      description: `Papeleta acumulada ${result.code} (${calendarDays} días) — ${params.workerName}`,
+      description: `${isAdvance ? 'Adelanto de vacaciones' : 'Papeleta acumulada'} ${result.code} (${calendarDays} días) — ${params.workerName}`,
       after: papeletaSnapshot(result),
       authorizedBy: params.authorizedBy
         ? { id: params.authorizedBy.id, name: params.authorizedBy.name, email: params.authorizedBy.email }

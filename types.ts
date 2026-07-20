@@ -1075,6 +1075,8 @@ export interface VacationPapeleta {
   calendarDays: number;
   sourceType: VacationPapeletaSource;
   status: VacationPapeletaStatus;
+  /** True si se emitió antes de que el trabajador hubiera ganado 30 días */
+  isAdvance?: boolean;
   notes?: string;
   issuedAt?: string;
   issuedBy?: string;
