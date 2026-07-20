@@ -14,6 +14,7 @@ import {
   Link2,
   TrendingUp,
   Grid3x3,
+  ClipboardList,
 } from 'lucide-react';
 import { Unit, ResourceType, Resource } from '../types';
 import {
@@ -26,6 +27,7 @@ import { punchDisplay } from '../services/attendanceReportExcelParser';
 import { SafeImage } from './SafeImage';
 import { AttendanceEvolutionView } from './AttendanceEvolutionView';
 import { AttendanceConsolidatedView } from './AttendanceConsolidatedView';
+import { AttendanceTareoView } from './AttendanceTareoView';
 import { AttendanceMarkCommentBlock } from './AttendanceMarkCommentBlock';
 
 interface AttendanceReportsTabProps {
@@ -34,7 +36,7 @@ interface AttendanceReportsTabProps {
 }
 
 type ViewMode = 'cards' | 'table';
-type ScreenMode = 'byImport' | 'evolution' | 'consolidated';
+type ScreenMode = 'byImport' | 'evolution' | 'consolidated' | 'tareo';
 
 function punchChipClasses(label: string): string {
   if (label === 'Sin marca' || label === 'No marco')
@@ -295,6 +297,15 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         >
           <Grid3x3 size={16} /> Consolidado
         </button>
+        <button
+          type="button"
+          onClick={() => setScreenMode('tareo')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium ${
+            screenMode === 'tareo' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <ClipboardList size={16} /> Tareo / Novedades
+        </button>
       </div>
 
       {screenMode === 'byImport' && (
@@ -382,7 +393,13 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         </div>
 
         <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[320px]">
-          {screenMode === 'consolidated' ? (
+          {screenMode === 'tareo' ? (
+            <AttendanceTareoView
+              unit={unit}
+              importsKey={imports.map((i) => `${i.id}:${i.uploaded_at}`).join('|')}
+              canEdit={canUpload}
+            />
+          ) : screenMode === 'consolidated' ? (
             imports.length ? (
               <AttendanceConsolidatedView
                 unit={unit}
