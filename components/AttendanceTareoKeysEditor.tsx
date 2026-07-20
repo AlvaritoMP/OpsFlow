@@ -8,21 +8,68 @@ import {
   TAREO_PAYROLL_FIELD_OPTIONS,
 } from '../services/attendanceTareoService';
 
-const ICON_OPTIONS = [
-  'dot',
-  'circle',
-  'palm',
-  'cross',
-  'x',
-  'file',
-  'file-off',
-  'baby',
-  'heart',
-  'clock',
-  'moon',
-  'zap',
-  'calendar-clock',
+/** Emoticones sugeridos para claves de novedades. */
+export const EMOJI_OPTIONS = [
+  '✅',
+  '☀️',
+  '🌤️',
+  '🌙',
+  '💤',
+  '📅',
+  '🏖️',
+  '🏥',
+  '❌',
+  '📄',
+  '📭',
+  '👶',
+  '🖤',
+  '⏰',
+  '🌃',
+  '⚡',
+  '💥',
+  '🔦',
+  '✨',
+  '🕐',
+  '🟢',
+  '🔵',
+  '🟣',
+  '🟡',
+  '🟠',
+  '🔴',
+  '⚪',
+  '🌴',
+  '🤒',
+  '📝',
+  '🚫',
+  '👨‍👩‍👧',
+  '🕊️',
+  '💼',
+  '🏠',
 ] as const;
+
+/** Compatibilidad con claves sembradas antes con nombres tipo "dot"/"palm". */
+const LEGACY_ICON_TO_EMOJI: Record<string, string> = {
+  dot: '✅',
+  circle: '⚪',
+  palm: '🏖️',
+  cross: '🏥',
+  x: '❌',
+  file: '📄',
+  'file-off': '📭',
+  baby: '👶',
+  heart: '🖤',
+  clock: '⏰',
+  moon: '🌙',
+  zap: '⚡',
+  'calendar-clock': '📅',
+};
+
+export function resolveKeyEmoji(icon: string | null | undefined): string {
+  const raw = (icon || '').trim();
+  if (!raw) return '⬜';
+  if (LEGACY_ICON_TO_EMOJI[raw]) return LEGACY_ICON_TO_EMOJI[raw];
+  return raw;
+}
 
 interface AttendanceTareoKeysEditorProps {
   open: boolean;
@@ -33,31 +80,61 @@ interface AttendanceTareoKeysEditorProps {
 
 export function KeyGlyph({
   icon,
-  color,
   size = 'md',
+  title,
 }: {
   icon: string;
-  color: string;
-  size?: 'sm' | 'md';
+  color?: string;
+  size?: 'sm' | 'md' | 'lg';
+  title?: string;
 }) {
-  const dim = size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5';
-  if (icon === 'dot' || icon === 'circle') {
-    return (
-      <span
-        className={`inline-block ${dim} rounded-full border border-black/10 shrink-0`}
-        style={{ backgroundColor: color }}
-        title={icon}
-      />
-    );
-  }
+  const emoji = resolveKeyEmoji(icon);
+  const textSize = size === 'lg' ? 'text-xl' : size === 'sm' ? 'text-base leading-none' : 'text-lg leading-none';
   return (
     <span
-      className={`inline-flex ${size === 'sm' ? 'h-5 min-w-[1.25rem] text-[9px]' : 'h-6 min-w-[1.5rem] text-[10px]'} items-center justify-center rounded px-1 font-bold uppercase text-white shrink-0`}
-      style={{ backgroundColor: color }}
-      title={icon}
+      className={`inline-flex items-center justify-center shrink-0 ${textSize}`}
+      title={title || emoji}
+      role="img"
+      aria-label={title || emoji}
     >
-      {icon === 'x' ? 'X' : icon.slice(0, 2)}
+      {emoji}
     </span>
+  );
+}
+
+function EmojiPicker({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (emoji: string) => void;
+}) {
+  const current = resolveKeyEmoji(value);
+  const options = EMOJI_OPTIONS.includes(current as (typeof EMOJI_OPTIONS)[number])
+    ? [...EMOJI_OPTIONS]
+    : [current, ...EMOJI_OPTIONS];
+
+  return (
+    <div className="flex flex-wrap gap-1 max-w-[220px]">
+      {options.map((emoji) => (
+        <button
+          key={emoji}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(emoji)}
+          className={`h-8 w-8 rounded-md text-lg leading-none border transition ${
+            current === emoji
+              ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-300'
+              : 'border-slate-200 bg-white hover:bg-slate-50'
+          } disabled:opacity-50`}
+          title={emoji}
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -75,7 +152,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
   const [draft, setDraft] = useState({
     code: '',
     name: '',
-    icon: 'dot',
+    icon: '✅',
     color: '#64748b',
     valueKind: 'day' as TareoValueKind,
     valueAmount: 1,
@@ -108,7 +185,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
     try {
       await attendanceTareoService.updateKey(key.id, {
         name: key.name,
-        icon: key.icon,
+        icon: resolveKeyEmoji(key.icon),
         color: key.color,
         valueKind: key.valueKind,
         valueAmount: key.valueAmount,
@@ -135,11 +212,14 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
     }
     setError(null);
     try {
-      await attendanceTareoService.createKey(draft);
+      await attendanceTareoService.createKey({
+        ...draft,
+        icon: resolveKeyEmoji(draft.icon),
+      });
       setDraft({
         code: '',
         name: '',
-        icon: 'dot',
+        icon: '✅',
         color: '#64748b',
         valueKind: 'day',
         valueAmount: 1,
@@ -175,7 +255,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col border border-slate-200">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <Settings2 size={18} /> Editor de claves (iconos)
+            <Settings2 size={18} /> Editor de claves (emoticones)
           </h3>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
             <X size={18} />
@@ -184,9 +264,12 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
 
         <div className="p-4 space-y-4 overflow-y-auto">
           <p className="text-sm text-slate-600">
-            Cada clave es un <strong>icono</strong> con un <strong>valor</strong> detrás (en días suele ser 1). Ese valor
-            se suma en el <strong>Tareo</strong> (paso 2) a la columna de nómina que indiques. Las claves de tipo horas
-            usan el monto de horas capturado en la novedad.
+            Cada clave usa un <strong>emoticon</strong> fácil de reconocer en la grilla, con un <strong>valor</strong>{' '}
+            detrás (en días suele ser 1). Ese valor se suma en el <strong>Tareo</strong> (paso 2) a la columna
+            indicada.
+            <br />
+            <strong>Tipo Días</strong> = 1.ª clave en novedades. <strong>Tipo Horas</strong> = 2.ª clave (HE, bono,
+            etc.).
           </p>
 
           {message && (
@@ -212,11 +295,10 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
             <table className="w-full text-sm min-w-[980px]">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="px-2 py-2 text-left">Icono</th>
+                  <th className="px-2 py-2 text-left">Emoji</th>
                   <th className="px-2 py-2 text-left">Código</th>
                   <th className="px-2 py-2 text-left">Nombre</th>
-                  <th className="px-2 py-2 text-left">Forma</th>
-                  <th className="px-2 py-2 text-left">Color</th>
+                  <th className="px-2 py-2 text-left">Elegir emoticon</th>
                   <th className="px-2 py-2 text-left">Tipo</th>
                   <th className="px-2 py-2 text-left">Valor</th>
                   <th className="px-2 py-2 text-center">Presentismo</th>
@@ -229,7 +311,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                 {keys.map((k) => (
                   <tr key={k.id} className={!k.isActive ? 'opacity-50' : ''}>
                     <td className="px-2 py-2">
-                      <KeyGlyph icon={k.icon} color={k.color} />
+                      <KeyGlyph icon={k.icon} size="lg" title={k.name} />
                     </td>
                     <td className="px-2 py-2 font-mono text-xs font-semibold">{k.code}</td>
                     <td className="px-2 py-2">
@@ -241,25 +323,10 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                       />
                     </td>
                     <td className="px-2 py-2">
-                      <select
-                        className="border border-slate-200 rounded px-1 py-1"
+                      <EmojiPicker
                         value={k.icon}
                         disabled={!canEdit}
-                        onChange={(e) => patchLocal(k.id, { icon: e.target.value })}
-                      >
-                        {ICON_OPTIONS.map((i) => (
-                          <option key={i} value={i}>
-                            {i}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-2 py-2">
-                      <input
-                        type="color"
-                        value={k.color}
-                        disabled={!canEdit}
-                        onChange={(e) => patchLocal(k.id, { color: e.target.value })}
+                        onChange={(emoji) => patchLocal(k.id, { icon: emoji })}
                       />
                     </td>
                     <td className="px-2 py-2">
@@ -282,7 +349,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                         className="border border-slate-200 rounded px-2 py-1 w-20"
                         value={k.valueAmount}
                         disabled={!canEdit || k.valueKind === 'hours'}
-                        title={k.valueKind === 'hours' ? 'En horas el monto se captura en la novedad' : 'Valor del icono'}
+                        title={k.valueKind === 'hours' ? 'En horas el monto se captura en la novedad' : 'Valor'}
                         onChange={(e) => patchLocal(k.id, { valueAmount: Number(e.target.value) })}
                       />
                     </td>
@@ -350,7 +417,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
               <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                 <Plus size={16} /> Nueva clave
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Código</label>
                   <input
@@ -407,27 +474,12 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Icono / color</label>
-                  <div className="flex gap-2 items-center">
-                    <select
-                      className="border border-slate-300 rounded-lg px-2 py-2 text-sm"
-                      value={draft.icon}
-                      onChange={(e) => setDraft((d) => ({ ...d, icon: e.target.value }))}
-                    >
-                      {ICON_OPTIONS.map((i) => (
-                        <option key={i} value={i}>
-                          {i}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="color"
-                      value={draft.color}
-                      onChange={(e) => setDraft((d) => ({ ...d, color: e.target.value }))}
-                    />
-                    <KeyGlyph icon={draft.icon} color={draft.color} />
-                  </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Emoticon</label>
+                  <EmojiPicker
+                    value={draft.icon}
+                    onChange={(emoji) => setDraft((d) => ({ ...d, icon: emoji }))}
+                  />
                 </div>
                 <div className="flex items-end">
                   <label className="inline-flex items-center gap-2 text-sm text-slate-700 pb-2">
@@ -468,23 +520,17 @@ export function TareoKeyBadge({
   const suffix =
     keyDef.valueKind === 'hours' && hoursValue != null
       ? `${hoursValue}h`
-      : keyDef.valueKind === 'day'
-        ? `${keyDef.valueAmount}`
-        : '';
+      : '';
   return (
     <span
-      className={`inline-flex items-center justify-center gap-1 rounded-md border font-bold tabular-nums ${
+      className={`inline-flex items-center justify-center gap-1 rounded-md border bg-white tabular-nums ${
         compact ? 'min-w-[1.75rem] h-7 px-1 text-[10px]' : 'px-2 py-1 text-xs'
       }`}
-      style={{
-        backgroundColor: `${keyDef.color}22`,
-        borderColor: `${keyDef.color}66`,
-        color: keyDef.color,
-      }}
-      title={`${keyDef.name} (valor ${keyDef.valueKind === 'hours' ? hoursValue ?? '—' : keyDef.valueAmount})`}
+      style={{ borderColor: `${keyDef.color}66` }}
+      title={`${keyDef.code} — ${keyDef.name}`}
     >
-      <KeyGlyph icon={keyDef.icon} color={keyDef.color} size="sm" />
-      {suffix ? <span>{suffix}</span> : null}
+      <KeyGlyph icon={keyDef.icon} size={compact ? 'sm' : 'md'} title={keyDef.name} />
+      {suffix ? <span className="font-semibold text-slate-600">{suffix}</span> : null}
     </span>
   );
 }

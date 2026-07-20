@@ -8,6 +8,8 @@ import {
   X,
   Table2,
   ChevronRight,
+  ChevronDown,
+  BookOpen,
 } from 'lucide-react';
 import { Unit } from '../types';
 import {
@@ -21,7 +23,7 @@ import {
   TAREO_EXPORT_HEADERS,
 } from '../services/attendanceTareoService';
 import { SafeImage } from './SafeImage';
-import { AttendanceTareoKeysEditor, TareoKeyBadge, KeyGlyph } from './AttendanceTareoKeysEditor';
+import { AttendanceTareoKeysEditor, KeyGlyph } from './AttendanceTareoKeysEditor';
 
 interface AttendanceTareoViewProps {
   unit: Unit;
@@ -57,6 +59,7 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
   const [keys, setKeys] = useState<AttendanceTareoKey[]>([]);
   const [novedades, setNovedades] = useState<AttendanceTareoNovedad[]>([]);
   const [keysOpen, setKeysOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [tipoTareo, setTipoTareo] = useState('MENSUAL');
@@ -324,6 +327,21 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
           <Settings2 size={16} />
           Editor de claves
         </button>
+        {step === 'novedades' && keys.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setLegendOpen((v) => !v)}
+            className={`inline-flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg border ${
+              legendOpen
+                ? 'border-teal-300 bg-teal-50 text-teal-900'
+                : 'border-slate-200 bg-white text-slate-700 hover:text-slate-900'
+            }`}
+          >
+            <BookOpen size={16} />
+            Leyenda
+            <ChevronDown size={14} className={`transition ${legendOpen ? 'rotate-180' : ''}`} />
+          </button>
+        )}
         {step === 'novedades' && canEdit && (
           <button
             type="button"
@@ -348,15 +366,32 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
         )}
       </div>
 
-      {keys.length > 0 && step === 'novedades' && (
-        <div className="flex flex-wrap gap-2 items-center text-xs text-slate-600">
-          <span className="font-semibold uppercase tracking-wide text-slate-400">Leyenda:</span>
-          {keys.map((k) => (
-            <span key={k.id} className="inline-flex items-center gap-1">
-              <TareoKeyBadge keyDef={k} />
-              <span className="text-slate-400">{k.code}</span>
-            </span>
-          ))}
+      {legendOpen && keys.length > 0 && step === 'novedades' && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h5 className="text-sm font-bold text-slate-700">Leyenda de claves</h5>
+            <button
+              type="button"
+              onClick={() => setLegendOpen(false)}
+              className="text-xs text-slate-500 hover:text-slate-800"
+            >
+              Ocultar
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {keys.map((k) => (
+              <div
+                key={k.id}
+                className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/80 px-2.5 py-2 text-sm"
+              >
+                <KeyGlyph icon={k.icon} size="lg" title={k.name} />
+                <div className="min-w-0">
+                  <div className="font-mono text-xs font-semibold text-slate-700">{k.code}</div>
+                  <div className="text-xs text-slate-500 truncate">{k.name}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -465,12 +500,13 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
                               {dayKey || hoursKey ? (
                                 <>
                                   {dayKey ? (
-                                    <KeyGlyph icon={dayKey.icon} color={dayKey.color} size="sm" />
+                                    <KeyGlyph icon={dayKey.icon} size="md" title={dayKey.name} />
                                   ) : (
-                                    <span className="h-3 w-3" />
+                                    <span className="h-4 w-4" />
                                   )}
                                   {hoursKey ? (
-                                    <span className="text-[9px] font-bold tabular-nums" style={{ color: hoursKey.color }}>
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold tabular-nums text-slate-600">
+                                      <KeyGlyph icon={hoursKey.icon} size="sm" title={hoursKey.name} />
                                       {n?.hoursValue ?? 0}h
                                     </span>
                                   ) : null}
@@ -558,7 +594,7 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
             <div className="p-4 space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  1.ª clave — días (valor del icono)
+                  1.ª clave — días (asistencia, descanso, vacaciones, falta…)
                 </label>
                 <select
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
@@ -572,6 +608,12 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
                     </option>
                   ))}
                 </select>
+                {dayKeys.length === 0 && (
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    No hay claves de tipo Días activas. En el editor, crea o cambia una clave a tipo «Días» (p. ej.
+                    Descanso semanal).
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">

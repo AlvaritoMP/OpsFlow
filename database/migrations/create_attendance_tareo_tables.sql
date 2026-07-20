@@ -57,23 +57,25 @@ CREATE INDEX IF NOT EXISTS idx_attendance_tareo_novedades_resource_day
 INSERT INTO public.attendance_tareo_keys
     (code, name, icon, color, value_kind, value_amount, counts_as_presentismo, payroll_field, sort_order, is_system)
 VALUES
-    ('OK_TM', 'Asistencia OK — Turno mañana', 'dot', '#10b981', 'day', 1, true, 'turnos_tm', 10, true),
-    ('OK_TT', 'Asistencia OK — Turno tarde', 'dot', '#3b82f6', 'day', 1, true, 'turnos_tt', 20, true),
-    ('OK_TN', 'Asistencia OK — Turno noche', 'dot', '#8b5cf6', 'day', 1, true, 'turnos_tn', 30, true),
-    ('V', 'Vacaciones', 'palm', '#0ea5e9', 'day', 1, false, 'vacaciones', 40, true),
-    ('DM', 'Descanso médico', 'cross', '#f59e0b', 'day', 1, false, 'descanso_medico', 50, true),
-    ('F', 'Falta', 'x', '#ef4444', 'day', 1, false, 'faltas', 60, true),
-    ('LCG', 'Licencia con goce', 'file', '#14b8a6', 'day', 1, false, 'licencia_con_goce', 70, true),
-    ('LSG', 'Licencia sin goce', 'file-off', '#f97316', 'day', 1, false, 'licencia_sin_goce', 80, true),
-    ('LM', 'Licencia maternidad/paternidad', 'baby', '#ec4899', 'day', 1, false, 'licencia_maternidad', 90, true),
-    ('LGC_F', 'LGC por fallecimiento de familiar', 'heart', '#64748b', 'day', 1, false, 'lgc_fallecimiento', 100, true),
-    ('DESC_DOM', 'Descansos Domingos / días no laborables', 'clock', '#78716c', 'hours', 0, false, 'descansos_dom_feriado', 110, true),
-    ('BONO_N', 'Bono nocturno', 'moon', '#6366f1', 'hours', 0, false, 'bono_nocturno', 120, true),
-    ('HE_D_25', 'HE diurnas 25%', 'zap', '#eab308', 'hours', 0, false, 'he_d_25', 130, true),
-    ('HE_D_35', 'HE diurnas 35%', 'zap', '#ca8a04', 'hours', 0, false, 'he_d_35', 140, true),
-    ('HE_N_25', 'HE nocturnas 25%', 'zap', '#a855f7', 'hours', 0, false, 'he_n_25', 150, true),
-    ('HE_N_35', 'HE nocturnas 35%', 'zap', '#7c3aed', 'hours', 0, false, 'he_n_35', 160, true),
-    ('HT', 'Horas en descansos o feriados', 'calendar-clock', '#0f766e', 'hours', 0, false, 'ht', 170, true)
+    ('OK_TM', 'Asistencia OK — Turno mañana', '☀️', '#10b981', 'day', 1, true, 'turnos_tm', 10, true),
+    ('OK_TT', 'Asistencia OK — Turno tarde', '🌤️', '#3b82f6', 'day', 1, true, 'turnos_tt', 20, true),
+    ('OK_TN', 'Asistencia OK — Turno noche', '🌙', '#8b5cf6', 'day', 1, true, 'turnos_tn', 30, true),
+    ('DS', 'Descanso semanal', '💤', '#94a3b8', 'day', 1, false, 'none', 35, true),
+    ('FER', 'Feriado / día no laborable', '📅', '#a8a29e', 'day', 1, false, 'none', 36, true),
+    ('V', 'Vacaciones', '🏖️', '#0ea5e9', 'day', 1, false, 'vacaciones', 40, true),
+    ('DM', 'Descanso médico', '🏥', '#f59e0b', 'day', 1, false, 'descanso_medico', 50, true),
+    ('F', 'Falta', '❌', '#ef4444', 'day', 1, false, 'faltas', 60, true),
+    ('LCG', 'Licencia con goce', '📄', '#14b8a6', 'day', 1, false, 'licencia_con_goce', 70, true),
+    ('LSG', 'Licencia sin goce', '📭', '#f97316', 'day', 1, false, 'licencia_sin_goce', 80, true),
+    ('LM', 'Licencia maternidad/paternidad', '👶', '#ec4899', 'day', 1, false, 'licencia_maternidad', 90, true),
+    ('LGC_F', 'LGC por fallecimiento de familiar', '🖤', '#64748b', 'day', 1, false, 'lgc_fallecimiento', 100, true),
+    ('DESC_DOM', 'Descansos Domingos / días no laborables', '⏰', '#78716c', 'hours', 0, false, 'descansos_dom_feriado', 110, true),
+    ('BONO_N', 'Bono nocturno', '🌃', '#6366f1', 'hours', 0, false, 'bono_nocturno', 120, true),
+    ('HE_D_25', 'HE diurnas 25%', '⚡', '#eab308', 'hours', 0, false, 'he_d_25', 130, true),
+    ('HE_D_35', 'HE diurnas 35%', '💥', '#ca8a04', 'hours', 0, false, 'he_d_35', 140, true),
+    ('HE_N_25', 'HE nocturnas 25%', '🔦', '#a855f7', 'hours', 0, false, 'he_n_25', 150, true),
+    ('HE_N_35', 'HE nocturnas 35%', '✨', '#7c3aed', 'hours', 0, false, 'he_n_35', 160, true),
+    ('HT', 'Horas en descansos o feriados', '🕐', '#0f766e', 'hours', 0, false, 'ht', 170, true)
 ON CONFLICT (code) DO NOTHING;
 
 -- RLS permisivo (misma convención que el resto de OpsFlow / anon key)
