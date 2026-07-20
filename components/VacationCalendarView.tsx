@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { ChevronLeft, ChevronRight, Building2, Palmtree } from 'lucide-react';
 import { Unit, VacationCalendarEvent } from '../types';
 import { vacationService } from '../services/vacationService';
+import { formatDateDisplay } from '../utils/dateFormat';
 
 interface VacationCalendarViewProps {
   units: Unit[];
@@ -345,7 +346,7 @@ export const VacationCalendarView: React.FC<VacationCalendarViewProps> = ({
       {selectedDate && selectedEvents.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <h4 className="font-semibold text-slate-800 mb-3">
-            Vacaciones el {selectedDate} ({selectedEvents.length} registro{selectedEvents.length > 1 ? 's' : ''})
+            Vacaciones el {formatDateDisplay(selectedDate)} ({selectedEvents.length} registro{selectedEvents.length > 1 ? 's' : ''})
           </h4>
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {selectedEvents.map((ev, i) => (

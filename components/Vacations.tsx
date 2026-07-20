@@ -27,6 +27,8 @@ import { canActAsVacationAuthorizer } from '../services/vacationAuthService';
 import { vacationAuthorizationRequestService } from '../services/vacationAuthorizationRequestService';
 import { VacationCalendarView } from './VacationCalendarView';
 import { VacationAuthorizationModal } from './VacationAuthorizationModal';
+import { DateInput } from './DateInput';
+import { formatDateDisplay } from '../utils/dateFormat';
 import { excelService } from '../services/excelService';
 import { useUsers } from '../hooks/useUsers';
 
@@ -666,7 +668,7 @@ export const Vacations: React.FC<VacationsProps> = ({
     const worker = allPersonnel.find(p => p.resourceId === d.resourceId);
     openAuthModal(
       'Solicitar anulación de día a cuenta',
-      `Se enviará una solicitud para anular el día ${d.vacationDate} (${d.daysCount ?? 1} d). La anulación se ejecutará cuando el autorizador la apruebe.`,
+      `Se enviará una solicitud para anular el día ${formatDateDisplay(d.vacationDate)} (${d.daysCount ?? 1} d). La anulación se ejecutará cuando el autorizador la apruebe.`,
       async assignedAuthorizerId => {
         const authorizerName = users.find(u => u.id === assignedAuthorizerId)?.name || 'el autorizador';
         await vacationAuthorizationRequestService.createRequest({
@@ -675,7 +677,7 @@ export const Vacations: React.FC<VacationsProps> = ({
           assignedAuthorizerId,
           resourceId: d.resourceId,
           unitId: d.unitId,
-          summary: `Anular día a cuenta ${d.vacationDate} — ${worker?.name || 'trabajador'} (${d.daysCount ?? 1} d)`,
+          summary: `Anular día a cuenta ${formatDateDisplay(d.vacationDate)} — ${worker?.name || 'trabajador'} (${d.daysCount ?? 1} d)`,
           payload: {
             dayEntryId: d.id,
             resourceId: d.resourceId,
@@ -811,11 +813,15 @@ export const Vacations: React.FC<VacationsProps> = ({
     }));
   };
 
-  const calcReturnDate = (endDate: string) => {
+  const calcReturnDate = (endDate: string, weeklyRestDay = 0) => {
     if (!endDate) return '';
-    const [y, m, d] = endDate.split('-').map(Number);
-    const dt = new Date(y, m - 1, d + 1);
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    try {
+      return finalizeVacationPeriod(endDate, endDate, weeklyRestDay).returnDate;
+    } catch {
+      const [y, m, d] = endDate.split('-').map(Number);
+      const dt = new Date(y, m - 1, d + 1);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    }
   };
 
   const pendingAuthCount = authRequestsForMe.length;
@@ -1025,7 +1031,7 @@ export const Vacations: React.FC<VacationsProps> = ({
                           <div className="text-[10px] text-slate-400 mt-0.5">Descanso: {s.weeklyRestDayLabel}</div>
                         </td>
                         {!fixedUnitId && <td className="p-3 text-slate-600">{s.unitName}</td>}
-                        <td className="p-3 text-slate-600">{s.startDate || '—'}</td>
+                        <td className="p-3 text-slate-600">{formatDateDisplay(s.startDate) || '—'}</td>
                         <td className="p-3 text-center font-medium text-blue-600">
                           <div>{s.accruedDays}</div>
                           <div className="text-[10px] text-slate-400 font-normal">{s.serviceDays} d. servicio</div>
@@ -1127,11 +1133,11 @@ export const Vacations: React.FC<VacationsProps> = ({
                     <div className="mt-3 text-sm text-slate-600">
                       <div className="flex justify-between">
                         <span>Desde:</span>
-                        <span className="font-medium">{v.startDate}</span>
+                        <span className="font-medium">{formatDateDisplay(v.startDate)}</span>
                       </div>
                       <div className="flex justify-between mt-1">
                         <span>Hasta:</span>
-                        <span className="font-medium">{v.endDate}</span>
+                        <span className="font-medium">{formatDateDisplay(v.endDate)}</span>
                       </div>
                       {v.code && (
                         <div className="flex justify-between mt-1">
@@ -1182,9 +1188,9 @@ export const Vacations: React.FC<VacationsProps> = ({
                       <td className="p-3 font-mono text-xs">{p.code}</td>
                       <td className="p-3 font-medium">{p.workerName}</td>
                       <td className="p-3 text-slate-600">{p.unitName}</td>
-                      <td className="p-3">{p.startDate}</td>
-                      <td className="p-3">{p.endDate}</td>
-                      <td className="p-3">{p.returnDate}</td>
+                        <td className="p-3">{formatDateDisplay(p.startDate)}</td>
+                        <td className="p-3">{formatDateDisplay(p.endDate)}</td>
+                        <td className="p-3">{formatDateDisplay(p.returnDate)}</td>
                       <td className="p-3 text-center">{p.calendarDays}</td>
                       <td className="p-3 text-center">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${p.sourceType === 'accumulated' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
@@ -1286,7 +1292,7 @@ export const Vacations: React.FC<VacationsProps> = ({
                         <tr key={d.id} className="hover:bg-slate-50">
                           <td className="p-3 font-medium">{worker?.name || '—'}</td>
                           <td className="p-3 text-slate-600">{worker?.unitName}</td>
-                          <td className="p-3">{d.vacationDate}</td>
+                          <td className="p-3">{formatDateDisplay(d.vacationDate)}</td>
                           <td className="p-3 text-center">{d.daysCount ?? 1}</td>
                           <td className="p-3 text-center">
                             <span className={`text-xs px-2 py-0.5 rounded-full ${
@@ -1457,20 +1463,18 @@ export const Vacations: React.FC<VacationsProps> = ({
                 <div className="flex flex-wrap gap-3">
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Desde</label>
-                    <input
-                      type="date"
-                      className="border rounded-lg px-3 py-2 text-sm"
+                    <DateInput
+                      className="border rounded-lg px-3 py-2 text-sm w-full min-w-[140px]"
                       value={historyFrom}
-                      onChange={e => setHistoryFrom(e.target.value)}
+                      onChange={setHistoryFrom}
                     />
                   </div>
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Hasta</label>
-                    <input
-                      type="date"
-                      className="border rounded-lg px-3 py-2 text-sm"
+                    <DateInput
+                      className="border rounded-lg px-3 py-2 text-sm w-full min-w-[140px]"
                       value={historyTo}
-                      onChange={e => setHistoryTo(e.target.value)}
+                      onChange={setHistoryTo}
                     />
                   </div>
                   <button
@@ -1616,11 +1620,9 @@ export const Vacations: React.FC<VacationsProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Fecha del día gozado</label>
-                <input
-                  type="date"
-                  className="w-full border rounded-lg p-2"
+                <DateInput
                   value={dayForm.date}
-                  onChange={e => setDayForm({ ...dayForm, date: e.target.value })}
+                  onChange={date => setDayForm({ ...dayForm, date })}
                 />
               </div>
               <div>
@@ -1740,7 +1742,7 @@ export const Vacations: React.FC<VacationsProps> = ({
                             checked={papeletaForm.selectedDayIds.includes(d.id)}
                             onChange={() => toggleDaySelection(d.id)}
                           />
-                          {d.vacationDate}
+                          {formatDateDisplay(d.vacationDate)}
                           <span className="text-xs text-slate-400">({d.daysCount ?? 1} d)</span>
                         </label>
                       ))}
@@ -1778,26 +1780,21 @@ export const Vacations: React.FC<VacationsProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">Fecha salida</label>
-                  <input
-                    type="date"
-                    className="w-full border rounded-lg p-2"
+                  <DateInput
                     value={papeletaForm.startDate}
-                    onChange={e => setPapeletaForm({ ...papeletaForm, startDate: e.target.value })}
+                    onChange={startDate => setPapeletaForm({ ...papeletaForm, startDate })}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Fecha término</label>
-                  <input
-                    type="date"
-                    className="w-full border rounded-lg p-2"
+                  <DateInput
                     disabled={papeletaMode === 'direct' && Number(papeletaForm.requestedWorkDays) > 0}
-                    value={papeletaPreview?.endDate || papeletaForm.endDate}
-                    onChange={e => {
-                      const end = e.target.value;
+                    value={papeletaForm.endDate || papeletaPreview?.endDate || ''}
+                    onChange={end => {
                       setPapeletaForm({
                         ...papeletaForm,
                         endDate: end,
-                        returnDate: calcReturnDate(end),
+                        returnDate: calcReturnDate(end, selectedWorkerSummary?.weeklyRestDay ?? 0),
                         requestedWorkDays: '',
                       });
                     }}
@@ -1806,11 +1803,9 @@ export const Vacations: React.FC<VacationsProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Fecha retorno (reincorporación)</label>
-                <input
-                  type="date"
-                  className="w-full border rounded-lg p-2"
-                  value={papeletaForm.returnDate || papeletaPreview?.returnDate || ''}
-                  onChange={e => setPapeletaForm({ ...papeletaForm, returnDate: e.target.value })}
+                <DateInput
+                  value={papeletaForm.returnDate || ''}
+                  onChange={returnDate => setPapeletaForm({ ...papeletaForm, returnDate })}
                 />
               </div>
 
@@ -1821,10 +1816,10 @@ export const Vacations: React.FC<VacationsProps> = ({
                     Resumen del goce
                   </p>
                   <p>Días a descontar del saldo: <strong>{papeletaPreview.calendarDays}</strong></p>
-                  {papeletaPreview.endDate && <p>Término efectivo: <strong>{papeletaPreview.endDate}</strong></p>}
-                  {papeletaPreview.returnDate && <p>Retorno sugerido: <strong>{papeletaPreview.returnDate}</strong></p>}
+                  {papeletaPreview.endDate && <p>Término efectivo: <strong>{formatDateDisplay(papeletaPreview.endDate)}</strong></p>}
+                  {papeletaPreview.returnDate && <p>Retorno sugerido: <strong>{formatDateDisplay(papeletaPreview.returnDate)}</strong></p>}
                   {papeletaPreview.includedRestDates.length > 0 && (
-                    <p>Incluye descanso ({papeletaPreview.restDayLabel}): {papeletaPreview.includedRestDates.join(', ')}</p>
+                    <p>Incluye descanso ({papeletaPreview.restDayLabel}): {papeletaPreview.includedRestDates.map(formatDateDisplay).join(', ')}</p>
                   )}
                   {papeletaPreview.allocation.valid ? (
                     <>
@@ -1937,7 +1932,7 @@ export const Vacations: React.FC<VacationsProps> = ({
                     <tr key={b.periodIndex}>
                       <td className="p-2">
                         <div className="font-medium">Periodo {b.periodIndex}</div>
-                        <div className="text-[11px] text-slate-400">{b.periodStart} → {b.periodEnd}</div>
+                        <div className="text-[11px] text-slate-400">{formatDateDisplay(b.periodStart)} → {formatDateDisplay(b.periodEnd)}</div>
                       </td>
                       <td className="p-2 text-center">{b.accruedInPeriod}</td>
                       <td className="p-2 text-center">
@@ -1976,13 +1971,13 @@ export const Vacations: React.FC<VacationsProps> = ({
             </div>
             <div className="p-6">
               <p className="text-sm text-slate-600 mb-3">
-                Papeleta formal: {detailPapeleta.startDate} al {detailPapeleta.endDate} (retorno: {detailPapeleta.returnDate})
+                Papeleta formal: {formatDateDisplay(detailPapeleta.startDate)} al {formatDateDisplay(detailPapeleta.endDate)} (retorno: {formatDateDisplay(detailPapeleta.returnDate)})
               </p>
               <p className="text-sm font-medium mb-2">Días individuales que se acumularon:</p>
               <ul className="space-y-1">
                 {detailPapeleta.accumulatedDays?.map(d => (
                   <li key={d.id} className="text-sm bg-slate-50 px-3 py-2 rounded flex justify-between">
-                    <span>{d.vacationDate}</span>
+                    <span>{formatDateDisplay(d.vacationDate)}</span>
                     <span className="text-slate-400 text-xs">{d.daysCount ?? 1} d · a cuenta</span>
                   </li>
                 ))}
@@ -2017,19 +2012,25 @@ export const Vacations: React.FC<VacationsProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">Salida</label>
-                  <input type="date" className="w-full border rounded-lg p-2" value={editPapeletaForm.startDate}
-                    onChange={e => setEditPapeletaForm({ ...editPapeletaForm, startDate: e.target.value })} />
+                  <DateInput
+                    value={editPapeletaForm.startDate}
+                    onChange={startDate => setEditPapeletaForm({ ...editPapeletaForm, startDate })}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Término</label>
-                  <input type="date" className="w-full border rounded-lg p-2" value={editPapeletaForm.endDate}
-                    onChange={e => setEditPapeletaForm({ ...editPapeletaForm, endDate: e.target.value })} />
+                  <DateInput
+                    value={editPapeletaForm.endDate}
+                    onChange={endDate => setEditPapeletaForm({ ...editPapeletaForm, endDate })}
+                  />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Retorno</label>
-                <input type="date" className="w-full border rounded-lg p-2" value={editPapeletaForm.returnDate}
-                  onChange={e => setEditPapeletaForm({ ...editPapeletaForm, returnDate: e.target.value })} />
+                <DateInput
+                  value={editPapeletaForm.returnDate}
+                  onChange={returnDate => setEditPapeletaForm({ ...editPapeletaForm, returnDate })}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Observaciones</label>
@@ -2055,8 +2056,10 @@ export const Vacations: React.FC<VacationsProps> = ({
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Fecha</label>
-                <input type="date" className="w-full border rounded-lg p-2" value={editDayForm.date}
-                  onChange={e => setEditDayForm({ ...editDayForm, date: e.target.value })} />
+                <DateInput
+                  value={editDayForm.date}
+                  onChange={date => setEditDayForm({ ...editDayForm, date })}
+                />
               </div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setEditDayForm({ ...editDayForm, daysCount: 1 })}

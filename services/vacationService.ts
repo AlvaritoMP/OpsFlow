@@ -186,7 +186,7 @@ export function expandVacationWithRestDays(
   };
 }
 
-/** Si el usuario elige salida/término, asegura incluir descansos al final del tramo. */
+/** Si el usuario elige salida/término, cuenta descansos dentro del tramo elegido (sin alargar el término). */
 export function finalizeVacationPeriod(
   startDate: string,
   endDate: string,
@@ -196,27 +196,21 @@ export function finalizeVacationPeriod(
     throw new Error('La fecha de término no puede ser anterior a la salida');
   }
 
-  let finalEnd = endDate;
   const includedRestDates: string[] = [];
-
-  for (let d = startDate; d <= finalEnd; d = addDays(d, 1)) {
+  for (let d = startDate; d <= endDate; d = addDays(d, 1)) {
     if (weekdayOf(d) === weeklyRestDay) includedRestDates.push(d);
   }
 
-  while (weekdayOf(addDays(finalEnd, 1)) === weeklyRestDay) {
-    finalEnd = addDays(finalEnd, 1);
-    includedRestDates.push(finalEnd);
-  }
-
-  let returnDate = addDays(finalEnd, 1);
+  // Retorno: día siguiente al término; si cae en descanso semanal, salta al siguiente laborable
+  let returnDate = addDays(endDate, 1);
   while (weekdayOf(returnDate) === weeklyRestDay) {
     returnDate = addDays(returnDate, 1);
   }
 
   return {
-    endDate: finalEnd,
+    endDate,
     returnDate,
-    calendarDays: daysBetweenInclusive(startDate, finalEnd),
+    calendarDays: daysBetweenInclusive(startDate, endDate),
     includedRestDates: [...new Set(includedRestDates)],
   };
 }
