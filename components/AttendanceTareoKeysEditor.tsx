@@ -31,11 +31,20 @@ interface AttendanceTareoKeysEditorProps {
   onKeysChanged: () => void;
 }
 
-function KeyGlyph({ icon, color }: { icon: string; color: string }) {
+export function KeyGlyph({
+  icon,
+  color,
+  size = 'md',
+}: {
+  icon: string;
+  color: string;
+  size?: 'sm' | 'md';
+}) {
+  const dim = size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5';
   if (icon === 'dot' || icon === 'circle') {
     return (
       <span
-        className="inline-block h-3.5 w-3.5 rounded-full border border-black/10"
+        className={`inline-block ${dim} rounded-full border border-black/10 shrink-0`}
         style={{ backgroundColor: color }}
         title={icon}
       />
@@ -43,7 +52,7 @@ function KeyGlyph({ icon, color }: { icon: string; color: string }) {
   }
   return (
     <span
-      className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded px-1 text-[10px] font-bold uppercase text-white"
+      className={`inline-flex ${size === 'sm' ? 'h-5 min-w-[1.25rem] text-[9px]' : 'h-6 min-w-[1.5rem] text-[10px]'} items-center justify-center rounded px-1 font-bold uppercase text-white shrink-0`}
       style={{ backgroundColor: color }}
       title={icon}
     >
@@ -69,6 +78,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
     icon: 'dot',
     color: '#64748b',
     valueKind: 'day' as TareoValueKind,
+    valueAmount: 1,
     countsAsPresentismo: false,
     payrollField: 'none' as TareoPayrollField,
   });
@@ -101,6 +111,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
         icon: key.icon,
         color: key.color,
         valueKind: key.valueKind,
+        valueAmount: key.valueAmount,
         countsAsPresentismo: key.countsAsPresentismo,
         payrollField: key.payrollField,
         sortOrder: key.sortOrder,
@@ -131,6 +142,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
         icon: 'dot',
         color: '#64748b',
         valueKind: 'day',
+        valueAmount: 1,
         countsAsPresentismo: false,
         payrollField: 'none',
       });
@@ -160,10 +172,10 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col border border-slate-200">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col border border-slate-200">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <Settings2 size={18} /> Editor de claves de tareo
+            <Settings2 size={18} /> Editor de claves (iconos)
           </h3>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
             <X size={18} />
@@ -172,8 +184,9 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
 
         <div className="p-4 space-y-4 overflow-y-auto">
           <p className="text-sm text-slate-600">
-            Cada clave tiene icono/color, si cuenta como día de presentismo y a qué columna del Excel de nóminas suma
-            (días u horas).
+            Cada clave es un <strong>icono</strong> con un <strong>valor</strong> detrás (en días suele ser 1). Ese valor
+            se suma en el <strong>Tareo</strong> (paso 2) a la columna de nómina que indiques. Las claves de tipo horas
+            usan el monto de horas capturado en la novedad.
           </p>
 
           {message && (
@@ -196,17 +209,18 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full text-sm min-w-[900px]">
+            <table className="w-full text-sm min-w-[980px]">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="px-2 py-2 text-left">Vista</th>
+                  <th className="px-2 py-2 text-left">Icono</th>
                   <th className="px-2 py-2 text-left">Código</th>
                   <th className="px-2 py-2 text-left">Nombre</th>
-                  <th className="px-2 py-2 text-left">Icono</th>
+                  <th className="px-2 py-2 text-left">Forma</th>
                   <th className="px-2 py-2 text-left">Color</th>
                   <th className="px-2 py-2 text-left">Tipo</th>
+                  <th className="px-2 py-2 text-left">Valor</th>
                   <th className="px-2 py-2 text-center">Presentismo</th>
-                  <th className="px-2 py-2 text-left">Columna nómina</th>
+                  <th className="px-2 py-2 text-left">Suma en columna Tareo</th>
                   <th className="px-2 py-2 text-center">Activa</th>
                   <th className="px-2 py-2 text-right">Acciones</th>
                 </tr>
@@ -220,7 +234,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                     <td className="px-2 py-2 font-mono text-xs font-semibold">{k.code}</td>
                     <td className="px-2 py-2">
                       <input
-                        className="border border-slate-200 rounded px-2 py-1 w-full min-w-[140px]"
+                        className="border border-slate-200 rounded px-2 py-1 w-full min-w-[120px]"
                         value={k.name}
                         disabled={!canEdit}
                         onChange={(e) => patchLocal(k.id, { name: e.target.value })}
@@ -255,29 +269,41 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                         disabled={!canEdit}
                         onChange={(e) => patchLocal(k.id, { valueKind: e.target.value as TareoValueKind })}
                       >
-                        <option value="day">Día</option>
+                        <option value="day">Días</option>
                         <option value="hours">Horas</option>
                         <option value="none">Marca</option>
                       </select>
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        className="border border-slate-200 rounded px-2 py-1 w-20"
+                        value={k.valueAmount}
+                        disabled={!canEdit || k.valueKind === 'hours'}
+                        title={k.valueKind === 'hours' ? 'En horas el monto se captura en la novedad' : 'Valor del icono'}
+                        onChange={(e) => patchLocal(k.id, { valueAmount: Number(e.target.value) })}
+                      />
                     </td>
                     <td className="px-2 py-2 text-center">
                       <input
                         type="checkbox"
                         checked={k.countsAsPresentismo}
-                        disabled={!canEdit}
+                        disabled={!canEdit || k.valueKind === 'hours'}
                         onChange={(e) => patchLocal(k.id, { countsAsPresentismo: e.target.checked })}
                       />
                     </td>
                     <td className="px-2 py-2">
                       <select
-                        className="border border-slate-200 rounded px-1 py-1 max-w-[180px]"
+                        className="border border-slate-200 rounded px-1 py-1 max-w-[200px]"
                         value={k.payrollField}
                         disabled={!canEdit}
                         onChange={(e) => patchLocal(k.id, { payrollField: e.target.value as TareoPayrollField })}
                       >
                         {TAREO_PAYROLL_FIELD_OPTIONS.map((o) => (
                           <option key={o.value} value={o.value}>
-                            {o.label}
+                            {o.label} ({o.unit})
                           </option>
                         ))}
                       </select>
@@ -324,7 +350,7 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
               <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                 <Plus size={16} /> Nueva clave
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Código</label>
                   <input
@@ -343,7 +369,30 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Columna nómina</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo / valor</label>
+                  <div className="flex gap-2">
+                    <select
+                      className="border border-slate-300 rounded-lg px-2 py-2 text-sm"
+                      value={draft.valueKind}
+                      onChange={(e) => setDraft((d) => ({ ...d, valueKind: e.target.value as TareoValueKind }))}
+                    >
+                      <option value="day">Días</option>
+                      <option value="hours">Horas</option>
+                      <option value="none">Marca</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      className="border border-slate-300 rounded-lg px-2 py-2 text-sm w-20"
+                      value={draft.valueAmount}
+                      disabled={draft.valueKind === 'hours'}
+                      onChange={(e) => setDraft((d) => ({ ...d, valueAmount: Number(e.target.value) }))}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Columna Tareo</label>
                   <select
                     className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-full"
                     value={draft.payrollField}
@@ -356,18 +405,6 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                         {o.label}
                       </option>
                     ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo</label>
-                  <select
-                    className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-full"
-                    value={draft.valueKind}
-                    onChange={(e) => setDraft((d) => ({ ...d, valueKind: e.target.value as TareoValueKind }))}
-                  >
-                    <option value="day">Día</option>
-                    <option value="hours">Horas</option>
-                    <option value="none">Marca</option>
                   </select>
                 </div>
                 <div>
@@ -392,11 +429,12 @@ export const AttendanceTareoKeysEditor: React.FC<AttendanceTareoKeysEditorProps>
                     <KeyGlyph icon={draft.icon} color={draft.color} />
                   </div>
                 </div>
-                <div className="flex items-end gap-2">
+                <div className="flex items-end">
                   <label className="inline-flex items-center gap-2 text-sm text-slate-700 pb-2">
                     <input
                       type="checkbox"
                       checked={draft.countsAsPresentismo}
+                      disabled={draft.valueKind === 'hours'}
                       onChange={(e) => setDraft((d) => ({ ...d, countsAsPresentismo: e.target.checked }))}
                     />
                     Cuenta presentismo
@@ -427,26 +465,26 @@ export function TareoKeyBadge({
   hoursValue?: number | null;
   compact?: boolean;
 }) {
-  const label =
+  const suffix =
     keyDef.valueKind === 'hours' && hoursValue != null
-      ? `${keyDef.code} ${hoursValue}h`
-      : keyDef.code;
+      ? `${hoursValue}h`
+      : keyDef.valueKind === 'day'
+        ? `${keyDef.valueAmount}`
+        : '';
   return (
     <span
       className={`inline-flex items-center justify-center gap-1 rounded-md border font-bold tabular-nums ${
-        compact ? 'min-w-[2rem] h-8 px-1.5 text-[10px]' : 'px-2 py-1 text-xs'
+        compact ? 'min-w-[1.75rem] h-7 px-1 text-[10px]' : 'px-2 py-1 text-xs'
       }`}
       style={{
         backgroundColor: `${keyDef.color}22`,
         borderColor: `${keyDef.color}66`,
         color: keyDef.color,
       }}
-      title={keyDef.name}
+      title={`${keyDef.name} (valor ${keyDef.valueKind === 'hours' ? hoursValue ?? '—' : keyDef.valueAmount})`}
     >
-      {(keyDef.icon === 'dot' || keyDef.icon === 'circle') && (
-        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: keyDef.color }} />
-      )}
-      {label}
+      <KeyGlyph icon={keyDef.icon} color={keyDef.color} size="sm" />
+      {suffix ? <span>{suffix}</span> : null}
     </span>
   );
 }

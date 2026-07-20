@@ -10,7 +10,7 @@ import {
 } from './attendanceReportService';
 import { excelService } from './excelService';
 
-/** Campos de agregación alineados al Excel de Tareo para nóminas. */
+/** Columnas del Tareo (paso 2) — no son las claves de novedades. */
 export type TareoPayrollField =
   | 'turnos_tm'
   | 'turnos_tt'
@@ -40,24 +40,30 @@ export interface AttendanceTareoKey {
   icon: string;
   color: string;
   valueKind: TareoValueKind;
+  /** Valor del icono (típicamente 1 día). */
+  valueAmount: number;
   countsAsPresentismo: boolean;
+  /** Columna del Tareo (paso 2) donde se acumula. */
   payrollField: TareoPayrollField;
   sortOrder: number;
   isActive: boolean;
   isSystem: boolean;
 }
 
+/** Una fila = un día; hasta 2 claves (días + horas). */
 export interface AttendanceTareoNovedad {
   id: string;
   unitId: string;
   resourceId: string;
   day: string;
-  keyId: string;
+  dayKeyId: string | null;
+  hoursKeyId: string | null;
   hoursValue: number | null;
   comment: string | null;
   source: 'manual' | 'suggested';
   updatedBy: string | null;
-  key?: AttendanceTareoKey;
+  dayKey?: AttendanceTareoKey;
+  hoursKey?: AttendanceTareoKey;
 }
 
 export interface TareoWorkerTotals {
@@ -82,25 +88,25 @@ export interface TareoWorkerTotals {
   ht: number;
 }
 
-export const TAREO_PAYROLL_FIELD_OPTIONS: { value: TareoPayrollField; label: string }[] = [
-  { value: 'turnos_tm', label: 'Turnos TM' },
-  { value: 'turnos_tt', label: 'Turnos TT' },
-  { value: 'turnos_tn', label: 'Turnos TN' },
-  { value: 'vacaciones', label: 'Vacaciones V' },
-  { value: 'faltas', label: 'Faltas F' },
-  { value: 'descanso_medico', label: 'Descansos Médicos DM' },
-  { value: 'licencia_sin_goce', label: 'Licencia sin Goce LSG' },
-  { value: 'licencia_con_goce', label: 'Licencia con goce' },
-  { value: 'licencia_maternidad', label: 'Licencia Maternidad/Paternidad LM' },
-  { value: 'lgc_fallecimiento', label: 'LGC por fallecimiento' },
-  { value: 'bono_nocturno', label: 'Bono nocturno (horas)' },
-  { value: 'descansos_dom_feriado', label: 'Descansos Dom/feriados (horas)' },
-  { value: 'he_d_25', label: 'HE D 25% (horas)' },
-  { value: 'he_d_35', label: 'HE D 35% (horas)' },
-  { value: 'he_n_25', label: 'HE N 25% (horas)' },
-  { value: 'he_n_35', label: 'HE N 35% (horas)' },
-  { value: 'ht', label: 'HT descansos/feriados (horas)' },
-  { value: 'none', label: 'Sin columna de nómina' },
+export const TAREO_PAYROLL_FIELD_OPTIONS: { value: TareoPayrollField; label: string; unit: 'DIAS' | 'HORAS' | '-' }[] = [
+  { value: 'turnos_tm', label: 'Turnos TM', unit: 'DIAS' },
+  { value: 'turnos_tt', label: 'Turnos TT', unit: 'DIAS' },
+  { value: 'turnos_tn', label: 'Turnos TN', unit: 'DIAS' },
+  { value: 'vacaciones', label: 'Vacaciones V', unit: 'DIAS' },
+  { value: 'faltas', label: 'Faltas F', unit: 'DIAS' },
+  { value: 'descanso_medico', label: 'Descansos Médicos DM', unit: 'DIAS' },
+  { value: 'licencia_sin_goce', label: 'Licencia sin Goce LSG', unit: 'DIAS' },
+  { value: 'licencia_con_goce', label: 'Licencia con goce', unit: 'DIAS' },
+  { value: 'licencia_maternidad', label: 'Licencia Maternidad/Paternidad LM', unit: 'DIAS' },
+  { value: 'lgc_fallecimiento', label: 'LGC por fallecimiento', unit: 'DIAS' },
+  { value: 'bono_nocturno', label: 'Bono nocturno', unit: 'HORAS' },
+  { value: 'descansos_dom_feriado', label: 'Descansos Dom/feriados', unit: 'HORAS' },
+  { value: 'he_d_25', label: 'HE D 25%', unit: 'HORAS' },
+  { value: 'he_d_35', label: 'HE D 35%', unit: 'HORAS' },
+  { value: 'he_n_25', label: 'HE N 25%', unit: 'HORAS' },
+  { value: 'he_n_35', label: 'HE N 35%', unit: 'HORAS' },
+  { value: 'ht', label: 'HT descansos/feriados', unit: 'HORAS' },
+  { value: 'none', label: 'Sin columna de Tareo', unit: '-' },
 ];
 
 export const TAREO_EXPORT_HEADERS = [
@@ -140,6 +146,7 @@ function mapKey(row: any): AttendanceTareoKey {
     icon: row.icon || 'circle',
     color: row.color || '#64748b',
     valueKind: (row.value_kind || 'day') as TareoValueKind,
+    valueAmount: Number(row.value_amount ?? 1),
     countsAsPresentismo: !!row.counts_as_presentismo,
     payrollField: (row.payroll_field || 'none') as TareoPayrollField,
     sortOrder: Number(row.sort_order ?? 100),
@@ -149,18 +156,21 @@ function mapKey(row: any): AttendanceTareoKey {
 }
 
 function mapNovedad(row: any, keyById?: Map<string, AttendanceTareoKey>): AttendanceTareoNovedad {
-  const keyId = row.key_id as string;
+  const dayKeyId = (row.day_key_id as string) || null;
+  const hoursKeyId = (row.hours_key_id as string) || null;
   return {
     id: row.id,
     unitId: row.unit_id,
     resourceId: row.resource_id,
     day: row.day,
-    keyId,
+    dayKeyId,
+    hoursKeyId,
     hoursValue: row.hours_value != null ? Number(row.hours_value) : null,
     comment: row.comment ?? null,
     source: row.source === 'suggested' ? 'suggested' : 'manual',
     updatedBy: row.updated_by ?? null,
-    key: keyById?.get(keyId),
+    dayKey: dayKeyId ? keyById?.get(dayKeyId) : undefined,
+    hoursKey: hoursKeyId ? keyById?.get(hoursKeyId) : undefined,
   };
 }
 
@@ -188,15 +198,9 @@ function emptyTotals(resourceId: string): TareoWorkerTotals {
   };
 }
 
-function applyNovedadToTotals(totals: TareoWorkerTotals, key: AttendanceTareoKey, hoursValue: number | null) {
-  if (key.countsAsPresentismo && key.valueKind === 'day') {
-    totals.presentismo += 1;
-  }
-
-  const amount = key.valueKind === 'hours' ? Number(hoursValue || 0) : key.valueKind === 'day' ? 1 : 0;
-  if (amount === 0 && key.payrollField !== 'none') return;
-
-  switch (key.payrollField) {
+function addToPayrollField(totals: TareoWorkerTotals, field: TareoPayrollField, amount: number) {
+  if (!amount) return;
+  switch (field) {
     case 'turnos_tm':
       totals.turnosTm += amount;
       break;
@@ -253,6 +257,16 @@ function applyNovedadToTotals(totals: TareoWorkerTotals, key: AttendanceTareoKey
   }
 }
 
+function applyKeyToTotals(totals: TareoWorkerTotals, key: AttendanceTareoKey, hoursValue: number | null) {
+  if (key.valueKind === 'hours') {
+    addToPayrollField(totals, key.payrollField, Number(hoursValue || 0));
+    return;
+  }
+  const amount = Number(key.valueAmount || 0);
+  if (key.countsAsPresentismo) totals.presentismo += amount;
+  addToPayrollField(totals, key.payrollField, amount);
+}
+
 export function activePersonnelSorted(unit: Unit): Resource[] {
   return (unit.resources || [])
     .filter((r) => isPersonnelActiveForUnitView(r))
@@ -284,6 +298,41 @@ function formatDateDdMmYyyy(iso?: string | null): string {
   return `${d}/${m}/${y}`;
 }
 
+export function totalsToExportRow(
+  w: Resource,
+  t: TareoWorkerTotals,
+  meta: { empresa: string; unidad: string; tipoTareo: string }
+): Record<string, string | number> {
+  return {
+    EMPRESA: meta.empresa,
+    UNIDAD: meta.unidad,
+    'TIPO DE TAREO': meta.tipoTareo,
+    'FECHA INGRESO': formatDateDdMmYyyy(w.startDate),
+    'FECHA DE CESE': formatDateDdMmYyyy(w.endDate),
+    'TIPO DOC.': 'DNI',
+    'NRO DOC.': w.dni || '',
+    'APELLIDOS Y NOMBRES': w.name || '',
+    'BONO NOCTURNO': t.bonoNocturno,
+    'Presentismo Consolidado': t.presentismo,
+    'Turnos TM': t.turnosTm,
+    'Turnos TT': t.turnosTt,
+    'Turnos TN': t.turnosTn,
+    'Descansos Domingos y Días no laborables': t.descansosDomFeriado,
+    'Licencia Maternidad/Paternidad LM': t.licenciaMaternidad,
+    'Vacaciones V': t.vacaciones,
+    'Licencia sin Goce LSG': t.licenciaSinGoce,
+    'HE D 25% Horas Extras Diurnas al 25%': t.heD25,
+    'HE D 35% Horas Extras Diurnas al 35%': t.heD35,
+    'HE N 25% Horas Extras Nocturnas al 25%': t.heN25,
+    'HE N 35% Horas Extras Nocturnas al 35%': t.heN35,
+    'Faltas F': t.faltas,
+    'Descansos Médicos DM': t.descansoMedico,
+    'Licencia con goce': t.licenciaConGoce,
+    'LGC por fallecimiento de familiar': t.lgcFallecimiento,
+    'Total horas de trabajo en descansos o feriados HT': t.ht,
+  };
+}
+
 export const attendanceTareoService = {
   async listKeys(includeInactive = false): Promise<AttendanceTareoKey[]> {
     let q = supabase.from('attendance_tareo_keys').select('*').order('sort_order', { ascending: true });
@@ -299,6 +348,7 @@ export const attendanceTareoService = {
     icon?: string;
     color?: string;
     valueKind?: TareoValueKind;
+    valueAmount?: number;
     countsAsPresentismo?: boolean;
     payrollField?: TareoPayrollField;
     sortOrder?: number;
@@ -312,6 +362,7 @@ export const attendanceTareoService = {
         icon: input.icon || 'circle',
         color: input.color || '#64748b',
         value_kind: input.valueKind || 'day',
+        value_amount: input.valueAmount ?? 1,
         counts_as_presentismo: !!input.countsAsPresentismo,
         payroll_field: input.payrollField || 'none',
         sort_order: input.sortOrder ?? 200,
@@ -332,6 +383,7 @@ export const attendanceTareoService = {
       icon: string;
       color: string;
       valueKind: TareoValueKind;
+      valueAmount: number;
       countsAsPresentismo: boolean;
       payrollField: TareoPayrollField;
       sortOrder: number;
@@ -343,6 +395,7 @@ export const attendanceTareoService = {
     if (patch.icon !== undefined) row.icon = patch.icon;
     if (patch.color !== undefined) row.color = patch.color;
     if (patch.valueKind !== undefined) row.value_kind = patch.valueKind;
+    if (patch.valueAmount !== undefined) row.value_amount = patch.valueAmount;
     if (patch.countsAsPresentismo !== undefined) row.counts_as_presentismo = patch.countsAsPresentismo;
     if (patch.payrollField !== undefined) row.payroll_field = patch.payrollField;
     if (patch.sortOrder !== undefined) row.sort_order = patch.sortOrder;
@@ -390,38 +443,40 @@ export const attendanceTareoService = {
     unitId: string;
     resourceId: string;
     day: string;
-    keyId: string;
+    dayKeyId?: string | null;
+    hoursKeyId?: string | null;
     hoursValue?: number | null;
     comment?: string | null;
     source?: 'manual' | 'suggested';
     updatedBy?: string | null;
   }): Promise<AttendanceTareoNovedad> {
-    const keys = await this.listKeys(true);
-    const keyById = new Map<string, AttendanceTareoKey>(keys.map((k) => [k.id, k]));
-    const newKey = keyById.get(input.keyId);
-    if (!newKey) throw new Error('Clave no encontrada');
+    const dayKeyId = input.dayKeyId || null;
+    const hoursKeyId = input.hoursKeyId || null;
+    const hoursValue = hoursKeyId != null ? (input.hoursValue ?? 0) : null;
 
-    // Una sola clave de tipo "día/marca" por celda; las de horas pueden coexistir.
-    if (newKey.valueKind === 'day' || newKey.valueKind === 'none') {
-      const existing = await this.listNovedades(input.unitId, input.day, input.day);
-      const toReplace = existing.filter(
-        (n) =>
-          n.resourceId === input.resourceId &&
-          n.keyId !== input.keyId &&
-          (n.key?.valueKind === 'day' || n.key?.valueKind === 'none')
-      );
-      for (const n of toReplace) {
-        const { error: delErr } = await supabase.from('attendance_tareo_novedades').delete().eq('id', n.id);
-        if (delErr) throw delErr;
-      }
+    if (!dayKeyId && !hoursKeyId) {
+      await this.clearNovedad(input.unitId, input.resourceId, input.day);
+      return {
+        id: '',
+        unitId: input.unitId,
+        resourceId: input.resourceId,
+        day: input.day,
+        dayKeyId: null,
+        hoursKeyId: null,
+        hoursValue: null,
+        comment: null,
+        source: 'manual',
+        updatedBy: null,
+      };
     }
 
     const payload = {
       unit_id: input.unitId,
       resource_id: input.resourceId,
       day: input.day,
-      key_id: input.keyId,
-      hours_value: input.hoursValue ?? null,
+      day_key_id: dayKeyId,
+      hours_key_id: hoursKeyId,
+      hours_value: hoursValue,
       comment: input.comment?.trim() || null,
       source: input.source || 'manual',
       updated_by: input.updatedBy || null,
@@ -429,29 +484,25 @@ export const attendanceTareoService = {
     };
     const { data, error } = await supabase
       .from('attendance_tareo_novedades')
-      .upsert(payload, { onConflict: 'unit_id,resource_id,day,key_id' })
+      .upsert(payload, { onConflict: 'unit_id,resource_id,day' })
       .select('*')
       .single();
     if (error) throw error;
+    const keys = await this.listKeys(true);
+    const keyById = new Map<string, AttendanceTareoKey>(keys.map((k) => [k.id, k]));
     return mapNovedad(data as any, keyById);
   },
 
-  async clearNovedad(unitId: string, resourceId: string, day: string, keyId?: string): Promise<void> {
-    let q = supabase
+  async clearNovedad(unitId: string, resourceId: string, day: string): Promise<void> {
+    const { error } = await supabase
       .from('attendance_tareo_novedades')
       .delete()
       .eq('unit_id', unitId)
       .eq('resource_id', resourceId)
       .eq('day', day);
-    if (keyId) q = q.eq('key_id', keyId);
-    const { error } = await q;
     if (error) throw error;
   },
 
-  /**
-   * Rellena días con marcación completa del consolidado que aún no tienen novedad,
-   * usando la clave OK según el turno del trabajador.
-   */
   async suggestFromConsolidated(
     unit: Unit,
     dateFrom: string,
@@ -465,14 +516,7 @@ export const attendanceTareoService = {
     ]);
 
     const keyByCode = new Map<string, AttendanceTareoKey>(keys.map((k) => [k.code, k]));
-    const existingDayKeys = new Set(
-      existing
-        .filter((n) => {
-          const k = n.key || keys.find((x) => x.id === n.keyId);
-          return k && k.valueKind !== 'hours';
-        })
-        .map((n) => `${n.resourceId}|${n.day}`)
-    );
+    const existingDay = new Set(existing.filter((n) => n.dayKeyId).map((n) => `${n.resourceId}|${n.day}`));
 
     const matched = filterRowsMatchedActivePersonnel(unit, history) as AttendanceRowWithImportMeta[];
     const latestByWorkerDay = new Map<string, AttendanceRowWithImportMeta>();
@@ -493,18 +537,22 @@ export const attendanceTareoService = {
 
     let created = 0;
     for (const [k, row] of latestByWorkerDay) {
-      if (existingDayKeys.has(k)) continue;
+      if (existingDay.has(k)) continue;
       if (classifyAttendanceStatus(row.attendance_status) !== 'complete') continue;
       const [resourceId, day] = k.split('|');
       const worker = workers.get(resourceId);
       const code = suggestOkKeyCodeForShift(worker?.assignedShift);
       const key = keyByCode.get(code) || keyByCode.get('OK_TM');
       if (!key) continue;
+      const prev = existing.find((n) => n.resourceId === resourceId && n.day === day);
       await this.upsertNovedad({
         unitId: unit.id,
         resourceId,
         day,
-        keyId: key.id,
+        dayKeyId: key.id,
+        hoursKeyId: prev?.hoursKeyId || null,
+        hoursValue: prev?.hoursValue ?? null,
+        comment: prev?.comment || null,
         source: 'suggested',
         updatedBy: updatedBy || null,
       });
@@ -523,14 +571,15 @@ export const attendanceTareoService = {
     for (const w of workers) map.set(w.id, emptyTotals(w.id));
 
     for (const n of novedades) {
-      const key = n.key || keyById.get(n.keyId);
-      if (!key) continue;
       let totals = map.get(n.resourceId);
       if (!totals) {
         totals = emptyTotals(n.resourceId);
         map.set(n.resourceId, totals);
       }
-      applyNovedadToTotals(totals, key, n.hoursValue);
+      const dayKey = n.dayKey || (n.dayKeyId ? keyById.get(n.dayKeyId) : undefined);
+      const hoursKey = n.hoursKey || (n.hoursKeyId ? keyById.get(n.hoursKeyId) : undefined);
+      if (dayKey) applyKeyToTotals(totals, dayKey, null);
+      if (hoursKey) applyKeyToTotals(totals, hoursKey, n.hoursValue);
     }
     return map;
   },
@@ -553,37 +602,13 @@ export const attendanceTareoService = {
     const workers = activePersonnelSorted(unit);
     const totalsMap = this.aggregateTotals(workers, novedades, keys);
 
-    const rows = workers.map((w) => {
-      const t = totalsMap.get(w.id) || emptyTotals(w.id);
-      return {
-        EMPRESA: empresa,
-        UNIDAD: unit.name,
-        'TIPO DE TAREO': tipoTareo,
-        'FECHA INGRESO': formatDateDdMmYyyy(w.startDate),
-        'FECHA DE CESE': formatDateDdMmYyyy(w.endDate),
-        'TIPO DOC.': 'DNI',
-        'NRO DOC.': w.dni || '',
-        'APELLIDOS Y NOMBRES': w.name || '',
-        'BONO NOCTURNO': t.bonoNocturno,
-        'Presentismo Consolidado': t.presentismo,
-        'Turnos TM': t.turnosTm,
-        'Turnos TT': t.turnosTt,
-        'Turnos TN': t.turnosTn,
-        'Descansos Domingos y Días no laborables': t.descansosDomFeriado,
-        'Licencia Maternidad/Paternidad LM': t.licenciaMaternidad,
-        'Vacaciones V': t.vacaciones,
-        'Licencia sin Goce LSG': t.licenciaSinGoce,
-        'HE D 25% Horas Extras Diurnas al 25%': t.heD25,
-        'HE D 35% Horas Extras Diurnas al 35%': t.heD35,
-        'HE N 25% Horas Extras Nocturnas al 25%': t.heN25,
-        'HE N 35% Horas Extras Nocturnas al 35%': t.heN35,
-        'Faltas F': t.faltas,
-        'Descansos Médicos DM': t.descansoMedico,
-        'Licencia con goce': t.licenciaConGoce,
-        'LGC por fallecimiento de familiar': t.lgcFallecimiento,
-        'Total horas de trabajo en descansos o feriados HT': t.ht,
-      };
-    });
+    const rows = workers.map((w) =>
+      totalsToExportRow(w, totalsMap.get(w.id) || emptyTotals(w.id), {
+        empresa,
+        unidad: unit.name,
+        tipoTareo,
+      })
+    );
 
     const safeUnit = (unit.name || 'unidad').replace(/[^\w\-]+/g, '_').slice(0, 40);
     await excelService.exportToExcel(rows, [...TAREO_EXPORT_HEADERS], {
