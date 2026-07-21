@@ -68,12 +68,16 @@ function CopyableId({
   label,
   value,
   className = '',
+  /** En tablas: muestra solo el inicio del UUID para no estirar la fila. Copia siempre el valor completo. */
+  compact = false,
 }: {
   label: string;
   value: string;
   className?: string;
+  compact?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const displayValue = compact ? `${value.slice(0, 8)}…` : value;
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -98,10 +102,10 @@ function CopyableId({
     <button
       type="button"
       onClick={handleCopy}
-      title={`Copiar ${label}`}
-      className={`inline-flex max-w-full items-center gap-1.5 rounded border border-transparent px-1.5 py-0.5 text-left font-mono text-xs text-slate-600 hover:border-slate-300 hover:bg-slate-50 ${className}`}
+      title={`${label}: ${value} (clic para copiar)`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-transparent px-1.5 py-0.5 text-left font-mono text-xs text-slate-600 hover:border-slate-300 hover:bg-slate-50 ${className}`}
     >
-      <span className="min-w-0 break-all">{value}</span>
+      <span>{displayValue}</span>
       <Copy size={12} className="shrink-0 text-slate-400" />
       {copied && <span className="shrink-0 text-[10px] font-sans text-green-600">Copiado</span>}
     </button>
@@ -290,7 +294,7 @@ function ItemRow({
           {item.sourceCandidateId && (
             <div className="mt-3 flex flex-wrap items-center gap-1 text-sm text-slate-500">
               <span>Candidato ATS:</span>
-              <CopyableId label="Candidato ATS" value={item.sourceCandidateId} />
+              <CopyableId label="Candidato ATS" value={item.sourceCandidateId} compact />
             </div>
           )}
           <SnapshotDetails snapshot={item.workerSnapshot} />
@@ -315,7 +319,7 @@ function ItemRow({
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={updating || item.itemStatus === 'accepted'}
+                disabled={updating}
                 onClick={() => handleStatus('accepted')}
                 className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700 disabled:opacity-50"
               >
@@ -755,8 +759,8 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                         {PACKAGE_STATUS_LABELS[pkg.status]}
                       </span>
                     </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <CopyableId label="Ref. ATS" value={pkg.sourcePackageId} />
+                    <td className="whitespace-nowrap px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <CopyableId label="Ref. ATS" value={pkg.sourcePackageId} compact />
                     </td>
                   </tr>
                 ))}
