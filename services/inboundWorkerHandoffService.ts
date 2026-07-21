@@ -54,29 +54,33 @@ function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem 
 
 export const inboundWorkerHandoffService = {
   /**
-   * Cuenta trabajo ATS pendiente de procesar:
-   * - paquetes abiertos (received | processing)
-   * - candidatos aún no cerrados (pending | accepted)
+   * Cuenta trabajo ATS realmente pendiente:
+   * solo candidatos pending/accepted cuyo paquete sigue abierto
+   * (received | processing). Paquetes ya cerrados o sin candidatos
+   * pendientes no generan alerta.
    */
   async countIncomplete(): Promise<{ openPackages: number; incompleteCandidates: number }> {
     try {
-      const [packagesResult, candidatesResult] = await Promise.all([
-        supabase
-          .from('inbound_worker_handoff_packages')
-          .select('id', { count: 'exact', head: true })
-          .in('status', ['received', 'processing']),
-        supabase
-          .from('inbound_worker_handoff_items')
-          .select('id', { count: 'exact', head: true })
-          .in('item_status', ['pending', 'accepted']),
-      ]);
+      const { data, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .select(
+          `
+          id,
+          package_id,
+          inbound_worker_handoff_packages!inner ( status )
+        `,
+        )
+        .in('item_status', ['pending', 'accepted'])
+        .in('inbound_worker_handoff_packages.status', ['received', 'processing']);
 
-      if (packagesResult.error) throw packagesResult.error;
-      if (candidatesResult.error) throw candidatesResult.error;
+      if (error) throw error;
+
+      const rows = data ?? [];
+      const packageIds = new Set(rows.map((row) => row.package_id as string));
 
       return {
-        openPackages: packagesResult.count ?? 0,
-        incompleteCandidates: candidatesResult.count ?? 0,
+        openPackages: packageIds.size,
+        incompleteCandidates: rows.length,
       };
     } catch (error) {
       handleSupabaseError(error);

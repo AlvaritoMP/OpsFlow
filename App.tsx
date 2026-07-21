@@ -3257,10 +3257,12 @@ const App: React.FC = () => {
     );
   };
 
-  const atsIncompleteTotal = atsIncomplete.openPackages + atsIncomplete.incompleteCandidates;
+  const atsIncompleteTotal = atsIncomplete.incompleteCandidates;
+  const hasAtsIncomplete =
+    atsIncomplete.openPackages > 0 || atsIncomplete.incompleteCandidates > 0;
 
   const AtsReceptionAlertModal = () => {
-    if (!showAtsReceptionAlert || atsIncompleteTotal === 0) return null;
+    if (!showAtsReceptionAlert || !hasAtsIncomplete) return null;
 
     return (
       <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -3281,20 +3283,21 @@ const App: React.FC = () => {
           </div>
           <div className="p-6 overflow-y-auto flex-1 space-y-3">
             <p className="text-slate-700">
-              Hay personal o transacciones del ATS pendientes de procesar. Esta alerta volverá a mostrarse cada 5 minutos hasta que se completen.
+              Hay candidatos pendientes de procesar en transacciones ATS abiertas (recibidas o en proceso). Esta alerta volverá cada 5 minutos hasta que se completen.
             </p>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1.5">
               {atsIncomplete.openPackages > 0 && (
                 <p className="text-sm text-slate-800">
                   <strong>{atsIncomplete.openPackages}</strong> transacción
-                  {atsIncomplete.openPackages !== 1 ? 'es' : ''} sin completar
+                  {atsIncomplete.openPackages !== 1 ? 'es' : ''} abierta
+                  {atsIncomplete.openPackages !== 1 ? 's' : ''} con pendientes
                 </p>
               )}
               {atsIncomplete.incompleteCandidates > 0 && (
                 <p className="text-sm text-slate-800">
                   <strong>{atsIncomplete.incompleteCandidates}</strong> candidato
                   {atsIncomplete.incompleteCandidates !== 1 ? 's' : ''} pendiente
-                  {atsIncomplete.incompleteCandidates !== 1 ? 's' : ''}
+                  {atsIncomplete.incompleteCandidates !== 1 ? 's' : ''} (pendiente o aceptado sin registrar)
                 </p>
               )}
             </div>
@@ -3532,9 +3535,11 @@ const App: React.FC = () => {
                   >
                     <Inbox size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0 flex-1 text-left">Recepción ATS</span>
-                    {atsIncompleteTotal > 0 && (
+                    {hasAtsIncomplete && (
                       <span className={`shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full text-xs font-bold flex items-center justify-center ${currentView === 'ats-reception' ? 'bg-white text-blue-700' : 'bg-amber-500 text-white'}`}>
-                        {atsIncompleteTotal > 99 ? '99+' : atsIncompleteTotal}
+                        {(atsIncompleteTotal || atsIncomplete.openPackages) > 99
+                          ? '99+'
+                          : atsIncompleteTotal || atsIncomplete.openPackages}
                       </span>
                     )}
                   </button>
