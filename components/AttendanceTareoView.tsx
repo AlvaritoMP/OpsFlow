@@ -425,6 +425,23 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
     }
   };
 
+  const handleExportNovedades = async () => {
+    setExporting(true);
+    setError(null);
+    try {
+      await attendanceTareoService.exportNovedades({
+        unit,
+        dateFrom,
+        dateTo,
+      });
+      setMessage('Excel de Novedades descargado (Detalle + Matriz + Leyenda).');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error al exportar novedades');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const workerName = (id: string) => workers.find((w) => w.id === id)?.name || id;
 
   const exportPreviewRows = useMemo(() => {
@@ -541,6 +558,17 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
           >
             <Wand2 size={16} />
             {suggesting ? 'Autocompletando…' : 'Autocompletar vacías'}
+          </button>
+        )}
+        {step === 'novedades' && (
+          <button
+            type="button"
+            onClick={() => void handleExportNovedades()}
+            disabled={exporting || loading || workers.length === 0}
+            className="inline-flex items-center gap-2 text-sm font-medium text-white px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 disabled:opacity-50"
+          >
+            <Download size={16} />
+            {exporting ? 'Exportando…' : 'Exportar novedades'}
           </button>
         )}
         {step === 'tareo' && (

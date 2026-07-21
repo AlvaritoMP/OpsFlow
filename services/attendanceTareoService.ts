@@ -662,4 +662,117 @@ export const attendanceTareoService = {
       sheetName: 'Tareo',
     });
   },
+
+  /**
+   * Exporta las novedades del período: hoja Detalle (1 fila por celda con dato)
+   * y hoja Matriz (trabajador × día con códigos de clave).
+   */
+  async exportNovedades(options: {
+    unit: Unit;
+    dateFrom: string;
+    dateTo: string;
+  }): Promise<void> {
+    const { unit, dateFrom, dateTo } = options;
+    const [keys, novedades] = await Promise.all([
+      this.listKeys(true),
+      this.listNovedades(unit.id, dateFrom, dateTo),
+    ]);
+    const keyById = new Map<string, AttendanceTareoKey>(keys.map((k) => [k.id, k]));
+    const workers = activePersonnelSorted(unit);
+    const dates = eachDateInRange(dateFrom, dateTo);
+    const novedadMap = new Map<string, AttendanceTareoNovedad>(
+      novedades.map((n) => [`${n.resourceId}|${n.day}`, n])
+    );
+
+    const formatDay = (iso: string) => {
+      const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+    };
+
+    const detailHeaders = [
+      'UNIDAD',
+      'TRABAJADOR',
+      'DNI',
+      'FECHA',
+      'CLAVE_DIAS',
+      'NOMBRE_CLAVE_DIAS',
+      'VALOR_DIAS',
+      'CLAVE_HORAS',
+      'NOMBRE_CLAVE_HORAS',
+      'HORAS',
+      'COMENTARIO',
+      'ORIGEN',
+    ];
+
+    const detailRows = novedades
+      .slice()
+      .sort((a, b) => {
+        const na = workers.find((w) => w.id === a.resourceId)?.name || '';
+        const nb = workers.find((w) => w.id === b.resourceId)?.name || '';
+        const byName = na.localeCompare(nb, 'es', { sensitivity: 'base' });
+        if (byName !== 0) return byName;
+        return a.day.localeCompare(b.day);
+      })
+      .filter((n) => n.dayKeyId || n.hoursKeyId)
+      .map((n) => {
+        const w = workers.find((r) => r.id === n.resourceId);
+        const dayKey = n.dayKey || (n.dayKeyId ? keyById.get(n.dayKeyId) : undefined);
+        const hoursKey = n.hoursKey || (n.hoursKeyId ? keyById.get(n.hoursKeyId) : undefined);
+        return {
+          UNIDAD: unit.name,
+          TRABAJADOR: w?.name || '',
+          DNI: w?.dni || '',
+          FECHA: formatDay(n.day),
+          CLAVE_DIAS: dayKey?.code || '',
+          NOMBRE_CLAVE_DIAS: dayKey?.name || '',
+          VALOR_DIAS: dayKey ? dayKey.valueAmount : '',
+          CLAVE_HORAS: hoursKey?.code || '',
+          NOMBRE_CLAVE_HORAS: hoursKey?.name || '',
+          HORAS: hoursKey ? n.hoursValue ?? 0 : '',
+          COMENTARIO: n.comment || '',
+          ORIGEN: n.source === 'suggested' ? 'Sugerido' : 'Manual',
+        };
+      });
+
+    const matrixHeaders = ['TRABAJADOR', 'DNI', ...dates.map(formatDay)];
+    const matrixRows = workers.map((w) => {
+      const row: Record<string, string> = {
+        TRABAJADOR: w.name || '',
+        DNI: w.dni || '',
+      };
+      for (const day of dates) {
+        const n = novedadMap.get(`${w.id}|${day}`);
+        const dayKey = n?.dayKeyId ? keyById.get(n.dayKeyId) : undefined;
+        const hoursKey = n?.hoursKeyId ? keyById.get(n.hoursKeyId) : undefined;
+        const parts: string[] = [];
+        if (dayKey) parts.push(dayKey.code);
+        if (hoursKey) parts.push(`${hoursKey.code}:${n?.hoursValue ?? 0}h`);
+        row[formatDay(day)] = parts.join(' | ');
+      }
+      return row;
+    });
+
+    const legendHeaders = ['CODIGO', 'NOMBRE', 'EMOJI', 'TIPO', 'VALOR', 'COLUMNA_TAREO', 'PRESENTISMO'];
+    const legendRows = keys
+      .filter((k) => k.isActive)
+      .map((k) => ({
+        CODIGO: k.code,
+        NOMBRE: k.name,
+        EMOJI: k.icon,
+        TIPO: k.valueKind === 'hours' ? 'Horas' : k.valueKind === 'day' ? 'Días' : 'Marca',
+        VALOR: k.valueKind === 'hours' ? '' : k.valueAmount,
+        COLUMNA_TAREO: k.payrollField,
+        PRESENTISMO: k.countsAsPresentismo ? 'Sí' : 'No',
+      }));
+
+    const safeUnit = (unit.name || 'unidad').replace(/[^\w\-]+/g, '_').slice(0, 40);
+    await excelService.exportMultipleSheets(
+      [
+        { name: 'Detalle', headers: detailHeaders, data: detailRows },
+        { name: 'Matriz', headers: matrixHeaders, data: matrixRows },
+        { name: 'Leyenda', headers: legendHeaders, data: legendRows },
+      ],
+      `novedades_tareo_${safeUnit}_${dateFrom}_${dateTo}.xlsx`
+    );
+  },
 };
