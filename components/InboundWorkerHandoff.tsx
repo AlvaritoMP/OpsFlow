@@ -5,10 +5,12 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Copy,
   Inbox,
   Loader2,
   Package,
   RefreshCw,
+  RotateCcw,
   User,
   UserPlus,
   XCircle,
@@ -31,12 +33,13 @@ interface InboundWorkerHandoffProps {
   onRegistered?: () => void;
 }
 
+/** Estados activos del flujo nuevo. Los legacy se mantienen solo para datos históricos. */
 const PACKAGE_STATUS_LABELS: Record<InboundHandoffPackageStatus, string> = {
   received: 'Recibido',
   processing: 'En proceso',
   completed: 'Completado',
-  rejected: 'Rechazado',
-  partially_completed: 'Parcialmente completado',
+  rejected: 'Rechazado (legacy)',
+  partially_completed: 'Parcial (legacy)',
 };
 
 const PACKAGE_STATUS_STYLES: Record<InboundHandoffPackageStatus, string> = {
@@ -46,6 +49,64 @@ const PACKAGE_STATUS_STYLES: Record<InboundHandoffPackageStatus, string> = {
   rejected: 'bg-red-100 text-red-800',
   partially_completed: 'bg-purple-100 text-purple-800',
 };
+
+const CLOSED_PACKAGE_STATUSES: InboundHandoffPackageStatus[] = [
+  'completed',
+  'rejected',
+  'partially_completed',
+];
+
+function isPackageClosed(status: InboundHandoffPackageStatus): boolean {
+  return CLOSED_PACKAGE_STATUSES.includes(status);
+}
+
+function isItemUnresolved(status: InboundHandoffItemStatus): boolean {
+  return status === 'pending' || status === 'accepted';
+}
+
+function CopyableId({
+  label,
+  value,
+  className = '',
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Fallback para entornos sin clipboard API
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={`Copiar ${label}`}
+      className={`inline-flex max-w-full items-center gap-1.5 rounded border border-transparent px-1.5 py-0.5 text-left font-mono text-xs text-slate-600 hover:border-slate-300 hover:bg-slate-50 ${className}`}
+    >
+      <span className="min-w-0 break-all">{value}</span>
+      <Copy size={12} className="shrink-0 text-slate-400" />
+      {copied && <span className="shrink-0 text-[10px] font-sans text-green-600">Copiado</span>}
+    </button>
+  );
+}
 
 const ITEM_STATUS_LABELS: Record<InboundHandoffItemStatus, string> = {
   pending: 'Pendiente',
@@ -103,10 +164,6 @@ function formatDateTime(value?: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-function shortId(id: string): string {
-  return id.slice(0, 8);
 }
 
 function formatFieldValue(value: unknown): string {
@@ -214,11 +271,6 @@ function ItemRow({
           <User size={18} className="shrink-0 text-slate-500" />
           <div className="min-w-0">
             <p className="truncate font-medium text-slate-900">{item.workerName}</p>
-            {item.sourceCandidateId && (
-              <p className="truncate text-xs text-slate-500">
-                Candidato ATS: {shortId(item.sourceCandidateId)}
-              </p>
-            )}
             {item.itemStatus === 'assigned' && assignedUnit && (
               <p className="truncate text-xs text-indigo-600">
                 Registrado en: {assignedUnit.name}
@@ -235,6 +287,12 @@ function ItemRow({
 
       {expanded && (
         <div className="border-t border-slate-200 px-4 pb-4">
+          {item.sourceCandidateId && (
+            <div className="mt-3 flex flex-wrap items-center gap-1 text-sm text-slate-500">
+              <span>Candidato ATS:</span>
+              <CopyableId label="Candidato ATS" value={item.sourceCandidateId} />
+            </div>
+          )}
           <SnapshotDetails snapshot={item.workerSnapshot} />
 
           {canEdit && item.itemStatus === 'accepted' && (
@@ -338,6 +396,7 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
   const handleOpenForProcessing = async () => {
     if (!selectedPackage || !canEdit) return;
     setActionLoading(true);
+    setError(null);
     try {
       await inboundWorkerHandoffService.markProcessing(selectedPackage.id);
       await loadPackageDetail(selectedPackage.id);
@@ -349,20 +408,36 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
     }
   };
 
-  const handleClosePackage = async (status: InboundHandoffPackageStatus) => {
+  const handleReopenPackage = async () => {
     if (!selectedPackage || !canEdit) return;
     setActionLoading(true);
+    setError(null);
     try {
-      if (status === 'completed') {
-        await inboundWorkerHandoffService.markCompleted(selectedPackage.id, receiverNote);
-      } else if (status === 'rejected') {
-        await inboundWorkerHandoffService.markRejected(selectedPackage.id, receiverNote);
-      } else if (status === 'partially_completed') {
-        await inboundWorkerHandoffService.markPartiallyCompleted(
-          selectedPackage.id,
-          receiverNote,
-        );
-      }
+      await inboundWorkerHandoffService.markReopened(selectedPackage.id);
+      await loadPackageDetail(selectedPackage.id);
+      await loadPackages();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al reabrir el paquete');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleClosePackage = async () => {
+    if (!selectedPackage || !canEdit) return;
+
+    const unresolved = selectedPackage.items.filter((item) => isItemUnresolved(item.itemStatus));
+    if (unresolved.length > 0) {
+      setError(
+        `No se puede completar: quedan ${unresolved.length} candidato(s) pendiente(s) o aceptado(s) sin registrar. Resuélvelos (aceptar+registrar o rechazar) antes de cerrar.`,
+      );
+      return;
+    }
+
+    setActionLoading(true);
+    setError(null);
+    try {
+      await inboundWorkerHandoffService.markCompleted(selectedPackage.id, receiverNote);
       await loadPackageDetail(selectedPackage.id);
       await loadPackages();
     } catch (err) {
@@ -379,9 +454,12 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
   };
 
   if (selectedPackage) {
-    const isOpen =
-      selectedPackage.status === 'received' || selectedPackage.status === 'processing';
-    const canClose = canEdit && selectedPackage.status === 'processing';
+    const canProcessItems = canEdit && selectedPackage.status === 'processing';
+    const canClose = canProcessItems;
+    const canReopen = canEdit && isPackageClosed(selectedPackage.status);
+    const unresolvedCount = selectedPackage.items.filter((item) =>
+      isItemUnresolved(item.itemStatus),
+    ).length;
 
     return (
       <div className="mx-auto max-w-5xl p-4 md:p-6">
@@ -414,9 +492,16 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                     <Package size={20} className="text-blue-600" />
                     <h1 className="text-xl font-bold text-slate-900">Detalle del envío ATS</h1>
                   </div>
-                  <p className="text-sm text-slate-500">
-                    Ref. ATS: <span className="font-mono">{selectedPackage.sourcePackageId}</span>
-                  </p>
+                  <div className="space-y-1 text-sm text-slate-500">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span>Ref. ATS:</span>
+                      <CopyableId label="Ref. ATS" value={selectedPackage.sourcePackageId} />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span>ID OpsFlow:</span>
+                      <CopyableId label="ID OpsFlow" value={selectedPackage.id} />
+                    </div>
+                  </div>
                 </div>
                 <span
                   className={`rounded-full px-3 py-1 text-sm font-medium ${PACKAGE_STATUS_STYLES[selectedPackage.status]}`}
@@ -450,19 +535,44 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                 </div>
               </div>
 
-              {canEdit && isOpen && (
+              {canEdit && selectedPackage.status === 'received' && (
                 <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
-                  {selectedPackage.status === 'received' && (
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={handleOpenForProcessing}
-                      className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {actionLoading ? <Loader2 size={16} className="animate-spin" /> : <Inbox size={16} />}
-                      Recibir / Abrir
-                    </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={handleOpenForProcessing}
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {actionLoading ? <Loader2 size={16} className="animate-spin" /> : <Inbox size={16} />}
+                    Abrir para procesar
+                  </button>
+                  <p className="w-full text-xs text-slate-500">
+                    Abrir el paquete no acepta candidatos. Cada trabajador se acepta o rechaza por separado.
+                  </p>
+                </div>
+              )}
+
+              {canReopen && (
+                <div className="mt-5 space-y-2 border-t border-slate-100 pt-4">
+                  {unresolvedCount > 0 && (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      Hay {unresolvedCount} candidato(s) pendiente(s) o aceptado(s) sin registrar.
+                      Reabre el paquete para continuar.
+                    </p>
                   )}
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={handleReopenPackage}
+                    className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {actionLoading ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <RotateCcw size={16} />
+                    )}
+                    Reabrir paquete
+                  </button>
                 </div>
               )}
 
@@ -478,32 +588,20 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                     placeholder="Observaciones internas de OpsFlow..."
                   />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => handleClosePackage('completed')}
-                      className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-                    >
-                      Cerrar completado
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => handleClosePackage('partially_completed')}
-                      className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-                    >
-                      Cerrar parcial
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => handleClosePackage('rejected')}
-                      className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      Rechazar paquete
-                    </button>
-                  </div>
+                  {unresolvedCount > 0 && (
+                    <p className="text-xs text-amber-700">
+                      Quedan {unresolvedCount} candidato(s) sin resolver. Debes aceptarlos y
+                      registrarlos, o rechazarlos, antes de marcar el paquete como completado.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={actionLoading || unresolvedCount > 0}
+                    onClick={handleClosePackage}
+                    className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                  >
+                    Marcar como completado
+                  </button>
                 </div>
               )}
 
@@ -523,7 +621,7 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                   key={item.id}
                   item={item}
                   units={units}
-                  canEdit={canEdit && selectedPackage.status === 'processing'}
+                  canEdit={canProcessItems}
                   onStatusChange={handleItemStatusChange}
                   onRegister={setRegisterItem}
                 />
@@ -657,8 +755,8 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                         {PACKAGE_STATUS_LABELS[pkg.status]}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                      {shortId(pkg.sourcePackageId)}
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <CopyableId label="Ref. ATS" value={pkg.sourcePackageId} />
                     </td>
                   </tr>
                 ))}

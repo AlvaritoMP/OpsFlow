@@ -54,24 +54,16 @@ function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem 
 
 export const inboundWorkerHandoffService = {
   /**
-   * Cuenta trabajo ATS realmente pendiente:
-   * solo candidatos pending/accepted cuyo paquete sigue abierto
-   * (received | processing). Paquetes ya cerrados o sin candidatos
-   * pendientes no generan alerta.
+   * Cuenta trabajo ATS pendiente a nivel candidato:
+   * pending o accepted (sin registrar), sin importar si el paquete
+   * está recibido, en proceso o ya cerrado (para poder reabrir).
    */
   async countIncomplete(): Promise<{ openPackages: number; incompleteCandidates: number }> {
     try {
       const { data, error } = await supabase
         .from('inbound_worker_handoff_items')
-        .select(
-          `
-          id,
-          package_id,
-          inbound_worker_handoff_packages!inner ( status )
-        `,
-        )
-        .in('item_status', ['pending', 'accepted'])
-        .in('inbound_worker_handoff_packages.status', ['received', 'processing']);
+        .select('id, package_id')
+        .in('item_status', ['pending', 'accepted']);
 
       if (error) throw error;
 
@@ -146,6 +138,14 @@ export const inboundWorkerHandoffService = {
     });
   },
 
+  /** Reabre un paquete cerrado para seguir trabajando candidatos pendientes. */
+  async markReopened(packageId: string): Promise<InboundHandoffPackage | null> {
+    return this.updatePackageStatus(packageId, 'processing', {
+      processing_started_at: new Date().toISOString(),
+      completed_at: null,
+    });
+  },
+
   async markCompleted(packageId: string, receiverNote?: string): Promise<InboundHandoffPackage | null> {
     return this.updatePackageStatus(packageId, 'completed', {
       completed_at: new Date().toISOString(),
@@ -153,6 +153,7 @@ export const inboundWorkerHandoffService = {
     });
   },
 
+  /** @deprecated Preferir cerrar solo como completed; se mantiene por datos legacy. */
   async markRejected(packageId: string, receiverNote?: string): Promise<InboundHandoffPackage | null> {
     return this.updatePackageStatus(packageId, 'rejected', {
       completed_at: new Date().toISOString(),
@@ -160,6 +161,7 @@ export const inboundWorkerHandoffService = {
     });
   },
 
+  /** @deprecated Preferir cerrar solo como completed; se mantiene por datos legacy. */
   async markPartiallyCompleted(
     packageId: string,
     receiverNote?: string,

@@ -3283,21 +3283,23 @@ const App: React.FC = () => {
           </div>
           <div className="p-6 overflow-y-auto flex-1 space-y-3">
             <p className="text-slate-700">
-              Hay candidatos pendientes de procesar en transacciones ATS abiertas (recibidas o en proceso). Esta alerta volverá cada 5 minutos hasta que se completen.
+              Hay candidatos pendientes de procesar en transacciones ATS (pendiente o aceptado sin
+              registrar). Esta alerta volverá cada 5 minutos hasta que se completen. Si el paquete
+              ya estaba cerrado, puedes reabrirlo en Recepción ATS.
             </p>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1.5">
               {atsIncomplete.openPackages > 0 && (
                 <p className="text-sm text-slate-800">
                   <strong>{atsIncomplete.openPackages}</strong> transacción
-                  {atsIncomplete.openPackages !== 1 ? 'es' : ''} abierta
-                  {atsIncomplete.openPackages !== 1 ? 's' : ''} con pendientes
+                  {atsIncomplete.openPackages !== 1 ? 'es' : ''} con pendientes
                 </p>
               )}
               {atsIncomplete.incompleteCandidates > 0 && (
                 <p className="text-sm text-slate-800">
                   <strong>{atsIncomplete.incompleteCandidates}</strong> candidato
                   {atsIncomplete.incompleteCandidates !== 1 ? 's' : ''} pendiente
-                  {atsIncomplete.incompleteCandidates !== 1 ? 's' : ''} (pendiente o aceptado sin registrar)
+                  {atsIncomplete.incompleteCandidates !== 1 ? 's' : ''} (pendiente o aceptado sin
+                  registrar)
                 </p>
               )}
             </div>
