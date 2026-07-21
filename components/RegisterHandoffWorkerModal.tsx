@@ -10,13 +10,16 @@ import {
   Unit,
 } from '../types';
 import {
-  HANDOFF_FIELD_LABELS,
   HandoffWorkerPrefill,
   buildResourceInboundSourceData,
   countStoredAtsFields,
   mapHandoffItemToWorkerPrefill,
 } from '../utils/workerSnapshotMapper';
-import { resolveHandoffDisplayName } from '../utils/handoffNameParts';
+import {
+  extractHandoffNameParts,
+  hasStructuredNameParts,
+  resolveHandoffDisplayName,
+} from '../utils/handoffNameParts';
 import { getUnitRequiredPositionOptions } from '../utils/unitPositionOptions';
 
 interface RegisterHandoffWorkerModalProps {
@@ -28,7 +31,7 @@ interface RegisterHandoffWorkerModalProps {
   onSuccess: () => void;
 }
 
-function PrefillBadge({ field }: { field: string }) {
+function PrefillBadge() {
   return (
     <span className="ml-2 inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
       <Sparkles size={10} className="mr-0.5" />
@@ -63,6 +66,12 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
     () => getUnitRequiredPositionOptions(selectedUnit),
     [selectedUnit],
   );
+
+  const nameParts = useMemo(
+    () => extractHandoffNameParts(item.workerSnapshot),
+    [item.workerSnapshot],
+  );
+  const nameFromAtsParts = hasStructuredNameParts(nameParts);
 
   const toggleZone = (zoneName: string) => {
     setZones((prev) =>
@@ -125,6 +134,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
           assignedShift: form.shift || undefined,
           compliancePercentage: 100,
           dni: form.dni.trim() || undefined,
+          phone: form.phone.trim() || undefined,
           puesto: form.puesto.trim() || undefined,
           localidad: form.localidad.trim() || undefined,
           birthDate: form.birthDate || undefined,
@@ -147,7 +157,6 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
       await inboundWorkerHandoffService.registerItemAsResource(item.id, unitId, resource.id);
 
-      // Cerrar y refrescar la bandeja de inmediato; HR y units van en segundo plano.
       onSuccess();
       onClose();
 
@@ -195,18 +204,10 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
             </div>
           )}
 
-          {form.prefilledFields.length > 0 && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              <span className="font-medium">Datos completados desde ATS:</span>{' '}
-              {form.prefilledFields.map((f) => HANDOFF_FIELD_LABELS[f] ?? f).join(', ')}
-            </div>
-          )}
-
           {storedAtsFieldCount > 0 && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-              <span className="font-medium">Datos ATS archivados:</span>{' '}
-              {storedAtsFieldCount} campo(s) del paquete (email, teléfono, dirección, cliente, etc.)
-              se guardarán en el expediente del colaborador para uso futuro.
+              <span className="font-medium">Datos ATS archivados:</span> {storedAtsFieldCount}{' '}
+              campo(s) del paquete se guardarán en el expediente del colaborador.
             </div>
           )}
 
@@ -248,21 +249,14 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 </option>
               ))}
             </select>
-            {!unitId && (
-              <p className="mt-1 text-xs text-slate-500">
-                El puesto depende de la unidad seleccionada.
-              </p>
-            )}
             {unitId && unitPositionOptions.length === 0 && (
               <p className="mt-1 text-xs text-amber-700">
-                Esta unidad no tiene puestos requeridos configurados. Defínalos en la ficha de la
-                unidad (pestaña Headcount / puestos requeridos) antes de registrar personal.
+                Esta unidad no tiene puestos requeridos configurados.
               </p>
             )}
             {atsProcessTitle && (
               <p className="mt-1 text-xs text-slate-500">
-                Referencia ATS (solo consulta):{' '}
-                <span className="font-medium">{atsProcessTitle}</span>
+                Referencia ATS: <span className="font-medium">{atsProcessTitle}</span>
               </p>
             )}
           </div>
@@ -270,8 +264,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Nombre completo *
-                {isPrefilled('name') && <PrefillBadge field="name" />}
+                Nombre completo *{isPrefilled('name') && <PrefillBadge />}
               </label>
               <input
                 type="text"
@@ -280,12 +273,28 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
                 required
               />
+              {nameFromAtsParts ? (
+                <p className="mt-1 text-xs text-emerald-700">
+                  Armado desde ATS:{' '}
+                  {[
+                    nameParts.nombres && `Nombre “${nameParts.nombres}”`,
+                    nameParts.apellidoPaterno && `Apellido paterno “${nameParts.apellidoPaterno}”`,
+                    nameParts.apellidoMaterno && `Apellido materno “${nameParts.apellidoMaterno}”`,
+                  ]
+                    .filter(Boolean)
+                    .join(' + ')}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-500">
+                  Si ATS envía Nombre, Apellido paterno y Apellido materno, aquí se agrupan
+                  automáticamente.
+                </p>
+              )}
             </div>
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                DNI
-                {isPrefilled('dni') && <PrefillBadge field="dni" />}
+                DNI{isPrefilled('dni') && <PrefillBadge />}
               </label>
               <input
                 type="text"
@@ -295,26 +304,31 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
               />
             </div>
 
-            <div className="sm:col-span-2">
+            <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Localidad de trabajo
+                Teléfono{isPrefilled('phone') && <PrefillBadge />}
               </label>
+              <input
+                type="text"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-slate-700">Localidad</label>
               <input
                 type="text"
                 value={form.localidad}
                 onChange={(e) => setForm({ ...form, localidad: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
-                placeholder="Ubicación operativa donde trabajará en la unidad"
               />
-              <p className="mt-1 text-xs text-slate-500">
-                Campo operativo de OpsFlow. No se completa desde el ATS.
-              </p>
             </div>
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Fecha de nacimiento
-                {isPrefilled('birthDate') && <PrefillBadge field="birthDate" />}
+                Fecha de nacimiento{isPrefilled('birthDate') && <PrefillBadge />}
               </label>
               <input
                 type="date"
@@ -326,8 +340,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Fecha de ingreso
-                {isPrefilled('startDate') && <PrefillBadge field="startDate" />}
+                Fecha de ingreso{isPrefilled('startDate') && <PrefillBadge />}
               </label>
               <input
                 type="date"
@@ -339,8 +352,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Salario mensual
-                {isPrefilled('monthlySalary') && <PrefillBadge field="monthlySalary" />}
+                Salario mensual{isPrefilled('monthlySalary') && <PrefillBadge />}
               </label>
               <input
                 type="number"

@@ -4,6 +4,7 @@ import { resolveHandoffDisplayName } from './handoffNameParts';
 export interface HandoffWorkerPrefill {
   name: string;
   dni: string;
+  phone: string;
   puesto: string;
   localidad: string;
   birthDate: string;
@@ -78,6 +79,9 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
   const dni = identity.dni?.trim() ?? '';
   if (dni) prefilledFields.push('dni');
 
+  const phone = (identity.phone?.trim() || identity.phone2?.trim() || '').trim();
+  if (phone) prefilledFields.push('phone');
+
   const startDate = normalizeDate(fields.hireDate);
   if (startDate) prefilledFields.push('startDate');
 
@@ -92,6 +96,7 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
   return {
     name,
     dni,
+    phone,
     puesto: '',
     localidad: '',
     birthDate,
@@ -123,11 +128,16 @@ export const HANDOFF_FIELD_LABELS: Record<string, string> = {
   monthlySalary: 'Salario mensual',
   agreedSalary: 'Salario acordado',
   address: 'Dirección',
+  direccion: 'Dirección',
   province: 'Provincia',
+  provincia: 'Provincia',
   district: 'Distrito',
+  distrito: 'Distrito',
   processTitle: 'Proceso / puesto',
   clientName: 'Cliente',
   sexo: 'Sexo',
   gender: 'Género',
   estadoCivil: 'Estado civil',
+  turno: 'Turno',
+  shift: 'Turno',
 };

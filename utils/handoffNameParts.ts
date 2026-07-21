@@ -28,27 +28,36 @@ export function extractHandoffNameParts(
   identityOverride?: WorkerSnapshotIdentity | null,
 ): HandoffNameParts {
   const identity = identityOverride ?? snapshot?.identity ?? {};
+  const identityBag = identity as WorkerSnapshotIdentity & Record<string, unknown>;
   const fields = snapshot?.fields ?? {};
 
   return {
     nombres: pickFirst(
-      identity.nombres,
+      identityBag.nombres,
+      identityBag.nombre,
+      identityBag.Nombre,
       fields.nombres,
+      fields.nombre,
+      fields.Nombre,
       fields.firstName,
       fields.givenName,
       fields.nombresCompletos,
     ),
     apellidoPaterno: pickFirst(
-      identity.apellidoPaterno,
+      identityBag.apellidoPaterno,
+      identityBag['Apellido Paterno'],
       fields.apellidoPaterno,
       fields.apellido_paterno,
+      fields['Apellido Paterno'],
       fields.paternalSurname,
       fields.apellidoPaternoCandidato,
     ),
     apellidoMaterno: pickFirst(
-      identity.apellidoMaterno,
+      identityBag.apellidoMaterno,
+      identityBag['Apellido Materno'],
       fields.apellidoMaterno,
       fields.apellido_materno,
+      fields['Apellido Materno'],
       fields.maternalSurname,
       fields.apellidoMaternoCandidato,
     ),
