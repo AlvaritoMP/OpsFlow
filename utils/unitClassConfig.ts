@@ -28,7 +28,7 @@ export const UNIT_CLASS_DESCRIPTIONS: Record<UnitClass, string> = {
 
 const HIDDEN_TABS_BY_CLASS: Record<UnitClass, UnitDetailTab[]> = {
   STANDARD: [],
-  BPO: ['logistics', 'blueprint'],
+  BPO: ['logistics'],
 };
 
 const TAB_LABELS_BY_CLASS: Partial<Record<UnitClass, Partial<Record<UnitDetailTab, string>>>> = {
