@@ -762,6 +762,8 @@ export interface InboundHandoffPackage {
   receiverNote?: string;
   createdAt: string;
   updatedAt: string;
+  /** Candidatos pending o accepted (sin registrar) en este paquete */
+  unresolvedCandidateCount?: number;
 }
 
 export interface InboundHandoffItem {

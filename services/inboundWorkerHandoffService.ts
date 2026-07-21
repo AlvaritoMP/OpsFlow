@@ -90,13 +90,42 @@ export const inboundWorkerHandoffService = {
         .order('received_at', { ascending: false });
 
       if (options?.status) {
-        query = query.eq('status', options.status);
+        if (options.status === 'completed') {
+          // Incluye estados antiguos ya no usados en UI
+          query = query.in('status', ['completed', 'partially_completed', 'rejected']);
+        } else {
+          query = query.eq('status', options.status);
+        }
       }
 
       const { data, error } = await query;
       if (error) throw error;
 
-      return (data ?? []).map((row) => transformPackageFromDB(row as Record<string, unknown>));
+      const packages = (data ?? []).map((row) =>
+        transformPackageFromDB(row as Record<string, unknown>),
+      );
+
+      if (packages.length === 0) return packages;
+
+      const packageIds = packages.map((pkg) => pkg.id);
+      const { data: unresolvedRows, error: unresolvedError } = await supabase
+        .from('inbound_worker_handoff_items')
+        .select('package_id')
+        .in('package_id', packageIds)
+        .in('item_status', ['pending', 'accepted']);
+
+      if (unresolvedError) throw unresolvedError;
+
+      const counts = new Map<string, number>();
+      for (const row of unresolvedRows ?? []) {
+        const packageId = row.package_id as string;
+        counts.set(packageId, (counts.get(packageId) ?? 0) + 1);
+      }
+
+      return packages.map((pkg) => ({
+        ...pkg,
+        unresolvedCandidateCount: counts.get(pkg.id) ?? 0,
+      }));
     } catch (error) {
       handleSupabaseError(error);
       return [];

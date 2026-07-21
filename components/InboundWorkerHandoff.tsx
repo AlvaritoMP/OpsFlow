@@ -34,22 +34,24 @@ interface InboundWorkerHandoffProps {
   onRegistered?: () => void;
 }
 
-/** Estados activos del flujo nuevo. Los legacy se mantienen solo para datos históricos. */
+/** Estados visibles del flujo actual. rejected / partially_completed solo pueden existir como datos antiguos. */
 const PACKAGE_STATUS_LABELS: Record<InboundHandoffPackageStatus, string> = {
   received: 'Recibido',
   processing: 'En proceso',
   completed: 'Completado',
-  rejected: 'Rechazado (legacy)',
-  partially_completed: 'Parcial (legacy)',
+  rejected: 'Completado',
+  partially_completed: 'Completado',
 };
 
 const PACKAGE_STATUS_STYLES: Record<InboundHandoffPackageStatus, string> = {
   received: 'bg-blue-100 text-blue-800',
   processing: 'bg-amber-100 text-amber-800',
   completed: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800',
-  partially_completed: 'bg-purple-100 text-purple-800',
+  rejected: 'bg-green-100 text-green-800',
+  partially_completed: 'bg-green-100 text-green-800',
 };
+
+const PACKAGE_FILTERS = ['all', 'received', 'processing', 'completed'] as const;
 
 const CLOSED_PACKAGE_STATUSES: InboundHandoffPackageStatus[] = [
   'completed',
@@ -366,7 +368,7 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
     null,
   );
   const [registerItem, setRegisterItem] = useState<InboundHandoffItem | null>(null);
-  const [statusFilter, setStatusFilter] = useState<InboundHandoffPackageStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<(typeof PACKAGE_FILTERS)[number]>('all');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -690,22 +692,20 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
-        {(['all', 'received', 'processing', 'completed', 'partially_completed', 'rejected'] as const).map(
-          (status) => (
-            <button
-              key={status}
-              type="button"
-              onClick={() => setStatusFilter(status)}
-              className={`rounded-full px-3 py-1.5 text-sm ${
-                statusFilter === status
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {status === 'all' ? 'Todos' : PACKAGE_STATUS_LABELS[status]}
-            </button>
-          ),
-        )}
+        {PACKAGE_FILTERS.map((status) => (
+          <button
+            key={status}
+            type="button"
+            onClick={() => setStatusFilter(status)}
+            className={`rounded-full px-3 py-1.5 text-sm ${
+              statusFilter === status
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            {status === 'all' ? 'Todos' : PACKAGE_STATUS_LABELS[status]}
+          </button>
+        ))}
       </div>
 
       {error && (
@@ -736,6 +736,7 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                   <th className="px-4 py-3 text-left font-semibold text-slate-600">Recibido</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600">Enviado ATS</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600">Trabajadores</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Pendientes</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600">Enviado por</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600">Nota ATS</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600">Estado</th>
@@ -743,40 +744,57 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {packages.map((pkg) => (
-                  <tr
-                    key={pkg.id}
-                    onClick={() => openPackage(pkg)}
-                    className="cursor-pointer hover:bg-blue-50/50"
-                  >
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-800">
-                      <div className="flex items-center gap-1.5">
-                        <Clock size={14} className="text-slate-400" />
-                        {formatDateTime(pkg.receivedAt)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-700">
-                      {formatDateTime(pkg.sourceSentAt)}
-                    </td>
-                    <td className="px-4 py-3 text-slate-800">{pkg.workerCount}</td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {pkg.sourceCreatedByName || '—'}
-                    </td>
-                    <td className="max-w-xs truncate px-4 py-3 text-slate-600">
-                      {pkg.senderNote || '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${PACKAGE_STATUS_STYLES[pkg.status]}`}
-                      >
-                        {PACKAGE_STATUS_LABELS[pkg.status]}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <CopyableId label="Ref. ATS" value={pkg.sourcePackageId} compact />
-                    </td>
-                  </tr>
-                ))}
+                {packages.map((pkg) => {
+                  const unresolved = pkg.unresolvedCandidateCount ?? 0;
+                  return (
+                    <tr
+                      key={pkg.id}
+                      onClick={() => openPackage(pkg)}
+                      className={`cursor-pointer hover:bg-blue-50/50 ${
+                        unresolved > 0 && isPackageClosed(pkg.status) ? 'bg-amber-50/40' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-800">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={14} className="text-slate-400" />
+                          {formatDateTime(pkg.receivedAt)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-700">
+                        {formatDateTime(pkg.sourceSentAt)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-800">{pkg.workerCount}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {unresolved > 0 ? (
+                          <span
+                            className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800"
+                            title="Candidatos pendientes o aceptados sin registrar. Abre el paquete y reábrelo si está completado."
+                          >
+                            {unresolved} pendiente{unresolved !== 1 ? 's' : ''}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {pkg.sourceCreatedByName || '—'}
+                      </td>
+                      <td className="max-w-xs truncate px-4 py-3 text-slate-600">
+                        {pkg.senderNote || '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${PACKAGE_STATUS_STYLES[pkg.status]}`}
+                        >
+                          {PACKAGE_STATUS_LABELS[pkg.status]}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <CopyableId label="Ref. ATS" value={pkg.sourcePackageId} compact />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
