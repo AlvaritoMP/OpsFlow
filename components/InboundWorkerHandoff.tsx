@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
 import { RegisterHandoffWorkerModal } from './RegisterHandoffWorkerModal';
+import { resolveHandoffDisplayName } from '../utils/handoffNameParts';
 import {
   InboundHandoffItem,
   InboundHandoffItemStatus,
@@ -128,6 +129,9 @@ const ITEM_STATUS_STYLES: Record<InboundHandoffItemStatus, string> = {
 
 const IDENTITY_LABELS: Record<string, string> = {
   fullName: 'Nombre completo',
+  nombres: 'Nombres',
+  apellidoPaterno: 'Apellido paterno',
+  apellidoMaterno: 'Apellido materno',
   dni: 'DNI',
   email: 'Correo',
   phone: 'Teléfono',
@@ -155,6 +159,11 @@ const FIELD_LABELS: Record<string, string> = {
   stageName: 'Etapa',
   psycholaboralSuitability: 'Idoneidad psicolaboral',
   scoreIa: 'Score IA',
+  nombres: 'Nombres',
+  apellidoPaterno: 'Apellido paterno',
+  apellidoMaterno: 'Apellido materno',
+  apellido_paterno: 'Apellido paterno',
+  apellido_materno: 'Apellido materno',
 };
 
 function formatDateTime(value?: string): string {
@@ -249,6 +258,10 @@ function ItemRow({
   const [expanded, setExpanded] = useState(false);
   const [updating, setUpdating] = useState(false);
   const assignedUnit = units.find((u) => u.id === item.assignedWorkUnitId);
+  const displayName = resolveHandoffDisplayName({
+    snapshot: item.workerSnapshot,
+    workerName: item.workerName,
+  });
 
   const handleStatus = async (status: InboundHandoffItemStatus) => {
     setUpdating(true);
@@ -274,7 +287,7 @@ function ItemRow({
           )}
           <User size={18} className="shrink-0 text-slate-500" />
           <div className="min-w-0">
-            <p className="truncate font-medium text-slate-900">{item.workerName}</p>
+            <p className="truncate font-medium text-slate-900">{displayName}</p>
             {item.itemStatus === 'assigned' && assignedUnit && (
               <p className="truncate text-xs text-indigo-600">
                 Registrado en: {assignedUnit.name}

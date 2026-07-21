@@ -1,4 +1,5 @@
 import type { InboundHandoffItem, ResourceInboundSourceData } from '../types';
+import { resolveHandoffDisplayName } from './handoffNameParts';
 
 export interface HandoffWorkerPrefill {
   name: string;
@@ -67,7 +68,11 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
   const fields = item.workerSnapshot.fields ?? {};
   const prefilledFields: string[] = [];
 
-  const name = (identity.fullName?.trim() || item.workerName?.trim() || '').trim();
+  const name = resolveHandoffDisplayName({
+    snapshot: item.workerSnapshot,
+    workerName: item.workerName,
+    identity,
+  });
   if (name) prefilledFields.push('name');
 
   const dni = identity.dni?.trim() ?? '';
@@ -102,6 +107,11 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
 export const HANDOFF_FIELD_LABELS: Record<string, string> = {
   name: 'Nombre',
   fullName: 'Nombre completo',
+  nombres: 'Nombres',
+  apellidoPaterno: 'Apellido paterno',
+  apellidoMaterno: 'Apellido materno',
+  apellido_paterno: 'Apellido paterno',
+  apellido_materno: 'Apellido materno',
   /** Etiqueta del camino OpsFlow/ATS (genérica; no tipifica DNI vs CE vs pasaporte). */
   dni: 'DNI',
   email: 'Correo',

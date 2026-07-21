@@ -14,6 +14,10 @@ import {
   splitFullName,
   toOpalosisDate,
 } from './hrIntegration';
+import {
+  extractHandoffNameParts,
+  hasStructuredNameParts,
+} from './handoffNameParts';
 import { HANDOFF_FIELD_LABELS } from './workerSnapshotMapper';
 
 const OPSFLOW_FIELD_LABELS: Record<string, string> = {
@@ -506,12 +510,25 @@ export function mapSnapshotToHrFields(
     usuarioOf?: string | null;
   },
 ): HrOpalosisIngresoFields {
-  const { apellido_paterno, apellido_materno, nombres } = splitFullName(
-    snapshot.opsflow.name || snapshot.ats.workerName || '',
-  );
-
   const identity = snapshot.ats.identity ?? {};
   const fields = snapshot.ats.fields ?? {};
+
+  const structuredParts = extractHandoffNameParts(
+    { identity, fields, meta: snapshot.ats.meta },
+    identity,
+  );
+  const splitParts = splitFullName(snapshot.opsflow.name || snapshot.ats.workerName || '');
+  const apellido_paterno = hasStructuredNameParts(structuredParts)
+    ? structuredParts.apellidoPaterno || splitParts.apellido_paterno
+    : splitParts.apellido_paterno;
+  const apellido_materno = hasStructuredNameParts(structuredParts)
+    ? structuredParts.apellidoMaterno || splitParts.apellido_materno
+    : splitParts.apellido_materno;
+  const nombres = hasStructuredNameParts(structuredParts)
+    ? structuredParts.nombres ||
+      splitParts.nombres ||
+      pickString(identity.fullName, snapshot.opsflow.name)
+    : splitParts.nombres || pickString(identity.fullName, snapshot.opsflow.name);
 
   const fechaIngreso =
     normalizeIsoDate(snapshot.opsflow.startDate) ??
@@ -535,7 +552,7 @@ export function mapSnapshotToHrFields(
     documento: pickString(snapshot.opsflow.dni, identity.dni),
     apellidoPaterno: apellido_paterno,
     apellidoMaterno: apellido_materno,
-    nombres: nombres || pickString(identity.fullName, snapshot.opsflow.name),
+    nombres: nombres,
     sexo: (pickString(fields.sexo, fields.gender) || 'M').slice(0, 1).toUpperCase(),
     fechaIngreso,
     fechaNacimiento,

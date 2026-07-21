@@ -16,6 +16,7 @@ import {
   countStoredAtsFields,
   mapHandoffItemToWorkerPrefill,
 } from '../utils/workerSnapshotMapper';
+import { resolveHandoffDisplayName } from '../utils/handoffNameParts';
 import { getUnitRequiredPositionOptions } from '../utils/unitPositionOptions';
 
 interface RegisterHandoffWorkerModalProps {
@@ -88,6 +89,10 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
   const isPrefilled = (field: string) => form.prefilledFields.includes(field);
   const storedAtsFieldCount = countStoredAtsFields(item.workerSnapshot);
+  const displayName = resolveHandoffDisplayName({
+    snapshot: item.workerSnapshot,
+    workerName: item.workerName,
+  });
   const atsProcessTitle =
     typeof item.workerSnapshot.fields?.processTitle === 'string'
       ? item.workerSnapshot.fields.processTitle.trim()
@@ -170,7 +175,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
             <UserPlus size={20} className="shrink-0" />
             <div className="min-w-0">
               <h3 className="truncate font-bold">Registrar colaborador</h3>
-              <p className="truncate text-sm text-blue-100">{item.workerName}</p>
+              <p className="truncate text-sm text-blue-100">{displayName}</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="text-white/80 hover:text-white">

@@ -14,6 +14,9 @@
       "workerSnapshot": {
         "identity": {
           "fullName": "Juan Pérez García",
+          "nombres": "Juan",
+          "apellidoPaterno": "Pérez",
+          "apellidoMaterno": "García",
           "dni": "12345678",
           "email": "juan.perez@example.com",
           "phone": "999888777"
@@ -54,6 +57,9 @@
       "workerSnapshot": {
         "identity": {
           "fullName": "María López Torres",
+          "nombres": "María",
+          "apellidoPaterno": "López",
+          "apellidoMaterno": "Torres",
           "dni": "87654321",
           "email": "maria.lopez@example.com",
           "phone": "988776655",

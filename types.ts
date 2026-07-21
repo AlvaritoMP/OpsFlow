@@ -721,6 +721,10 @@ export type InboundHandoffItemStatus = 'pending' | 'accepted' | 'rejected' | 'as
 
 export interface WorkerSnapshotIdentity {
   fullName?: string;
+  /** Nombres de pila (sin apellidos). */
+  nombres?: string;
+  apellidoPaterno?: string;
+  apellidoMaterno?: string;
   dni?: string;
   email?: string;
   phone?: string;

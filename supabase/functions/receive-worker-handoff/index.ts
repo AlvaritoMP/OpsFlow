@@ -13,6 +13,9 @@ interface HandoffItemPayload {
   workerSnapshot?: {
     identity?: {
       fullName?: string;
+      nombres?: string;
+      apellidoPaterno?: string;
+      apellidoMaterno?: string;
       dni?: string;
       email?: string;
       phone?: string;
@@ -51,7 +54,42 @@ function isValidUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+function asTrimmedString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function pickFirst(...values: unknown[]): string {
+  for (const value of values) {
+    const text = asTrimmedString(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function composeNameFromParts(item: HandoffItemPayload): string {
+  const identity = item.workerSnapshot?.identity ?? {};
+  const fields = item.workerSnapshot?.fields ?? {};
+  const nombres = pickFirst(identity.nombres, fields.nombres, fields.firstName, fields.givenName);
+  const apellidoPaterno = pickFirst(
+    identity.apellidoPaterno,
+    fields.apellidoPaterno,
+    fields.apellido_paterno,
+    fields.paternalSurname,
+  );
+  const apellidoMaterno = pickFirst(
+    identity.apellidoMaterno,
+    fields.apellidoMaterno,
+    fields.apellido_materno,
+    fields.maternalSurname,
+  );
+  return [nombres, apellidoPaterno, apellidoMaterno].filter(Boolean).join(' ');
+}
+
 function resolveWorkerName(item: HandoffItemPayload): string | null {
+  const composed = composeNameFromParts(item);
+  if (composed) return composed;
+
   const fromField = item.workerName?.trim();
   if (fromField) return fromField;
 
