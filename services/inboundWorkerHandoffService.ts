@@ -53,6 +53,37 @@ function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem 
 // ============================================
 
 export const inboundWorkerHandoffService = {
+  /**
+   * Cuenta trabajo ATS pendiente de procesar:
+   * - paquetes abiertos (received | processing)
+   * - candidatos aún no cerrados (pending | accepted)
+   */
+  async countIncomplete(): Promise<{ openPackages: number; incompleteCandidates: number }> {
+    try {
+      const [packagesResult, candidatesResult] = await Promise.all([
+        supabase
+          .from('inbound_worker_handoff_packages')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['received', 'processing']),
+        supabase
+          .from('inbound_worker_handoff_items')
+          .select('id', { count: 'exact', head: true })
+          .in('item_status', ['pending', 'accepted']),
+      ]);
+
+      if (packagesResult.error) throw packagesResult.error;
+      if (candidatesResult.error) throw candidatesResult.error;
+
+      return {
+        openPackages: packagesResult.count ?? 0,
+        incompleteCandidates: candidatesResult.count ?? 0,
+      };
+    } catch (error) {
+      handleSupabaseError(error);
+      return { openPackages: 0, incompleteCandidates: 0 };
+    }
+  },
+
   async listPackages(options?: {
     status?: InboundHandoffPackageStatus;
   }): Promise<InboundHandoffPackage[]> {

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
@@ -36,7 +36,11 @@ import { PasswordReset } from './components/PasswordReset';
 import { WorkersManagement } from './components/WorkersManagement';
 import { InboundWorkerHandoff } from './components/InboundWorkerHandoff';
 import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
+import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffService';
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
+
+const ATS_ALERT_INTERVAL_MS = 5 * 60 * 1000;
+const ATS_COUNT_POLL_MS = 30 * 1000;
 
 const App: React.FC = () => {
   // Estado de autenticación
@@ -64,6 +68,11 @@ const App: React.FC = () => {
 
   const [pendingVacationAuthCount, setPendingVacationAuthCount] = useState(0);
   const [vacationsNavTab, setVacationsNavTab] = useState<'approvals' | undefined>();
+
+  const [atsIncomplete, setAtsIncomplete] = useState({ openPackages: 0, incompleteCandidates: 0 });
+  const [showAtsReceptionAlert, setShowAtsReceptionAlert] = useState(false);
+  const currentViewRef = useRef(currentView);
+  currentViewRef.current = currentView;
   
   // Settings accordion state
   const [settingsSections, setSettingsSections] = useState<Record<string, boolean>>({
@@ -474,6 +483,44 @@ const App: React.FC = () => {
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isAuthenticated, currentUser?.id, currentUser?.role]);
+
+  // Alerta persistente de Recepción ATS: reaparece cada 5 min mientras haya trabajo incompleto
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser || !checkPermission(currentUser.role, 'ATS_RECEPTION', 'view')) {
+      setAtsIncomplete({ openPackages: 0, incompleteCandidates: 0 });
+      setShowAtsReceptionAlert(false);
+      return;
+    }
+
+    const refreshAtsIncomplete = async (forceShow: boolean) => {
+      const result = await inboundWorkerHandoffService.countIncomplete();
+      setAtsIncomplete(result);
+      const hasIncomplete = result.openPackages > 0 || result.incompleteCandidates > 0;
+      if (!hasIncomplete) {
+        setShowAtsReceptionAlert(false);
+        return;
+      }
+      // No interrumpir si el usuario ya está procesando en Recepción ATS
+      if (forceShow && currentViewRef.current !== 'ats-reception') {
+        setShowAtsReceptionAlert(true);
+      }
+    };
+
+    void refreshAtsIncomplete(true);
+
+    const countInterval = setInterval(() => void refreshAtsIncomplete(false), ATS_COUNT_POLL_MS);
+    const alertInterval = setInterval(() => void refreshAtsIncomplete(true), ATS_ALERT_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshAtsIncomplete(false);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(countInterval);
+      clearInterval(alertInterval);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [isAuthenticated, currentUser?.id, currentUser?.role]);
@@ -3210,9 +3257,78 @@ const App: React.FC = () => {
     );
   };
 
+  const atsIncompleteTotal = atsIncomplete.openPackages + atsIncomplete.incompleteCandidates;
+
+  const AtsReceptionAlertModal = () => {
+    if (!showAtsReceptionAlert || atsIncompleteTotal === 0) return null;
+
+    return (
+      <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-amber-600 text-white px-6 py-4 flex justify-between items-center">
+            <h3 className="font-bold text-lg flex items-center">
+              <Inbox className="mr-2" size={20} />
+              Personal nuevo en Recepción ATS
+            </h3>
+            <button
+              type="button"
+              onClick={() => setShowAtsReceptionAlert(false)}
+              className="text-white/80 hover:text-white"
+              aria-label="Cerrar alerta"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="p-6 overflow-y-auto flex-1 space-y-3">
+            <p className="text-slate-700">
+              Hay personal o transacciones del ATS pendientes de procesar. Esta alerta volverá a mostrarse cada 5 minutos hasta que se completen.
+            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1.5">
+              {atsIncomplete.openPackages > 0 && (
+                <p className="text-sm text-slate-800">
+                  <strong>{atsIncomplete.openPackages}</strong> transacción
+                  {atsIncomplete.openPackages !== 1 ? 'es' : ''} sin completar
+                </p>
+              )}
+              {atsIncomplete.incompleteCandidates > 0 && (
+                <p className="text-sm text-slate-800">
+                  <strong>{atsIncomplete.incompleteCandidates}</strong> candidato
+                  {atsIncomplete.incompleteCandidates !== 1 ? 's' : ''} pendiente
+                  {atsIncomplete.incompleteCandidates !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAtsReceptionAlert(false)}
+              className="flex-1 bg-slate-200 text-slate-700 py-2.5 rounded-lg font-medium hover:bg-slate-300 transition-colors"
+            >
+              Recordar en 5 min
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAtsReceptionAlert(false);
+                setCurrentView('ats-reception');
+                setSelectedUnitId(null);
+                setSidebarOpen(false);
+              }}
+              className="flex-1 bg-amber-600 text-white py-2.5 rounded-lg font-medium hover:bg-amber-700 transition-colors"
+            >
+              Ir a Recepción ATS
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <BirthdayAlertsModal />
+      <AtsReceptionAlertModal />
       <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Mobile Overlay */}
       {sidebarOpen && (
@@ -3415,7 +3531,12 @@ const App: React.FC = () => {
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'ats-reception' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Inbox size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Recepción ATS</span>
+                    <span className="truncate min-w-0 flex-1 text-left">Recepción ATS</span>
+                    {atsIncompleteTotal > 0 && (
+                      <span className={`shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full text-xs font-bold flex items-center justify-center ${currentView === 'ats-reception' ? 'bg-white text-blue-700' : 'bg-amber-500 text-white'}`}>
+                        {atsIncompleteTotal > 99 ? '99+' : atsIncompleteTotal}
+                      </span>
+                    )}
                   </button>
               )}
 
