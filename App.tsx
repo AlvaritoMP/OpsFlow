@@ -1741,7 +1741,10 @@ const App: React.FC = () => {
         <InboundWorkerHandoff
           canEdit={checkPermission(currentUser.role, 'ATS_RECEPTION', 'edit')}
           units={visibleUnits}
-          onRegistered={loadUnits}
+          onRegistered={() => {
+            // Silencioso: no disparar el spinner global de la app (unitsLoading).
+            void loadUnits({ silent: true });
+          }}
         />
       );
     }

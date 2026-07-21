@@ -658,6 +658,7 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
                   if (selectedPackage) {
                     await loadPackageDetail(selectedPackage.id);
                   }
+                  // No bloquear la UI esperando el refresh global de unidades.
                   onRegistered?.();
                 }}
               />

@@ -147,19 +147,24 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
       await inboundWorkerHandoffService.registerItemAsResource(item.id, unitId, resource.id);
 
-      const unit = units.find((u) => u.id === unitId);
-      if (unit) {
-        await hrOutboundIngresoService.enqueueFromAssignment({
-          resource,
-          unit,
-          handoffItem: item,
-          sourcePackageId,
-          sourceApp,
-        });
-      }
-
+      // Cerrar y refrescar la bandeja de inmediato; HR y units van en segundo plano.
       onSuccess();
       onClose();
+
+      const unit = units.find((u) => u.id === unitId);
+      if (unit) {
+        void hrOutboundIngresoService
+          .enqueueFromAssignment({
+            resource,
+            unit,
+            handoffItem: item,
+            sourcePackageId,
+            sourceApp,
+          })
+          .catch((err) => {
+            console.error('No se pudo encolar ingreso HR tras registrar colaborador:', err);
+          });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar el colaborador.');
     } finally {
