@@ -434,7 +434,7 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
         dateFrom,
         dateTo,
       });
-      setMessage('Excel de Novedades descargado (Matriz con emoticonos + Detalle + Leyenda).');
+      setMessage('Excel de Novedades descargado (Matriz con emoticonos y totales por marca + Detalle + Leyenda).');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al exportar novedades');
     } finally {

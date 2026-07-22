@@ -703,8 +703,8 @@ export const attendanceTareoService = {
   },
 
   /**
-   * Exporta las novedades del período: hoja Detalle (1 fila por celda con dato)
-   * y hoja Matriz (trabajador × día con códigos de clave).
+   * Exporta las novedades del período: Matriz (trabajador × día con emoticonos
+   * + totales diarios por tipo de marca), Detalle y Leyenda.
    */
   async exportNovedades(options: {
     unit: Unit;
@@ -774,8 +774,8 @@ export const attendanceTareoService = {
       });
 
     const matrixHeaders = ['TRABAJADOR', 'DNI', ...dates.map(formatDay)];
-    const matrixRows = workers.map((w) => {
-      const row: Record<string, string> = {
+    const workerRows = workers.map((w) => {
+      const row: Record<string, string | number> = {
         TRABAJADOR: w.name || '',
         DNI: w.dni || '',
       };
@@ -787,6 +787,52 @@ export const attendanceTareoService = {
       }
       return row;
     });
+
+    // Claves que aparecen en el cuadro (mismo orden que la leyenda).
+    const usedKeyIds = new Set<string>();
+    for (const n of novedades) {
+      if (n.dayKeyId) usedKeyIds.add(n.dayKeyId);
+      if (n.hoursKeyId) usedKeyIds.add(n.hoursKeyId);
+    }
+    const keysForTotals = keys
+      .filter((k) => k.isActive && usedKeyIds.has(k.id))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code, 'es'));
+
+    const totalRows = keysForTotals.map((k) => {
+      const isHours = k.valueKind === 'hours';
+      const row: Record<string, string | number> = {
+        TRABAJADOR: `${resolveKeyEmoji(k.icon)} ${k.name}`,
+        DNI: isHours ? 'Σ horas' : 'Total',
+      };
+      for (const day of dates) {
+        let total = 0;
+        for (const w of workers) {
+          const n = novedadMap.get(`${w.id}|${day}`);
+          if (!n) continue;
+          if (n.dayKeyId === k.id) total += 1;
+          if (n.hoursKeyId === k.id) total += isHours ? Number(n.hoursValue ?? 0) : 1;
+        }
+        // Vacío si no hay esa marca ese día (más legible en el cuadro).
+        row[formatDay(day)] = total > 0 ? total : '';
+      }
+      return row;
+    });
+
+    const matrixRows =
+      totalRows.length > 0
+        ? [
+            ...workerRows,
+            (() => {
+              const sep: Record<string, string | number> = {
+                TRABAJADOR: '— TOTALES POR MARCA —',
+                DNI: '',
+              };
+              for (const day of dates) sep[formatDay(day)] = '';
+              return sep;
+            })(),
+            ...totalRows,
+          ]
+        : workerRows;
 
     const legendHeaders = ['CODIGO', 'NOMBRE', 'EMOJI', 'TIPO', 'VALOR', 'COLUMNA_TAREO', 'PRESENTISMO'];
     const legendRows = keys
@@ -802,7 +848,6 @@ export const attendanceTareoService = {
       }));
 
     const safeUnit = (unit.name || 'unidad').replace(/[^\w\-]+/g, '_').slice(0, 40);
-    // Matriz primero: misma vista trabajador × día con emoticonos que en la app.
     await excelService.exportMultipleSheets(
       [
         { name: 'Matriz', headers: matrixHeaders, data: matrixRows },
