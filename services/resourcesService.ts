@@ -23,30 +23,25 @@ export const resourcesService = {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      if (!data || data.length === 0) return [];
 
-      // Cargar datos relacionados para cada recurso
-      const resources = await mapWithConcurrency(
-        data,
-        4,
-        async (resource) => {
-          const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
-            this.getTrainings(resource.id),
-            this.getAssignedAssets(resource.id),
-            this.getDailyShifts(resource.id),
-            this.getMaintenanceRecords(resource.id),
-            this.getZoneAssignments(resource.id),
-            this.getContractHistory(resource.id),
-          ]);
+      // Cargar datos relacionados en lote (evita N×6 requests y ERR_CONNECTION_CLOSED)
+      const related = await loadRelatedDataBatched(data.map((r: any) => r.id), { includeContracts: true });
 
-          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
-          return {
-            ...transformed,
-            contractHistory: contractHistory,
-          };
-        }
-      );
-
-      return resources;
+      return data.map((resource: any) => {
+        const transformed = transformResourceFromDB(
+          resource,
+          related.trainingsById.get(resource.id) || [],
+          related.assetsById.get(resource.id) || [],
+          related.shiftsById.get(resource.id) || [],
+          related.maintenanceById.get(resource.id) || [],
+          related.zonesById.get(resource.id) || []
+        );
+        return {
+          ...transformed,
+          contractHistory: related.contractsById.get(resource.id) || [],
+        };
+      });
     } catch (error) {
       handleSupabaseError(error);
       return [];
@@ -65,29 +60,24 @@ export const resourcesService = {
         .order('end_date', { ascending: false });
 
       if (error) throw error;
+      if (!data || data.length === 0) return [];
 
-      const resources = await mapWithConcurrency(
-        data,
-        4,
-        async (resource) => {
-          const [trainings, assets, shifts, maintenance, zoneAssignments, contractHistory] = await Promise.all([
-            this.getTrainings(resource.id),
-            this.getAssignedAssets(resource.id),
-            this.getDailyShifts(resource.id),
-            this.getMaintenanceRecords(resource.id),
-            this.getZoneAssignments(resource.id),
-            this.getContractHistory(resource.id),
-          ]);
+      const related = await loadRelatedDataBatched(data.map((r: any) => r.id), { includeContracts: true });
 
-          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
-          return {
-            ...transformed,
-            contractHistory: contractHistory,
-          };
-        }
-      );
-
-      return resources;
+      return data.map((resource: any) => {
+        const transformed = transformResourceFromDB(
+          resource,
+          related.trainingsById.get(resource.id) || [],
+          related.assetsById.get(resource.id) || [],
+          related.shiftsById.get(resource.id) || [],
+          related.maintenanceById.get(resource.id) || [],
+          related.zonesById.get(resource.id) || []
+        );
+        return {
+          ...transformed,
+          contractHistory: related.contractsById.get(resource.id) || [],
+        };
+      });
     } catch (error) {
       handleSupabaseError(error);
       return [];
@@ -111,29 +101,26 @@ export const resourcesService = {
         .order('end_date', { ascending: false });
 
       if (error) throw error;
+      if (!data || data.length === 0) return [];
 
-      const resources = await mapWithConcurrency(
-        data,
-        4,
-        async (resource: any) => {
-          const [trainings, assets, shifts, maintenance, zoneAssignments] = await Promise.all([
-            this.getTrainings(resource.id),
-            this.getAssignedAssets(resource.id),
-            this.getDailyShifts(resource.id),
-            this.getMaintenanceRecords(resource.id),
-            this.getZoneAssignments(resource.id),
-          ]);
+      // Listado de archivados: sin contratos (caro) y con lotes para no saturar la red
+      const related = await loadRelatedDataBatched(data.map((r: any) => r.id), { includeContracts: false });
 
-          const transformed = transformResourceFromDB(resource, trainings, assets, shifts, maintenance, zoneAssignments);
-          return {
-            ...transformed,
-            originalUnitId: resource.unit_id,
-            originalUnitName: resource.unit?.name || 'Unidad desconocida',
-          };
-        }
-      );
-
-      return resources;
+      return data.map((resource: any) => {
+        const transformed = transformResourceFromDB(
+          resource,
+          related.trainingsById.get(resource.id) || [],
+          related.assetsById.get(resource.id) || [],
+          related.shiftsById.get(resource.id) || [],
+          related.maintenanceById.get(resource.id) || [],
+          related.zonesById.get(resource.id) || []
+        );
+        return {
+          ...transformed,
+          originalUnitId: resource.unit_id,
+          originalUnitName: resource.unit?.name || 'Unidad desconocida',
+        };
+      });
     } catch (error) {
       handleSupabaseError(error);
       return [];
@@ -429,7 +416,7 @@ export const resourcesService = {
         .order('date', { ascending: false });
       
       if (error) throw error;
-      return data || [];
+      return mapTrainingsFromDB(data || []);
     } catch (error: any) {
       if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
         console.warn(`⚠️ Error de red al obtener capacitaciones para ${resourceId}`);
@@ -438,15 +425,6 @@ export const resourcesService = {
       console.error('Error al obtener capacitaciones:', error);
       return [];
     }
-
-    return data?.map(t => ({
-      id: t.id,
-      topic: t.topic,
-      date: t.date,
-      status: t.status as 'Completado' | 'Programado' | 'Vencido',
-      score: t.score,
-      certificateUrl: t.certificate_url,
-    })) || [];
   },
 
   async createTrainings(resourceId: string, trainings: Training[]): Promise<void> {
@@ -651,7 +629,7 @@ export const resourcesService = {
         .order('date', { ascending: true });
       
       if (error) throw error;
-      return data || [];
+      return mapShiftsFromDB(data || []);
     } catch (error: any) {
       if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
         console.warn(`⚠️ Error de red al obtener turnos para ${resourceId}`);
@@ -660,12 +638,6 @@ export const resourcesService = {
       console.error('Error al obtener turnos:', error);
       return [];
     }
-
-    return data?.map(s => ({
-      date: s.date,
-      type: s.type as any,
-      hours: Number(s.hours),
-    })) || [];
   },
 
   async createDailyShifts(resourceId: string, shifts: DailyShift[]): Promise<void> {
@@ -750,7 +722,7 @@ export const resourcesService = {
         .order('date', { ascending: false });
       
       if (error) throw error;
-      return data || [];
+      return mapMaintenanceFromDB(data || []);
     } catch (error: any) {
       if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
         console.warn(`⚠️ Error de red al obtener registros de mantenimiento para ${resourceId}`);
@@ -759,21 +731,6 @@ export const resourcesService = {
       console.error('Error al obtener registros de mantenimiento:', error);
       return [];
     }
-
-    return data?.map((m) => {
-      const images = m.maintenance_images?.map((img: any) => img.image_url) || [];
-      return {
-        id: m.id,
-        date: m.date,
-        type: m.type as any,
-        description: m.description,
-        technician: m.technician,
-        cost: m.cost ? Number(m.cost) : undefined,
-        status: m.status as 'Realizado' | 'Programado',
-        nextScheduledDate: m.next_scheduled_date,
-        images,
-      };
-    }) || [];
   },
 
   // Obtener historial de contratos para un recurso
@@ -984,6 +941,272 @@ function normalizeDateToDB(dateValue: any): string | null | undefined {
   }
   
   return undefined;
+}
+
+function mapTrainingsFromDB(rows: any[]): Training[] {
+  return rows.map(t => ({
+    id: t.id,
+    topic: t.topic,
+    date: t.date,
+    status: t.status as 'Completado' | 'Programado' | 'Vencido',
+    score: t.score,
+    certificateUrl: t.certificate_url,
+  }));
+}
+
+function mapAssetsFromDB(rows: any[]): AssignedAsset[] {
+  return rows.map(a => ({
+    id: a.id,
+    name: a.name,
+    type: a.type as any,
+    dateAssigned: a.date_assigned,
+    serialNumber: a.serial_number,
+    phoneNumber: a.phone_number,
+    notes: a.notes,
+    constancyCode: a.constancy_code || undefined,
+    constancyGeneratedAt: a.constancy_generated_at || undefined,
+    standardAssetId: a.standard_asset_id || undefined,
+  }));
+}
+
+function mapShiftsFromDB(rows: any[]): DailyShift[] {
+  return rows.map(s => ({
+    date: s.date,
+    type: s.type as any,
+    hours: Number(s.hours),
+  }));
+}
+
+function mapMaintenanceFromDB(rows: any[]): MaintenanceRecord[] {
+  return rows.map((m) => {
+    const images = m.maintenance_images?.map((img: any) => img.image_url) || [];
+    return {
+      id: m.id,
+      date: m.date,
+      type: m.type as any,
+      description: m.description,
+      technician: m.technician,
+      cost: m.cost ? Number(m.cost) : undefined,
+      status: m.status as 'Realizado' | 'Programado',
+      nextScheduledDate: m.next_scheduled_date,
+      images,
+    };
+  });
+}
+
+function groupByResourceId<T extends { resource_id?: string }>(
+  rows: T[]
+): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const id = row.resource_id;
+    if (!id) continue;
+    const list = map.get(id);
+    if (list) list.push(row);
+    else map.set(id, [row]);
+  }
+  return map;
+}
+
+async function fetchInChunks<T>(
+  ids: string[],
+  chunkSize: number,
+  fetcher: (chunkIds: string[]) => Promise<T[]>
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  const results: T[] = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const rows = await fetcher(chunk);
+    results.push(...rows);
+  }
+  return results;
+}
+
+type RelatedDataMaps = {
+  trainingsById: Map<string, Training[]>;
+  assetsById: Map<string, AssignedAsset[]>;
+  shiftsById: Map<string, DailyShift[]>;
+  maintenanceById: Map<string, MaintenanceRecord[]>;
+  zonesById: Map<string, string[]>;
+  contractsById: Map<string, any[]>;
+};
+
+/**
+ * Carga datos relacionados de muchos recursos en pocas consultas (.in),
+ * en lugar de 6 requests por recurso (causa típica de ERR_CONNECTION_CLOSED).
+ */
+async function loadRelatedDataBatched(
+  resourceIds: string[],
+  options: { includeContracts?: boolean } = {}
+): Promise<RelatedDataMaps> {
+  const empty: RelatedDataMaps = {
+    trainingsById: new Map(),
+    assetsById: new Map(),
+    shiftsById: new Map(),
+    maintenanceById: new Map(),
+    zonesById: new Map(),
+    contractsById: new Map(),
+  };
+
+  if (resourceIds.length === 0) return empty;
+
+  const CHUNK = 80;
+  const includeContracts = options.includeContracts !== false;
+
+  const safeFetch = async <T>(label: string, fn: () => Promise<T[]>): Promise<T[]> => {
+    try {
+      return await fn();
+    } catch (error: any) {
+      console.warn(`⚠️ Error de red al cargar ${label} en lote:`, error?.message || error);
+      return [];
+    }
+  };
+
+  const [trainingRows, assetRows, shiftRows, maintenanceRows, zoneRows, contractRows] = await Promise.all([
+    safeFetch('capacitaciones', () =>
+      fetchInChunks(resourceIds, CHUNK, async (ids) => {
+        const { data, error } = await supabase
+          .from('trainings')
+          .select('*')
+          .in('resource_id', ids)
+          .order('date', { ascending: false });
+        if (error) throw error;
+        return data || [];
+      })
+    ),
+    safeFetch('activos', () =>
+      fetchInChunks(resourceIds, CHUNK, async (ids) => {
+        const { data, error } = await supabase
+          .from('assigned_assets')
+          .select('*')
+          .in('resource_id', ids)
+          .order('date_assigned', { ascending: false });
+        if (error) throw error;
+        return data || [];
+      })
+    ),
+    safeFetch('turnos', () =>
+      fetchInChunks(resourceIds, CHUNK, async (ids) => {
+        const { data, error } = await supabase
+          .from('daily_shifts')
+          .select('*')
+          .in('resource_id', ids)
+          .order('date', { ascending: true });
+        if (error) throw error;
+        return data || [];
+      })
+    ),
+    safeFetch('mantenimiento', () =>
+      fetchInChunks(resourceIds, CHUNK, async (ids) => {
+        const { data, error } = await supabase
+          .from('maintenance_records')
+          .select('*, maintenance_images(*)')
+          .in('resource_id', ids)
+          .order('date', { ascending: false });
+        if (error) throw error;
+        return data || [];
+      })
+    ),
+    safeFetch('zonas', () =>
+      fetchInChunks(resourceIds, CHUNK, async (ids) => {
+        const { data, error } = await supabase
+          .from('resource_zone_assignments')
+          .select('resource_id, zone_id, zones(name)')
+          .in('resource_id', ids);
+        if (error) throw error;
+        return data || [];
+      })
+    ),
+    includeContracts
+      ? safeFetch('contratos', () =>
+          fetchInChunks(resourceIds, CHUNK, async (ids) => {
+            const { data, error } = await supabase
+              .from('contract_history')
+              .select('*')
+              .in('resource_id', ids)
+              .order('contract_number', { ascending: true });
+            if (error) throw error;
+            return data || [];
+          })
+        )
+      : Promise.resolve([] as any[]),
+  ]);
+
+  const trainingsGrouped = groupByResourceId(trainingRows);
+  const assetsGrouped = groupByResourceId(assetRows);
+  const shiftsGrouped = groupByResourceId(shiftRows);
+  const maintenanceGrouped = groupByResourceId(maintenanceRows);
+  const contractsGrouped = groupByResourceId(contractRows);
+
+  const trainingsById = new Map<string, Training[]>();
+  for (const [id, rows] of trainingsGrouped) {
+    trainingsById.set(id, mapTrainingsFromDB(rows));
+  }
+
+  const assetsById = new Map<string, AssignedAsset[]>();
+  for (const [id, rows] of assetsGrouped) {
+    assetsById.set(id, mapAssetsFromDB(rows));
+  }
+
+  const shiftsById = new Map<string, DailyShift[]>();
+  for (const [id, rows] of shiftsGrouped) {
+    shiftsById.set(id, mapShiftsFromDB(rows));
+  }
+
+  const maintenanceById = new Map<string, MaintenanceRecord[]>();
+  for (const [id, rows] of maintenanceGrouped) {
+    maintenanceById.set(id, mapMaintenanceFromDB(rows));
+  }
+
+  const zonesById = new Map<string, string[]>();
+  for (const row of zoneRows as any[]) {
+    const resourceId = row.resource_id as string;
+    const zoneName = row.zones?.name as string | undefined;
+    if (!resourceId || !zoneName) continue;
+    const list = zonesById.get(resourceId) || [];
+    list.push(zoneName);
+    zonesById.set(resourceId, list);
+  }
+
+  // Fallback: si el embed de zones falló, resolver nombres por zone_id
+  const missingZoneResourceIds = (zoneRows as any[])
+    .filter((r) => r.resource_id && r.zone_id && !r.zones?.name)
+    .map((r) => r.zone_id as string);
+  if (missingZoneResourceIds.length > 0) {
+    const uniqueZoneIds = [...new Set(missingZoneResourceIds)];
+    try {
+      const { data: zoneNameRows } = await supabase
+        .from('zones')
+        .select('id, name')
+        .in('id', uniqueZoneIds);
+      const nameById = new Map((zoneNameRows || []).map((z: any) => [z.id, z.name]));
+      for (const row of zoneRows as any[]) {
+        if (row.zones?.name || !row.resource_id || !row.zone_id) continue;
+        const name = nameById.get(row.zone_id);
+        if (!name) continue;
+        const list = zonesById.get(row.resource_id) || [];
+        list.push(name);
+        zonesById.set(row.resource_id, list);
+      }
+    } catch {
+      // ignorar; zonas quedan vacías para esos recursos
+    }
+  }
+
+  const contractsById = new Map<string, any[]>();
+  for (const [id, rows] of contractsGrouped) {
+    contractsById.set(id, rows);
+  }
+
+  return {
+    trainingsById,
+    assetsById,
+    shiftsById,
+    maintenanceById,
+    zonesById,
+    contractsById,
+  };
 }
 
 async function mapWithConcurrency<T, R>(

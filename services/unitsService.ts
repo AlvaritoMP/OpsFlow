@@ -75,7 +75,7 @@ export const unitsService = {
       }
       const units = await mapWithConcurrency(
         data,
-        6,
+        2,
         async (unitData) => {
           try {
             // Cargar assignedStaff primero

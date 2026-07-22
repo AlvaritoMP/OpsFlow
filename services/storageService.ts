@@ -147,6 +147,51 @@ export const storageService = {
   },
 
   /**
+   * Convierte un File/Blob a data URL (fallback cuando no hay sesión de Storage).
+   */
+  async fileToDataUrl(file: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo de imagen'));
+      reader.readAsDataURL(file);
+    });
+  },
+
+  /**
+   * Persiste una imagen: intenta Storage; si no hay Auth o falla, usa data URL
+   * (válido para logos/portadas pequeñas-medias, p. ej. < 1.5 MB).
+   */
+  async persistImage(
+    file: File,
+    options: { bucket?: string; path?: string; maxDataUrlBytes?: number } = {}
+  ): Promise<{ url: string; storage: 'supabase' | 'data-url' }> {
+    const bucket = options.bucket || 'unit-images';
+    const path = options.path || `events/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+    const maxDataUrlBytes = options.maxDataUrlBytes ?? 1.5 * 1024 * 1024;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const url = await this.uploadFile(bucket, file, path);
+        return { url, storage: 'supabase' };
+      }
+    } catch (uploadError) {
+      console.warn('⚠️ Falló subida a Storage, usando data URL:', uploadError);
+    }
+
+    if (file.size > maxDataUrlBytes) {
+      throw new Error(
+        `La imagen pesa ${(file.size / 1024).toFixed(0)} KB y no hay sesión de Storage.\n\n` +
+        `Reduce el tamaño a menos de ${(maxDataUrlBytes / 1024).toFixed(0)} KB, o cierra sesión y vuelve a iniciar sesión para activar Supabase Auth.`
+      );
+    }
+
+    const dataUrl = await this.fileToDataUrl(file);
+    return { url: dataUrl, storage: 'data-url' };
+  },
+
+  /**
    * Elimina un archivo de Supabase Storage
    * @param bucket Nombre del bucket
    * @param path Ruta del archivo a eliminar

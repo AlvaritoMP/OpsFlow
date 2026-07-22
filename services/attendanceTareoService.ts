@@ -89,6 +89,45 @@ export interface TareoWorkerTotals {
   ht: number;
 }
 
+/** Compatibilidad con claves sembradas antes con nombres tipo "dot"/"palm". */
+const LEGACY_ICON_TO_EMOJI: Record<string, string> = {
+  dot: '✅',
+  circle: '⚪',
+  palm: '🏖️',
+  cross: '🏥',
+  x: '❌',
+  file: '📄',
+  'file-off': '📭',
+  baby: '👶',
+  heart: '🖤',
+  clock: '⏰',
+  moon: '🌙',
+  zap: '⚡',
+  'calendar-clock': '📅',
+};
+
+/** Resuelve el icono de una clave a emoji (igual que en la UI). */
+export function resolveKeyEmoji(icon: string | null | undefined): string {
+  const raw = (icon || '').trim();
+  if (!raw) return '⬜';
+  if (LEGACY_ICON_TO_EMOJI[raw]) return LEGACY_ICON_TO_EMOJI[raw];
+  return raw;
+}
+
+/** Celda de matriz como en la app: emoji de día + emoji de horas con Nh, o "—". */
+export function formatNovedadMatrixCell(
+  dayKey: Pick<AttendanceTareoKey, 'icon'> | undefined | null,
+  hoursKey: Pick<AttendanceTareoKey, 'icon'> | undefined | null,
+  hoursValue: number | null | undefined
+): string {
+  if (!dayKey && !hoursKey) return '—';
+  const parts: string[] = [];
+  if (dayKey) parts.push(resolveKeyEmoji(dayKey.icon));
+  if (hoursKey) parts.push(`${resolveKeyEmoji(hoursKey.icon)}${hoursValue ?? 0}h`);
+  // Una sola línea: Excel muestra emojis de forma fiable sin wrap de celda.
+  return parts.join(' ');
+}
+
 export const TAREO_PAYROLL_FIELD_OPTIONS: { value: TareoPayrollField; label: string; unit: 'DIAS' | 'HORAS' | '-' }[] = [
   { value: 'turnos_tm', label: 'Turnos TM', unit: 'DIAS' },
   { value: 'turnos_tt', label: 'Turnos TT', unit: 'DIAS' },
@@ -744,10 +783,7 @@ export const attendanceTareoService = {
         const n = novedadMap.get(`${w.id}|${day}`);
         const dayKey = n?.dayKeyId ? keyById.get(n.dayKeyId) : undefined;
         const hoursKey = n?.hoursKeyId ? keyById.get(n.hoursKeyId) : undefined;
-        const parts: string[] = [];
-        if (dayKey) parts.push(dayKey.code);
-        if (hoursKey) parts.push(`${hoursKey.code}:${n?.hoursValue ?? 0}h`);
-        row[formatDay(day)] = parts.join(' | ');
+        row[formatDay(day)] = formatNovedadMatrixCell(dayKey, hoursKey, n?.hoursValue);
       }
       return row;
     });
@@ -758,7 +794,7 @@ export const attendanceTareoService = {
       .map((k) => ({
         CODIGO: k.code,
         NOMBRE: k.name,
-        EMOJI: k.icon,
+        EMOJI: resolveKeyEmoji(k.icon),
         TIPO: k.valueKind === 'hours' ? 'Horas' : k.valueKind === 'day' ? 'Días' : 'Marca',
         VALOR: k.valueKind === 'hours' ? '' : k.valueAmount,
         COLUMNA_TAREO: k.payrollField,
@@ -766,10 +802,11 @@ export const attendanceTareoService = {
       }));
 
     const safeUnit = (unit.name || 'unidad').replace(/[^\w\-]+/g, '_').slice(0, 40);
+    // Matriz primero: misma vista trabajador × día con emoticonos que en la app.
     await excelService.exportMultipleSheets(
       [
-        { name: 'Detalle', headers: detailHeaders, data: detailRows },
         { name: 'Matriz', headers: matrixHeaders, data: matrixRows },
+        { name: 'Detalle', headers: detailHeaders, data: detailRows },
         { name: 'Leyenda', headers: legendHeaders, data: legendRows },
       ],
       `novedades_tareo_${safeUnit}_${dateFrom}_${dateTo}.xlsx`

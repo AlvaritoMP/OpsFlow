@@ -6,7 +6,10 @@ import {
   TareoPayrollField,
   TareoValueKind,
   TAREO_PAYROLL_FIELD_OPTIONS,
+  resolveKeyEmoji,
 } from '../services/attendanceTareoService';
+
+export { resolveKeyEmoji };
 
 /** Emoticones sugeridos para claves de novedades. */
 export const EMOJI_OPTIONS = [
@@ -46,30 +49,6 @@ export const EMOJI_OPTIONS = [
   '💼',
   '🏠',
 ] as const;
-
-/** Compatibilidad con claves sembradas antes con nombres tipo "dot"/"palm". */
-const LEGACY_ICON_TO_EMOJI: Record<string, string> = {
-  dot: '✅',
-  circle: '⚪',
-  palm: '🏖️',
-  cross: '🏥',
-  x: '❌',
-  file: '📄',
-  'file-off': '📭',
-  baby: '👶',
-  heart: '🖤',
-  clock: '⏰',
-  moon: '🌙',
-  zap: '⚡',
-  'calendar-clock': '📅',
-};
-
-export function resolveKeyEmoji(icon: string | null | undefined): string {
-  const raw = (icon || '').trim();
-  if (!raw) return '⬜';
-  if (LEGACY_ICON_TO_EMOJI[raw]) return LEGACY_ICON_TO_EMOJI[raw];
-  return raw;
-}
 
 interface AttendanceTareoKeysEditorProps {
   open: boolean;
