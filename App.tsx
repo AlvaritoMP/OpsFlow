@@ -1718,7 +1718,7 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'headcount') {
-      return <Headcount units={visibleUnits} />;
+      return <Headcount units={visibleUnits} onUpdateUnit={handleUpdateUnit} />;
     }
 
     if (currentView === 'vacations') {

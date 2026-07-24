@@ -466,6 +466,7 @@ export const unitsService = {
           blueprintLayers: unit.blueprintLayers || [],
           complianceHistory: unit.complianceHistory || [],
           requiredPositions: unit.requiredPositions || [],
+          headcountMeta: unit.headcountMeta || [],
           documents: unit.documents || [],
           assignedStaff: unit.assignedStaff || [],
         };
@@ -751,6 +752,7 @@ function transformUnitFromDB(
       score: Number(item.score),
     })) || [],
     requiredPositions: data.required_positions ? (Array.isArray(data.required_positions) ? data.required_positions : []) : [],
+    headcountMeta: data.headcount_meta ? (Array.isArray(data.headcount_meta) ? data.headcount_meta : []) : [],
     coordinator: data.coordinator ? {
       id: data.coordinator.id,
       name: data.coordinator.name,
@@ -798,6 +800,11 @@ function transformUnitToDB(unit: Partial<Unit>): any {
   // Incluir required_positions si está definido
   if (unit.requiredPositions !== undefined) {
     data.required_positions = unit.requiredPositions;
+  }
+
+  // Metadatos de Headcount (preventivo FDM, observaciones)
+  if (unit.headcountMeta !== undefined) {
+    data.headcount_meta = unit.headcountMeta;
   }
   
   return data;

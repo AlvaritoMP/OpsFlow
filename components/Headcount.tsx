@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, Resource, ResourceType, Position } from '../types';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Unit, Resource, ResourceType, Position, HeadcountPositionMeta } from '../types';
 import { positionsService } from '../services/positionsService';
-import { retenesService, RetenAssignment } from '../services/retenesService';
-import { Users, Briefcase, Building, X, Filter } from 'lucide-react';
+import { retenesService, Reten, RetenAssignment } from '../services/retenesService';
+import { Users, Briefcase, Building, X, Filter, RefreshCw } from 'lucide-react';
 
 interface HeadcountProps {
   units: Unit[];
+  onUpdateUnit?: (unit: Unit) => Promise<void>;
 }
 
 type ShiftKey = 'Day' | 'Afternoon' | 'Night';
@@ -15,6 +16,20 @@ interface ShiftBreakdown {
   Afternoon: number;
   Night: number;
   unassigned: number;
+}
+
+interface PreventivoValues {
+  Day: number;
+  Afternoon: number;
+  Night: number;
+}
+
+interface UnitRetenInfo {
+  names: string[];
+  count: number;
+  /** Detalle legible: "ROY 08:00-17:00" */
+  details: string[];
+  assignments: RetenAssignment[];
 }
 
 interface HeadcountRow {
@@ -30,6 +45,7 @@ interface HeadcountRow {
   porCubrir: number;
   vacantByShift: ShiftBreakdown;
   turnover: number;
+  preventivo: PreventivoValues;
   isFirstInUnit: boolean;
   unitRowSpan: number;
 }
@@ -40,6 +56,39 @@ const emptyShiftBreakdown = (): ShiftBreakdown => ({
   Night: 0,
   unassigned: 0,
 });
+
+const emptyPreventivo = (): PreventivoValues => ({
+  Day: 0,
+  Afternoon: 0,
+  Night: 0,
+});
+
+const metaRowKey = (unitId: string, positionId: string) => `${unitId}::${positionId}`;
+
+/** Fecha local YYYY-MM-DD (evita desfase UTC de toISOString en Perú) */
+const toLocalDateStr = (date: Date = new Date()): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const normalizeDateStr = (value: string | undefined | null): string =>
+  (value || '').toString().slice(0, 10);
+
+const formatTimeShort = (time: string | undefined): string => {
+  if (!time) return '';
+  return time.slice(0, 5);
+};
+
+const readPreventivo = (unit: Unit, positionId: string): PreventivoValues => {
+  const meta = unit.headcountMeta?.find(m => m.positionId === positionId);
+  return {
+    Day: Number(meta?.preventivo?.Day) || 0,
+    Afternoon: Number(meta?.preventivo?.Afternoon) || 0,
+    Night: Number(meta?.preventivo?.Night) || 0,
+  };
+};
 
 const normalizeShift = (shift: string): ShiftKey | null => {
   const lower = shift.toLowerCase();
@@ -59,8 +108,8 @@ const getWorkerShift = (worker: Resource): string | undefined => {
   if (worker.assignedShift) return worker.assignedShift;
 
   if (worker.workSchedule && worker.workSchedule.length > 0) {
-    const today = new Date().toISOString().split('T')[0];
-    const todayShift = worker.workSchedule.find(s => s.date === today);
+    const today = toLocalDateStr();
+    const todayShift = worker.workSchedule.find(s => normalizeDateStr(s.date) === today);
     if (todayShift && todayShift.type !== 'OFF' && todayShift.type !== 'Vacation' && todayShift.type !== 'Sick') {
       return todayShift.type;
     }
@@ -83,29 +132,86 @@ const cellNum = (value: number, showZero = true): string => {
   return String(value || 0);
 };
 
-export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
+export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => {
   const [positions, setPositions] = useState<Position[]>([]);
+  const [retenesCatalog, setRetenesCatalog] = useState<Reten[]>([]);
   const [todayRetenes, setTodayRetenes] = useState<RetenAssignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingRetenes, setLoadingRetenes] = useState(false);
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
   const [showFilter, setShowFilter] = useState(false);
+  /** Borrador local de preventivo mientras se edita (key = unitId::positionId) */
+  const [preventivoDraft, setPreventivoDraft] = useState<Record<string, PreventivoValues>>({});
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const focusedKeyRef = useRef<string | null>(null);
+  const todayLocal = toLocalDateStr();
 
   useEffect(() => {
     loadData();
   }, []);
 
+  // Refrescar retenes al volver a la pestaña (por si se asignaron en Vista Semanal)
+  useEffect(() => {
+    const onFocus = () => {
+      void loadTodayRetenes();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
+  // Sincronizar borrador desde unidades (sin pisar la celda en foco)
+  useEffect(() => {
+    setPreventivoDraft(prev => {
+      const next: Record<string, PreventivoValues> = { ...prev };
+      units.forEach(unit => {
+        const positionIds = new Set((unit.requiredPositions || []).map(r => r.positionId));
+        positionIds.forEach(positionId => {
+          const key = metaRowKey(unit.id, positionId);
+          if (focusedKeyRef.current === key) return;
+          next[key] = readPreventivo(unit, positionId);
+        });
+      });
+      return next;
+    });
+  }, [units]);
+
+  const resolveRetenName = useCallback((assignment: RetenAssignment, catalog: Reten[]): string => {
+    if (assignment.reten_name?.trim()) return assignment.reten_name.trim();
+    const fromCatalog = catalog.find(r => r.id === assignment.reten_id);
+    return fromCatalog?.name?.trim() || 'Retén';
+  }, []);
+
+  const loadTodayRetenes = useCallback(async () => {
+    try {
+      setLoadingRetenes(true);
+      const today = toLocalDateStr();
+      const [retenesData, retenAssignments] = await Promise.all([
+        retenesService.getAll(),
+        retenesService.getAssignmentsByDateRange(today, today),
+      ]);
+      setRetenesCatalog(retenesData);
+      // Misma fuente que Vista Semanal / utilización: asignaciones del día no canceladas
+      const active = (retenAssignments || []).filter(a => {
+        const dateOk = normalizeDateStr(a.assignment_date) === today;
+        return dateOk && a.status !== 'cancelada';
+      });
+      setTodayRetenes(active);
+    } catch (error: any) {
+      console.error('❌ Headcount - Error al cargar retenes del día:', error);
+    } finally {
+      setLoadingRetenes(false);
+    }
+  }, []);
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const today = new Date().toISOString().split('T')[0];
-      const [positionsData, retenAssignments] = await Promise.all([
+      const [positionsData] = await Promise.all([
         positionsService.getAll(true),
-        retenesService.getAssignmentsByDateRange(today, today),
+        loadTodayRetenes(),
       ]);
       setPositions(positionsData);
-      setTodayRetenes(
-        retenAssignments.filter(a => a.status !== 'cancelada')
-      );
     } catch (error: any) {
       console.error('❌ Headcount - Error al cargar datos:', error);
     } finally {
@@ -113,23 +219,126 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
     }
   };
 
+  const getPreventivo = useCallback((unitId: string, positionId: string): PreventivoValues => {
+    const key = metaRowKey(unitId, positionId);
+    if (preventivoDraft[key]) return preventivoDraft[key];
+    const unit = units.find(u => u.id === unitId);
+    return unit ? readPreventivo(unit, positionId) : emptyPreventivo();
+  }, [preventivoDraft, units]);
+
+  const persistPreventivo = useCallback(async (
+    unitId: string,
+    positionId: string,
+    values: PreventivoValues
+  ) => {
+    if (!onUpdateUnit) return;
+    const unit = units.find(u => u.id === unitId);
+    if (!unit) return;
+
+    const key = metaRowKey(unitId, positionId);
+    const normalized: PreventivoValues = {
+      Day: Math.max(0, Math.floor(Number(values.Day) || 0)),
+      Afternoon: Math.max(0, Math.floor(Number(values.Afternoon) || 0)),
+      Night: Math.max(0, Math.floor(Number(values.Night) || 0)),
+    };
+
+    const current = readPreventivo(unit, positionId);
+    if (
+      current.Day === normalized.Day &&
+      current.Afternoon === normalized.Afternoon &&
+      current.Night === normalized.Night
+    ) {
+      return;
+    }
+
+    const existing: HeadcountPositionMeta[] = [...(unit.headcountMeta || [])];
+    const idx = existing.findIndex(m => m.positionId === positionId);
+    const entry: HeadcountPositionMeta = {
+      ...(idx >= 0 ? existing[idx] : { positionId }),
+      positionId,
+      preventivo: { ...normalized },
+    };
+    if (idx >= 0) existing[idx] = entry;
+    else existing.push(entry);
+
+    setSavingKeys(prev => new Set(prev).add(key));
+    setSaveError(null);
+    try {
+      await onUpdateUnit({ ...unit, headcountMeta: existing });
+    } catch (err: any) {
+      console.error('Error guardando preventivo FDM:', err);
+      setSaveError(err?.message || 'No se pudo guardar el preventivo FDM');
+      setPreventivoDraft(prev => ({ ...prev, [key]: current }));
+    } finally {
+      setSavingKeys(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }, [onUpdateUnit, units]);
+
+  const handlePreventivoChange = (
+    unitId: string,
+    positionId: string,
+    shift: ShiftKey,
+    raw: string
+  ) => {
+    const key = metaRowKey(unitId, positionId);
+    const parsed = raw === '' ? 0 : Math.max(0, Math.floor(Number(raw) || 0));
+    setPreventivoDraft(prev => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || getPreventivo(unitId, positionId)),
+        [shift]: parsed,
+      },
+    }));
+  };
+
   const filteredUnits = useMemo(() => {
     if (selectedUnitIds.length === 0) return units;
     return units.filter(u => selectedUnitIds.includes(u.id));
   }, [units, selectedUnitIds]);
 
+  /** Cruce con Vista Semanal (utilización de retenes): asignaciones de hoy por unidad */
   const retenByUnit = useMemo(() => {
-    const map = new Map<string, { names: string[]; count: number }>();
-    todayRetenes.forEach(a => {
-      const existing = map.get(a.unit_id) || { names: [], count: 0 };
-      if (a.reten_name && !existing.names.includes(a.reten_name)) {
-        existing.names.push(a.reten_name);
-      }
-      existing.count += 1;
-      map.set(a.unit_id, existing);
+    const map = new Map<string, UnitRetenInfo>();
+    const unitsByNormalizedName = new Map<string, string>();
+    units.forEach(u => {
+      unitsByNormalizedName.set(u.name.trim().toLowerCase(), u.id);
     });
+
+    todayRetenes.forEach(a => {
+      let unitId = a.unit_id;
+      if (!unitId || !units.some(u => u.id === unitId)) {
+        const byName = unitsByNormalizedName.get((a.unit_name || '').trim().toLowerCase());
+        if (byName) unitId = byName;
+      }
+      if (!unitId) return;
+
+      const name = resolveRetenName(a, retenesCatalog);
+      const schedule = [formatTimeShort(a.start_time), formatTimeShort(a.end_time)]
+        .filter(Boolean)
+        .join('-');
+      const detail = schedule ? `${name} ${schedule}` : name;
+
+      const existing = map.get(unitId) || {
+        names: [],
+        count: 0,
+        details: [],
+        assignments: [],
+      };
+      if (!existing.names.includes(name)) {
+        existing.names.push(name);
+      }
+      existing.details.push(detail);
+      existing.assignments.push(a);
+      existing.count += 1;
+      map.set(unitId, existing);
+    });
+
     return map;
-  }, [todayRetenes]);
+  }, [todayRetenes, retenesCatalog, units, resolveRetenName]);
 
   // Tabla principal: una fila por UNIDAD × CARGO (turnos pivotados)
   const tableRows = useMemo((): HeadcountRow[] => {
@@ -227,6 +436,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
           porCubrir,
           vacantByShift,
           turnover,
+          preventivo: getPreventivo(unit.id, entry.positionId),
           isFirstInUnit: index === 0,
           unitRowSpan: positionEntries.length,
         });
@@ -234,11 +444,12 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
     });
 
     return rows;
-  }, [filteredUnits, positions]);
+  }, [filteredUnits, positions, getPreventivo]);
 
   const totals = useMemo(() => {
     const shiftReq = emptyShiftBreakdown();
     const shiftVacant = emptyShiftBreakdown();
+    const preventivo = emptyPreventivo();
     let rq = 0;
     let activos = 0;
     let porCubrir = 0;
@@ -252,12 +463,13 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
       (['Day', 'Afternoon', 'Night'] as ShiftKey[]).forEach(s => {
         shiftReq[s] += row.requiredByShift[s];
         shiftVacant[s] += row.vacantByShift[s];
+        preventivo[s] += row.preventivo[s];
       });
       shiftReq.unassigned += row.requiredByShift.unassigned;
       shiftVacant.unassigned += row.vacantByShift.unassigned;
     });
 
-    return { rq, activos, porCubrir, turnover, shiftReq, shiftVacant };
+    return { rq, activos, porCubrir, turnover, shiftReq, shiftVacant, preventivo };
   }, [tableRows]);
 
   // Resumen por puesto (agregado global)
@@ -346,14 +558,14 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
     let descanso = 0;
     let falta = 0;
     let vacaciones = 0;
-    const today = new Date().toISOString().split('T')[0];
+    const today = toLocalDateStr();
 
     filteredUnits.forEach(unit => {
       const personnel = (unit.resources || []).filter(
         r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado' && !r.archived
       );
       personnel.forEach(p => {
-        const todayShift = p.workSchedule?.find(s => s.date === today);
+        const todayShift = p.workSchedule?.find(s => normalizeDateStr(s.date) === today);
         if (!todayShift) return;
         if (todayShift.type === 'OFF') descanso += 1;
         else if (todayShift.type === 'Sick') falta += 1;
@@ -492,11 +704,33 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
 
       {/* ========== TABLA PRINCIPAL (estilo Excel) ========== */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
           <h3 className="font-bold text-slate-700 flex items-center text-sm">
             <Users className="mr-2" size={16} /> Detalle Headcount por Unidad / Cargo
           </h3>
-          <span className="text-xs text-slate-500">{tableRows.length} filas</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            {saveError && (
+              <span className="text-xs text-red-600">{saveError}</span>
+            )}
+            <span className="text-xs text-slate-500">
+              Preventivo FDM editable · {tableRows.length} filas
+            </span>
+            <button
+              type="button"
+              onClick={() => void loadTodayRetenes()}
+              disabled={loadingRetenes}
+              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              title="Actualizar asignaciones desde Utilización / Vista Semanal de Retenes"
+            >
+              <RefreshCw size={12} className={loadingRetenes ? 'animate-spin' : ''} />
+              Retenes {todayLocal.split('-').reverse().join('/')}
+              {dayStatusSummary.retenesHoy > 0 && (
+                <span className="bg-slate-700 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                  {dayStatusSummary.retenesHoy}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse text-slate-800">
@@ -511,7 +745,13 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                 <th rowSpan={2} className={`${thBase} bg-amber-400 text-amber-950 min-w-[56px]`}>Activos</th>
                 <th rowSpan={2} className={`${thBase} bg-orange-400 text-orange-950 min-w-[64px]`}>Por cubrir</th>
                 <th colSpan={3} className={`${thBase} bg-orange-300 text-orange-950`}>Turnos por cubrir</th>
-                <th colSpan={2} className={`${thBase} bg-slate-600`}>Retén del día</th>
+                <th colSpan={3} className={`${thBase} bg-emerald-600`}>Preventivo FDM</th>
+                <th colSpan={2} className={`${thBase} bg-slate-600`}>
+                  Retén del día
+                  <div className="normal-case font-normal text-[9px] opacity-80 tracking-normal">
+                    Vista Semanal · {todayLocal.split('-').reverse().join('/')}
+                  </div>
+                </th>
               </tr>
               <tr className="bg-[#254a73] text-white">
                 <th className={thBase}>Mañana</th>
@@ -520,6 +760,9 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                 <th className={`${thBase} bg-orange-200 text-orange-900`}>Mañana</th>
                 <th className={`${thBase} bg-orange-200 text-orange-900`}>Tarde</th>
                 <th className={`${thBase} bg-orange-200 text-orange-900`}>Noche</th>
+                <th className={`${thBase} bg-emerald-500`}>Mañana</th>
+                <th className={`${thBase} bg-emerald-500`}>Tarde</th>
+                <th className={`${thBase} bg-emerald-500`}>Noche</th>
                 <th className={`${thBase} bg-slate-500`}>Nombre</th>
                 <th className={`${thBase} bg-slate-500 min-w-[40px]`}>#</th>
               </tr>
@@ -527,7 +770,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
             <tbody>
               {tableRows.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-6 py-10 text-center text-slate-400 text-sm">
+                  <td colSpan={17} className="px-6 py-10 text-center text-slate-400 text-sm">
                     No hay puestos requeridos definidos en las unidades seleccionadas
                   </td>
                 </tr>
@@ -535,6 +778,36 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                 tableRows.map((row, idx) => {
                   const reten = retenByUnit.get(row.unitId);
                   const alt = idx % 2 === 1;
+                  const pKey = metaRowKey(row.unitId, row.positionId);
+                  const isSaving = savingKeys.has(pKey);
+                  const preventivo = row.preventivo;
+
+                  const renderPreventivoInput = (shift: ShiftKey) => (
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      disabled={!onUpdateUnit || isSaving}
+                      value={preventivo[shift] || ''}
+                      placeholder="0"
+                      onFocus={() => { focusedKeyRef.current = pKey; }}
+                      onChange={(e) => handlePreventivoChange(row.unitId, row.positionId, shift, e.target.value)}
+                      onBlur={() => {
+                        focusedKeyRef.current = null;
+                        void persistPreventivo(row.unitId, row.positionId, getPreventivo(row.unitId, row.positionId));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      className={`w-12 mx-auto block text-center text-xs rounded border px-1 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 disabled:bg-slate-100 disabled:text-slate-400 ${
+                        preventivo[shift] > 0 ? 'border-emerald-400 font-semibold text-emerald-900' : 'border-emerald-200 text-slate-600'
+                      }`}
+                      title="Preventivo FDM — se guarda al salir de la celda"
+                    />
+                  );
+
                   return (
                     <tr
                       key={`${row.unitId}_${row.positionId}`}
@@ -570,17 +843,45 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                       <td className={`${tdBase} bg-orange-50 ${row.vacantByShift.Night > 0 ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
                         {cellNum(row.vacantByShift.Night, false) || '—'}
                       </td>
+                      <td className={`${tdBase} bg-emerald-50 ${isSaving ? 'opacity-60' : ''}`}>{renderPreventivoInput('Day')}</td>
+                      <td className={`${tdBase} bg-emerald-50 ${isSaving ? 'opacity-60' : ''}`}>{renderPreventivoInput('Afternoon')}</td>
+                      <td className={`${tdBase} bg-emerald-50 ${isSaving ? 'opacity-60' : ''}`}>{renderPreventivoInput('Night')}</td>
                       {row.isFirstInUnit && (
                         <>
                           <td
                             rowSpan={row.unitRowSpan}
-                            className={`${tdBase} text-left align-top text-[11px] max-w-[120px] whitespace-normal`}
+                            className={`${tdBase} text-left align-top text-[11px] max-w-[180px] whitespace-normal bg-slate-50`}
+                            title={
+                              reten
+                                ? reten.assignments
+                                    .map(a => {
+                                      const name = resolveRetenName(a, retenesCatalog);
+                                      const hor = `${formatTimeShort(a.start_time)}-${formatTimeShort(a.end_time)}`;
+                                      const tipo = a.assignment_type === 'inmediata' ? 'inmediata' : 'planificada';
+                                      return `${name} · ${hor} · ${tipo}${a.reason ? ` · ${a.reason}` : ''}`;
+                                    })
+                                    .join('\n')
+                                : 'Sin asignación de retén hoy en Vista Semanal'
+                            }
                           >
-                            {reten?.names.join(', ') || '—'}
+                            {reten ? (
+                              <div className="space-y-1">
+                                {reten.details.map((detail, i) => (
+                                  <div key={`${row.unitId}-reten-${i}`} className="leading-snug">
+                                    <span className="font-semibold text-slate-800">{detail}</span>
+                                    {reten.assignments[i]?.assignment_type === 'inmediata' && (
+                                      <span className="ml-1 text-[9px] text-red-600 font-medium">inmediata</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
                           <td
                             rowSpan={row.unitRowSpan}
-                            className={`${tdBase} align-top font-medium`}
+                            className={`${tdBase} align-top font-bold ${reten?.count ? 'text-slate-800' : 'text-slate-400'}`}
                           >
                             {reten?.count || 0}
                           </td>
@@ -605,6 +906,9 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                   <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Day || '—'}</td>
                   <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Afternoon || '—'}</td>
                   <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Night || '—'}</td>
+                  <td className={`${thBase} bg-emerald-500`}>{totals.preventivo.Day || '—'}</td>
+                  <td className={`${thBase} bg-emerald-500`}>{totals.preventivo.Afternoon || '—'}</td>
+                  <td className={`${thBase} bg-emerald-500`}>{totals.preventivo.Night || '—'}</td>
                   <td className={thBase} colSpan={2}>
                     {dayStatusSummary.retenesHoy} retén(es) hoy
                   </td>
@@ -691,7 +995,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
               </thead>
               <tbody>
                 <tr className="bg-white">
-                  <td className={`${tdBase} text-left`}>Retenes asignados hoy</td>
+                  <td className={`${tdBase} text-left`}>Retenes asignados hoy (Vista Semanal)</td>
                   <td className={`${tdBase} font-bold`}>{dayStatusSummary.retenesHoy}</td>
                 </tr>
                 <tr className="bg-slate-50">
@@ -769,8 +1073,15 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                       }`}>
                         {cov.toFixed(0)}%
                       </td>
-                      <td className={`${tdBase} text-left text-[11px] max-w-[140px] whitespace-normal`}>
-                        {reten ? `${reten.names.join(', ')} (${reten.count})` : '—'}
+                      <td className={`${tdBase} text-left text-[11px] max-w-[160px] whitespace-normal`}>
+                        {reten ? (
+                          <div>
+                            <div className="font-medium text-slate-800">{reten.names.join(', ')}</div>
+                            <div className="text-slate-500 text-[10px]">{reten.details.join(' · ')}</div>
+                          </div>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                     </tr>
                   );

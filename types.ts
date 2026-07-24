@@ -378,6 +378,17 @@ export interface RequiredPosition {
   shift?: string; // Turno requerido: 'Day', 'Afternoon', 'Night', o undefined para cualquier turno
 }
 
+/** Metadatos de Headcount por puesto (preventivo FDM, observaciones, etc.) — criterio operativo del usuario */
+export interface HeadcountPositionMeta {
+  positionId: string;
+  preventivo?: {
+    Day?: number;
+    Afternoon?: number;
+    Night?: number;
+  };
+  observaciones?: string;
+}
+
 export interface Unit {
   id: string;
   name: string;
@@ -410,6 +421,9 @@ export interface Unit {
   
   // Required Positions
   requiredPositions?: RequiredPosition[]; // Puestos requeridos en la unidad
+
+  /** Metadatos de Headcount por cargo (preventivo FDM editable, observaciones) */
+  headcountMeta?: HeadcountPositionMeta[];
 }
 
 // ============================================
