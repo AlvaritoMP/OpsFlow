@@ -23,6 +23,7 @@ import {
   isNightSupervisionVisibleForUnitClass,
   UNIT_CLASS_LABELS,
 } from '../utils/unitClassConfig';
+import { isUnitOperational } from '../utils/unitStatus';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -860,6 +861,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // --- General Unit Update ---
   const handleSaveUnit = async () => {
     if (!onUpdate) return;
+
+    const deactivating =
+      editForm.status === UnitStatus.DEACTIVATED && unit.status !== UnitStatus.DEACTIVATED;
+    if (deactivating) {
+      const confirmed = confirm(
+        `¿Desactivar la unidad "${unit.name}"?\n\nDejará de participar en todos los procesos y conteos del sistema (personal, equipos, headcount, vacaciones, reportes, etc.).\n\nPodrás reactivarla cambiando el estado nuevamente.`
+      );
+      if (!confirmed) return;
+    }
     
     // Verificar si hay imágenes subiéndose
     if (uploadingImages.size > 0) {
@@ -5325,7 +5335,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       <option value={UnitStatus.ACTIVE}>Activo</option>
                       <option value={UnitStatus.PENDING}>Pendiente</option>
                       <option value={UnitStatus.ISSUE}>Con Incidencias</option>
+                      <option value={UnitStatus.DEACTIVATED}>Desactivado</option>
                     </select>
+                    {editForm.status === UnitStatus.DEACTIVATED && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        Al desactivar, la unidad y sus datos (personal, equipos, etc.) dejan de contar en todos los procesos del sistema.
+                      </p>
+                    )}
                   </div>
                   <div><label className="block text-sm font-medium text-slate-700">Descripción Operativa</label><textarea className="w-full border border-slate-300 rounded p-2" value={editForm.description || ''} onChange={e => setEditForm({...editForm, description: e.target.value})} /></div>
 
@@ -7340,7 +7356,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             <div>
               <h1 className="text-2xl font-bold text-slate-900">{unit.name}</h1>
               <div className="flex items-center space-x-2 text-sm text-slate-500">
-                <span className={`w-2 h-2 rounded-full ${unit.status === 'Activo' ? 'bg-green-500' : 'bg-red-500'}`}></span><span>{unit.status}</span><span>•</span><span>{unit.clientName}</span>
+                <span className={`w-2 h-2 rounded-full ${
+                  unit.status === UnitStatus.ACTIVE
+                    ? 'bg-green-500'
+                    : unit.status === UnitStatus.DEACTIVATED
+                      ? 'bg-slate-500'
+                      : 'bg-red-500'
+                }`}></span><span>{unit.status}</span><span>•</span><span>{unit.clientName}</span>
                 <span>•</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${unitClass === 'BPO' ? 'bg-violet-100 text-violet-700' : 'bg-slate-200 text-slate-600'}`}>
                   {UNIT_CLASS_LABELS[unitClass]}
@@ -7349,6 +7371,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             </div>
           </div>
         </div>
+        {!isUnitOperational(unit) && (
+          <div className="mb-3 rounded-lg border border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-700 flex items-start gap-2">
+            <AlertCircle size={18} className="shrink-0 mt-0.5 text-slate-500" />
+            <div>
+              <p className="font-semibold text-slate-800">Unidad desactivada</p>
+              <p className="text-slate-600">
+                No forma parte de los conteos ni procesos operativos del sistema (dashboard, headcount, personal, equipos, vacaciones, etc.). Edita el estado para reactivarla.
+              </p>
+            </div>
+          </div>
+        )}
         <div className="flex flex-nowrap gap-1 bg-slate-100 p-1 rounded-lg w-full md:w-fit overflow-x-auto">
           {checkPermission(userRole, 'UNIT_OVERVIEW', 'view') && isTabVisibleForUnitClass('overview', unit.unitClass) && (
               <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'overview' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('overview', unit.unitClass)}</button>

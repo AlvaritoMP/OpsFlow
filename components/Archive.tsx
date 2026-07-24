@@ -6,6 +6,7 @@ import { Archive as ArchiveIcon, User, Building, Calendar, Mail, Phone, FileText
 import { SafeImage } from './SafeImage';
 import { checkPermission } from '../services/permissionService';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
+import { filterOperationalUnits } from '../utils/unitStatus';
 
 interface ArchiveProps {
   currentUserRole?: UserRole;
@@ -416,14 +417,14 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                   >
                     <option value="">Seleccione una unidad...</option>
-                    {units.map((unit) => (
+                    {filterOperationalUnits(units).map((unit) => (
                       <option key={unit.id} value={unit.id}>
                         {unit.name} {unit.id === selectedPersonnel.originalUnitId && '(Unidad de origen)'}
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-slate-500 mt-2">
-                    El trabajador será reactivado y asignado a la unidad seleccionada.
+                    El trabajador será reactivado y asignado a la unidad seleccionada. No se listan unidades desactivadas.
                   </p>
                 </div>
               </div>

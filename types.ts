@@ -9,6 +9,7 @@ export enum UnitStatus {
   ACTIVE = 'Activo',
   PENDING = 'Pendiente',
   ISSUE = 'Con Incidencias',
+  DEACTIVATED = 'Desactivado',
 }
 
 /** Clase de unidad: operaciones de campo vs servicios BPO (payroll, contabilidad, etc.) */

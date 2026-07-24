@@ -38,6 +38,7 @@ import { InboundWorkerHandoff } from './components/InboundWorkerHandoff';
 import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
 import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffService';
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
+import { filterOperationalUnits, isUnitOperational } from './utils/unitStatus';
 
 const ATS_ALERT_INTERVAL_MS = 5 * 60 * 1000;
 const ATS_COUNT_POLL_MS = 30 * 1000;
@@ -420,7 +421,7 @@ const App: React.FC = () => {
     const todayDate = today.getDate();
     const alerts: Array<{ name: string; unitName: string; age: number; daysUntil: number }> = [];
 
-    units.forEach(unit => {
+    filterOperationalUnits(units).forEach(unit => {
       unit.resources.forEach(resource => {
         if (resource.type === ResourceType.PERSONNEL &&
             resource.birthDate &&
@@ -1584,7 +1585,14 @@ const App: React.FC = () => {
       return units;
   }, [units, currentUser]);
 
+  /** Unidades operativas: excluye Desactivado de todos los procesos y conteos del sistema. */
+  const operationalUnits = React.useMemo(
+    () => filterOperationalUnits(permissionScopedUnits),
+    [permissionScopedUnits]
+  );
+
   const visibleUnits = React.useMemo(() => {
+      // Lista de Gestión de Unidades: incluye desactivadas para poder reactivarlas
       let filtered = permissionScopedUnits;
 
       // Then, apply search filter if there's a query (solo lista de Unidades)
@@ -1680,19 +1688,19 @@ const App: React.FC = () => {
 
     if (currentView === 'control-center') {
       // Force remount when view or user role changes
-      return <ControlCenter key={`control-center-${currentView}-${currentUser.role}-${currentUser.id}`} units={visibleUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
+      return <ControlCenter key={`control-center-${currentView}-${currentUser.role}-${currentUser.id}`} units={operationalUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'client-control-center') {
-      return <ClientControlCenter units={visibleUnits} managementStaff={managementStaff} />;
+      return <ClientControlCenter units={operationalUnits} managementStaff={managementStaff} />;
     }
 
     if (currentView === 'reports') {
-      return <Reports units={visibleUnits} />;
+      return <Reports units={operationalUnits} />;
     }
 
     if (currentView === 'dashboard') {
-      return <Dashboard units={visibleUnits} onSelectUnit={handleSelectUnit} currentUserRole={currentUser?.role} />;
+      return <Dashboard units={operationalUnits} onSelectUnit={handleSelectUnit} currentUserRole={currentUser?.role} />;
     }
 
     if (currentView === 'operations-dashboard') {
@@ -1708,21 +1716,21 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'night-supervision') {
-      return <NightSupervision units={visibleUnits} currentUser={currentUser} managementStaff={managementStaff} />;
+      return <NightSupervision units={operationalUnits} currentUser={currentUser} managementStaff={managementStaff} />;
     }
 
     if (currentView === 'retenes') {
-      return <Retenes units={visibleUnits} currentUserRole={currentUser.role} />;
+      return <Retenes units={operationalUnits} currentUserRole={currentUser.role} />;
     }
 
     if (currentView === 'headcount') {
-      return <Headcount units={permissionScopedUnits} onUpdateUnit={handleUpdateUnit} />;
+      return <Headcount units={operationalUnits} onUpdateUnit={handleUpdateUnit} />;
     }
 
     if (currentView === 'vacations') {
       return (
         <Vacations
-          units={visibleUnits}
+          units={operationalUnits}
           currentUser={currentUser}
           initialActiveView={vacationsNavTab}
           onPendingAuthCountChange={setPendingVacationAuthCount}
@@ -1731,14 +1739,14 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'workers-management') {
-      return <WorkersManagement units={visibleUnits} clients={clients} onUpdateUnit={handleUpdateUnit} />;
+      return <WorkersManagement units={operationalUnits} clients={clients} onUpdateUnit={handleUpdateUnit} />;
     }
 
     if (currentView === 'ats-reception') {
       return (
         <InboundWorkerHandoff
           canEdit={checkPermission(currentUser.role, 'ATS_RECEPTION', 'edit')}
-          units={visibleUnits}
+          units={operationalUnits}
           onRegistered={() => {
             // Silencioso: no disparar el spinner global de la app (unitsLoading).
             void loadUnits({ silent: true });
@@ -1751,7 +1759,7 @@ const App: React.FC = () => {
       return (
         <HrOpalosisIngreso
           canEdit={checkPermission(currentUser.role, 'HR_OPALOSIS', 'edit')}
-          units={visibleUnits}
+          units={operationalUnits}
           currentUserName={currentUser?.name}
         />
       );
@@ -1857,6 +1865,7 @@ const App: React.FC = () => {
                 <div 
                   key={unit.id} 
                   className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all group overflow-hidden relative ${
+                    !isUnitOperational(unit) ? 'opacity-70 border border-slate-300' :
                     pendingRequestsCount > 0 ? 'ring-2 ring-orange-500 shadow-md' : 
                     (() => {
                       // Check for contract alerts (workers with 3+ days in training)
@@ -1893,7 +1902,13 @@ const App: React.FC = () => {
                     
                     {/* Status Badge */}
                     <div className="absolute top-3 right-3">
-                      <span className={`text-xs font-bold px-3 py-1 rounded-full shadow-sm ${unit.status === 'Activo' ? 'bg-white/90 text-green-700 backdrop-blur-sm' : 'bg-white/90 text-red-700 backdrop-blur-sm'}`}>
+                      <span className={`text-xs font-bold px-3 py-1 rounded-full shadow-sm backdrop-blur-sm ${
+                        unit.status === UnitStatus.ACTIVE
+                          ? 'bg-white/90 text-green-700'
+                          : unit.status === UnitStatus.DEACTIVATED
+                            ? 'bg-slate-800/90 text-white'
+                            : 'bg-white/90 text-red-700'
+                      }`}>
                         {unit.status}
                       </span>
                     </div>
@@ -2083,7 +2098,13 @@ const App: React.FC = () => {
                         <option value={UnitStatus.ACTIVE}>Activo</option>
                         <option value={UnitStatus.PENDING}>Pendiente</option>
                         <option value={UnitStatus.ISSUE}>Con Incidencias</option>
+                        <option value={UnitStatus.DEACTIVATED}>Desactivado</option>
                       </select>
+                      {newUnitForm.status === UnitStatus.DEACTIVATED && (
+                        <p className="text-xs text-amber-700 mt-1">
+                          Una unidad desactivada no participa en conteos ni procesos (personal, equipos, headcount, etc.).
+                        </p>
+                      )}
                     </div>
 
                     {/* Image Upload Section */}
@@ -3749,8 +3770,9 @@ const App: React.FC = () => {
                     
                     const allowedClientNames = new Set<string>(clientNamesToFilter);
                     
-                    // Filtrar unidades solo de los clientes asignados al usuario
+                    // Filtrar unidades solo de los clientes asignados al usuario (excluye desactivadas)
                     const filteredUnits = units.filter(unit => {
+                      if (!isUnitOperational(unit)) return false;
                       if (allowedClientNames.size === 0) {
                         // Si no hay clientes asignados, no mostrar ninguna unidad
                         return false;
