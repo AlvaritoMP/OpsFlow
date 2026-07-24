@@ -1570,38 +1570,36 @@ const App: React.FC = () => {
 
   // --- UNIT FILTERING LOGIC ---
   // Now applies to ANY role that has linkedClientNames
-  const visibleUnits = React.useMemo(() => {
+  const permissionScopedUnits = React.useMemo(() => {
       if (!currentUser) return [];
-      
-      let filtered: Unit[];
-      
-      // First, filter by user permissions
+
+      // Solo permisos / clientes vinculados — sin el buscador de la sección Unidades
       if (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') {
-          filtered = units;
-      } else if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
-          // If user has linked clients, filter by them
-          filtered = units.filter(u => currentUser.linkedClientNames?.includes(u.clientName));
-      } else {
-          // If no linked clients (and not admin), behavior depends on role.
-          // Usually Operations sees ALL if not restricted.
-          // Client sees NONE if not linked.
-          if (currentUser.role === 'CLIENT') return [];
-          filtered = units;
+          return units;
       }
-      
-      // Then, apply search filter if there's a query
+      if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
+          return units.filter(u => currentUser.linkedClientNames?.includes(u.clientName));
+      }
+      if (currentUser.role === 'CLIENT') return [];
+      return units;
+  }, [units, currentUser]);
+
+  const visibleUnits = React.useMemo(() => {
+      let filtered = permissionScopedUnits;
+
+      // Then, apply search filter if there's a query (solo lista de Unidades)
       if (unitSearchQuery.trim()) {
           const query = unitSearchQuery.toLowerCase().trim();
-          filtered = filtered.filter(unit => 
+          filtered = filtered.filter(unit =>
               unit.name.toLowerCase().includes(query) ||
               unit.clientName?.toLowerCase().includes(query) ||
               unit.address?.toLowerCase().includes(query) ||
               unit.status?.toLowerCase().includes(query)
           );
       }
-      
+
       return filtered;
-  }, [units, currentUser, unitSearchQuery]);
+  }, [permissionScopedUnits, unitSearchQuery]);
 
   // Extract unique client names for the dropdown
   const availableClients = React.useMemo(() => {
@@ -1718,7 +1716,7 @@ const App: React.FC = () => {
     }
 
     if (currentView === 'headcount') {
-      return <Headcount units={visibleUnits} onUpdateUnit={handleUpdateUnit} />;
+      return <Headcount units={permissionScopedUnits} onUpdateUnit={handleUpdateUnit} />;
     }
 
     if (currentView === 'vacations') {

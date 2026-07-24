@@ -345,6 +345,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
   }, [todayRetenes, retenesCatalog, units, resolveRetenName]);
 
   // Tabla principal: una fila por UNIDAD × CARGO (turnos pivotados)
+  // Incluye todas las unidades del alcance (sin personal / sin RQ → ceros)
   const tableRows = useMemo((): HeadcountRow[] => {
     const rows: HeadcountRow[] = [];
 
@@ -355,6 +356,29 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
       const personnel = (unit.resources || []).filter(
         r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado' && !r.archived
       );
+      const hasPersonnel = personnel.length > 0;
+
+      // Sin personal: la unidad aparece con RQ 0 y cobertura 0
+      if (!hasPersonnel) {
+        rows.push({
+          unitId: unit.id,
+          unitName: unit.name,
+          clientName: unit.clientName,
+          positionId: '__sin_personal__',
+          positionName: 'Sin personal',
+          rq: 0,
+          requiredByShift: emptyShiftBreakdown(),
+          activos: 0,
+          activosByShift: emptyShiftBreakdown(),
+          porCubrir: 0,
+          vacantByShift: emptyShiftBreakdown(),
+          turnover: 0,
+          preventivo: getPreventivo(unit.id, '__sin_personal__'),
+          isFirstInUnit: true,
+          unitRowSpan: 1,
+        });
+        return;
+      }
 
       // Agrupar requerimientos por puesto
       const byPosition = new Map<string, {
@@ -391,6 +415,28 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
       const positionEntries = Array.from(byPosition.values()).sort((a, b) =>
         a.positionName.localeCompare(b.positionName)
       );
+
+      // Con personal pero sin puestos requeridos: fila en ceros de RQ / cobertura
+      if (positionEntries.length === 0) {
+        rows.push({
+          unitId: unit.id,
+          unitName: unit.name,
+          clientName: unit.clientName,
+          positionId: '__sin_rq__',
+          positionName: 'Sin puestos requeridos',
+          rq: 0,
+          requiredByShift: emptyShiftBreakdown(),
+          activos: 0,
+          activosByShift: emptyShiftBreakdown(),
+          porCubrir: 0,
+          vacantByShift: emptyShiftBreakdown(),
+          turnover: 0,
+          preventivo: getPreventivo(unit.id, '__sin_rq__'),
+          isFirstInUnit: true,
+          unitRowSpan: 1,
+        });
+        return;
+      }
 
       positionEntries.forEach((entry, index) => {
         const matching = personnel.filter(p =>
@@ -488,6 +534,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
     }>();
 
     tableRows.forEach(row => {
+      if (row.positionId === '__sin_personal__' || row.positionId === '__sin_rq__') return;
       if (!map.has(row.positionId)) {
         map.set(row.positionId, {
           positionName: row.positionName,
@@ -936,8 +983,14 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
                   const pKey = metaRowKey(row.unitId, row.positionId);
                   const isSaving = savingKeys.has(pKey);
                   const preventivo = row.preventivo;
+                  const isPlaceholderRow =
+                    row.positionId === '__sin_personal__' || row.positionId === '__sin_rq__';
 
-                  const renderPreventivoInput = (shift: ShiftKey) => (
+                  const renderPreventivoInput = (shift: ShiftKey) => {
+                    if (isPlaceholderRow) {
+                      return <span className="text-slate-400">—</span>;
+                    }
+                    return (
                     <input
                       type="number"
                       min={0}
@@ -961,7 +1014,8 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
                       }`}
                       title="Preventivo FDM — se guarda al salir de la celda"
                     />
-                  );
+                    );
+                  };
 
                   return (
                     <tr
