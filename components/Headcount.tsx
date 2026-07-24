@@ -1,54 +1,63 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, Resource, ResourceType, RequiredPosition } from '../types';
+import { Unit, Resource, ResourceType, Position } from '../types';
 import { positionsService } from '../services/positionsService';
-import { Position } from '../types';
-import { Users, AlertCircle, CheckCircle, XCircle, Briefcase, Building, X } from 'lucide-react';
+import { retenesService, RetenAssignment } from '../services/retenesService';
+import { Users, Briefcase, Building, X, Filter } from 'lucide-react';
 
 interface HeadcountProps {
   units: Unit[];
 }
 
-interface PositionSummary {
-  positionId: string;
-  positionName: string;
-  totalRequired: number;
-  totalCovered: number;
-  units: {
-    unitId: string;
-    unitName: string;
-    required: number;
-    covered: number;
-    deficit: number;
-    shift?: string; // Turno requerido
-    shiftDeficit?: { [shift: string]: number }; // Déficit por turno
-  }[];
+type ShiftKey = 'Day' | 'Afternoon' | 'Night';
+
+interface ShiftBreakdown {
+  Day: number;
+  Afternoon: number;
+  Night: number;
+  unassigned: number;
 }
 
-// Helper para hacer match entre turnos
-const matchesShift = (workerShift: string | undefined, requiredShift: string | undefined): boolean => {
-  if (!requiredShift) return true; // Si no se especifica turno, cualquier trabajador cuenta
-  if (!workerShift) return false; // Si el trabajador no tiene turno asignado, no cuenta
-  
-  // Normalizar nombres de turnos para comparación
-  const normalizeShift = (shift: string): string => {
-    const lower = shift.toLowerCase();
-    if (lower.includes('day') || lower.includes('mañana') || lower.includes('diurno') || lower.includes('morning')) return 'Day';
-    if (lower.includes('afternoon') || lower.includes('tarde') || lower.includes('vespertino')) return 'Afternoon';
-    if (lower.includes('night') || lower.includes('noche') || lower.includes('nocturno')) return 'Night';
-    return shift;
-  };
-  
-  return normalizeShift(workerShift) === normalizeShift(requiredShift);
+interface HeadcountRow {
+  unitId: string;
+  unitName: string;
+  clientName?: string;
+  positionId: string;
+  positionName: string;
+  rq: number;
+  requiredByShift: ShiftBreakdown;
+  activos: number;
+  activosByShift: ShiftBreakdown;
+  porCubrir: number;
+  vacantByShift: ShiftBreakdown;
+  turnover: number;
+  isFirstInUnit: boolean;
+  unitRowSpan: number;
+}
+
+const emptyShiftBreakdown = (): ShiftBreakdown => ({
+  Day: 0,
+  Afternoon: 0,
+  Night: 0,
+  unassigned: 0,
+});
+
+const normalizeShift = (shift: string): ShiftKey | null => {
+  const lower = shift.toLowerCase();
+  if (lower.includes('day') || lower.includes('mañana') || lower.includes('diurno') || lower.includes('morning')) {
+    return 'Day';
+  }
+  if (lower.includes('afternoon') || lower.includes('tarde') || lower.includes('vespertino')) {
+    return 'Afternoon';
+  }
+  if (lower.includes('night') || lower.includes('noche') || lower.includes('nocturno')) {
+    return 'Night';
+  }
+  return null;
 };
 
-// Helper para obtener el turno de un trabajador (de assignedShift o workSchedule)
 const getWorkerShift = (worker: Resource): string | undefined => {
-  // Primero intentar assignedShift
-  if (worker.assignedShift) {
-    return worker.assignedShift;
-  }
-  
-  // Si no hay assignedShift, intentar obtener del workSchedule del día actual
+  if (worker.assignedShift) return worker.assignedShift;
+
   if (worker.workSchedule && worker.workSchedule.length > 0) {
     const today = new Date().toISOString().split('T')[0];
     const todayShift = worker.workSchedule.find(s => s.date === today);
@@ -56,392 +65,414 @@ const getWorkerShift = (worker: Resource): string | undefined => {
       return todayShift.type;
     }
   }
-  
+
   return undefined;
+};
+
+const matchesPosition = (worker: Resource, positionId: string, positionName: string): boolean => {
+  return worker.puesto === positionName || worker.puesto === positionId;
+};
+
+const formatCurrency = (value: number): string => {
+  if (!value) return '—';
+  return `S/ ${value.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const cellNum = (value: number, showZero = true): string => {
+  if (!value && !showZero) return '';
+  return String(value || 0);
 };
 
 export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
   const [positions, setPositions] = useState<Position[]>([]);
+  const [todayRetenes, setTodayRetenes] = useState<RetenAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
+  const [showFilter, setShowFilter] = useState(false);
 
   useEffect(() => {
-    loadPositions();
+    loadData();
   }, []);
 
-  const loadPositions = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const data = await positionsService.getAll(true); // Incluir inactivos para referencia
-      console.log(`✅ Headcount - ${data.length} puestos cargados`);
-      setPositions(data);
-      
-      if (data.length === 0) {
-        console.warn('⚠️ Headcount: No se encontraron puestos. Verifica que existan en la base de datos y que tengas permisos para verlos.');
-      }
+      const today = new Date().toISOString().split('T')[0];
+      const [positionsData, retenAssignments] = await Promise.all([
+        positionsService.getAll(true),
+        retenesService.getAssignmentsByDateRange(today, today),
+      ]);
+      setPositions(positionsData);
+      setTodayRetenes(
+        retenAssignments.filter(a => a.status !== 'cancelada')
+      );
     } catch (error: any) {
-      console.error('❌ Headcount - Error al cargar puestos:', error);
-      console.error('❌ Detalles:', {
-        message: error.message,
-        code: error.code,
-        details: error.details
-      });
-      
-      if (error.message?.includes('permission denied') || error.message?.includes('row-level security') || error.code === '42501') {
-        console.error('⚠️ Error de permisos RLS. Verifica que tengas una sesión de Supabase Auth activa.');
-      }
+      console.error('❌ Headcount - Error al cargar datos:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Filtrar unidades según selección
   const filteredUnits = useMemo(() => {
     if (selectedUnitIds.length === 0) return units;
     return units.filter(u => selectedUnitIds.includes(u.id));
   }, [units, selectedUnitIds]);
 
-  // Calcular resumen de puestos (sin duplicar trabajadores compartidos en totales)
-  const positionSummary = useMemo(() => {
-    const summary: PositionSummary[] = [];
-    const positionMap = new Map<string, PositionSummary>();
+  const retenByUnit = useMemo(() => {
+    const map = new Map<string, { names: string[]; count: number }>();
+    todayRetenes.forEach(a => {
+      const existing = map.get(a.unit_id) || { names: [], count: 0 };
+      if (a.reten_name && !existing.names.includes(a.reten_name)) {
+        existing.names.push(a.reten_name);
+      }
+      existing.count += 1;
+      map.set(a.unit_id, existing);
+    });
+    return map;
+  }, [todayRetenes]);
 
-    filteredUnits.forEach(unit => {
+  // Tabla principal: una fila por UNIDAD × CARGO (turnos pivotados)
+  const tableRows = useMemo((): HeadcountRow[] => {
+    const rows: HeadcountRow[] = [];
+
+    const sortedUnits = [...filteredUnits].sort((a, b) => a.name.localeCompare(b.name));
+
+    sortedUnits.forEach(unit => {
       const requiredPositions = unit.requiredPositions || [];
-      const personnel = (unit.resources || []).filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
+      const personnel = (unit.resources || []).filter(
+        r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado' && !r.archived
+      );
+
+      // Agrupar requerimientos por puesto
+      const byPosition = new Map<string, {
+        positionId: string;
+        positionName: string;
+        requiredByShift: ShiftBreakdown;
+        rq: number;
+      }>();
 
       requiredPositions.forEach(reqPos => {
-        // Crear clave única que incluya el turno si está especificado
-        const positionKey = reqPos.shift ? `${reqPos.positionId}_${reqPos.shift}` : reqPos.positionId;
-        
-        if (!positionMap.has(positionKey)) {
-          positionMap.set(positionKey, {
+        const positionName =
+          reqPos.positionName ||
+          positions.find(p => p.id === reqPos.positionId)?.name ||
+          'Desconocido';
+        const key = reqPos.positionId;
+        if (!byPosition.has(key)) {
+          byPosition.set(key, {
             positionId: reqPos.positionId,
-            positionName: reqPos.positionName || positions.find(p => p.id === reqPos.positionId)?.name || 'Desconocido',
-            totalRequired: 0,
-            totalCovered: 0,
-            units: [],
+            positionName,
+            requiredByShift: emptyShiftBreakdown(),
+            rq: 0,
           });
         }
-
-        const summaryItem = positionMap.get(positionKey)!;
-        
-        // Filtrar trabajadores por puesto Y turno
-        const unitPersonnel = personnel.filter(p => {
-          const matchesPosition = p.puesto === reqPos.positionName || p.puesto === reqPos.positionId;
-          if (!matchesPosition) return false;
-          
-          // Si se especifica turno, verificar que coincida
-          if (reqPos.shift) {
-            const workerShift = getWorkerShift(p);
-            return matchesShift(workerShift, reqPos.shift);
-          }
-          
-          return true;
-        });
-        
-        const covered = unitPersonnel.length;
-        const deficit = reqPos.quantity - covered;
-        
-        // Calcular déficit por turno si hay múltiples turnos requeridos
-        const shiftDeficit: { [shift: string]: number } = {};
-        if (reqPos.shift) {
-          shiftDeficit[reqPos.shift] = deficit;
+        const entry = byPosition.get(key)!;
+        entry.rq += reqPos.quantity;
+        const shift = reqPos.shift ? normalizeShift(reqPos.shift) : null;
+        if (shift) {
+          entry.requiredByShift[shift] += reqPos.quantity;
+        } else {
+          entry.requiredByShift.unassigned += reqPos.quantity;
         }
+      });
 
-        summaryItem.totalRequired += reqPos.quantity;
-        summaryItem.units.push({
+      const positionEntries = Array.from(byPosition.values()).sort((a, b) =>
+        a.positionName.localeCompare(b.positionName)
+      );
+
+      positionEntries.forEach((entry, index) => {
+        const matching = personnel.filter(p =>
+          matchesPosition(p, entry.positionId, entry.positionName)
+        );
+
+        const activosByShift = emptyShiftBreakdown();
+        let turnover = 0;
+
+        matching.forEach(p => {
+          turnover += (p.monthlySalary || 0) + (p.workConditionAmount || 0);
+          const workerShift = getWorkerShift(p);
+          const normalized = workerShift ? normalizeShift(workerShift) : null;
+          if (normalized) {
+            activosByShift[normalized] += 1;
+          } else {
+            activosByShift.unassigned += 1;
+          }
+        });
+
+        const activos = matching.length;
+        const porCubrir = Math.max(0, entry.rq - activos);
+
+        // Vacantes por turno: requerido del turno − activos del turno
+        const vacantByShift = emptyShiftBreakdown();
+        (['Day', 'Afternoon', 'Night'] as ShiftKey[]).forEach(shift => {
+          vacantByShift[shift] = Math.max(
+            0,
+            entry.requiredByShift[shift] - activosByShift[shift]
+          );
+        });
+        vacantByShift.unassigned = Math.max(
+          0,
+          entry.requiredByShift.unassigned - activosByShift.unassigned
+        );
+
+        rows.push({
           unitId: unit.id,
           unitName: unit.name,
-          required: reqPos.quantity,
-          covered,
-          deficit,
-          shift: reqPos.shift,
-          shiftDeficit: Object.keys(shiftDeficit).length > 0 ? shiftDeficit : undefined,
+          clientName: unit.clientName,
+          positionId: entry.positionId,
+          positionName: entry.positionName,
+          rq: entry.rq,
+          requiredByShift: entry.requiredByShift,
+          activos,
+          activosByShift,
+          porCubrir,
+          vacantByShift,
+          turnover,
+          isFirstInUnit: index === 0,
+          unitRowSpan: positionEntries.length,
         });
       });
     });
 
-    // Recalcular totalCovered correctamente para cada posición (sin duplicar compartidos)
-    // Nota: Ahora agrupamos por posición + turno, así que cada entrada ya tiene su turno específico
-    positionMap.forEach((summaryItem, positionKey) => {
-      const sharedWorkers = new Set<string>(); // Set de identificadores de trabajadores compartidos ya contados
-      let totalUnique = 0;
-      
-      // Extraer positionId del key (puede incluir turno)
-      const positionId = positionKey.includes('_') ? positionKey.split('_')[0] : positionKey;
-      const shiftFromKey = positionKey.includes('_') ? positionKey.split('_')[1] : undefined;
-      
-      filteredUnits.forEach(unit => {
-        const requiredPositions = unit.requiredPositions || [];
-        const reqPositions = requiredPositions.filter(rp => {
-          const matchesPosition = rp.positionId === positionId;
-          if (!matchesPosition) return false;
-          // Si el key incluye turno, debe coincidir
-          if (shiftFromKey) {
-            return rp.shift === shiftFromKey;
-          }
-          // Si el key no incluye turno, solo incluir requerimientos sin turno
-          return !rp.shift;
-        });
-        
-        reqPositions.forEach(reqPos => {
-          const personnel = (unit.resources || []).filter(
-            r => {
-              const matchesType = r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado';
-              const matchesPosition = r.puesto === reqPos.positionName || r.puesto === reqPos.positionId;
-              if (!matchesType || !matchesPosition) return false;
-              
-              // Verificar turno si está especificado
-              if (reqPos.shift) {
-                const workerShift = getWorkerShift(r);
-                return matchesShift(workerShift, reqPos.shift);
-              }
-              
-              return true;
-            }
-          );
-          
-          personnel.forEach(p => {
-            const identifier = p.dni || p.name;
-            if (p.isShared) {
-              // Trabajador compartido: solo contar una vez en el total
-              if (!sharedWorkers.has(identifier)) {
-                sharedWorkers.add(identifier);
-                totalUnique++;
-              }
-            } else {
-              // Trabajador único: contar siempre
-              totalUnique++;
-            }
-          });
-        });
-      });
-      
-      summaryItem.totalCovered = totalUnique;
-    });
-
-    return Array.from(positionMap.values()).sort((a, b) => a.positionName.localeCompare(b.positionName));
+    return rows;
   }, [filteredUnits, positions]);
 
-  // Calcular resumen por unidad
+  const totals = useMemo(() => {
+    const shiftReq = emptyShiftBreakdown();
+    const shiftVacant = emptyShiftBreakdown();
+    let rq = 0;
+    let activos = 0;
+    let porCubrir = 0;
+    let turnover = 0;
+
+    tableRows.forEach(row => {
+      rq += row.rq;
+      activos += row.activos;
+      porCubrir += row.porCubrir;
+      turnover += row.turnover;
+      (['Day', 'Afternoon', 'Night'] as ShiftKey[]).forEach(s => {
+        shiftReq[s] += row.requiredByShift[s];
+        shiftVacant[s] += row.vacantByShift[s];
+      });
+      shiftReq.unassigned += row.requiredByShift.unassigned;
+      shiftVacant.unassigned += row.vacantByShift.unassigned;
+    });
+
+    return { rq, activos, porCubrir, turnover, shiftReq, shiftVacant };
+  }, [tableRows]);
+
+  // Resumen por puesto (agregado global)
+  const positionSummary = useMemo(() => {
+    const map = new Map<string, {
+      positionName: string;
+      rq: number;
+      activos: number;
+      porCubrir: number;
+      requiredByShift: ShiftBreakdown;
+      vacantByShift: ShiftBreakdown;
+    }>();
+
+    tableRows.forEach(row => {
+      if (!map.has(row.positionId)) {
+        map.set(row.positionId, {
+          positionName: row.positionName,
+          rq: 0,
+          activos: 0,
+          porCubrir: 0,
+          requiredByShift: emptyShiftBreakdown(),
+          vacantByShift: emptyShiftBreakdown(),
+        });
+      }
+      const item = map.get(row.positionId)!;
+      item.rq += row.rq;
+      item.activos += row.activos;
+      item.porCubrir += row.porCubrir;
+      (['Day', 'Afternoon', 'Night'] as ShiftKey[]).forEach(s => {
+        item.requiredByShift[s] += row.requiredByShift[s];
+        item.vacantByShift[s] += row.vacantByShift[s];
+      });
+    });
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.positionName.localeCompare(b.positionName)
+    );
+  }, [tableRows]);
+
+  // Resumen por unidad
   const unitSummary = useMemo(() => {
-    return filteredUnits.map(unit => {
-      const requiredPositions = unit.requiredPositions || [];
-      const personnel = (unit.resources || []).filter(r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado');
-      
-      let totalRequired = 0;
-      let totalCovered = 0;
+    const map = new Map<string, {
+      unitId: string;
+      unitName: string;
+      clientName?: string;
+      rq: number;
+      activos: number;
+      porCubrir: number;
+      turnover: number;
+      requiredByShift: ShiftBreakdown;
+      vacantByShift: ShiftBreakdown;
+    }>();
 
-      requiredPositions.forEach(reqPos => {
-        totalRequired += reqPos.quantity;
-        // Filtrar trabajadores por puesto Y turno
-        const matchingPersonnel = personnel.filter(p => {
-          const matchesPosition = p.puesto === reqPos.positionName || p.puesto === reqPos.positionId;
-          if (!matchesPosition) return false;
-          
-          // Si se especifica turno, verificar que coincida
-          if (reqPos.shift) {
-            const workerShift = getWorkerShift(p);
-            return matchesShift(workerShift, reqPos.shift);
-          }
-          
-          return true;
+    tableRows.forEach(row => {
+      if (!map.has(row.unitId)) {
+        map.set(row.unitId, {
+          unitId: row.unitId,
+          unitName: row.unitName,
+          clientName: row.clientName,
+          rq: 0,
+          activos: 0,
+          porCubrir: 0,
+          turnover: 0,
+          requiredByShift: emptyShiftBreakdown(),
+          vacantByShift: emptyShiftBreakdown(),
         });
-        const covered = matchingPersonnel.length;
-        totalCovered += Math.min(covered, reqPos.quantity); // No contar más de lo requerido
+      }
+      const item = map.get(row.unitId)!;
+      item.rq += row.rq;
+      item.activos += row.activos;
+      item.porCubrir += row.porCubrir;
+      item.turnover += row.turnover;
+      (['Day', 'Afternoon', 'Night'] as ShiftKey[]).forEach(s => {
+        item.requiredByShift[s] += row.requiredByShift[s];
+        item.vacantByShift[s] += row.vacantByShift[s];
       });
+    });
 
-      // Calcular resumen por turno
-      const shiftSummary: { [shift: string]: { required: number; covered: number; deficit: number } } = {
-        'Day': { required: 0, covered: 0, deficit: 0 },
-        'Afternoon': { required: 0, covered: 0, deficit: 0 },
-        'Night': { required: 0, covered: 0, deficit: 0 },
-        'Sin turno': { required: 0, covered: 0, deficit: 0 },
-      };
+    return Array.from(map.values()).sort((a, b) =>
+      a.unitName.localeCompare(b.unitName)
+    );
+  }, [tableRows]);
 
-      requiredPositions.forEach(reqPos => {
-        // Filtrar trabajadores por puesto Y turno
-        const matchingPersonnel = personnel.filter(p => {
-          const matchesPosition = p.puesto === reqPos.positionName || p.puesto === reqPos.positionId;
-          if (!matchesPosition) return false;
-          
-          // Si se especifica turno, verificar que coincida
-          if (reqPos.shift) {
-            const workerShift = getWorkerShift(p);
-            return matchesShift(workerShift, reqPos.shift);
-          }
-          
-          return true;
-        });
-        const covered = matchingPersonnel.length;
-        const deficit = reqPos.quantity - covered;
-        
-        // Agregar al resumen por turno
-        const shiftKey = reqPos.shift || 'Sin turno';
-        if (shiftSummary[shiftKey]) {
-          shiftSummary[shiftKey].required += reqPos.quantity;
-          shiftSummary[shiftKey].covered += Math.min(covered, reqPos.quantity);
-          shiftSummary[shiftKey].deficit += deficit;
-        }
+  // Estado del día (personal): descanso / falta / vacaciones
+  const dayStatusSummary = useMemo(() => {
+    let descanso = 0;
+    let falta = 0;
+    let vacaciones = 0;
+    const today = new Date().toISOString().split('T')[0];
+
+    filteredUnits.forEach(unit => {
+      const personnel = (unit.resources || []).filter(
+        r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado' && !r.archived
+      );
+      personnel.forEach(p => {
+        const todayShift = p.workSchedule?.find(s => s.date === today);
+        if (!todayShift) return;
+        if (todayShift.type === 'OFF') descanso += 1;
+        else if (todayShift.type === 'Sick') falta += 1;
+        else if (todayShift.type === 'Vacation') vacaciones += 1;
       });
+    });
 
-      return {
-        unitId: unit.id,
-        unitName: unit.name,
-        clientName: unit.clientName,
-        totalRequired,
-        totalCovered,
-        deficit: totalRequired - totalCovered,
-        shiftSummary, // Resumen por turno
-        positions: requiredPositions.map(reqPos => {
-          // Filtrar trabajadores por puesto Y turno
-          const matchingPersonnel = personnel.filter(p => {
-            const matchesPosition = p.puesto === reqPos.positionName || p.puesto === reqPos.positionId;
-            if (!matchesPosition) return false;
-            
-            // Si se especifica turno, verificar que coincida
-            if (reqPos.shift) {
-              const workerShift = getWorkerShift(p);
-              return matchesShift(workerShift, reqPos.shift);
-            }
-            
-            return true;
-          });
-          const covered = matchingPersonnel.length;
-          return {
-            positionId: reqPos.positionId,
-            positionName: reqPos.positionName || positions.find(p => p.id === reqPos.positionId)?.name || 'Desconocido',
-            required: reqPos.quantity,
-            covered,
-            deficit: reqPos.quantity - covered,
-            shift: reqPos.shift, // Incluir turno en el resultado
-          };
-        }),
-      };
-    }).sort((a, b) => a.unitName.localeCompare(b.unitName));
-  }, [filteredUnits, positions]);
+    return { descanso, falta, vacaciones, retenesHoy: todayRetenes.length };
+  }, [filteredUnits, todayRetenes]);
 
-  const overallStats = useMemo(() => {
-    const totalRequired = unitSummary.reduce((sum, u) => sum + u.totalRequired, 0);
-    const totalCovered = unitSummary.reduce((sum, u) => sum + u.totalCovered, 0);
-    const totalDeficit = totalRequired - totalCovered;
-    const coveragePercentage = totalRequired > 0 ? (totalCovered / totalRequired) * 100 : 0;
-
-    return {
-      totalRequired,
-      totalCovered,
-      totalDeficit,
-      coveragePercentage,
-    };
-  }, [unitSummary]);
+  const coveragePercentage =
+    totals.rq > 0 ? (totals.activos / totals.rq) * 100 : 0;
 
   const toggleUnitSelection = (unitId: string) => {
-    setSelectedUnitIds(prev => 
-      prev.includes(unitId) 
-        ? prev.filter(id => id !== unitId)
-        : [...prev, unitId]
+    setSelectedUnitIds(prev =>
+      prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
     );
-  };
-
-  const selectAllUnits = () => {
-    setSelectedUnitIds(units.map(u => u.id));
-  };
-
-  const clearSelection = () => {
-    setSelectedUnitIds([]);
   };
 
   if (loading) {
     return (
       <div className="p-6 md:p-8">
         <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
           <p className="mt-4 text-slate-500">Cargando información de Headcount...</p>
         </div>
       </div>
     );
   }
 
+  const thBase = 'px-2 py-2 text-[10px] font-bold uppercase tracking-wide text-center whitespace-nowrap border border-slate-300';
+  const tdBase = 'px-2 py-1.5 text-xs text-center border border-slate-200 whitespace-nowrap';
+
   return (
-    <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500 pb-20">
-      <div className="flex justify-between items-center">
+    <div className="p-4 md:p-6 space-y-5 animate-in fade-in duration-500 pb-20">
+      <div className="flex flex-wrap justify-between items-start gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center">
-            <Users className="mr-2" size={24} /> Headcount - Conciliación de Puestos
+            <Users className="mr-2" size={24} /> Headcount
           </h1>
-          <p className="text-slate-500 mt-1">Resumen de puestos requeridos vs cubiertos por unidad</p>
+          <p className="text-slate-500 mt-1 text-sm">
+            Conciliación de puestos requeridos vs activos — vista tabular
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowFilter(v => !v)}
+          className={`inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border transition-colors ${
+            showFilter || selectedUnitIds.length > 0
+              ? 'bg-blue-50 border-blue-300 text-blue-700'
+              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <Filter size={16} />
+          Filtrar unidades
+          {selectedUnitIds.length > 0 && (
+            <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+              {selectedUnitIds.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* KPIs compactos */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">RQ Total</p>
+          <p className="text-xl font-bold text-slate-800">{totals.rq}</p>
+        </div>
+        <div className="bg-amber-50 rounded-lg border border-amber-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-amber-700">Activos</p>
+          <p className="text-xl font-bold text-amber-800">{totals.activos}</p>
+        </div>
+        <div className="bg-orange-50 rounded-lg border border-orange-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-orange-700">Por cubrir</p>
+          <p className="text-xl font-bold text-orange-800">{totals.porCubrir}</p>
+        </div>
+        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Cobertura</p>
+          <p className={`text-xl font-bold ${
+            coveragePercentage >= 100 ? 'text-green-600' : coveragePercentage >= 80 ? 'text-amber-600' : 'text-red-600'
+          }`}>
+            {coveragePercentage.toFixed(1)}%
+          </p>
+        </div>
+        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Turnover (salarios)</p>
+          <p className="text-lg font-bold text-slate-800">{formatCurrency(totals.turnover)}</p>
         </div>
       </div>
 
-      {/* Estadísticas generales */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-500">Total Requerido</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">{overallStats.totalRequired}</p>
+      {/* Filtro de unidades */}
+      {showFilter && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <div className="flex justify-between items-center mb-3">
+            <label className="block text-sm font-medium text-slate-700">Unidades</label>
+            <div className="flex gap-2">
+              {selectedUnitIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedUnitIds([])}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center"
+                >
+                  <X size={14} className="mr-1" /> Limpiar
+                </button>
+              )}
+              {selectedUnitIds.length < units.length && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedUnitIds(units.map(u => u.id))}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Seleccionar todas
+                </button>
+              )}
             </div>
-            <Briefcase className="text-blue-600" size={32} />
           </div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-500">Total Cubierto</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">{overallStats.totalCovered}</p>
-            </div>
-            <CheckCircle className="text-green-600" size={32} />
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-500">Déficit</p>
-              <p className="text-2xl font-bold text-red-600 mt-1">{overallStats.totalDeficit}</p>
-            </div>
-            <XCircle className="text-red-600" size={32} />
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-500">Cobertura</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">{overallStats.coveragePercentage.toFixed(1)}%</p>
-            </div>
-            <Users className="text-slate-600" size={32} />
-          </div>
-        </div>
-      </div>
-
-      {/* Filtro por unidad */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-        <div className="flex justify-between items-center mb-3">
-          <label className="block text-sm font-medium text-slate-700">Filtrar por Unidad</label>
-          <div className="flex gap-2">
-            {selectedUnitIds.length > 0 && (
-              <button
-                onClick={clearSelection}
-                className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center"
-              >
-                <X size={14} className="mr-1" /> Limpiar
-              </button>
-            )}
-            {selectedUnitIds.length < units.length && (
-              <button
-                onClick={selectAllUnits}
-                className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-              >
-                Seleccionar todas
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-2">
-          {units.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-2">No hay unidades disponibles</p>
-          ) : (
-            units.map(unit => (
+          <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1">
+            {units.map(unit => (
               <label
                 key={unit.id}
                 className="flex items-center space-x-2 p-2 hover:bg-slate-50 rounded cursor-pointer"
@@ -452,232 +483,322 @@ export const Headcount: React.FC<HeadcountProps> = ({ units }) => {
                   onChange={() => toggleUnitSelection(unit.id)}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-sm text-slate-700 flex-1">{unit.name}</span>
-                {unit.clientName && (
-                  <span className="text-xs text-slate-500">({unit.clientName})</span>
-                )}
+                <span className="text-sm text-slate-700 truncate">{unit.name}</span>
               </label>
-            ))
-          )}
+            ))}
+          </div>
         </div>
-        {selectedUnitIds.length > 0 && (
-          <p className="text-xs text-slate-500 mt-2">
-            {selectedUnitIds.length} {selectedUnitIds.length === 1 ? 'unidad seleccionada' : 'unidades seleccionadas'}
-          </p>
-        )}
-      </div>
+      )}
 
-      {/* Resumen por puesto */}
+      {/* ========== TABLA PRINCIPAL (estilo Excel) ========== */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
-          <h3 className="font-bold text-slate-700 flex items-center">
-            <Briefcase className="mr-2" size={18} /> Resumen por Puesto
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+          <h3 className="font-bold text-slate-700 flex items-center text-sm">
+            <Users className="mr-2" size={16} /> Detalle Headcount por Unidad / Cargo
           </h3>
+          <span className="text-xs text-slate-500">{tableRows.length} filas</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Puesto</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Turno</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Requerido</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Cubierto</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Déficit</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Cobertura</th>
+          <table className="min-w-full border-collapse text-slate-800">
+            <thead>
+              {/* Fila de grupos */}
+              <tr className="bg-[#1e3a5f] text-white">
+                <th rowSpan={2} className={`${thBase} text-left min-w-[160px]`}>Unidad</th>
+                <th rowSpan={2} className={`${thBase} text-left min-w-[140px]`}>Cargo</th>
+                <th rowSpan={2} className={`${thBase} min-w-[44px]`}>RQ</th>
+                <th colSpan={3} className={`${thBase} bg-[#254a73]`}>Turnos (RQ)</th>
+                <th rowSpan={2} className={`${thBase} min-w-[100px]`}>Turnover</th>
+                <th rowSpan={2} className={`${thBase} bg-amber-400 text-amber-950 min-w-[56px]`}>Activos</th>
+                <th rowSpan={2} className={`${thBase} bg-orange-400 text-orange-950 min-w-[64px]`}>Por cubrir</th>
+                <th colSpan={3} className={`${thBase} bg-orange-300 text-orange-950`}>Turnos por cubrir</th>
+                <th colSpan={2} className={`${thBase} bg-slate-600`}>Retén del día</th>
+              </tr>
+              <tr className="bg-[#254a73] text-white">
+                <th className={thBase}>Mañana</th>
+                <th className={thBase}>Tarde</th>
+                <th className={thBase}>Noche</th>
+                <th className={`${thBase} bg-orange-200 text-orange-900`}>Mañana</th>
+                <th className={`${thBase} bg-orange-200 text-orange-900`}>Tarde</th>
+                <th className={`${thBase} bg-orange-200 text-orange-900`}>Noche</th>
+                <th className={`${thBase} bg-slate-500`}>Nombre</th>
+                <th className={`${thBase} bg-slate-500 min-w-[40px]`}>#</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-slate-200">
-              {positionSummary.length === 0 ? (
+            <tbody>
+              {tableRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-slate-400">
-                    No hay puestos requeridos definidos en las unidades
+                  <td colSpan={14} className="px-6 py-10 text-center text-slate-400 text-sm">
+                    No hay puestos requeridos definidos en las unidades seleccionadas
                   </td>
                 </tr>
               ) : (
-                positionSummary.map((pos) => {
-                  const coverage = pos.totalRequired > 0 ? (pos.totalCovered / pos.totalRequired) * 100 : 0;
-                  // Obtener el turno del primer requerimiento que tenga turno (si hay)
-                  const shift = pos.units.find(u => u.shift)?.shift;
-                  const shiftLabel = shift ? (shift === 'Day' ? 'Mañana' : shift === 'Afternoon' ? 'Tarde' : shift === 'Night' ? 'Noche' : shift) : 'Todos';
+                tableRows.map((row, idx) => {
+                  const reten = retenByUnit.get(row.unitId);
+                  const alt = idx % 2 === 1;
                   return (
-                    <tr key={`${pos.positionId}_${shift || 'all'}`} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
-                        {pos.positionName}
+                    <tr
+                      key={`${row.unitId}_${row.positionId}`}
+                      className={alt ? 'bg-slate-50/80 hover:bg-blue-50/40' : 'bg-white hover:bg-blue-50/40'}
+                    >
+                      {row.isFirstInUnit && (
+                        <td
+                          rowSpan={row.unitRowSpan}
+                          className={`${tdBase} text-left font-semibold text-slate-800 align-top bg-slate-50 max-w-[200px]`}
+                        >
+                          <div className="whitespace-normal leading-snug">{row.unitName}</div>
+                          {row.clientName && (
+                            <div className="text-[10px] text-slate-400 font-normal mt-0.5">{row.clientName}</div>
+                          )}
+                        </td>
+                      )}
+                      <td className={`${tdBase} text-left font-medium`}>{row.positionName}</td>
+                      <td className={`${tdBase} font-semibold`}>{row.rq}</td>
+                      <td className={tdBase}>{cellNum(row.requiredByShift.Day, false) || '—'}</td>
+                      <td className={tdBase}>{cellNum(row.requiredByShift.Afternoon, false) || '—'}</td>
+                      <td className={tdBase}>{cellNum(row.requiredByShift.Night, false) || '—'}</td>
+                      <td className={`${tdBase} text-right tabular-nums`}>{formatCurrency(row.turnover)}</td>
+                      <td className={`${tdBase} bg-amber-100 font-bold text-amber-900`}>{row.activos}</td>
+                      <td className={`${tdBase} bg-orange-100 font-bold ${row.porCubrir > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                        {row.porCubrir}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-slate-600">
-                        <span className="px-2 py-1 bg-slate-100 rounded text-xs">{shiftLabel}</span>
+                      <td className={`${tdBase} bg-orange-50 ${row.vacantByShift.Day > 0 ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+                        {cellNum(row.vacantByShift.Day, false) || '—'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-slate-600">
-                        {pos.totalRequired}
+                      <td className={`${tdBase} bg-orange-50 ${row.vacantByShift.Afternoon > 0 ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+                        {cellNum(row.vacantByShift.Afternoon, false) || '—'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-green-600 font-medium">
-                        {pos.totalCovered}
+                      <td className={`${tdBase} bg-orange-50 ${row.vacantByShift.Night > 0 ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+                        {cellNum(row.vacantByShift.Night, false) || '—'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
-                        {pos.totalRequired - pos.totalCovered > 0 ? (
-                          <span className="text-red-600 font-medium">{pos.totalRequired - pos.totalCovered}</span>
-                        ) : (
-                          <span className="text-green-600">0</span>
-                        )}
+                      {row.isFirstInUnit && (
+                        <>
+                          <td
+                            rowSpan={row.unitRowSpan}
+                            className={`${tdBase} text-left align-top text-[11px] max-w-[120px] whitespace-normal`}
+                          >
+                            {reten?.names.join(', ') || '—'}
+                          </td>
+                          <td
+                            rowSpan={row.unitRowSpan}
+                            className={`${tdBase} align-top font-medium`}
+                          >
+                            {reten?.count || 0}
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+            {tableRows.length > 0 && (
+              <tfoot>
+                <tr className="bg-[#1e3a5f] text-white font-bold">
+                  <td className={`${thBase} text-left`} colSpan={2}>TOTAL</td>
+                  <td className={thBase}>{totals.rq}</td>
+                  <td className={thBase}>{totals.shiftReq.Day || '—'}</td>
+                  <td className={thBase}>{totals.shiftReq.Afternoon || '—'}</td>
+                  <td className={thBase}>{totals.shiftReq.Night || '—'}</td>
+                  <td className={`${thBase} text-right`}>{formatCurrency(totals.turnover)}</td>
+                  <td className={`${thBase} bg-amber-400 text-amber-950`}>{totals.activos}</td>
+                  <td className={`${thBase} bg-orange-400 text-orange-950`}>{totals.porCubrir}</td>
+                  <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Day || '—'}</td>
+                  <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Afternoon || '—'}</td>
+                  <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Night || '—'}</td>
+                  <td className={thBase} colSpan={2}>
+                    {dayStatusSummary.retenesHoy} retén(es) hoy
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        {/* Resumen por puesto */}
+        <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+            <h3 className="font-bold text-slate-700 flex items-center text-sm">
+              <Briefcase className="mr-2" size={16} /> Resumen por Puesto
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse">
+              <thead>
+                <tr className="bg-[#1e3a5f] text-white">
+                  <th className={`${thBase} text-left`}>Cargo</th>
+                  <th className={thBase}>RQ</th>
+                  <th className={thBase}>Mañana</th>
+                  <th className={thBase}>Tarde</th>
+                  <th className={thBase}>Noche</th>
+                  <th className={`${thBase} bg-amber-400 text-amber-950`}>Activos</th>
+                  <th className={`${thBase} bg-orange-400 text-orange-950`}>Por cubrir</th>
+                  <th className={`${thBase} bg-orange-200 text-orange-900`}>Vac. M</th>
+                  <th className={`${thBase} bg-orange-200 text-orange-900`}>Vac. T</th>
+                  <th className={`${thBase} bg-orange-200 text-orange-900`}>Vac. N</th>
+                  <th className={thBase}>Cobertura</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positionSummary.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="px-4 py-8 text-center text-slate-400 text-sm">Sin datos</td>
+                  </tr>
+                ) : (
+                  positionSummary.map((pos, idx) => {
+                    const cov = pos.rq > 0 ? (pos.activos / pos.rq) * 100 : 0;
+                    return (
+                      <tr key={pos.positionName} className={idx % 2 ? 'bg-slate-50' : 'bg-white'}>
+                        <td className={`${tdBase} text-left font-medium`}>{pos.positionName}</td>
+                        <td className={`${tdBase} font-semibold`}>{pos.rq}</td>
+                        <td className={tdBase}>{cellNum(pos.requiredByShift.Day, false) || '—'}</td>
+                        <td className={tdBase}>{cellNum(pos.requiredByShift.Afternoon, false) || '—'}</td>
+                        <td className={tdBase}>{cellNum(pos.requiredByShift.Night, false) || '—'}</td>
+                        <td className={`${tdBase} bg-amber-50 font-bold`}>{pos.activos}</td>
+                        <td className={`${tdBase} bg-orange-50 font-bold ${pos.porCubrir > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          {pos.porCubrir}
+                        </td>
+                        <td className={tdBase}>{cellNum(pos.vacantByShift.Day, false) || '—'}</td>
+                        <td className={tdBase}>{cellNum(pos.vacantByShift.Afternoon, false) || '—'}</td>
+                        <td className={tdBase}>{cellNum(pos.vacantByShift.Night, false) || '—'}</td>
+                        <td className={`${tdBase} font-medium ${
+                          cov >= 100 ? 'text-green-600' : cov >= 80 ? 'text-amber-600' : 'text-red-600'
+                        }`}>
+                          {cov.toFixed(0)}%
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Estado del día */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+            <h3 className="font-bold text-slate-700 text-sm">Estado del día</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse">
+              <thead>
+                <tr className="bg-slate-700 text-white">
+                  <th className={`${thBase} text-left`}>Concepto</th>
+                  <th className={thBase}>Cantidad</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="bg-white">
+                  <td className={`${tdBase} text-left`}>Retenes asignados hoy</td>
+                  <td className={`${tdBase} font-bold`}>{dayStatusSummary.retenesHoy}</td>
+                </tr>
+                <tr className="bg-slate-50">
+                  <td className={`${tdBase} text-left`}>Descanso (OFF)</td>
+                  <td className={`${tdBase} font-bold`}>{dayStatusSummary.descanso}</td>
+                </tr>
+                <tr className="bg-white">
+                  <td className={`${tdBase} text-left`}>Falta / Enfermedad</td>
+                  <td className={`${tdBase} font-bold`}>{dayStatusSummary.falta}</td>
+                </tr>
+                <tr className="bg-slate-50">
+                  <td className={`${tdBase} text-left`}>Vacaciones</td>
+                  <td className={`${tdBase} font-bold`}>{dayStatusSummary.vacaciones}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Resumen por unidad */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+          <h3 className="font-bold text-slate-700 flex items-center text-sm">
+            <Building className="mr-2" size={16} /> Resumen por Unidad
+          </h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse">
+            <thead>
+              <tr className="bg-[#1e3a5f] text-white">
+                <th className={`${thBase} text-left`}>Unidad</th>
+                <th className={`${thBase} text-left`}>Cliente</th>
+                <th className={thBase}>RQ</th>
+                <th className={thBase}>Mañana</th>
+                <th className={thBase}>Tarde</th>
+                <th className={thBase}>Noche</th>
+                <th className={thBase}>Turnover</th>
+                <th className={`${thBase} bg-amber-400 text-amber-950`}>Activos</th>
+                <th className={`${thBase} bg-orange-400 text-orange-950`}>Por cubrir</th>
+                <th className={`${thBase} bg-orange-200 text-orange-900`}>Vac. M</th>
+                <th className={`${thBase} bg-orange-200 text-orange-900`}>Vac. T</th>
+                <th className={`${thBase} bg-orange-200 text-orange-900`}>Vac. N</th>
+                <th className={thBase}>Cobertura</th>
+                <th className={`${thBase} bg-slate-600`}>Retén</th>
+              </tr>
+            </thead>
+            <tbody>
+              {unitSummary.length === 0 ? (
+                <tr>
+                  <td colSpan={14} className="px-4 py-8 text-center text-slate-400 text-sm">Sin datos</td>
+                </tr>
+              ) : (
+                unitSummary.map((unit, idx) => {
+                  const cov = unit.rq > 0 ? (unit.activos / unit.rq) * 100 : 0;
+                  const reten = retenByUnit.get(unit.unitId);
+                  return (
+                    <tr key={unit.unitId} className={idx % 2 ? 'bg-slate-50' : 'bg-white'}>
+                      <td className={`${tdBase} text-left font-medium`}>{unit.unitName}</td>
+                      <td className={`${tdBase} text-left text-slate-500`}>{unit.clientName || '—'}</td>
+                      <td className={`${tdBase} font-semibold`}>{unit.rq}</td>
+                      <td className={tdBase}>{cellNum(unit.requiredByShift.Day, false) || '—'}</td>
+                      <td className={tdBase}>{cellNum(unit.requiredByShift.Afternoon, false) || '—'}</td>
+                      <td className={tdBase}>{cellNum(unit.requiredByShift.Night, false) || '—'}</td>
+                      <td className={`${tdBase} text-right tabular-nums`}>{formatCurrency(unit.turnover)}</td>
+                      <td className={`${tdBase} bg-amber-50 font-bold`}>{unit.activos}</td>
+                      <td className={`${tdBase} bg-orange-50 font-bold ${unit.porCubrir > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {unit.porCubrir}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
-                        <div className="flex items-center justify-center">
-                          <div className="w-16 bg-slate-200 rounded-full h-2 mr-2">
-                            <div
-                              className={`h-2 rounded-full ${
-                                coverage >= 100 ? 'bg-green-600' : coverage >= 80 ? 'bg-yellow-500' : 'bg-red-600'
-                              }`}
-                              style={{ width: `${Math.min(coverage, 100)}%` }}
-                            />
-                          </div>
-                          <span className={`text-xs font-medium ${
-                            coverage >= 100 ? 'text-green-600' : coverage >= 80 ? 'text-yellow-600' : 'text-red-600'
-                          }`}>
-                            {coverage.toFixed(1)}%
-                          </span>
-                        </div>
+                      <td className={tdBase}>{cellNum(unit.vacantByShift.Day, false) || '—'}</td>
+                      <td className={tdBase}>{cellNum(unit.vacantByShift.Afternoon, false) || '—'}</td>
+                      <td className={tdBase}>{cellNum(unit.vacantByShift.Night, false) || '—'}</td>
+                      <td className={`${tdBase} font-medium ${
+                        cov >= 100 ? 'text-green-600' : cov >= 80 ? 'text-amber-600' : 'text-red-600'
+                      }`}>
+                        {cov.toFixed(0)}%
+                      </td>
+                      <td className={`${tdBase} text-left text-[11px] max-w-[140px] whitespace-normal`}>
+                        {reten ? `${reten.names.join(', ')} (${reten.count})` : '—'}
                       </td>
                     </tr>
                   );
                 })
               )}
             </tbody>
+            {unitSummary.length > 0 && (
+              <tfoot>
+                <tr className="bg-[#1e3a5f] text-white font-bold">
+                  <td className={`${thBase} text-left`} colSpan={2}>TOTAL</td>
+                  <td className={thBase}>{totals.rq}</td>
+                  <td className={thBase}>{totals.shiftReq.Day || '—'}</td>
+                  <td className={thBase}>{totals.shiftReq.Afternoon || '—'}</td>
+                  <td className={thBase}>{totals.shiftReq.Night || '—'}</td>
+                  <td className={`${thBase} text-right`}>{formatCurrency(totals.turnover)}</td>
+                  <td className={`${thBase} bg-amber-400 text-amber-950`}>{totals.activos}</td>
+                  <td className={`${thBase} bg-orange-400 text-orange-950`}>{totals.porCubrir}</td>
+                  <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Day || '—'}</td>
+                  <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Afternoon || '—'}</td>
+                  <td className={`${thBase} bg-orange-300 text-orange-950`}>{totals.shiftVacant.Night || '—'}</td>
+                  <td className={thBase}>{coveragePercentage.toFixed(0)}%</td>
+                  <td className={thBase}>{dayStatusSummary.retenesHoy}</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
-        </div>
-      </div>
-
-      {/* Resumen por unidad */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
-          <h3 className="font-bold text-slate-700 flex items-center">
-            <Building className="mr-2" size={18} /> Resumen por Unidad
-          </h3>
-        </div>
-        <div className="divide-y divide-slate-200">
-          {unitSummary.length === 0 ? (
-            <div className="px-6 py-8 text-center text-slate-400">
-              No hay unidades con puestos requeridos definidos
-            </div>
-          ) : (
-            unitSummary.map((unit) => {
-              const unitCoverage = unit.totalRequired > 0 ? (unit.totalCovered / unit.totalRequired) * 100 : 0;
-              return (
-                <div key={unit.unitId} className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h4 className="font-bold text-slate-800">{unit.unitName}</h4>
-                      <p className="text-sm text-slate-500">{unit.clientName}</p>
-                    </div>
-                    <div className="text-right">
-                      <div className="flex items-center space-x-4">
-                        <div>
-                          <p className="text-xs text-slate-500">Requerido</p>
-                          <p className="text-lg font-bold text-slate-800">{unit.totalRequired}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">Cubierto</p>
-                          <p className="text-lg font-bold text-green-600">{unit.totalCovered}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">Déficit</p>
-                          <p className={`text-lg font-bold ${unit.deficit > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            {unit.deficit}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">Cobertura</p>
-                          <p className={`text-lg font-bold ${
-                            unitCoverage >= 100 ? 'text-green-600' : unitCoverage >= 80 ? 'text-yellow-600' : 'text-red-600'
-                          }`}>
-                            {unitCoverage.toFixed(1)}%
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Resumen por turno */}
-                  {unit.shiftSummary && Object.keys(unit.shiftSummary).some(shift => unit.shiftSummary[shift].required > 0) && (
-                    <div className="mt-4">
-                      <h5 className="text-sm font-semibold text-slate-700 mb-3">Resumen por Turno</h5>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                        {Object.entries(unit.shiftSummary).map(([shift, summary]: [string, any]) => {
-                          if (summary.required === 0) return null;
-                          const shiftLabel = shift === 'Day' ? 'Mañana' : shift === 'Afternoon' ? 'Tarde' : shift === 'Night' ? 'Noche' : shift;
-                          const coverage = summary.required > 0 ? (summary.covered / summary.required) * 100 : 0;
-                          return (
-                            <div key={shift} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-medium text-slate-600">{shiftLabel}</span>
-                                <span className={`text-xs font-bold ${
-                                  coverage >= 100 ? 'text-green-600' : coverage >= 80 ? 'text-yellow-600' : 'text-red-600'
-                                }`}>
-                                  {coverage.toFixed(0)}%
-                                </span>
-                              </div>
-                              <div className="space-y-1">
-                                <div className="flex justify-between text-xs">
-                                  <span className="text-slate-500">Requerido:</span>
-                                  <span className="font-medium text-slate-700">{summary.required}</span>
-                                </div>
-                                <div className="flex justify-between text-xs">
-                                  <span className="text-slate-500">Cubierto:</span>
-                                  <span className="font-medium text-green-600">{summary.covered}</span>
-                                </div>
-                                <div className="flex justify-between text-xs">
-                                  <span className="text-slate-500">Déficit:</span>
-                                  <span className={`font-medium ${summary.deficit > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                    {summary.deficit}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {unit.positions.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <h5 className="text-sm font-semibold text-slate-700 mb-2">Detalle por Puesto</h5>
-                      {unit.positions.map((pos: any) => {
-                        const posCoverage = pos.required > 0 ? (pos.covered / pos.required) * 100 : 0;
-                        const shiftLabel = pos.shift ? (pos.shift === 'Day' ? 'Mañana' : pos.shift === 'Afternoon' ? 'Tarde' : pos.shift === 'Night' ? 'Noche' : pos.shift) : 'Todos';
-                        return (
-                          <div key={`${pos.positionId}_${pos.shift || 'all'}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-slate-700">{pos.positionName}</p>
-                              {pos.shift && (
-                                <p className="text-xs text-slate-500 mt-1">Turno: {shiftLabel}</p>
-                              )}
-                            </div>
-                            <div className="flex items-center space-x-4 text-sm">
-                              <span className="text-slate-600">Req: {pos.required}</span>
-                              <span className="text-green-600 font-medium">Cub: {pos.covered}</span>
-                              {pos.deficit > 0 ? (
-                                <span className="text-red-600 font-medium flex items-center">
-                                  <AlertCircle size={14} className="mr-1" /> Falta: {pos.deficit}
-                                  {pos.shift && <span className="ml-1 text-xs">({shiftLabel})</span>}
-                                </span>
-                              ) : (
-                                <span className="text-green-600 flex items-center">
-                                  <CheckCircle size={14} className="mr-1" /> Completo
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
         </div>
       </div>
     </div>
   );
 };
-
