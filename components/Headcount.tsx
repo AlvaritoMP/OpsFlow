@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { toBlob, toPng } from 'html-to-image';
 import { Unit, Resource, ResourceType, Position, HeadcountPositionMeta } from '../types';
 import { positionsService } from '../services/positionsService';
 import { retenesService, Reten, RetenAssignment } from '../services/retenesService';
-import { Users, Briefcase, Building, X, Filter, RefreshCw } from 'lucide-react';
+import { Users, Briefcase, Building, X, Filter, RefreshCw, Image as ImageIcon, Download, Copy, Check } from 'lucide-react';
 
 interface HeadcountProps {
   units: Unit[];
@@ -145,6 +146,9 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
   const focusedKeyRef = useRef<string | null>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [capturingImage, setCapturingImage] = useState(false);
+  const [imageActionFeedback, setImageActionFeedback] = useState<'copied' | 'downloaded' | 'error' | null>(null);
   const todayLocal = toLocalDateStr();
 
   useEffect(() => {
@@ -585,6 +589,111 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
     );
   };
 
+  const prepareReportNodeForCapture = (node: HTMLElement) => {
+    const restored: Array<() => void> = [];
+    node.querySelectorAll<HTMLElement>('.overflow-x-auto, .overflow-y-auto, .overflow-auto').forEach(el => {
+      const prevOverflow = el.style.overflow;
+      const prevMaxHeight = el.style.maxHeight;
+      el.style.overflow = 'visible';
+      el.style.maxHeight = 'none';
+      restored.push(() => {
+        el.style.overflow = prevOverflow;
+        el.style.maxHeight = prevMaxHeight;
+      });
+    });
+    return () => restored.forEach(fn => fn());
+  };
+
+  const captureReportBlob = async (): Promise<Blob | null> => {
+    const node = reportRef.current;
+    if (!node) return null;
+
+    const restore = prepareReportNodeForCapture(node);
+    try {
+      // Doble rAF para que el layout ampliado se aplique antes de capturar
+      await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      const blob = await toBlob(node, {
+        pixelRatio: 2,
+        backgroundColor: '#f8fafc',
+        cacheBust: true,
+        filter: (element) => {
+          if (!(element instanceof HTMLElement)) return true;
+          return !element.classList.contains('no-capture');
+        },
+      });
+      return blob;
+    } finally {
+      restore();
+    }
+  };
+
+  const downloadReportImage = async () => {
+    const node = reportRef.current;
+    if (!node) return;
+    setCapturingImage(true);
+    setImageActionFeedback(null);
+    const restore = prepareReportNodeForCapture(node);
+    try {
+      await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      const dataUrl = await toPng(node, {
+        pixelRatio: 2,
+        backgroundColor: '#f8fafc',
+        cacheBust: true,
+        filter: (element) => {
+          if (!(element instanceof HTMLElement)) return true;
+          return !element.classList.contains('no-capture');
+        },
+      });
+      const link = document.createElement('a');
+      link.download = `headcount_${todayLocal}.png`;
+      link.href = dataUrl;
+      link.click();
+      setImageActionFeedback('downloaded');
+    } catch (err) {
+      console.error('Error generando imagen de Headcount:', err);
+      setImageActionFeedback('error');
+    } finally {
+      restore();
+      setCapturingImage(false);
+      window.setTimeout(() => setImageActionFeedback(null), 3000);
+    }
+  };
+
+  const copyReportImage = async () => {
+    setCapturingImage(true);
+    setImageActionFeedback(null);
+    try {
+      const blob = await captureReportBlob();
+      if (!blob) throw new Error('No se pudo generar la imagen');
+
+      const canWriteClipboard =
+        typeof ClipboardItem !== 'undefined' &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.write === 'function';
+
+      if (canWriteClipboard) {
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': blob }),
+        ]);
+        setImageActionFeedback('copied');
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `headcount_${todayLocal}.png`;
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
+        setImageActionFeedback('downloaded');
+      }
+    } catch (err) {
+      console.error('Error copiando imagen de Headcount:', err);
+      setImageActionFeedback('error');
+    } finally {
+      setCapturingImage(false);
+      window.setTimeout(() => setImageActionFeedback(null), 3000);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6 md:p-8">
@@ -601,7 +710,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
 
   return (
     <div className="p-4 md:p-6 space-y-5 animate-in fade-in duration-500 pb-20">
-      <div className="flex flex-wrap justify-between items-start gap-3">
+      <div className="flex flex-wrap justify-between items-start gap-3 no-capture">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center">
             <Users className="mr-2" size={24} /> Headcount
@@ -610,56 +719,56 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
             Conciliación de puestos requeridos vs activos — vista tabular
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowFilter(v => !v)}
-          className={`inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border transition-colors ${
-            showFilter || selectedUnitIds.length > 0
-              ? 'bg-blue-50 border-blue-300 text-blue-700'
-              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Filter size={16} />
-          Filtrar unidades
-          {selectedUnitIds.length > 0 && (
-            <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-              {selectedUnitIds.length}
-            </span>
-          )}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void copyReportImage()}
+            disabled={capturingImage || tableRows.length === 0}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            title="Genera una imagen del reporte y la copia al portapapeles para pegar en chats"
+          >
+            {imageActionFeedback === 'copied' ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+            {capturingImage ? 'Generando…' : imageActionFeedback === 'copied' ? 'Copiado' : 'Copiar imagen'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void downloadReportImage()}
+            disabled={capturingImage || tableRows.length === 0}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            title="Descargar el reporte completo como PNG"
+          >
+            {imageActionFeedback === 'downloaded' ? <Check size={16} className="text-green-600" /> : <Download size={16} />}
+            {imageActionFeedback === 'downloaded' ? 'Descargado' : 'Descargar PNG'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowFilter(v => !v)}
+            className={`inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border transition-colors ${
+              showFilter || selectedUnitIds.length > 0
+                ? 'bg-blue-50 border-blue-300 text-blue-700'
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Filter size={16} />
+            Filtrar unidades
+            {selectedUnitIds.length > 0 && (
+              <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                {selectedUnitIds.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* KPIs compactos */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-slate-500">RQ Total</p>
-          <p className="text-xl font-bold text-slate-800">{totals.rq}</p>
+      {imageActionFeedback === 'error' && (
+        <div className="no-capture text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          No se pudo generar la imagen. Prueba con Descargar PNG o usa Chrome/Edge.
         </div>
-        <div className="bg-amber-50 rounded-lg border border-amber-200 px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-amber-700">Activos</p>
-          <p className="text-xl font-bold text-amber-800">{totals.activos}</p>
-        </div>
-        <div className="bg-orange-50 rounded-lg border border-orange-200 px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-orange-700">Por cubrir</p>
-          <p className="text-xl font-bold text-orange-800">{totals.porCubrir}</p>
-        </div>
-        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-slate-500">Cobertura</p>
-          <p className={`text-xl font-bold ${
-            coveragePercentage >= 100 ? 'text-green-600' : coveragePercentage >= 80 ? 'text-amber-600' : 'text-red-600'
-          }`}>
-            {coveragePercentage.toFixed(1)}%
-          </p>
-        </div>
-        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-slate-500">Turnover (salarios)</p>
-          <p className="text-lg font-bold text-slate-800">{formatCurrency(totals.turnover)}</p>
-        </div>
-      </div>
+      )}
 
       {/* Filtro de unidades */}
       {showFilter && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <div className="no-capture bg-white rounded-xl border border-slate-200 shadow-sm p-4">
           <div className="flex justify-between items-center mb-3">
             <label className="block text-sm font-medium text-slate-700">Unidades</label>
             <div className="flex gap-2">
@@ -702,6 +811,52 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
         </div>
       )}
 
+      {/* Área capturable del reporte */}
+      <div ref={reportRef} className="space-y-5 bg-slate-50 p-3 rounded-xl">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <ImageIcon size={18} className="text-slate-500" />
+              Headcount — Reporte operativo
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Fecha: {todayLocal.split('-').reverse().join('/')} · Cobertura {coveragePercentage.toFixed(1)}%
+            </p>
+          </div>
+          <div className="text-right text-[11px] text-slate-500">
+            <div>RQ {totals.rq} · Activos {totals.activos} · Por cubrir {totals.porCubrir}</div>
+            <div>Retenes hoy: {dayStatusSummary.retenesHoy}</div>
+          </div>
+        </div>
+
+      {/* KPIs compactos */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">RQ Total</p>
+          <p className="text-xl font-bold text-slate-800">{totals.rq}</p>
+        </div>
+        <div className="bg-amber-50 rounded-lg border border-amber-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-amber-700">Activos</p>
+          <p className="text-xl font-bold text-amber-800">{totals.activos}</p>
+        </div>
+        <div className="bg-orange-50 rounded-lg border border-orange-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-orange-700">Por cubrir</p>
+          <p className="text-xl font-bold text-orange-800">{totals.porCubrir}</p>
+        </div>
+        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Cobertura</p>
+          <p className={`text-xl font-bold ${
+            coveragePercentage >= 100 ? 'text-green-600' : coveragePercentage >= 80 ? 'text-amber-600' : 'text-red-600'
+          }`}>
+            {coveragePercentage.toFixed(1)}%
+          </p>
+        </div>
+        <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Turnover (salarios)</p>
+          <p className="text-lg font-bold text-slate-800">{formatCurrency(totals.turnover)}</p>
+        </div>
+      </div>
+
       {/* ========== TABLA PRINCIPAL (estilo Excel) ========== */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
@@ -719,7 +874,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
               type="button"
               onClick={() => void loadTodayRetenes()}
               disabled={loadingRetenes}
-              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="no-capture inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               title="Actualizar asignaciones desde Utilización / Vista Semanal de Retenes"
             >
               <RefreshCw size={12} className={loadingRetenes ? 'animate-spin' : ''} />
@@ -1110,6 +1265,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
           </table>
         </div>
       </div>
+      </div>{/* fin área capturable */}
     </div>
   );
 };
