@@ -345,7 +345,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
   }, [todayRetenes, retenesCatalog, units, resolveRetenName]);
 
   // Tabla principal: una fila por UNIDAD × CARGO (turnos pivotados)
-  // Incluye todas las unidades del alcance (sin personal / sin RQ → ceros)
+  // RQ siempre viene de puestos requeridos; sin personal contratado = activos 0 y por cubrir = RQ
   const tableRows = useMemo((): HeadcountRow[] => {
     const rows: HeadcountRow[] = [];
 
@@ -356,31 +356,8 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
       const personnel = (unit.resources || []).filter(
         r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado' && !r.archived
       );
-      const hasPersonnel = personnel.length > 0;
 
-      // Sin personal: la unidad aparece con RQ 0 y cobertura 0
-      if (!hasPersonnel) {
-        rows.push({
-          unitId: unit.id,
-          unitName: unit.name,
-          clientName: unit.clientName,
-          positionId: '__sin_personal__',
-          positionName: 'Sin personal',
-          rq: 0,
-          requiredByShift: emptyShiftBreakdown(),
-          activos: 0,
-          activosByShift: emptyShiftBreakdown(),
-          porCubrir: 0,
-          vacantByShift: emptyShiftBreakdown(),
-          turnover: 0,
-          preventivo: getPreventivo(unit.id, '__sin_personal__'),
-          isFirstInUnit: true,
-          unitRowSpan: 1,
-        });
-        return;
-      }
-
-      // Agrupar requerimientos por puesto
+      // Agrupar requerimientos por puesto (existen aunque no haya personal contratado)
       const byPosition = new Map<string, {
         positionId: string;
         positionName: string;
@@ -416,14 +393,14 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
         a.positionName.localeCompare(b.positionName)
       );
 
-      // Con personal pero sin puestos requeridos: fila en ceros de RQ / cobertura
+      // Sin puestos requeridos: la unidad igual aparece, con RQ/cobertura en cero
       if (positionEntries.length === 0) {
         rows.push({
           unitId: unit.id,
           unitName: unit.name,
           clientName: unit.clientName,
           positionId: '__sin_rq__',
-          positionName: 'Sin puestos requeridos',
+          positionName: personnel.length === 0 ? 'Sin personal / Sin RQ' : 'Sin puestos requeridos',
           rq: 0,
           requiredByShift: emptyShiftBreakdown(),
           activos: 0,
@@ -458,9 +435,9 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
         });
 
         const activos = matching.length;
+        // Sin personal contratado: activos 0, por cubrir = RQ completo
         const porCubrir = Math.max(0, entry.rq - activos);
 
-        // Vacantes por turno: requerido del turno − activos del turno
         const vacantByShift = emptyShiftBreakdown();
         (['Day', 'Afternoon', 'Night'] as ShiftKey[]).forEach(shift => {
           vacantByShift[shift] = Math.max(
@@ -534,7 +511,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
     }>();
 
     tableRows.forEach(row => {
-      if (row.positionId === '__sin_personal__' || row.positionId === '__sin_rq__') return;
+      if (row.positionId === '__sin_rq__') return;
       if (!map.has(row.positionId)) {
         map.set(row.positionId, {
           positionName: row.positionName,
@@ -983,8 +960,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
                   const pKey = metaRowKey(row.unitId, row.positionId);
                   const isSaving = savingKeys.has(pKey);
                   const preventivo = row.preventivo;
-                  const isPlaceholderRow =
-                    row.positionId === '__sin_personal__' || row.positionId === '__sin_rq__';
+                  const isPlaceholderRow = row.positionId === '__sin_rq__';
 
                   const renderPreventivoInput = (shift: ShiftKey) => {
                     if (isPlaceholderRow) {
