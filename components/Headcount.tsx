@@ -835,25 +835,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
         </div>
       )}
 
-      {/* Área capturable del reporte */}
-      <div ref={reportRef} className="space-y-5 bg-slate-50 p-3 rounded-xl">
-        <div className="flex items-center justify-between gap-3 px-1">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <ImageIcon size={18} className="text-slate-500" />
-              Headcount — Reporte operativo
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Fecha: {todayLocal.split('-').reverse().join('/')} · Cobertura {coveragePercentage.toFixed(1)}%
-            </p>
-          </div>
-          <div className="text-right text-[11px] text-slate-500">
-            <div>RQ {totals.rq} · Activos {totals.activos} · Por cubrir {totals.porCubrir}</div>
-            <div>Retenes hoy: {dayStatusSummary.retenesHoy}</div>
-          </div>
-        </div>
-
-      {/* KPIs compactos */}
+      {/* KPIs compactos (fuera de la captura de imagen) */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
           <p className="text-[11px] uppercase tracking-wide text-slate-500">RQ Total</p>
@@ -880,6 +862,24 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
           <p className="text-lg font-bold text-slate-800">{formatCurrency(totals.turnover)}</p>
         </div>
       </div>
+
+      {/* Área capturable: solo las 2 primeras tablas */}
+      <div ref={reportRef} className="space-y-5 bg-slate-50 p-3 rounded-xl">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <ImageIcon size={18} className="text-slate-500" />
+              Headcount — Reporte operativo
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Fecha: {todayLocal.split('-').reverse().join('/')} · Cobertura {coveragePercentage.toFixed(1)}%
+            </p>
+          </div>
+          <div className="text-right text-[11px] text-slate-500">
+            <div>RQ {totals.rq} · Activos {totals.activos} · Por cubrir {totals.porCubrir}</div>
+            <div>Retenes hoy: {dayStatusSummary.retenesHoy}</div>
+          </div>
+        </div>
 
       {/* ========== TABLA PRINCIPAL (estilo Excel) ========== */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1104,9 +1104,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* Resumen por puesto */}
-        <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
             <h3 className="font-bold text-slate-700 flex items-center text-sm">
               <Briefcase className="mr-2" size={16} /> Resumen por Puesto
@@ -1164,7 +1162,9 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
             </table>
           </div>
         </div>
+      </div>{/* fin área capturable: solo Detalle + Resumen por Puesto */}
 
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         {/* Estado del día */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
@@ -1295,7 +1295,6 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
           </table>
         </div>
       </div>
-      </div>{/* fin área capturable */}
     </div>
   );
 };
