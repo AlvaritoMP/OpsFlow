@@ -19,6 +19,7 @@ import {
   classifyAttendanceStatus,
   AttendanceClassification,
 } from '../services/attendanceReportService';
+import { eachDateInRange } from '../services/attendanceTareoService';
 import { SafeImage } from './SafeImage';
 import { AttendanceMarkCommentBlock } from './AttendanceMarkCommentBlock';
 
@@ -159,13 +160,8 @@ export const AttendanceConsolidatedView: React.FC<AttendanceConsolidatedViewProp
     return map;
   }, [rowsInRange]);
 
-  const dates = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of rowsInRange) {
-      set.add(effectiveAttendanceDate(r, r.import_report_date));
-    }
-    return [...set].sort();
-  }, [rowsInRange]);
+  /** Todos los días calendario del rango (igual que Tareo / Novedades), no solo los con Excel. */
+  const dates = useMemo(() => eachDateInRange(dateFrom, dateTo), [dateFrom, dateTo]);
 
   const workers = useMemo(() => activePersonnelSorted(unit), [unit]);
 
@@ -184,9 +180,10 @@ export const AttendanceConsolidatedView: React.FC<AttendanceConsolidatedViewProp
         </h4>
         <p className="text-sm text-slate-600 max-w-3xl">
           Matriz de todos los trabajadores activos de la unidad (con cruce por documento en al menos un Excel).
-          Cada columna es un día con datos importados en el rango; la celda resume si la marcación fue{' '}
-          <strong>completa</strong> o <strong>incompleta</strong> (u otros estados del archivo). Los días sin archivo
-          no generan columna. Si subes nuevos reportes, usa <em>Actualizar</em> o vuelve a abrir esta vista.
+          Cada columna es un día calendario del rango seleccionado; la celda resume si la marcación fue{' '}
+          <strong>completa</strong> o <strong>incompleta</strong> (u otros estados del archivo). Los días sin
+          archivo importado aparecen como <em>—</em>. Si subes nuevos reportes, usa <em>Actualizar</em> o vuelve a
+          abrir esta vista.
           {canComment
             ? ' Puedes pulsar una celda con dato para añadir o revisar el comentario de esa marca.'
             : ' Pulsa una celda con dato para ver el detalle y comentarios guardados.'}
@@ -235,7 +232,7 @@ export const AttendanceConsolidatedView: React.FC<AttendanceConsolidatedViewProp
         <p className="text-sm text-slate-500 py-6">No hay personal activo en esta unidad.</p>
       ) : dates.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white p-10 text-center text-slate-500 text-sm">
-          No hay registros emparejados en el rango de fechas. Amplia el rango o importa más archivos.
+          Elige un rango de fechas válido (Desde ≤ Hasta).
         </div>
       ) : (
         <>
