@@ -615,17 +615,80 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
 
   const prepareReportNodeForCapture = (node: HTMLElement) => {
     const restored: Array<() => void> = [];
-    node.querySelectorAll<HTMLElement>('.overflow-x-auto, .overflow-y-auto, .overflow-auto').forEach(el => {
-      const prevOverflow = el.style.overflow;
-      const prevMaxHeight = el.style.maxHeight;
-      el.style.overflow = 'visible';
-      el.style.maxHeight = 'none';
-      restored.push(() => {
-        el.style.overflow = prevOverflow;
-        el.style.maxHeight = prevMaxHeight;
+
+    const pushRestore = (el: HTMLElement, props: Array<keyof CSSStyleDeclaration | string>) => {
+      const prev: Record<string, string> = {};
+      props.forEach((prop) => {
+        const key = String(prop);
+        prev[key] = (el.style as any)[key] ?? '';
       });
+      restored.push(() => {
+        Object.entries(prev).forEach(([key, value]) => {
+          (el.style as any)[key] = value;
+        });
+      });
+    };
+
+    // Expandir contenedores que recortan el tfoot / totales
+    node.querySelectorAll<HTMLElement>('*').forEach((el) => {
+      const computed = window.getComputedStyle(el);
+      const clips =
+        computed.overflow === 'hidden' ||
+        computed.overflow === 'auto' ||
+        computed.overflow === 'scroll' ||
+        computed.overflowX === 'hidden' ||
+        computed.overflowX === 'auto' ||
+        computed.overflowX === 'scroll' ||
+        computed.overflowY === 'hidden' ||
+        computed.overflowY === 'auto' ||
+        computed.overflowY === 'scroll' ||
+        el.classList.contains('overflow-hidden') ||
+        el.classList.contains('overflow-x-auto') ||
+        el.classList.contains('overflow-y-auto') ||
+        el.classList.contains('overflow-auto');
+
+      if (!clips) return;
+
+      pushRestore(el, ['overflow', 'overflowX', 'overflowY', 'maxHeight', 'height']);
+      el.style.overflow = 'visible';
+      el.style.overflowX = 'visible';
+      el.style.overflowY = 'visible';
+      el.style.maxHeight = 'none';
+      el.style.height = 'auto';
     });
-    return () => restored.forEach(fn => fn());
+
+    // Nodo raíz: altura completa + margen inferior para no cortar la fila TOTAL
+    pushRestore(node, ['overflow', 'height', 'maxHeight', 'paddingBottom']);
+    node.style.overflow = 'visible';
+    node.style.height = 'auto';
+    node.style.maxHeight = 'none';
+    node.style.paddingBottom = '24px';
+
+    return () => restored.forEach((fn) => fn());
+  };
+
+  const buildCaptureOptions = (node: HTMLElement) => {
+    const width = Math.ceil(Math.max(node.scrollWidth, node.offsetWidth));
+    // +2px evita el corte habitual del borde inferior / tfoot en html-to-image
+    const height = Math.ceil(Math.max(node.scrollHeight, node.offsetHeight)) + 2;
+
+    return {
+      pixelRatio: 2 as const,
+      backgroundColor: '#f8fafc',
+      cacheBust: true,
+      width,
+      height,
+      style: {
+        width: `${width}px`,
+        height: `${height}px`,
+        overflow: 'visible',
+        transform: 'none',
+      },
+      filter: (element: HTMLElement) => {
+        if (!(element instanceof HTMLElement)) return true;
+        return !element.classList.contains('no-capture');
+      },
+    };
   };
 
   const captureReportBlob = async (): Promise<Blob | null> => {
@@ -634,17 +697,8 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
 
     const restore = prepareReportNodeForCapture(node);
     try {
-      // Doble rAF para que el layout ampliado se aplique antes de capturar
-      await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-      const blob = await toBlob(node, {
-        pixelRatio: 2,
-        backgroundColor: '#f8fafc',
-        cacheBust: true,
-        filter: (element) => {
-          if (!(element instanceof HTMLElement)) return true;
-          return !element.classList.contains('no-capture');
-        },
-      });
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      const blob = await toBlob(node, buildCaptureOptions(node));
       return blob;
     } finally {
       restore();
@@ -658,16 +712,8 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
     setImageActionFeedback(null);
     const restore = prepareReportNodeForCapture(node);
     try {
-      await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-      const dataUrl = await toPng(node, {
-        pixelRatio: 2,
-        backgroundColor: '#f8fafc',
-        cacheBust: true,
-        filter: (element) => {
-          if (!(element instanceof HTMLElement)) return true;
-          return !element.classList.contains('no-capture');
-        },
-      });
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      const dataUrl = await toPng(node, buildCaptureOptions(node));
       const link = document.createElement('a');
       link.download = `headcount_${todayLocal}.png`;
       link.href = dataUrl;
