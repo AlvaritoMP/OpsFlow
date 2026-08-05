@@ -22,6 +22,7 @@ interface HandoffItemPayload {
       phone2?: string;
     };
     fields?: Record<string, unknown>;
+    complementary?: Record<string, unknown>;
     meta?: Record<string, unknown>;
   };
 }
@@ -36,6 +37,8 @@ interface HandoffPayload {
   createdByName?: string;
   items: HandoffItemPayload[];
 }
+
+type ComplementaryStatus = 'complete' | 'incomplete' | 'missing';
 
 function jsonResponse(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -70,18 +73,27 @@ function pickFirst(...values: unknown[]): string {
 function composeNameFromParts(item: HandoffItemPayload): string {
   const identity = item.workerSnapshot?.identity ?? {};
   const fields = item.workerSnapshot?.fields ?? {};
-  const nombres = pickFirst(identity.nombres, fields.nombres, fields.firstName, fields.givenName);
+  const complementary = item.workerSnapshot?.complementary ?? {};
+  const nombres = pickFirst(
+    identity.nombres,
+    fields.nombres,
+    fields.firstName,
+    fields.givenName,
+    complementary.nombres,
+  );
   const apellidoPaterno = pickFirst(
     identity.apellidoPaterno,
     fields.apellidoPaterno,
     fields.apellido_paterno,
     fields.paternalSurname,
+    complementary.apellidoPaterno,
   );
   const apellidoMaterno = pickFirst(
     identity.apellidoMaterno,
     fields.apellidoMaterno,
     fields.apellido_materno,
     fields.maternalSurname,
+    complementary.apellidoMaterno,
   );
   return [nombres, apellidoPaterno, apellidoMaterno].filter(Boolean).join(' ');
 }
@@ -96,10 +108,65 @@ function resolveWorkerName(item: HandoffItemPayload): string | null {
   const identity = item.workerSnapshot?.identity;
   const fullName = identity?.fullName?.trim();
   const dni = identity?.dni?.trim();
+  const complementaryName = asTrimmedString(item.workerSnapshot?.complementary?.fullName);
 
   if (fullName) return fullName;
+  if (complementaryName) return complementaryName;
   if (dni) return dni;
   return null;
+}
+
+/** Presentation if meta.purpose === 'presentation' and/or snapshotVersion >= 3 */
+function resolveItemPurpose(snapshot: HandoffItemPayload['workerSnapshot']): 'presentation' | null {
+  const meta = snapshot?.meta ?? {};
+  const purpose = asTrimmedString(meta.purpose).toLowerCase();
+  if (purpose === 'presentation') return 'presentation';
+
+  const versionRaw = meta.snapshotVersion;
+  const version = typeof versionRaw === 'number' ? versionRaw : Number(versionRaw);
+  if (!Number.isNaN(version) && version >= 3) return 'presentation';
+
+  return null;
+}
+
+function resolveSnapshotVersion(snapshot: HandoffItemPayload['workerSnapshot']): number {
+  const versionRaw = snapshot?.meta?.snapshotVersion;
+  const version = typeof versionRaw === 'number' ? versionRaw : Number(versionRaw);
+  if (!Number.isNaN(version) && version > 0) return version;
+  return 1;
+}
+
+function resolveComplementaryStatus(
+  snapshot: HandoffItemPayload['workerSnapshot'],
+): ComplementaryStatus | null {
+  const raw = asTrimmedString(snapshot?.meta?.complementaryStatus).toLowerCase();
+  if (raw === 'complete' || raw === 'incomplete' || raw === 'missing') {
+    return raw;
+  }
+  if (snapshot?.complementary && typeof snapshot.complementary === 'object') {
+    return 'complete';
+  }
+  return null;
+}
+
+function resolveComplementaryFilledAt(
+  snapshot: HandoffItemPayload['workerSnapshot'],
+): string | null {
+  const fromMeta = asTrimmedString(snapshot?.meta?.complementaryFilledAt);
+  if (fromMeta && !Number.isNaN(Date.parse(fromMeta))) return fromMeta;
+
+  const submittedAt = asTrimmedString(snapshot?.complementary?.submittedAt);
+  if (submittedAt && !Number.isNaN(Date.parse(submittedAt))) return submittedAt;
+
+  return null;
+}
+
+function resolveComplementaryMissingFields(
+  snapshot: HandoffItemPayload['workerSnapshot'],
+): string[] {
+  const raw = snapshot?.meta?.complementaryMissingFields;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => asTrimmedString(entry)).filter(Boolean);
 }
 
 function validatePayload(payload: HandoffPayload): string | null {
@@ -178,7 +245,7 @@ serve(async (req) => {
 
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('inbound_worker_handoff_packages')
-      .select('id, source_package_id, status')
+      .select('id, source_package_id, status, purpose')
       .eq('source_package_id', payload.sourcePackageId)
       .maybeSingle();
 
@@ -193,11 +260,15 @@ serve(async (req) => {
           id: existing.id,
           sourcePackageId: existing.source_package_id,
           status: existing.status,
+          purpose: existing.purpose ?? null,
           duplicate: true,
         },
         200,
       );
     }
+
+    const itemPurposes = payload.items.map((item) => resolveItemPurpose(item.workerSnapshot));
+    const packagePurpose = itemPurposes.some((p) => p === 'presentation') ? 'presentation' : null;
 
     const packageRow = {
       source_app: payload.sourceApp?.trim() || 'Opalo ATS',
@@ -208,19 +279,20 @@ serve(async (req) => {
       source_created_by_name: payload.createdByName?.trim() || null,
       source_sent_at: payload.sentAt,
       payload_version: payload.payloadVersion ?? 1,
+      purpose: packagePurpose,
     };
 
     const { data: insertedPackage, error: packageError } = await supabaseAdmin
       .from('inbound_worker_handoff_packages')
       .insert(packageRow)
-      .select('id, source_package_id, status')
+      .select('id, source_package_id, status, purpose')
       .single();
 
     if (packageError || !insertedPackage) {
       if (packageError?.code === '23505') {
         const { data: raced } = await supabaseAdmin
           .from('inbound_worker_handoff_packages')
-          .select('id, source_package_id, status')
+          .select('id, source_package_id, status, purpose')
           .eq('source_package_id', payload.sourcePackageId)
           .single();
 
@@ -230,6 +302,7 @@ serve(async (req) => {
               id: raced.id,
               sourcePackageId: raced.source_package_id,
               status: raced.status,
+              purpose: raced.purpose ?? null,
               duplicate: true,
             },
             200,
@@ -241,14 +314,33 @@ serve(async (req) => {
       return jsonResponse({ error: 'Failed to create package' }, 500);
     }
 
-    const itemRows = payload.items.map((item) => ({
-      package_id: insertedPackage.id,
-      source_candidate_id: item.sourceCandidateId ?? null,
-      source_process_id: item.sourceProcessId ?? null,
-      worker_name: resolveWorkerName(item)!,
-      worker_snapshot: item.workerSnapshot,
-      item_status: 'pending',
-    }));
+    const itemRows = payload.items.map((item) => {
+      const snapshot = item.workerSnapshot!;
+      const purpose = resolveItemPurpose(snapshot);
+      const complementary =
+        snapshot.complementary && typeof snapshot.complementary === 'object'
+          ? snapshot.complementary
+          : null;
+      const complementaryStatus =
+        purpose === 'presentation'
+          ? resolveComplementaryStatus(snapshot) ?? (complementary ? 'incomplete' : 'missing')
+          : resolveComplementaryStatus(snapshot);
+
+      return {
+        package_id: insertedPackage.id,
+        source_candidate_id: item.sourceCandidateId ?? null,
+        source_process_id: item.sourceProcessId ?? null,
+        worker_name: resolveWorkerName(item)!,
+        worker_snapshot: snapshot,
+        item_status: purpose === 'presentation' ? 'pending_interview' : 'pending',
+        purpose,
+        snapshot_version: resolveSnapshotVersion(snapshot),
+        complementary,
+        complementary_status: complementaryStatus,
+        complementary_filled_at: resolveComplementaryFilledAt(snapshot),
+        complementary_missing_fields: resolveComplementaryMissingFields(snapshot),
+      };
+    });
 
     const { error: itemsError } = await supabaseAdmin
       .from('inbound_worker_handoff_items')
@@ -269,6 +361,7 @@ serve(async (req) => {
         id: insertedPackage.id,
         sourcePackageId: insertedPackage.source_package_id,
         status: insertedPackage.status,
+        purpose: insertedPackage.purpose ?? null,
       },
       201,
     );

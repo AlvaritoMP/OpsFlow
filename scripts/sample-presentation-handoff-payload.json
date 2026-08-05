@@ -1,0 +1,109 @@
+{
+  "sourcePackageId": "e1f2a3b4-c5d6-4789-a012-3456789abcde",
+  "sourceApp": "Opalo ATS",
+  "payloadVersion": 3,
+  "sentAt": "2026-08-05T18:00:00.000Z",
+  "workerCount": 1,
+  "senderNote": "Presentación a entrevista — área usuaria",
+  "createdByName": "Reclutador ATS",
+  "items": [
+    {
+      "sourceCandidateId": "f2a3b4c5-d6e7-4890-b123-456789abcdef",
+      "sourceProcessId": "a3b4c5d6-e7f8-4901-c234-56789abcdef0",
+      "workerName": "Ana Torres Quispe",
+      "workerSnapshot": {
+        "identity": {
+          "fullName": "Ana Torres Quispe",
+          "nombres": "Ana",
+          "apellidoPaterno": "Torres",
+          "apellidoMaterno": "Quispe",
+          "dni": "45678912",
+          "email": "ana.torres@example.com",
+          "phone": "987654321"
+        },
+        "fields": {
+          "fechaNacimiento": "15/03/1998",
+          "sexo": "Femenino",
+          "bancoSueldo": "BCP",
+          "puestoContrato": "Operario de almacén"
+        },
+        "complementary": {
+          "version": 1,
+          "nombres": "Ana",
+          "apellidoPaterno": "Torres",
+          "apellidoMaterno": "Quispe",
+          "fechaNacimiento": "15/03/1998",
+          "tipoDocumento": "DNI",
+          "nroDocumento": "45678912",
+          "nacionalidad": "Peruana",
+          "edad": "28",
+          "sexo": "Femenino",
+          "estadoCivil": "Soltero",
+          "email": "ana.torres@example.com",
+          "telefono": "987654321",
+          "tallaCamisa": "M",
+          "tallaPantalon": "30",
+          "tallaCalzado": "37",
+          "emergenciaTelefono": "999111222",
+          "emergenciaParentesco": "Madre",
+          "direccion": "Av. Ejemplo 123",
+          "distrito": "Los Olivos",
+          "provincia": "Lima",
+          "departamento": "Lima",
+          "familiares": [],
+          "parienteEnOpalo": false,
+          "educacion": [
+            {
+              "nivel": "Secundaria",
+              "institucion": "IE Ejemplo",
+              "lugar": "Lima",
+              "periodo": "2010-2014",
+              "grado": "Completo"
+            }
+          ],
+          "experienciaLaboral": [
+            {
+              "empresa": "Logística SAC",
+              "puesto": "Operario",
+              "fechaIngreso": "01/2022",
+              "fechaCese": "12/2025",
+              "motivoCese": "Fin de contrato"
+            }
+          ],
+          "antecedentesSalud": [],
+          "unidadDestaque": "Lima Norte",
+          "puestoContrato": "Operario de almacén",
+          "bancoSueldo": "BCP",
+          "bancoCts": "BCP",
+          "sistemaPensionesAnterior": "AFP",
+          "sistemaPensionesDeseado": "AFP",
+          "declaracionAceptada": true,
+          "submittedAt": "2026-08-05T17:45:00.000Z"
+        },
+        "meta": {
+          "sourceCandidateId": "f2a3b4c5-d6e7-4890-b123-456789abcdef",
+          "sourceProcessId": "a3b4c5d6-e7f8-4901-c234-56789abcdef0",
+          "sourceApp": "Opalo ATS",
+          "snapshotVersion": 3,
+          "purpose": "presentation",
+          "complementaryStatus": "complete",
+          "complementaryFilledAt": "2026-08-05T17:45:00.000Z",
+          "complementaryMissingFields": [],
+          "includedFieldKeys": [
+            "fechaNacimiento",
+            "sexo",
+            "bancoSueldo",
+            "puestoContrato"
+          ],
+          "fieldLabels": {
+            "fechaNacimiento": "Fecha de nacimiento",
+            "sexo": "Sexo",
+            "bancoSueldo": "Banco sueldo",
+            "puestoContrato": "Puesto"
+          },
+          "capturedAt": "2026-08-05T18:00:00.000Z"
+        }
+      }
+    }
+  ]
+}

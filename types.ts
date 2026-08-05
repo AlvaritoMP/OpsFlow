@@ -732,7 +732,19 @@ export type InboundHandoffPackageStatus =
   | 'rejected'
   | 'partially_completed';
 
-export type InboundHandoffItemStatus = 'pending' | 'accepted' | 'rejected' | 'assigned';
+/** Hire/legacy: pending|accepted|rejected|assigned. Presentation: pending_interview|in_review|approved|rejected|(assigned tras registrar). */
+export type InboundHandoffItemStatus =
+  | 'pending'
+  | 'accepted'
+  | 'rejected'
+  | 'assigned'
+  | 'pending_interview'
+  | 'in_review'
+  | 'approved';
+
+export type InboundHandoffPurpose = 'presentation';
+
+export type ComplementaryStatus = 'complete' | 'incomplete' | 'missing';
 
 export interface WorkerSnapshotIdentity {
   fullName?: string;
@@ -746,18 +758,98 @@ export interface WorkerSnapshotIdentity {
   phone2?: string;
 }
 
+export interface WorkerSnapshotFamiliar {
+  nombres?: string;
+  apellidoPaterno?: string;
+  apellidoMaterno?: string;
+  parentesco?: string;
+  edad?: string | number;
+  telefono?: string;
+}
+
+export interface WorkerSnapshotEducacion {
+  nivel?: string;
+  institucion?: string;
+  lugar?: string;
+  periodo?: string;
+  grado?: string;
+}
+
+export interface WorkerSnapshotExperiencia {
+  empresa?: string;
+  puesto?: string;
+  fechaIngreso?: string;
+  fechaCese?: string;
+  motivoCese?: string;
+}
+
+export interface WorkerSnapshotAntecedenteSalud {
+  tipoEnfermedad?: string;
+  edad?: string | number;
+  diagnostico?: string;
+  secuela?: string;
+}
+
+/** Ficha complementaria (snapshotVersion >= 3 / purpose presentation). */
+export interface WorkerSnapshotComplementary {
+  version?: number;
+  nombres?: string;
+  apellidoPaterno?: string;
+  apellidoMaterno?: string;
+  fechaNacimiento?: string;
+  tipoDocumento?: string;
+  nroDocumento?: string;
+  nacionalidad?: string;
+  edad?: string | number;
+  sexo?: string;
+  estadoCivil?: string;
+  email?: string;
+  telefono?: string;
+  tallaCamisa?: string;
+  tallaPantalon?: string;
+  tallaCalzado?: string;
+  emergenciaTelefono?: string;
+  emergenciaParentesco?: string;
+  direccion?: string;
+  distrito?: string;
+  provincia?: string;
+  departamento?: string;
+  familiares?: WorkerSnapshotFamiliar[];
+  parienteEnOpalo?: boolean | null;
+  nombreFamiliarOpalo?: string;
+  educacion?: WorkerSnapshotEducacion[];
+  experienciaLaboral?: WorkerSnapshotExperiencia[];
+  antecedentesSalud?: WorkerSnapshotAntecedenteSalud[];
+  unidadDestaque?: string;
+  puestoContrato?: string;
+  bancoSueldo?: string;
+  bancoCts?: string;
+  sistemaPensionesAnterior?: string;
+  sistemaPensionesDeseado?: string;
+  declaracionAceptada?: boolean;
+  submittedAt?: string;
+  [key: string]: unknown;
+}
+
 export interface WorkerSnapshotMeta {
   sourceCandidateId?: string;
   sourceProcessId?: string;
   sourceApp?: string;
   snapshotVersion?: number;
+  /** presentation = entrevista; omitido/null = hire/legacy */
+  purpose?: 'presentation' | string;
+  complementaryStatus?: ComplementaryStatus;
+  complementaryFilledAt?: string;
+  complementaryMissingFields?: string[];
   includedFieldKeys?: string[];
+  fieldLabels?: Record<string, string>;
   capturedAt?: string;
 }
 
 export interface WorkerSnapshot {
   identity?: WorkerSnapshotIdentity;
   fields?: Record<string, string | number | boolean | null>;
+  complementary?: WorkerSnapshotComplementary;
   meta?: WorkerSnapshotMeta;
 }
 
@@ -766,6 +858,8 @@ export interface InboundHandoffPackage {
   sourceApp: string;
   sourcePackageId: string;
   status: InboundHandoffPackageStatus;
+  /** presentation | undefined (hire/legacy) */
+  purpose?: InboundHandoffPurpose | null;
   workerCount: number;
   senderNote?: string;
   sourceCreatedByName?: string;
@@ -789,10 +883,43 @@ export interface InboundHandoffItem {
   workerName: string;
   workerSnapshot: WorkerSnapshot;
   itemStatus: InboundHandoffItemStatus;
+  purpose?: InboundHandoffPurpose | null;
+  snapshotVersion?: number;
+  complementary?: WorkerSnapshotComplementary | null;
+  complementaryStatus?: ComplementaryStatus | null;
+  complementaryFilledAt?: string;
+  complementaryMissingFields?: string[];
+  decisionReason?: string;
+  decidedAt?: string;
+  decidedByName?: string;
   assignedWorkUnitId?: string;
   assignedAt?: string;
   createdResourceId?: string;
   createdAt: string;
+  updatedAt?: string;
+  /** Joined from package when listing presentations */
+  sourcePackageId?: string;
+  sourceApp?: string;
+  packageReceivedAt?: string;
+}
+
+export interface InboundHandoffDecisionOutbox {
+  id: string;
+  handoffItemId: string;
+  sourcePackageId: string;
+  opsflowPackageId: string;
+  sourceCandidateId?: string;
+  sourceProcessId?: string;
+  status: 'approved' | 'rejected';
+  decidedAt: string;
+  decidedByName?: string;
+  reason?: string;
+  deliveryStatus: 'pending' | 'sent' | 'failed' | 'skipped';
+  attempts: number;
+  lastError?: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface InboundHandoffPackageWithItems extends InboundHandoffPackage {

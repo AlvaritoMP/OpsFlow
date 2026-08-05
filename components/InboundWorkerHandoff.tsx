@@ -120,6 +120,9 @@ const ITEM_STATUS_LABELS: Record<InboundHandoffItemStatus, string> = {
   accepted: 'Aceptado',
   rejected: 'Rechazado',
   assigned: 'Asignado',
+  pending_interview: 'Pendiente entrevista',
+  in_review: 'En revisión',
+  approved: 'Aprobado',
 };
 
 const ITEM_STATUS_STYLES: Record<InboundHandoffItemStatus, string> = {
@@ -127,6 +130,9 @@ const ITEM_STATUS_STYLES: Record<InboundHandoffItemStatus, string> = {
   accepted: 'bg-green-100 text-green-800',
   rejected: 'bg-red-100 text-red-800',
   assigned: 'bg-indigo-100 text-indigo-800',
+  pending_interview: 'bg-slate-100 text-slate-700',
+  in_review: 'bg-amber-100 text-amber-800',
+  approved: 'bg-green-100 text-green-800',
 };
 
 const IDENTITY_LABELS: Record<string, string> = {

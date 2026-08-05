@@ -21,6 +21,11 @@ function normalizeDate(value: unknown): string {
   if (value === null || value === undefined || value === '') return '';
   const raw = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) {
+    const [, dd, mm, yyyy] = dmy;
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
   const parsed = Date.parse(raw);
   if (Number.isNaN(parsed)) return '';
   return new Date(parsed).toISOString().slice(0, 10);
@@ -67,6 +72,8 @@ export function countStoredAtsFields(snapshot: InboundHandoffItem['workerSnapsho
 export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): HandoffWorkerPrefill {
   const identity = item.workerSnapshot.identity ?? {};
   const fields = item.workerSnapshot.fields ?? {};
+  const complementary =
+    item.complementary ?? item.workerSnapshot.complementary ?? undefined;
   const prefilledFields: string[] = [];
 
   const name = resolveHandoffDisplayName({
@@ -76,10 +83,18 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
   });
   if (name) prefilledFields.push('name');
 
-  const dni = identity.dni?.trim() ?? '';
+  const dni =
+    identity.dni?.trim() ||
+    (typeof complementary?.nroDocumento === 'string' ? complementary.nroDocumento.trim() : '') ||
+    '';
   if (dni) prefilledFields.push('dni');
 
-  const phone = (identity.phone?.trim() || identity.phone2?.trim() || '').trim();
+  const phone = (
+    identity.phone?.trim() ||
+    identity.phone2?.trim() ||
+    (typeof complementary?.telefono === 'string' ? complementary.telefono.trim() : '') ||
+    ''
+  ).trim();
   if (phone) prefilledFields.push('phone');
 
   const startDate = normalizeDate(fields.hireDate);
@@ -88,7 +103,9 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
   const monthlySalary = parseSalary(fields.agreedSalary);
   if (monthlySalary !== undefined) prefilledFields.push('monthlySalary');
 
-  const birthDate = normalizeDate(fields.birthDate);
+  const birthDate = normalizeDate(
+    fields.birthDate ?? fields.fechaNacimiento ?? complementary?.fechaNacimiento,
+  );
   if (birthDate) prefilledFields.push('birthDate');
 
   const externalId = item.sourceCandidateId ?? item.workerSnapshot.meta?.sourceCandidateId;

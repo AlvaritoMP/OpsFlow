@@ -1,16 +1,23 @@
 import { supabase, handleSupabaseError } from './supabase';
 import type {
+  ComplementaryStatus,
+  InboundHandoffDecisionOutbox,
   InboundHandoffItem,
   InboundHandoffItemStatus,
   InboundHandoffPackage,
   InboundHandoffPackageStatus,
   InboundHandoffPackageWithItems,
   WorkerSnapshot,
+  WorkerSnapshotComplementary,
 } from '../types';
 
 // ============================================
 // FUNCIONES DE TRANSFORMACIÓN
 // ============================================
+
+function asRecord(data: unknown): Record<string, unknown> {
+  return asRecord(data);
+}
 
 function transformPackageFromDB(data: Record<string, unknown>): InboundHandoffPackage {
   return {
@@ -18,6 +25,7 @@ function transformPackageFromDB(data: Record<string, unknown>): InboundHandoffPa
     sourceApp: (data.source_app as string) ?? 'Opalo ATS',
     sourcePackageId: data.source_package_id as string,
     status: data.status as InboundHandoffPackageStatus,
+    purpose: (data.purpose as InboundHandoffPackage['purpose']) ?? null,
     workerCount: data.worker_count as number,
     senderNote: (data.sender_note as string) ?? undefined,
     sourceCreatedByName: (data.source_created_by_name as string) ?? undefined,
@@ -33,6 +41,7 @@ function transformPackageFromDB(data: Record<string, unknown>): InboundHandoffPa
 }
 
 function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem {
+  const missing = data.complementary_missing_fields;
   return {
     id: data.id as string,
     packageId: data.package_id as string,
@@ -41,11 +50,53 @@ function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem 
     workerName: data.worker_name as string,
     workerSnapshot: data.worker_snapshot as WorkerSnapshot,
     itemStatus: data.item_status as InboundHandoffItemStatus,
+    purpose: (data.purpose as InboundHandoffItem['purpose']) ?? null,
+    snapshotVersion: (data.snapshot_version as number) ?? undefined,
+    complementary: (data.complementary as WorkerSnapshotComplementary) ?? null,
+    complementaryStatus: (data.complementary_status as ComplementaryStatus) ?? null,
+    complementaryFilledAt: (data.complementary_filled_at as string) ?? undefined,
+    complementaryMissingFields: Array.isArray(missing)
+      ? (missing as string[])
+      : undefined,
+    decisionReason: (data.decision_reason as string) ?? undefined,
+    decidedAt: (data.decided_at as string) ?? undefined,
+    decidedByName: (data.decided_by_name as string) ?? undefined,
     assignedWorkUnitId: (data.assigned_work_unit_id as string) ?? undefined,
     assignedAt: (data.assigned_at as string) ?? undefined,
     createdResourceId: (data.created_resource_id as string) ?? undefined,
     createdAt: data.created_at as string,
+    updatedAt: (data.updated_at as string) ?? undefined,
   };
+}
+
+function transformOutboxFromDB(data: Record<string, unknown>): InboundHandoffDecisionOutbox {
+  return {
+    id: data.id as string,
+    handoffItemId: data.handoff_item_id as string,
+    sourcePackageId: data.source_package_id as string,
+    opsflowPackageId: data.opsflow_package_id as string,
+    sourceCandidateId: (data.source_candidate_id as string) ?? undefined,
+    sourceProcessId: (data.source_process_id as string) ?? undefined,
+    status: data.status as 'approved' | 'rejected',
+    decidedAt: data.decided_at as string,
+    decidedByName: (data.decided_by_name as string) ?? undefined,
+    reason: (data.reason as string) ?? undefined,
+    deliveryStatus: data.delivery_status as InboundHandoffDecisionOutbox['deliveryStatus'],
+    attempts: (data.attempts as number) ?? 0,
+    lastError: (data.last_error as string) ?? undefined,
+    payload: (data.payload as Record<string, unknown>) ?? {},
+    createdAt: data.created_at as string,
+    updatedAt: data.updated_at as string,
+  };
+}
+
+function deriveComplementaryStatus(
+  complementary: WorkerSnapshotComplementary | null | undefined,
+  missingFields: string[],
+): ComplementaryStatus {
+  if (!complementary || Object.keys(complementary).length === 0) return 'missing';
+  if (missingFields.length > 0) return 'incomplete';
+  return 'complete';
 }
 
 // ============================================
@@ -54,21 +105,22 @@ function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem 
 
 export const inboundWorkerHandoffService = {
   /**
-   * Cuenta trabajo ATS pendiente a nivel candidato:
-   * pending o accepted (sin registrar), sin importar si el paquete
-   * está recibido, en proceso o ya cerrado (para poder reabrir).
+   * Cuenta trabajo ATS de contratación pendiente (excluye presentaciones):
+   * pending o accepted (sin registrar).
    */
   async countIncomplete(): Promise<{ openPackages: number; incompleteCandidates: number }> {
     try {
       const { data, error } = await supabase
         .from('inbound_worker_handoff_items')
-        .select('id, package_id')
+        .select('id, package_id, purpose')
         .in('item_status', ['pending', 'accepted']);
 
       if (error) throw error;
 
-      const rows = data ?? [];
-      const packageIds = new Set(rows.map((row) => row.package_id as string));
+      const rows = ((data ?? []) as unknown as Array<{ id: string; package_id: string; purpose?: string | null }>).filter(
+        (row) => row.purpose !== 'presentation',
+      );
+      const packageIds = new Set(rows.map((row) => row.package_id));
 
       return {
         openPackages: packageIds.size,
@@ -80,6 +132,26 @@ export const inboundWorkerHandoffService = {
     }
   },
 
+  /** Presentaciones pendientes de decisión (pending_interview | in_review). */
+  async countPresentationPending(): Promise<number> {
+    try {
+      const { count, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('purpose', 'presentation')
+        .in('item_status', ['pending_interview', 'in_review']);
+
+      if (error) throw error;
+      return count ?? 0;
+    } catch (error) {
+      handleSupabaseError(error);
+      return 0;
+    }
+  },
+
+  /**
+   * Lista paquetes de contratación/legacy (excluye purpose=presentation).
+   */
   async listPackages(options?: {
     status?: InboundHandoffPackageStatus;
   }): Promise<InboundHandoffPackage[]> {
@@ -87,11 +159,11 @@ export const inboundWorkerHandoffService = {
       let query = supabase
         .from('inbound_worker_handoff_packages')
         .select('*')
+        .or('purpose.is.null,purpose.neq.presentation')
         .order('received_at', { ascending: false });
 
       if (options?.status) {
         if (options.status === 'completed') {
-          // Incluye estados antiguos ya no usados en UI
           query = query.in('status', ['completed', 'partially_completed', 'rejected']);
         } else {
           query = query.eq('status', options.status);
@@ -101,8 +173,8 @@ export const inboundWorkerHandoffService = {
       const { data, error } = await query;
       if (error) throw error;
 
-      const packages = (data ?? []).map((row) =>
-        transformPackageFromDB(row as Record<string, unknown>),
+      const packages = ((data ?? []) as unknown as Record<string, unknown>[]).map((row) =>
+        transformPackageFromDB(row),
       );
 
       if (packages.length === 0) return packages;
@@ -117,8 +189,8 @@ export const inboundWorkerHandoffService = {
       if (unresolvedError) throw unresolvedError;
 
       const counts = new Map<string, number>();
-      for (const row of unresolvedRows ?? []) {
-        const packageId = row.package_id as string;
+      for (const row of (unresolvedRows ?? []) as unknown as Array<{ package_id: string }>) {
+        const packageId = row.package_id;
         counts.set(packageId, (counts.get(packageId) ?? 0) + 1);
       }
 
@@ -152,12 +224,81 @@ export const inboundWorkerHandoffService = {
       if (itemsError) throw itemsError;
 
       return {
-        ...transformPackageFromDB(pkg as Record<string, unknown>),
-        items: (items ?? []).map((row) => transformItemFromDB(row as Record<string, unknown>)),
+        ...transformPackageFromDB(asRecord(pkg)),
+        items: (items ?? []).map((row) => transformItemFromDB(asRecord(row))),
       };
     } catch (error) {
       handleSupabaseError(error);
       return null;
+    }
+  },
+
+  async getItemById(itemId: string): Promise<InboundHandoffItem | null> {
+    try {
+      const { data, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .select('*, inbound_worker_handoff_packages!inner(source_package_id, source_app, received_at)')
+        .eq('id', itemId)
+        .single();
+
+      if (error) throw error;
+      if (!data) return null;
+
+      const row = asRecord(data);
+      const pkg = row.inbound_worker_handoff_packages as Record<string, unknown> | undefined;
+      const item = transformItemFromDB(row);
+      return {
+        ...item,
+        sourcePackageId: (pkg?.source_package_id as string) ?? undefined,
+        sourceApp: (pkg?.source_app as string) ?? undefined,
+        packageReceivedAt: (pkg?.received_at as string) ?? undefined,
+      };
+    } catch (error) {
+      handleSupabaseError(error);
+      return null;
+    }
+  },
+
+  /**
+   * Lista ítems de presentación (purpose=presentation).
+   * filter: pending = pending_interview|in_review; approved; rejected; all.
+   */
+  async listPresentationItems(options?: {
+    filter?: 'pending' | 'approved' | 'rejected' | 'all';
+  }): Promise<InboundHandoffItem[]> {
+    try {
+      const filter = options?.filter ?? 'pending';
+      let query = supabase
+        .from('inbound_worker_handoff_items')
+        .select('*, inbound_worker_handoff_packages!inner(source_package_id, source_app, received_at)')
+        .eq('purpose', 'presentation')
+        .order('created_at', { ascending: false });
+
+      if (filter === 'pending') {
+        query = query.in('item_status', ['pending_interview', 'in_review']);
+      } else if (filter === 'approved') {
+        query = query.in('item_status', ['approved', 'assigned']);
+      } else if (filter === 'rejected') {
+        query = query.eq('item_status', 'rejected');
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      return (data ?? []).map((row) => {
+        const record = asRecord(row);
+        const pkg = record.inbound_worker_handoff_packages as Record<string, unknown> | undefined;
+        const item = transformItemFromDB(record);
+        return {
+          ...item,
+          sourcePackageId: (pkg?.source_package_id as string) ?? undefined,
+          sourceApp: (pkg?.source_app as string) ?? undefined,
+          packageReceivedAt: (pkg?.received_at as string) ?? undefined,
+        };
+      });
+    } catch (error) {
+      handleSupabaseError(error);
+      return [];
     }
   },
 
@@ -219,7 +360,208 @@ export const inboundWorkerHandoffService = {
         .single();
 
       if (error) throw error;
-      return data ? transformItemFromDB(data as Record<string, unknown>) : null;
+      return data ? transformItemFromDB(asRecord(data)) : null;
+    } catch (error) {
+      handleSupabaseError(error);
+      return null;
+    }
+  },
+
+  /**
+   * Guarda avances de ficha complementaria (presentación).
+   * Pasa pending_interview → in_review si aún no está decidido.
+   */
+  async savePresentationComplementary(
+    itemId: string,
+    complementary: WorkerSnapshotComplementary,
+    options?: { missingFields?: string[]; complementaryStatus?: ComplementaryStatus },
+  ): Promise<InboundHandoffItem | null> {
+    try {
+      const current = await this.getItemById(itemId);
+      if (!current) return null;
+      if (current.purpose !== 'presentation') {
+        throw new Error('Solo se puede editar ficha en ítems de presentación');
+      }
+      if (current.itemStatus === 'approved' || current.itemStatus === 'rejected' || current.itemStatus === 'assigned') {
+        throw new Error('La presentación ya fue decidida');
+      }
+
+      const missingFields = options?.missingFields ?? current.complementaryMissingFields ?? [];
+      const complementaryStatus =
+        options?.complementaryStatus ??
+        deriveComplementaryStatus(complementary, missingFields);
+
+      const nextSnapshot: WorkerSnapshot = {
+        ...current.workerSnapshot,
+        complementary,
+        meta: {
+          ...current.workerSnapshot.meta,
+          complementaryStatus,
+          complementaryMissingFields: missingFields,
+          complementaryFilledAt:
+            complementary.submittedAt ??
+            current.complementaryFilledAt ??
+            new Date().toISOString(),
+        },
+      };
+
+      const nextStatus: InboundHandoffItemStatus =
+        current.itemStatus === 'pending_interview' ? 'in_review' : current.itemStatus;
+
+      const { data, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .update({
+          complementary,
+          complementary_status: complementaryStatus,
+          complementary_missing_fields: missingFields,
+          complementary_filled_at:
+            complementary.submittedAt ??
+            current.complementaryFilledAt ??
+            new Date().toISOString(),
+          worker_snapshot: nextSnapshot,
+          item_status: nextStatus,
+        })
+        .eq('id', itemId)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      return data ? transformItemFromDB(asRecord(data)) : null;
+    } catch (error) {
+      handleSupabaseError(error);
+      return null;
+    }
+  },
+
+  async markPresentationInReview(itemId: string): Promise<InboundHandoffItem | null> {
+    try {
+      const { data, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .update({ item_status: 'in_review' })
+        .eq('id', itemId)
+        .eq('purpose', 'presentation')
+        .eq('item_status', 'pending_interview')
+        .select('*')
+        .single();
+
+      if (error) {
+        // Ya no está pending_interview: no es error fatal
+        if (error.code === 'PGRST116') {
+          return this.getItemById(itemId);
+        }
+        throw error;
+      }
+      return data ? transformItemFromDB(asRecord(data)) : null;
+    } catch (error) {
+      handleSupabaseError(error);
+      return null;
+    }
+  },
+
+  /**
+   * Aprueba presentación: estado approved + outbox ATS.
+   * NO encola Opalosis (eso ocurre al registrar en unidad).
+   */
+  async approvePresentation(
+    itemId: string,
+    decidedByName?: string,
+  ): Promise<InboundHandoffItem | null> {
+    return this.decidePresentation(itemId, 'approved', { decidedByName });
+  },
+
+  /**
+   * Rechaza presentación con motivo + outbox ATS.
+   */
+  async rejectPresentation(
+    itemId: string,
+    reason: string,
+    decidedByName?: string,
+  ): Promise<InboundHandoffItem | null> {
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      throw new Error('El motivo de rechazo es obligatorio');
+    }
+    return this.decidePresentation(itemId, 'rejected', {
+      decidedByName,
+      reason: trimmed,
+    });
+  },
+
+  async decidePresentation(
+    itemId: string,
+    decision: 'approved' | 'rejected',
+    options?: { decidedByName?: string; reason?: string },
+  ): Promise<InboundHandoffItem | null> {
+    try {
+      const current = await this.getItemById(itemId);
+      if (!current) return null;
+      if (current.purpose !== 'presentation') {
+        throw new Error('Solo se puede decidir ítems de presentación');
+      }
+      if (
+        current.itemStatus === 'approved' ||
+        current.itemStatus === 'rejected' ||
+        current.itemStatus === 'assigned'
+      ) {
+        throw new Error('La presentación ya fue decidida');
+      }
+
+      const decidedAt = new Date().toISOString();
+      const decidedByName = options?.decidedByName?.trim() || null;
+      const reason = options?.reason?.trim() || null;
+      const nextStatus: InboundHandoffItemStatus =
+        decision === 'approved' ? 'approved' : 'rejected';
+
+      const { data, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .update({
+          item_status: nextStatus,
+          decided_at: decidedAt,
+          decided_by_name: decidedByName,
+          decision_reason: reason,
+        })
+        .eq('id', itemId)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      const sourcePackageId = current.sourcePackageId;
+      if (sourcePackageId) {
+        const payload = {
+          sourcePackageId,
+          opsflowPackageId: current.packageId,
+          sourceCandidateId: current.sourceCandidateId ?? null,
+          sourceProcessId: current.sourceProcessId ?? null,
+          status: decision,
+          decidedAt,
+          decidedByName,
+          reason,
+        };
+
+        const { error: outboxError } = await supabase
+          .from('inbound_handoff_decision_outbox')
+          .insert({
+            handoff_item_id: itemId,
+            source_package_id: sourcePackageId,
+            opsflow_package_id: current.packageId,
+            source_candidate_id: current.sourceCandidateId ?? null,
+            source_process_id: current.sourceProcessId ?? null,
+            status: decision,
+            decided_at: decidedAt,
+            decided_by_name: decidedByName,
+            reason,
+            delivery_status: 'pending',
+            payload,
+          });
+
+        if (outboxError) {
+          // Decisión ya guardada; outbox stub no debe revertir la acción operativa
+          console.error('Failed to enqueue ATS decision outbox:', outboxError);
+        }
+      }
+
+      return data ? transformItemFromDB(asRecord(data)) : null;
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -246,7 +588,7 @@ export const inboundWorkerHandoffService = {
         .single();
 
       if (error) throw error;
-      return data ? transformItemFromDB(data as Record<string, unknown>) : null;
+      return data ? transformItemFromDB(asRecord(data)) : null;
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -268,7 +610,7 @@ export const inboundWorkerHandoffService = {
         .single();
 
       if (error) throw error;
-      return data ? transformItemFromDB(data as Record<string, unknown>) : null;
+      return data ? transformItemFromDB(asRecord(data)) : null;
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -289,10 +631,32 @@ export const inboundWorkerHandoffService = {
         .single();
 
       if (error) throw error;
-      return data ? transformPackageFromDB(data as Record<string, unknown>) : null;
+      return data ? transformPackageFromDB(asRecord(data)) : null;
     } catch (error) {
       handleSupabaseError(error);
       return null;
+    }
+  },
+
+  async listDecisionOutbox(options?: {
+    deliveryStatus?: InboundHandoffDecisionOutbox['deliveryStatus'];
+  }): Promise<InboundHandoffDecisionOutbox[]> {
+    try {
+      let query = supabase
+        .from('inbound_handoff_decision_outbox')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (options?.deliveryStatus) {
+        query = query.eq('delivery_status', options.deliveryStatus);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data ?? []).map((row) => transformOutboxFromDB(asRecord(row)));
+    } catch (error) {
+      handleSupabaseError(error);
+      return [];
     }
   },
 };

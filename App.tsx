@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -35,6 +35,7 @@ import { Archive } from './components/Archive';
 import { PasswordReset } from './components/PasswordReset';
 import { WorkersManagement } from './components/WorkersManagement';
 import { InboundWorkerHandoff } from './components/InboundWorkerHandoff';
+import { AtsPresentations } from './components/AtsPresentations';
 import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
 import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffService';
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
@@ -49,7 +50,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'hr-opalosis'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
   
@@ -71,6 +72,7 @@ const App: React.FC = () => {
   const [vacationsNavTab, setVacationsNavTab] = useState<'approvals' | undefined>();
 
   const [atsIncomplete, setAtsIncomplete] = useState({ openPackages: 0, incompleteCandidates: 0 });
+  const [atsPresentationPending, setAtsPresentationPending] = useState(0);
   const [showAtsReceptionAlert, setShowAtsReceptionAlert] = useState(false);
   const currentViewRef = useRef(currentView);
   currentViewRef.current = currentView;
@@ -492,13 +494,18 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isAuthenticated || !currentUser || !checkPermission(currentUser.role, 'ATS_RECEPTION', 'view')) {
       setAtsIncomplete({ openPackages: 0, incompleteCandidates: 0 });
+      setAtsPresentationPending(0);
       setShowAtsReceptionAlert(false);
       return;
     }
 
     const refreshAtsIncomplete = async (forceShow: boolean) => {
-      const result = await inboundWorkerHandoffService.countIncomplete();
+      const [result, presentationPending] = await Promise.all([
+        inboundWorkerHandoffService.countIncomplete(),
+        inboundWorkerHandoffService.countPresentationPending(),
+      ]);
       setAtsIncomplete(result);
+      setAtsPresentationPending(presentationPending);
       const hasIncomplete = result.openPackages > 0 || result.incompleteCandidates > 0;
       if (!hasIncomplete) {
         setShowAtsReceptionAlert(false);
@@ -1749,6 +1756,19 @@ const App: React.FC = () => {
           units={operationalUnits}
           onRegistered={() => {
             // Silencioso: no disparar el spinner global de la app (unitsLoading).
+            void loadUnits({ silent: true });
+          }}
+        />
+      );
+    }
+
+    if (currentView === 'ats-presentations') {
+      return (
+        <AtsPresentations
+          canEdit={checkPermission(currentUser.role, 'ATS_RECEPTION', 'edit')}
+          units={operationalUnits}
+          currentUserName={currentUser?.name}
+          onRegistered={() => {
             void loadUnits({ silent: true });
           }}
         />
@@ -3548,6 +3568,22 @@ const App: React.FC = () => {
                         {(atsIncompleteTotal || atsIncomplete.openPackages) > 99
                           ? '99+'
                           : atsIncompleteTotal || atsIncomplete.openPackages}
+                      </span>
+                    )}
+                  </button>
+              )}
+
+              {/* Presentaciones ATS (entrevista / ficha) */}
+              {checkPermission(currentUser.role, 'ATS_RECEPTION', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('ats-presentations'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'ats-presentations' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <ClipboardList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0 flex-1 text-left">Presentaciones ATS</span>
+                    {atsPresentationPending > 0 && (
+                      <span className={`shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full text-xs font-bold flex items-center justify-center ${currentView === 'ats-presentations' ? 'bg-white text-blue-700' : 'bg-amber-500 text-white'}`}>
+                        {atsPresentationPending > 99 ? '99+' : atsPresentationPending}
                       </span>
                     )}
                   </button>
