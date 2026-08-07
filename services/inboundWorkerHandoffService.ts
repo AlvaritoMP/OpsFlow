@@ -283,7 +283,7 @@ export const inboundWorkerHandoffService = {
    * filter: pending = pending_interview|in_review; approved; rejected; all.
    */
   async listPresentationItems(options?: {
-    filter?: 'pending' | 'approved' | 'rejected' | 'all';
+    filter?: 'pending' | 'approved' | 'rejected' | 'archived' | 'all';
   }): Promise<InboundHandoffItem[]> {
     try {
       const filter = options?.filter ?? 'pending';
@@ -299,6 +299,8 @@ export const inboundWorkerHandoffService = {
         query = query.in('item_status', ['approved', 'assigned']);
       } else if (filter === 'rejected') {
         query = query.eq('item_status', 'rejected');
+      } else if (filter === 'archived') {
+        query = query.eq('item_status', 'archived_no_hire');
       }
 
       const { data, error } = await query;
@@ -504,6 +506,55 @@ export const inboundWorkerHandoffService = {
       decidedByName,
       reason: trimmed,
     });
+  },
+
+  /**
+   * Archiva presentación aprobada que nunca se registró en unidad
+   * (sin ingreso, sin contrato). No encola Opalosis ni crea recurso.
+   */
+  async archivePresentationWithoutHire(
+    itemId: string,
+    reason: string,
+    decidedByName?: string,
+  ): Promise<InboundHandoffItem | null> {
+    try {
+      const trimmed = reason.trim();
+      if (!trimmed) {
+        throw new Error('Indica el motivo del archivo');
+      }
+
+      const current = await this.getItemById(itemId);
+      if (!current) return null;
+      if (current.purpose !== 'presentation') {
+        throw new Error('Solo se puede archivar ítems de presentación');
+      }
+      if (current.itemStatus !== 'approved') {
+        throw new Error('Solo se archivan presentaciones aprobadas sin unidad');
+      }
+      if (current.createdResourceId || current.itemStatus === 'assigned') {
+        throw new Error('El candidato ya fue registrado en una unidad');
+      }
+
+      const decidedAt = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .update({
+          item_status: 'archived_no_hire',
+          decision_reason: trimmed,
+          decided_by_name: decidedByName?.trim() || current.decidedByName || null,
+          decided_at: current.decidedAt ?? decidedAt,
+        })
+        .eq('id', itemId)
+        .eq('item_status', 'approved')
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      return data ? transformItemFromDB(asRecord(data)) : null;
+    } catch (error) {
+      handleSupabaseError(error);
+      return null;
+    }
   },
 
   async decidePresentation(

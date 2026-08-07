@@ -13,6 +13,7 @@ import { Vacations } from './Vacations';
 import { BpoContactsTab } from './BpoContactsTab';
 import { BpoBanksTab } from './BpoBanksTab';
 import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
+import { WorkerComplementaryPanel } from './WorkerComplementaryPanel';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import {
   UnitDetailTab,
@@ -6575,6 +6576,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     )) : <p className="text-xs text-slate-400 italic">Sin incrementos registrados.</p>}
                                 </div>
                             </div>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <WorkerComplementaryPanel
+                            worker={worker}
+                            canEdit={canEditPersonnel}
+                            onSaved={(updated) => {
+                              const updatedResources = unit.resources.map((r) =>
+                                r.id === updated.id ? updated : r,
+                              );
+                              setLocalResources(updatedResources);
+                              if (onUpdate) {
+                                void onUpdate({ ...unit, resources: updatedResources });
+                              }
+                            }}
+                          />
                         </div>
 
                         {unitClass === 'BPO' && (

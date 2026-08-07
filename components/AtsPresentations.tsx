@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  Archive,
   CheckCircle,
   ChevronDown,
   ChevronUp,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
 import { RegisterHandoffWorkerModal } from './RegisterHandoffWorkerModal';
+import { ComplementaryFichaForm } from './ComplementaryFichaForm';
 import { resolveHandoffDisplayName } from '../utils/handoffNameParts';
 import {
   deriveComplementaryStatusFromData,
@@ -34,12 +36,13 @@ interface AtsPresentationsProps {
   onRegistered?: () => void;
 }
 
-type PresentationFilter = 'pending' | 'approved' | 'rejected' | 'all';
+type PresentationFilter = 'pending' | 'approved' | 'rejected' | 'archived' | 'all';
 
 const FILTERS: { id: PresentationFilter; label: string }[] = [
   { id: 'pending', label: 'Pendientes' },
   { id: 'approved', label: 'Aprobados' },
   { id: 'rejected', label: 'Rechazados' },
+  { id: 'archived', label: 'Archivados' },
   { id: 'all', label: 'Todos' },
 ];
 
@@ -49,6 +52,7 @@ const STATUS_LABELS: Partial<Record<InboundHandoffItemStatus, string>> = {
   approved: 'Aprobado',
   rejected: 'Rechazado',
   assigned: 'Registrado',
+  archived_no_hire: 'Archivado (sin ingreso)',
 };
 
 const STATUS_STYLES: Partial<Record<InboundHandoffItemStatus, string>> = {
@@ -57,6 +61,7 @@ const STATUS_STYLES: Partial<Record<InboundHandoffItemStatus, string>> = {
   approved: 'bg-green-100 text-green-800',
   rejected: 'bg-red-100 text-red-800',
   assigned: 'bg-indigo-100 text-indigo-800',
+  archived_no_hire: 'bg-slate-200 text-slate-700',
 };
 
 const FICHA_BADGE: Record<ComplementaryStatus, { label: string; className: string }> = {
@@ -64,99 +69,6 @@ const FICHA_BADGE: Record<ComplementaryStatus, { label: string; className: strin
   incomplete: { label: 'Ficha incompleta', className: 'bg-amber-100 text-amber-800' },
   missing: { label: 'Sin ficha', className: 'bg-slate-200 text-slate-700' },
 };
-
-type FieldDef = {
-  key: keyof WorkerSnapshotComplementary;
-  label: string;
-  input?: 'text' | 'tel' | 'email' | 'select';
-  options?: string[];
-  fullWidth?: boolean;
-};
-
-type FieldGroup = { id: string; title: string; fields: FieldDef[] };
-
-const FICHA_GROUPS: FieldGroup[] = [
-  {
-    id: 'personal',
-    title: 'Datos personales',
-    fields: [
-      { key: 'nombres', label: 'Nombres' },
-      { key: 'apellidoPaterno', label: 'Apellido paterno' },
-      { key: 'apellidoMaterno', label: 'Apellido materno' },
-      { key: 'fechaNacimiento', label: 'Fecha de nacimiento' },
-      {
-        key: 'tipoDocumento',
-        label: 'Tipo documento',
-        input: 'select',
-        options: ['DNI', 'CE', 'Pasaporte'],
-      },
-      { key: 'nroDocumento', label: 'N° documento' },
-      { key: 'nacionalidad', label: 'Nacionalidad' },
-      { key: 'edad', label: 'Edad' },
-      {
-        key: 'sexo',
-        label: 'Sexo',
-        input: 'select',
-        options: ['Masculino', 'Femenino'],
-      },
-      {
-        key: 'estadoCivil',
-        label: 'Estado civil',
-        input: 'select',
-        options: ['Soltero', 'Casado', 'Viudo', 'Divorciado'],
-      },
-    ],
-  },
-  {
-    id: 'contacto',
-    title: 'Contacto y dirección',
-    fields: [
-      { key: 'email', label: 'Correo', input: 'email', fullWidth: true },
-      { key: 'telefono', label: 'Teléfono', input: 'tel' },
-      { key: 'emergenciaTelefono', label: 'Tel. emergencia', input: 'tel' },
-      { key: 'emergenciaParentesco', label: 'Parentesco emergencia' },
-      { key: 'direccion', label: 'Dirección', fullWidth: true },
-      { key: 'distrito', label: 'Distrito' },
-      { key: 'provincia', label: 'Provincia' },
-      { key: 'departamento', label: 'Departamento' },
-    ],
-  },
-  {
-    id: 'tallas',
-    title: 'Tallas',
-    fields: [
-      { key: 'tallaCamisa', label: 'Talla camisa' },
-      { key: 'tallaPantalon', label: 'Talla pantalón' },
-      { key: 'tallaCalzado', label: 'Talla calzado' },
-    ],
-  },
-  {
-    id: 'laboral',
-    title: 'Laboral y bancos',
-    fields: [
-      { key: 'unidadDestaque', label: 'Unidad destaque', fullWidth: true },
-      { key: 'puestoContrato', label: 'Puesto contrato', fullWidth: true },
-      { key: 'bancoSueldo', label: 'Banco sueldo' },
-      { key: 'bancoCts', label: 'Banco CTS' },
-      {
-        key: 'sistemaPensionesAnterior',
-        label: 'Pensiones anterior',
-        input: 'select',
-        options: ['AFP', 'ONP'],
-      },
-      {
-        key: 'sistemaPensionesDeseado',
-        label: 'Pensiones deseado',
-        input: 'select',
-        options: ['AFP', 'ONP'],
-      },
-      { key: 'nombreFamiliarOpalo', label: 'Familiar en Opalo', fullWidth: true },
-    ],
-  },
-];
-
-const inputClassName =
-  'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-50 disabled:text-slate-500';
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
@@ -173,12 +85,6 @@ function formatDateTime(value?: string): string {
 
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Sí' : 'No';
-  return String(value);
-}
-
-function fieldToInputValue(value: unknown): string {
-  if (value === null || value === undefined) return '';
   if (typeof value === 'boolean') return value ? 'Sí' : 'No';
   return String(value);
 }
@@ -253,53 +159,6 @@ function ReadonlyGrid({ entries }: { entries: { label: string; value: unknown }[
   );
 }
 
-function FichaField({
-  field,
-  value,
-  disabled,
-  onChange,
-}: {
-  field: FieldDef;
-  value: string;
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  const spanClass = field.fullWidth ? 'col-span-1 sm:col-span-2' : 'col-span-1';
-
-  return (
-    <label className={`block ${spanClass}`}>
-      <span className="mb-1.5 block text-xs font-medium text-slate-600">{field.label}</span>
-      {field.input === 'select' ? (
-        <select
-          disabled={disabled}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className={inputClassName}
-        >
-          <option value="">Seleccionar…</option>
-          {(field.options ?? []).map((opt) => (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
-          ))}
-          {value && !(field.options ?? []).includes(value) && (
-            <option value={value}>{value}</option>
-          )}
-        </select>
-      ) : (
-        <input
-          type={field.input ?? 'text'}
-          disabled={disabled}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          autoComplete="off"
-          className={inputClassName}
-        />
-      )}
-    </label>
-  );
-}
-
 function PresentationDetail({
   item,
   canEdit,
@@ -325,6 +184,8 @@ function PresentationDetail({
   const [deciding, setDeciding] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveReason, setArchiveReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const loadedItemIdRef = useRef(item.id);
@@ -338,6 +199,8 @@ function PresentationDetail({
       setError(null);
       setRejectOpen(false);
       setRejectReason('');
+      setArchiveOpen(false);
+      setArchiveReason('');
       return;
     }
     // Tras guardar/decidir, sincroniza solo si no hay ediciones locales pendientes
@@ -354,8 +217,9 @@ function PresentationDetail({
     canEdit &&
     (item.itemStatus === 'pending_interview' || item.itemStatus === 'in_review');
   const canEditFicha = canDecide;
-  const canRegister =
-    canEdit && (item.itemStatus === 'approved' || item.itemStatus === 'assigned');
+  const canRegister = canEdit && item.itemStatus === 'approved' && !item.createdResourceId;
+  const canArchiveNoHire = canRegister;
+  const canShowAssigned = item.itemStatus === 'assigned';
   const badge = fichaBadge(
     dirty
       ? deriveComplementaryStatusFromData(draft, item.complementaryStatus, item.complementaryMissingFields)
@@ -371,10 +235,10 @@ function PresentationDetail({
     }
   }, [item.id, item.itemStatus, canEdit]);
 
-  const setField = (key: keyof WorkerSnapshotComplementary, value: string) => {
+  const handleDraftChange = (next: WorkerSnapshotComplementary) => {
     setDirty(true);
     setSavedMsg(null);
-    setDraft((prev) => ({ ...prev, [key]: value }));
+    setDraft(next);
   };
 
   const handleSave = async () => {
@@ -439,6 +303,30 @@ function PresentationDetail({
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al rechazar');
+    } finally {
+      setDeciding(false);
+    }
+  };
+
+  const handleArchiveNoHire = async () => {
+    if (!canArchiveNoHire) return;
+    if (!archiveReason.trim()) {
+      setError('Indica el motivo del archivo');
+      return;
+    }
+    setDeciding(true);
+    setError(null);
+    try {
+      const result = await inboundWorkerHandoffService.archivePresentationWithoutHire(
+        item.id,
+        archiveReason,
+        currentUserName,
+      );
+      if (!result) throw new Error('No se pudo archivar');
+      setArchiveOpen(false);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al archivar');
     } finally {
       setDeciding(false);
     }
@@ -572,109 +460,11 @@ function PresentationDetail({
           )}
         </div>
 
-        <div className="space-y-5">
-          {FICHA_GROUPS.map((group) => (
-            <div key={group.id}>
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {group.title}
-              </h3>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {group.fields.map((field) => (
-                  <FichaField
-                    key={String(field.key)}
-                    field={field}
-                    disabled={!canEditFicha}
-                    value={fieldToInputValue(draft[field.key])}
-                    onChange={(value) => setField(field.key, value)}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-5">
-          <label className="mb-1.5 block text-xs font-medium text-slate-600">
-            ¿Pariente en Opalo?
-          </label>
-          <select
-            disabled={!canEditFicha}
-            value={
-              draft.parienteEnOpalo === true
-                ? 'si'
-                : draft.parienteEnOpalo === false
-                  ? 'no'
-                  : ''
-            }
-            onChange={(e) => {
-              setDirty(true);
-              setSavedMsg(null);
-              const raw = e.target.value;
-              setDraft((prev) => ({
-                ...prev,
-                parienteEnOpalo: raw === 'si' ? true : raw === 'no' ? false : null,
-              }));
-            }}
-            className={inputClassName}
-          >
-            <option value="">Sin indicar</option>
-            <option value="si">Sí</option>
-            <option value="no">No</option>
-          </select>
-        </div>
-
-        {(draft.familiares?.length ?? 0) > 0 && (
-          <div className="mt-5">
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Familiares
-            </h4>
-            <ul className="space-y-2 text-sm text-slate-800">
-              {draft.familiares!.map((fam, idx) => (
-                <li key={idx} className="rounded-xl bg-slate-50 px-3 py-2.5">
-                  {[fam.nombres, fam.apellidoPaterno, fam.apellidoMaterno].filter(Boolean).join(' ')}
-                  {fam.parentesco ? ` · ${fam.parentesco}` : ''}
-                  {fam.telefono ? ` · ${fam.telefono}` : ''}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {(draft.experienciaLaboral?.length ?? 0) > 0 && (
-          <div className="mt-5">
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Experiencia laboral
-            </h4>
-            <ul className="space-y-2 text-sm text-slate-800">
-              {draft.experienciaLaboral!.map((exp, idx) => (
-                <li key={idx} className="rounded-xl bg-slate-50 px-3 py-2.5">
-                  <span className="font-medium">{exp.empresa || '—'}</span>
-                  {exp.puesto ? ` · ${exp.puesto}` : ''}
-                  {(exp.fechaIngreso || exp.fechaCese) && (
-                    <span className="mt-0.5 block text-xs text-slate-500">
-                      {exp.fechaIngreso || '?'} → {exp.fechaCese || '?'}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {(draft.educacion?.length ?? 0) > 0 && (
-          <div className="mt-5">
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Educación
-            </h4>
-            <ul className="space-y-2 text-sm text-slate-800">
-              {draft.educacion!.map((edu, idx) => (
-                <li key={idx} className="rounded-xl bg-slate-50 px-3 py-2.5">
-                  {[edu.nivel, edu.institucion, edu.grado].filter(Boolean).join(' · ') || '—'}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <ComplementaryFichaForm
+          value={draft}
+          disabled={!canEditFicha}
+          onChange={handleDraftChange}
+        />
       </section>
 
       {canDecide && (
@@ -751,28 +541,83 @@ function PresentationDetail({
       )}
 
       {canRegister && item.itemStatus === 'approved' && (
-        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
-          <p className="mb-3 text-sm leading-relaxed text-indigo-900">
-            Aprobado. Al registrar en una unidad se crea el colaborador y se encola el envío a Opalosis.
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 space-y-3">
+          <p className="text-sm leading-relaxed text-indigo-900">
+            Aprobado no implica ingreso. La fecha de ingreso es al <strong>registrar en unidad</strong>.
+            Si no iniciará labores, archívalo (sin contrato / sin haber trabajado).
           </p>
-          <button
-            type="button"
-            onClick={() => onRegister(item)}
-            className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto"
-          >
-            <UserPlus size={16} />
-            Registrar en unidad
-          </button>
+          {!archiveOpen ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => onRegister(item)}
+                className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700"
+              >
+                <UserPlus size={16} />
+                Registrar en unidad
+              </button>
+              <button
+                type="button"
+                onClick={() => setArchiveOpen(true)}
+                className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <Archive size={16} />
+                Archivar sin ingreso
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+              <label className="block text-sm">
+                <span className="mb-1.5 block font-medium text-slate-700">
+                  Motivo del archivo (no inició labores)
+                </span>
+                <textarea
+                  value={archiveReason}
+                  onChange={(e) => setArchiveReason(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-base"
+                  placeholder="Ej. no aceptó condiciones, no se presentó, cliente canceló, etc."
+                />
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  disabled={deciding}
+                  onClick={() => void handleArchiveNoHire()}
+                  className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-slate-800 px-4 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+                >
+                  {deciding ? <Loader2 size={16} className="animate-spin" /> : <Archive size={16} />}
+                  Confirmar archivo
+                </button>
+                <button
+                  type="button"
+                  disabled={deciding}
+                  onClick={() => setArchiveOpen(false)}
+                  className="inline-flex min-h-[48px] items-center justify-center rounded-xl border border-slate-200 px-4 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {item.itemStatus === 'assigned' && (
+      {canShowAssigned && (
         <p className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
           Ya registrado en unidad
           {item.assignedWorkUnitId
             ? `: ${units.find((u) => u.id === item.assignedWorkUnitId)?.name ?? item.assignedWorkUnitId}`
             : ''}
           . Opalosis se gestiona desde Envío Opalosis.
+        </p>
+      )}
+
+      {item.itemStatus === 'archived_no_hire' && (
+        <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Archivado sin ingreso
+          {item.decisionReason ? `: ${item.decisionReason}` : ''}. No generó contrato ni recurso
+          operativo.
         </p>
       )}
     </div>

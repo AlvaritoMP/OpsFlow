@@ -125,6 +125,7 @@ const ITEM_STATUS_LABELS: Record<InboundHandoffItemStatus, string> = {
   pending_interview: 'Pendiente entrevista',
   in_review: 'En revisión',
   approved: 'Aprobado',
+  archived_no_hire: 'Archivado (sin ingreso)',
 };
 
 const ITEM_STATUS_STYLES: Record<InboundHandoffItemStatus, string> = {
@@ -135,6 +136,7 @@ const ITEM_STATUS_STYLES: Record<InboundHandoffItemStatus, string> = {
   pending_interview: 'bg-slate-100 text-slate-700',
   in_review: 'bg-amber-100 text-amber-800',
   approved: 'bg-green-100 text-green-800',
+  archived_no_hire: 'bg-slate-200 text-slate-700',
 };
 
 const IDENTITY_LABELS: Record<string, string> = {

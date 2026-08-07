@@ -732,7 +732,7 @@ export type InboundHandoffPackageStatus =
   | 'rejected'
   | 'partially_completed';
 
-/** Hire/legacy: pending|accepted|rejected|assigned. Presentation: pending_interview|in_review|approved|rejected|(assigned tras registrar). */
+/** Hire/legacy: pending|accepted|rejected|assigned. Presentation: pending_interview|in_review|approved|rejected|assigned|archived_no_hire. */
 export type InboundHandoffItemStatus =
   | 'pending'
   | 'accepted'
@@ -740,7 +740,8 @@ export type InboundHandoffItemStatus =
   | 'assigned'
   | 'pending_interview'
   | 'in_review'
-  | 'approved';
+  | 'approved'
+  | 'archived_no_hire';
 
 export type InboundHandoffPurpose = 'presentation';
 
