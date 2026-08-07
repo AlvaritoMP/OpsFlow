@@ -151,9 +151,11 @@ export const inboundWorkerHandoffService = {
 
   /**
    * Lista paquetes de contratación/legacy (excluye purpose=presentation).
+   * includeUnresolvedCounts: false evita la 2.ª consulta (útil en modo archivo/consulta).
    */
   async listPackages(options?: {
     status?: InboundHandoffPackageStatus;
+    includeUnresolvedCounts?: boolean;
   }): Promise<InboundHandoffPackage[]> {
     try {
       let query = supabase
@@ -178,6 +180,10 @@ export const inboundWorkerHandoffService = {
       );
 
       if (packages.length === 0) return packages;
+
+      if (options?.includeUnresolvedCounts === false) {
+        return packages;
+      }
 
       const packageIds = packages.map((pkg) => pkg.id);
       const { data: unresolvedRows, error: unresolvedError } = await supabase

@@ -30,6 +30,8 @@ import {
 
 interface InboundWorkerHandoffProps {
   canEdit: boolean;
+  /** Proceso antiguo deshabilitado: solo consulta histórica, sin acciones ni registro. */
+  archiveMode?: boolean;
   units: Unit[];
   onRegistered?: () => void;
 }
@@ -365,16 +367,20 @@ function ItemRow({
 }
 
 export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
-  canEdit,
+  canEdit: canEditProp,
+  archiveMode = false,
   units,
   onRegistered,
 }) => {
+  const canEdit = archiveMode ? false : canEditProp;
   const [packages, setPackages] = useState<InboundHandoffPackage[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<InboundHandoffPackageWithItems | null>(
     null,
   );
   const [registerItem, setRegisterItem] = useState<InboundHandoffItem | null>(null);
-  const [statusFilter, setStatusFilter] = useState<(typeof PACKAGE_FILTERS)[number]>('all');
+  const [statusFilter, setStatusFilter] = useState<(typeof PACKAGE_FILTERS)[number]>(
+    archiveMode ? 'completed' : 'all',
+  );
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -385,16 +391,17 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const data = await inboundWorkerHandoffService.listPackages(
-        statusFilter === 'all' ? undefined : { status: statusFilter },
-      );
+      const data = await inboundWorkerHandoffService.listPackages({
+        ...(statusFilter === 'all' ? {} : { status: statusFilter }),
+        includeUnresolvedCounts: !archiveMode,
+      });
       setPackages(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar paquetes');
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, archiveMode]);
 
   const loadPackageDetail = useCallback(async (packageId: string) => {
     setDetailLoading(true);
@@ -496,6 +503,14 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
           <ArrowLeft size={16} />
           Volver a la bandeja
         </button>
+
+        {archiveMode && (
+          <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <span className="font-medium">Archivo histórico.</span> Este proceso quedó
+            deshabilitado; solo puedes consultar lo ya procesado. El flujo activo es Presentaciones
+            ATS.
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -682,9 +697,16 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
           <div className="flex items-center gap-2">
             <Inbox size={22} className="text-blue-600" />
             <h1 className="text-2xl font-bold text-slate-900">Recepción ATS</h1>
+            {archiveMode && (
+              <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-600">
+                Archivo
+              </span>
+            )}
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Paquetes de trabajadores enviados manualmente desde Opalo ATS
+            {archiveMode
+              ? 'Consulta histórica de paquetes del proceso antiguo. El flujo activo es Presentaciones ATS.'
+              : 'Paquetes de trabajadores enviados manualmente desde Opalo ATS'}
           </p>
         </div>
         <button
@@ -697,6 +719,13 @@ export const InboundWorkerHandoff: React.FC<InboundWorkerHandoffProps> = ({
           Actualizar
         </button>
       </div>
+
+      {archiveMode && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Proceso deshabilitado: sin alertas, sin aceptar/rechazar ni registrar. Solo consulta de lo
+          ya procesado.
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap gap-2">
         {PACKAGE_FILTERS.map((status) => (
