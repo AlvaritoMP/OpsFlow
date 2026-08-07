@@ -12,8 +12,14 @@ export interface HandoffWorkerPrefill {
   endDate: string;
   shift: string;
   monthlySalary?: number;
+  workDays?: string[];
+  entryTime?: string;
+  exitTime?: string;
+  jornadaType?: string;
+  laborRegime?: string;
+  mobilityBonus?: number;
   externalId?: string;
-  /** Campos OpsFlow pre-completados desde ATS (puesto y localidad los elige el operador) */
+  /** Campos precargados desde ATS o intake OpsFlow (puesto y localidad los elige el operador) */
   prefilledFields: string[];
 }
 
@@ -51,6 +57,7 @@ export function buildResourceInboundSourceData(
     handoffItemId: item.id,
     capturedAt: item.workerSnapshot.meta?.capturedAt,
     workerSnapshot: item.workerSnapshot,
+    opsflowIntake: item.opsflowIntake ?? undefined,
   };
 }
 
@@ -100,13 +107,43 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
   const startDate = normalizeDate(fields.hireDate);
   if (startDate) prefilledFields.push('startDate');
 
-  const monthlySalary = parseSalary(fields.agreedSalary);
+  const intake = item.opsflowIntake;
+  const monthlySalary =
+    parseSalary(intake?.monthlySalary) ?? parseSalary(fields.agreedSalary);
   if (monthlySalary !== undefined) prefilledFields.push('monthlySalary');
 
   const birthDate = normalizeDate(
     fields.birthDate ?? fields.fechaNacimiento ?? complementary?.fechaNacimiento,
   );
   if (birthDate) prefilledFields.push('birthDate');
+
+  const shift = intake?.shift?.trim() || '';
+  if (shift) prefilledFields.push('shift');
+
+  const workDays = Array.isArray(intake?.workDays)
+    ? intake!.workDays!.filter((d) => Boolean(d?.trim()))
+    : [];
+  if (workDays.length > 0) prefilledFields.push('workDays');
+
+  const entryTime = intake?.entryTime?.trim() || '';
+  if (entryTime) prefilledFields.push('entryTime');
+
+  const exitTime = intake?.exitTime?.trim() || '';
+  if (exitTime) prefilledFields.push('exitTime');
+
+  const jornadaType = intake?.jornadaType?.trim() || '';
+  if (jornadaType) prefilledFields.push('jornadaType');
+
+  const laborRegime = intake?.laborRegime?.trim() || '';
+  if (laborRegime) prefilledFields.push('laborRegime');
+
+  const mobilityBonus =
+    intake?.mobilityBonus === null || intake?.mobilityBonus === undefined
+      ? undefined
+      : Number(intake.mobilityBonus);
+  if (mobilityBonus !== undefined && Number.isFinite(mobilityBonus) && mobilityBonus >= 0) {
+    prefilledFields.push('mobilityBonus');
+  }
 
   const externalId = item.sourceCandidateId ?? item.workerSnapshot.meta?.sourceCandidateId;
 
@@ -119,8 +156,17 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
     birthDate,
     startDate,
     endDate: '',
-    shift: '',
+    shift,
     monthlySalary,
+    workDays,
+    entryTime,
+    exitTime,
+    jornadaType,
+    laborRegime,
+    mobilityBonus:
+      mobilityBonus !== undefined && Number.isFinite(mobilityBonus) && mobilityBonus >= 0
+        ? mobilityBonus
+        : undefined,
     externalId: externalId ? String(externalId) : undefined,
     prefilledFields,
   };

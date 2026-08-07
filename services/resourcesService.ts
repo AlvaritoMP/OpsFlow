@@ -903,6 +903,15 @@ function transformResourceFromDB(
     // Campos de salario
     monthlySalary: data.monthly_salary ? Number(data.monthly_salary) : undefined,
     workConditionAmount: data.work_condition_amount ? Number(data.work_condition_amount) : undefined,
+    workDays: Array.isArray(data.work_days) ? data.work_days.filter(Boolean) : undefined,
+    entryTime: data.entry_time || undefined,
+    exitTime: data.exit_time || undefined,
+    jornadaType: data.jornada_type || undefined,
+    laborRegime: data.labor_regime || undefined,
+    mobilityBonus:
+      data.mobility_bonus !== null && data.mobility_bonus !== undefined
+        ? Number(data.mobility_bonus)
+        : undefined,
   };
 }
 
@@ -1272,7 +1281,13 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
                              resource.endDate !== undefined ||
                              resource.startDate !== undefined ||
                              resource.monthlySalary !== undefined ||
-                             resource.workConditionAmount !== undefined;
+                             resource.workConditionAmount !== undefined ||
+                             resource.workDays !== undefined ||
+                             resource.entryTime !== undefined ||
+                             resource.exitTime !== undefined ||
+                             resource.jornadaType !== undefined ||
+                             resource.laborRegime !== undefined ||
+                             resource.mobilityBonus !== undefined;
   
   if (hasPersonnelFields) {
     if (resource.dni !== undefined) result.dni = resource.dni;
@@ -1297,6 +1312,12 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     // Campos de salario
     if (resource.monthlySalary !== undefined) result.monthly_salary = resource.monthlySalary;
     if (resource.workConditionAmount !== undefined) result.work_condition_amount = resource.workConditionAmount;
+    if (resource.workDays !== undefined) result.work_days = resource.workDays;
+    if (resource.entryTime !== undefined) result.entry_time = resource.entryTime || null;
+    if (resource.exitTime !== undefined) result.exit_time = resource.exitTime || null;
+    if (resource.jornadaType !== undefined) result.jornada_type = resource.jornadaType || null;
+    if (resource.laborRegime !== undefined) result.labor_regime = resource.laborRegime || null;
+    if (resource.mobilityBonus !== undefined) result.mobility_bonus = resource.mobilityBonus;
   }
 
   return result;

@@ -7,6 +7,7 @@ import type {
   InboundHandoffPackage,
   InboundHandoffPackageStatus,
   InboundHandoffPackageWithItems,
+  PresentationOpsflowIntake,
   WorkerSnapshot,
   WorkerSnapshotComplementary,
 } from '../types';
@@ -71,6 +72,7 @@ function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem 
     complementaryMissingFields: Array.isArray(missing)
       ? (missing as string[])
       : undefined,
+    opsflowIntake: (data.opsflow_intake as PresentationOpsflowIntake) ?? null,
     decisionReason: (data.decision_reason as string) ?? undefined,
     decidedAt: (data.decided_at as string) ?? undefined,
     decidedByName: (data.decided_by_name as string) ?? undefined,
@@ -442,6 +444,68 @@ export const inboundWorkerHandoffService = {
           worker_snapshot: nextSnapshot,
           item_status: nextStatus,
         })
+        .eq('id', itemId)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      return data ? transformItemFromDB(asRecord(data)) : null;
+    } catch (error) {
+      handleSupabaseError(error);
+      return null;
+    }
+  },
+
+  /**
+   * Guarda salario / días / horario / turno definidos por OpsFlow
+   * (requeridos antes de registrar en unidad).
+   */
+  async savePresentationOpsflowIntake(
+    itemId: string,
+    intake: PresentationOpsflowIntake,
+    updatedByName?: string,
+  ): Promise<InboundHandoffItem | null> {
+    try {
+      const current = await this.getItemById(itemId);
+      if (!current) return null;
+      if (current.purpose !== 'presentation') {
+        throw new Error('Solo aplica a presentaciones');
+      }
+      if (
+        current.itemStatus === 'rejected' ||
+        current.itemStatus === 'assigned' ||
+        current.itemStatus === 'archived_no_hire'
+      ) {
+        throw new Error('No se puede editar estos datos en el estado actual');
+      }
+
+      const mobilityRaw = intake.mobilityBonus;
+      const mobilityBonus =
+        mobilityRaw === null ||
+        mobilityRaw === undefined ||
+        Number.isNaN(Number(mobilityRaw))
+          ? null
+          : Number(mobilityRaw);
+
+      const payload: PresentationOpsflowIntake = {
+        monthlySalary:
+          intake.monthlySalary === null || intake.monthlySalary === undefined || Number.isNaN(Number(intake.monthlySalary))
+            ? null
+            : Number(intake.monthlySalary),
+        workDays: Array.isArray(intake.workDays) ? intake.workDays.filter(Boolean) : [],
+        entryTime: intake.entryTime?.trim() || '',
+        exitTime: intake.exitTime?.trim() || '',
+        shift: intake.shift?.trim() || '',
+        jornadaType: intake.jornadaType?.trim() || '',
+        laborRegime: intake.laborRegime?.trim() || '',
+        mobilityBonus,
+        updatedAt: new Date().toISOString(),
+        updatedByName: updatedByName?.trim() || undefined,
+      };
+
+      const { data, error } = await supabase
+        .from('inbound_worker_handoff_items')
+        .update({ opsflow_intake: payload })
         .eq('id', itemId)
         .select('*')
         .single();

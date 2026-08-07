@@ -31,11 +31,16 @@ interface RegisterHandoffWorkerModalProps {
   onSuccess: () => void;
 }
 
-function PrefillBadge() {
+function PrefillBadge({ source = 'ATS' }: { source?: 'ATS' | 'OpsFlow' }) {
+  const isOps = source === 'OpsFlow';
   return (
-    <span className="ml-2 inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+    <span
+      className={`ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
+        isOps ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700'
+      }`}
+    >
       <Sparkles size={10} className="mr-0.5" />
-      ATS
+      {source}
     </span>
   );
 }
@@ -83,7 +88,12 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
     setUnitId(nextUnitId);
     setZones([]);
     setSelectedPositionKey('');
-    setForm((current) => ({ ...current, puesto: '', shift: '' }));
+    setForm((current) => ({
+      ...current,
+      puesto: '',
+      // Conserva turno del intake OpsFlow si ya venía precargado
+      shift: current.prefilledFields.includes('shift') ? current.shift : '',
+    }));
   };
 
   const handlePositionChange = (positionKey: string) => {
@@ -92,7 +102,10 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
     setForm((current) => ({
       ...current,
       puesto: option?.positionName ?? '',
-      shift: option?.suggestedShift ?? current.shift,
+      shift:
+        current.prefilledFields.includes('shift') && current.shift
+          ? current.shift
+          : option?.suggestedShift ?? current.shift,
     }));
   };
 
@@ -144,6 +157,15 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
           personnelStatus: 'activo',
           archived: false,
           monthlySalary: form.monthlySalary,
+          workDays: form.workDays?.length ? form.workDays : undefined,
+          entryTime: form.entryTime?.trim() || undefined,
+          exitTime: form.exitTime?.trim() || undefined,
+          jornadaType: form.jornadaType?.trim() || undefined,
+          laborRegime: form.laborRegime?.trim() || undefined,
+          mobilityBonus:
+            form.mobilityBonus !== undefined && Number.isFinite(form.mobilityBonus)
+              ? form.mobilityBonus
+              : undefined,
           externalId: form.externalId,
           inboundSourceData: buildResourceInboundSourceData(item, {
             sourcePackageId,
@@ -352,7 +374,10 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Salario mensual{isPrefilled('monthlySalary') && <PrefillBadge />}
+                Salario mensual
+                {isPrefilled('monthlySalary') && (
+                  <PrefillBadge source={item.opsflowIntake?.monthlySalary != null ? 'OpsFlow' : 'ATS'} />
+                )}
               </label>
               <input
                 type="number"
@@ -370,7 +395,9 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Turno</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Turno{isPrefilled('shift') && <PrefillBadge source="OpsFlow" />}
+              </label>
               <select
                 value={form.shift}
                 onChange={(e) => setForm({ ...form, shift: e.target.value })}
@@ -382,6 +409,91 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 <option value="Nocturno">Nocturno</option>
                 <option value="Mixto">Mixto</option>
               </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Hora de entrada{isPrefilled('entryTime') && <PrefillBadge source="OpsFlow" />}
+              </label>
+              <input
+                type="time"
+                value={form.entryTime ?? ''}
+                onChange={(e) => setForm({ ...form, entryTime: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Hora de salida{isPrefilled('exitTime') && <PrefillBadge source="OpsFlow" />}
+              </label>
+              <input
+                type="time"
+                value={form.exitTime ?? ''}
+                onChange={(e) => setForm({ ...form, exitTime: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Días de trabajo{isPrefilled('workDays') && <PrefillBadge source="OpsFlow" />}
+              </label>
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {(form.workDays?.length ?? 0) > 0 ? form.workDays!.join(', ') : '—'}
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Tipo de jornada{isPrefilled('jornadaType') && <PrefillBadge source="OpsFlow" />}
+              </label>
+              <select
+                value={form.jornadaType ?? ''}
+                onChange={(e) => setForm({ ...form, jornadaType: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+              >
+                <option value="">Seleccionar...</option>
+                <option value="Full Time">Full Time</option>
+                <option value="Part Time">Part Time</option>
+                <option value="12 horas">12 horas</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Régimen{isPrefilled('laborRegime') && <PrefillBadge source="OpsFlow" />}
+              </label>
+              <select
+                value={form.laborRegime ?? ''}
+                onChange={(e) => setForm({ ...form, laborRegime: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+              >
+                <option value="">Seleccionar...</option>
+                <option value="General">General</option>
+                <option value="Pyme">Pyme</option>
+                <option value="Mype">Mype</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Bono de movilidad
+                {isPrefilled('mobilityBonus') && <PrefillBadge source="OpsFlow" />}
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.mobilityBonus ?? ''}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    mobilityBonus: e.target.value === '' ? undefined : parseFloat(e.target.value),
+                  })
+                }
+                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+              />
             </div>
 
             <div>

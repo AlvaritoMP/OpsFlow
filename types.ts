@@ -257,6 +257,18 @@ export interface Resource {
   isShared?: boolean; // Si el trabajador es compartido entre múltiples unidades (true) o único (false). Por defecto false (único)
   monthlySalary?: number; // Salario bruto mensual del trabajador
   workConditionAmount?: number; // Monto adicional por condición de trabajo
+  /** Días habituales de trabajo (Lunes…Domingo) definidos al ingreso / presentación */
+  workDays?: string[];
+  /** Hora de entrada habitual HH:mm */
+  entryTime?: string;
+  /** Hora de salida habitual HH:mm */
+  exitTime?: string;
+  /** Full Time | Part Time | 12 horas */
+  jornadaType?: string;
+  /** General | Pyme | Mype */
+  laborRegime?: string;
+  /** Bono de movilidad (S/) */
+  mobilityBonus?: number;
   salaryIncrements?: SalaryIncrement[]; // Historial de incrementos salariales
 }
 
@@ -890,6 +902,8 @@ export interface InboundHandoffItem {
   complementaryStatus?: ComplementaryStatus | null;
   complementaryFilledAt?: string;
   complementaryMissingFields?: string[];
+  /** Datos internos OpsFlow (salario, días, horario, turno) antes de asignar unidad */
+  opsflowIntake?: PresentationOpsflowIntake | null;
   decisionReason?: string;
   decidedAt?: string;
   decidedByName?: string;
@@ -902,6 +916,27 @@ export interface InboundHandoffItem {
   sourcePackageId?: string;
   sourceApp?: string;
   packageReceivedAt?: string;
+}
+
+/** Campos que llena OpsFlow antes de registrar al candidato en una unidad. */
+export interface PresentationOpsflowIntake {
+  monthlySalary?: number | null;
+  /** Ej. Lunes, Martes, … */
+  workDays?: string[];
+  /** HH:mm */
+  entryTime?: string;
+  /** HH:mm */
+  exitTime?: string;
+  /** Diurno | Tarde | Nocturno */
+  shift?: string;
+  /** Full Time | Part Time | 12 horas */
+  jornadaType?: string;
+  /** General | Pyme | Mype */
+  laborRegime?: string;
+  /** Bono de movilidad (S/); 0 permitido si se especifica */
+  mobilityBonus?: number | null;
+  updatedAt?: string;
+  updatedByName?: string;
 }
 
 export interface InboundHandoffDecisionOutbox {
@@ -927,7 +962,7 @@ export interface InboundHandoffPackageWithItems extends InboundHandoffPackage {
   items: InboundHandoffItem[];
 }
 
-/** Datos ATS persistidos en resources.inbound_source_data al registrar colaborador */
+/** Datos ATS (+ intake OpsFlow) persistidos en resources.inbound_source_data al registrar colaborador */
 export interface ResourceInboundSourceData {
   sourceApp: string;
   sourcePackageId?: string;
@@ -936,6 +971,7 @@ export interface ResourceInboundSourceData {
   handoffItemId?: string;
   capturedAt?: string;
   workerSnapshot: WorkerSnapshot;
+  opsflowIntake?: PresentationOpsflowIntake;
 }
 
 // --- HR OPALOSIS INTEGRATION (OpsFlow → Opalosis RRHH) ---

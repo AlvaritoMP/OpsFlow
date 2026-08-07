@@ -16,6 +16,11 @@ import {
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
 import { RegisterHandoffWorkerModal } from './RegisterHandoffWorkerModal';
 import { ComplementaryFichaForm } from './ComplementaryFichaForm';
+import {
+  OpsflowIntakeForm,
+  isOpsflowIntakeComplete,
+  opsflowIntakeMissingLabels,
+} from './OpsflowIntakeForm';
 import { resolveHandoffDisplayName } from '../utils/handoffNameParts';
 import {
   deriveComplementaryStatusFromData,
@@ -25,6 +30,7 @@ import {
   ComplementaryStatus,
   InboundHandoffItem,
   InboundHandoffItemStatus,
+  PresentationOpsflowIntake,
   Unit,
   WorkerSnapshotComplementary,
 } from '../types';
@@ -95,6 +101,29 @@ function fichaBadge(status?: ComplementaryStatus | null) {
 
 function resolveItemComplementary(item: InboundHandoffItem): WorkerSnapshotComplementary {
   return hydrateComplementaryFromSnapshot(item.workerSnapshot, item.complementary);
+}
+
+function emptyOpsflowIntake(): PresentationOpsflowIntake {
+  return {
+    monthlySalary: null,
+    workDays: [],
+    entryTime: '',
+    exitTime: '',
+    shift: '',
+    jornadaType: '',
+    laborRegime: '',
+    mobilityBonus: null,
+  };
+}
+
+function resolveItemOpsflowIntake(item: InboundHandoffItem): PresentationOpsflowIntake {
+  return {
+    ...emptyOpsflowIntake(),
+    ...(item.opsflowIntake ?? {}),
+    workDays: Array.isArray(item.opsflowIntake?.workDays)
+      ? [...item.opsflowIntake!.workDays!]
+      : [],
+  };
 }
 
 function resolveItemFichaStatus(item: InboundHandoffItem): ComplementaryStatus {
@@ -179,8 +208,13 @@ function PresentationDetail({
   const [draft, setDraft] = useState<WorkerSnapshotComplementary>(() =>
     resolveItemComplementary(item),
   );
+  const [intakeDraft, setIntakeDraft] = useState<PresentationOpsflowIntake>(() =>
+    resolveItemOpsflowIntake(item),
+  );
   const [dirty, setDirty] = useState(false);
+  const [intakeDirty, setIntakeDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingIntake, setSavingIntake] = useState(false);
   const [deciding, setDeciding] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -194,7 +228,9 @@ function PresentationDetail({
     if (loadedItemIdRef.current !== item.id) {
       loadedItemIdRef.current = item.id;
       setDraft(resolveItemComplementary(item));
+      setIntakeDraft(resolveItemOpsflowIntake(item));
       setDirty(false);
+      setIntakeDirty(false);
       setSavedMsg(null);
       setError(null);
       setRejectOpen(false);
@@ -207,7 +243,10 @@ function PresentationDetail({
     if (!dirty) {
       setDraft(resolveItemComplementary(item));
     }
-  }, [item, dirty]);
+    if (!intakeDirty) {
+      setIntakeDraft(resolveItemOpsflowIntake(item));
+    }
+  }, [item, dirty, intakeDirty]);
 
   const displayName = resolveHandoffDisplayName({
     snapshot: item.workerSnapshot,
@@ -217,7 +256,15 @@ function PresentationDetail({
     canEdit &&
     (item.itemStatus === 'pending_interview' || item.itemStatus === 'in_review');
   const canEditFicha = canDecide;
+  const canEditIntake =
+    canEdit &&
+    (item.itemStatus === 'pending_interview' ||
+      item.itemStatus === 'in_review' ||
+      item.itemStatus === 'approved') &&
+    !item.createdResourceId;
   const canRegister = canEdit && item.itemStatus === 'approved' && !item.createdResourceId;
+  const intakeComplete = isOpsflowIntakeComplete(intakeDirty ? intakeDraft : item.opsflowIntake);
+  const intakeMissing = opsflowIntakeMissingLabels(intakeDirty ? intakeDraft : item.opsflowIntake);
   const canArchiveNoHire = canRegister;
   const canShowAssigned = item.itemStatus === 'assigned';
   const badge = fichaBadge(
@@ -241,6 +288,12 @@ function PresentationDetail({
     setDraft(next);
   };
 
+  const handleIntakeChange = (next: PresentationOpsflowIntake) => {
+    setIntakeDirty(true);
+    setSavedMsg(null);
+    setIntakeDraft(next);
+  };
+
   const handleSave = async () => {
     if (!canEditFicha) return;
     setSaving(true);
@@ -256,6 +309,56 @@ function PresentationDetail({
       setError(err instanceof Error ? err.message : 'Error al guardar');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveIntake = async () => {
+    if (!canEditIntake) return;
+    setSavingIntake(true);
+    setError(null);
+    setSavedMsg(null);
+    try {
+      const result = await inboundWorkerHandoffService.savePresentationOpsflowIntake(
+        item.id,
+        intakeDraft,
+        currentUserName,
+      );
+      if (!result) throw new Error('No se pudo guardar salario / horario');
+      setIntakeDirty(false);
+      setSavedMsg('Datos de OpsFlow guardados');
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al guardar');
+    } finally {
+      setSavingIntake(false);
+    }
+  };
+
+  const handleRegisterClick = async () => {
+    if (!canRegister) return;
+    setError(null);
+    try {
+      let intakeToUse = intakeDraft;
+      if (intakeDirty) {
+        const saved = await inboundWorkerHandoffService.savePresentationOpsflowIntake(
+          item.id,
+          intakeDraft,
+          currentUserName,
+        );
+        if (!saved) throw new Error('No se pudo guardar salario / horario');
+        setIntakeDirty(false);
+        intakeToUse = saved.opsflowIntake ?? intakeDraft;
+        await onChanged();
+      }
+      if (!isOpsflowIntakeComplete(intakeToUse)) {
+        setError(
+          `Completa y guarda antes de registrar: ${opsflowIntakeMissingLabels(intakeToUse).join(', ')}`,
+        );
+        return;
+      }
+      onRegister({ ...item, opsflowIntake: intakeToUse });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo preparar el registro');
     }
   };
 
@@ -467,6 +570,56 @@ function PresentationDetail({
         />
       </section>
 
+      {(canEditIntake || item.opsflowIntake || canRegister || canShowAssigned) && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-slate-900">
+                Condiciones OpsFlow (salario y horario)
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
+                {canEditIntake
+                  ? 'Obligatorio antes de registrar en unidad'
+                  : 'Solo lectura'}
+              </p>
+            </div>
+            {canEditIntake && (
+              <button
+                type="button"
+                disabled={savingIntake || !intakeDirty}
+                onClick={() => void handleSaveIntake()}
+                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40 sm:w-auto"
+              >
+                {savingIntake ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Save size={16} />
+                )}
+                Guardar condiciones
+              </button>
+            )}
+          </div>
+
+          {!intakeComplete && canEditIntake && (
+            <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Faltan: {intakeMissing.join(', ') || 'datos de salario/horario'}
+            </p>
+          )}
+          {intakeComplete && (
+            <p className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              Condiciones completas
+              {intakeDirty ? ' (hay cambios sin guardar)' : ''}
+            </p>
+          )}
+
+          <OpsflowIntakeForm
+            value={intakeDraft}
+            disabled={!canEditIntake}
+            onChange={handleIntakeChange}
+          />
+        </section>
+      )}
+
       {canDecide && (
         <div
           className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur supports-[backdrop-filter]:bg-white/90 md:static md:mt-2 md:rounded-2xl md:border md:bg-white md:p-4 md:shadow-sm"
@@ -544,14 +697,21 @@ function PresentationDetail({
         <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 space-y-3">
           <p className="text-sm leading-relaxed text-indigo-900">
             Aprobado no implica ingreso. La fecha de ingreso es al <strong>registrar en unidad</strong>.
-            Si no iniciará labores, archívalo (sin contrato / sin haber trabajado).
+            Completa salario, días, horario y turno arriba. Si no iniciará labores, archívalo
+            (sin contrato / sin haber trabajado).
           </p>
+          {!intakeComplete && (
+            <p className="text-xs text-amber-800">
+              Falta completar: {intakeMissing.join(', ')}
+            </p>
+          )}
           {!archiveOpen ? (
             <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
-                onClick={() => onRegister(item)}
-                className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700"
+                disabled={!intakeComplete || savingIntake}
+                onClick={() => void handleRegisterClick()}
+                className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 <UserPlus size={16} />
                 Registrar en unidad

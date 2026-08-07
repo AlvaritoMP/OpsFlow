@@ -14,6 +14,7 @@ import { BpoContactsTab } from './BpoContactsTab';
 import { BpoBanksTab } from './BpoBanksTab';
 import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
 import { WorkerComplementaryPanel } from './WorkerComplementaryPanel';
+import { WORK_DAY_OPTIONS, JORNADA_OPTIONS, REGIME_OPTIONS } from './OpsflowIntakeForm';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import {
   UnitDetailTab,
@@ -566,7 +567,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1, shift: '' as string | undefined });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -2315,6 +2316,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         archived: false, // No se archiva automáticamente
         monthlySalary: newWorkerForm.monthlySalary ? Number(newWorkerForm.monthlySalary) : undefined,
         workConditionAmount: newWorkerForm.workConditionAmount ? Number(newWorkerForm.workConditionAmount) : undefined,
+        workDays: newWorkerForm.workDays?.length ? newWorkerForm.workDays : undefined,
+        entryTime: newWorkerForm.entryTime?.trim() || undefined,
+        exitTime: newWorkerForm.exitTime?.trim() || undefined,
+        jornadaType: newWorkerForm.jornadaType?.trim() || undefined,
+        laborRegime: newWorkerForm.laborRegime?.trim() || undefined,
+        mobilityBonus:
+          newWorkerForm.mobilityBonus !== undefined && Number.isFinite(newWorkerForm.mobilityBonus)
+            ? Number(newWorkerForm.mobilityBonus)
+            : undefined,
       trainings: [],
       assignedAssets: []
       }, unit.id);
@@ -2333,7 +2343,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined });
+      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -8255,6 +8265,56 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </select>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Días de trabajo</label>
+                  <div className="flex flex-wrap gap-2">
+                    {WORK_DAY_OPTIONS.map((day) => {
+                      const active = (newWorkerForm.workDays ?? []).includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => {
+                            const current = new Set(newWorkerForm.workDays ?? []);
+                            if (current.has(day)) current.delete(day);
+                            else current.add(day);
+                            setNewWorkerForm({
+                              ...newWorkerForm,
+                              workDays: WORK_DAY_OPTIONS.filter((d) => current.has(d)),
+                            });
+                          }}
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {day.slice(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Hora de entrada</label>
+                    <input
+                      type="time"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      value={newWorkerForm.entryTime || ''}
+                      onChange={(e) => setNewWorkerForm({ ...newWorkerForm, entryTime: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Hora de salida</label>
+                    <input
+                      type="time"
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      value={newWorkerForm.exitTime || ''}
+                      onChange={(e) => setNewWorkerForm({ ...newWorkerForm, exitTime: e.target.value })}
+                    />
+                  </div>
+                </div>
+
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
@@ -8315,6 +8375,53 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         onChange={e => setNewWorkerForm({...newWorkerForm, workConditionAmount: e.target.value ? parseFloat(e.target.value) : undefined})} 
                         placeholder="0.00"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Bono de movilidad</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                        value={newWorkerForm.mobilityBonus ?? ''}
+                        onChange={(e) =>
+                          setNewWorkerForm({
+                            ...newWorkerForm,
+                            mobilityBonus: e.target.value === '' ? undefined : parseFloat(e.target.value),
+                          })
+                        }
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de jornada</label>
+                      <select
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                        value={newWorkerForm.jornadaType || ''}
+                        onChange={(e) => setNewWorkerForm({ ...newWorkerForm, jornadaType: e.target.value })}
+                      >
+                        <option value="">Seleccionar...</option>
+                        {JORNADA_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Régimen</label>
+                      <select
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                        value={newWorkerForm.laborRegime || ''}
+                        onChange={(e) => setNewWorkerForm({ ...newWorkerForm, laborRegime: e.target.value })}
+                      >
+                        <option value="">Seleccionar...</option>
+                        {REGIME_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -8817,6 +8924,58 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   </select>
                               </div>
                           </div>
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Días de trabajo</label>
+                            <div className="flex flex-wrap gap-2">
+                              {WORK_DAY_OPTIONS.map((day) => {
+                                const active = (editingResource.workDays ?? []).includes(day);
+                                return (
+                                  <button
+                                    key={day}
+                                    type="button"
+                                    onClick={() => {
+                                      const current = new Set(editingResource.workDays ?? []);
+                                      if (current.has(day)) current.delete(day);
+                                      else current.add(day);
+                                      setEditingResource({
+                                        ...editingResource,
+                                        workDays: WORK_DAY_OPTIONS.filter((d) => current.has(d)),
+                                      });
+                                    }}
+                                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                      active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                                    }`}
+                                  >
+                                    {day.slice(0, 3)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Hora de entrada</label>
+                              <input
+                                type="time"
+                                className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                value={editingResource.entryTime || ''}
+                                onChange={(e) =>
+                                  setEditingResource({ ...editingResource, entryTime: e.target.value })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Hora de salida</label>
+                              <input
+                                type="time"
+                                className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                value={editingResource.exitTime || ''}
+                                onChange={(e) =>
+                                  setEditingResource({ ...editingResource, exitTime: e.target.value })
+                                }
+                              />
+                            </div>
+                          </div>
                               <div className="grid grid-cols-2 gap-4">
                                   <div>
                                       <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
@@ -8903,6 +9062,66 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                               onChange={e => setEditingResource({...editingResource, workConditionAmount: e.target.value ? parseFloat(e.target.value) : undefined})} 
                                               placeholder="0.00"
                                           />
+                                      </div>
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Bono de movilidad</label>
+                                          <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0"
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                              value={editingResource.mobilityBonus ?? ''}
+                                              onChange={(e) =>
+                                                setEditingResource({
+                                                  ...editingResource,
+                                                  mobilityBonus:
+                                                    e.target.value === ''
+                                                      ? undefined
+                                                      : parseFloat(e.target.value),
+                                                })
+                                              }
+                                              placeholder="0.00"
+                                          />
+                                      </div>
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de jornada</label>
+                                          <select
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                              value={editingResource.jornadaType || ''}
+                                              onChange={(e) =>
+                                                setEditingResource({
+                                                  ...editingResource,
+                                                  jornadaType: e.target.value,
+                                                })
+                                              }
+                                          >
+                                              <option value="">Seleccionar...</option>
+                                              {JORNADA_OPTIONS.map((opt) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
+                                          </select>
+                                      </div>
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Régimen</label>
+                                          <select
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                              value={editingResource.laborRegime || ''}
+                                              onChange={(e) =>
+                                                setEditingResource({
+                                                  ...editingResource,
+                                                  laborRegime: e.target.value,
+                                                })
+                                              }
+                                          >
+                                              <option value="">Seleccionar...</option>
+                                              {REGIME_OPTIONS.map((opt) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
+                                          </select>
                                       </div>
                                   </div>
                               </div>

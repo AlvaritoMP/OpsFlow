@@ -66,7 +66,12 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Revisar el Dashboard o el Centro de Control para el estado general.',
           'Entrar a una Unidad para personal, asistencia, bitácora o requerimientos.',
           'Gestionar Retenes, Vacaciones o Supervisión Nocturna según la necesidad del día.',
-          'Completar flujos de Recepción ATS → Presentaciones → Envío Opalosis cuando hay ingresos.',
+          'En Presentaciones ATS: revisar ficha, aprobar o rechazar candidatos a entrevista.',
+          'Solo si el aprobado iniciará labores: registrar en unidad (fecha de ingreso) y luego Envío Opalosis.',
+        ],
+        tips: [
+          'Recepción ATS es un proceso antiguo (solo consulta). El flujo activo de candidatos es Presentaciones ATS.',
+          'Aprobar en Presentaciones no crea al trabajador ni dispara Opalosis; eso ocurre al registrar en una unidad.',
         ],
       },
     ],
@@ -166,6 +171,21 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Requerimientos: solicitudes del cliente.',
           'Documentos: archivos de la unidad.',
           'Contactos / Bancos: solo en unidades BPO.',
+        ],
+      },
+      {
+        heading: 'Ficha complementaria del trabajador',
+        body: 'Al expandir un colaborador en la pestaña Personal verá el panel Ficha complementaria. Ahí están los datos que vinieron del ATS (o que OpsFlow completó) y puede consultarlos o editarlos con autonomía.',
+        steps: [
+          'Abra Personal y expanda la fila del trabajador.',
+          'Despliegue Ficha complementaria.',
+          'Revise o edite datos personales, contacto, tallas, bancos, etc.',
+          'Pulse Guardar ficha. Los cambios quedan en OpsFlow; no modifican etapas del ATS.',
+        ],
+        tips: [
+          'La fecha de ingreso del trabajador es la del registro en la unidad, no la de la aprobación en Presentaciones ATS.',
+          'Si llegó desde Presentaciones, salario, bono de movilidad, jornada, régimen, turno, días y horario se precargan desde las condiciones OpsFlow; el resto (localidad, etc.) puede quedar en blanco hasta completarlos aquí.',
+          'En unidades BPO también puede existir un perfil BPO adicional; la ficha complementaria es independiente.',
         ],
       },
       {
@@ -299,29 +319,35 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Use las acciones de edición según su permiso.',
         ],
       },
+      {
+        heading: 'Ficha complementaria',
+        body: 'Los datos de ficha (personales, contacto, familiares, educación, bancos, etc.) se consultan y editan principalmente desde el detalle de la Unidad → Personal → expandir trabajador → Ficha complementaria.',
+        tips: [
+          'Si el trabajador llegó desde Presentaciones ATS, la ficha viene precargada del handoff; OpsFlow puede completar o corregir datos después.',
+        ],
+      },
     ],
   },
   {
     id: 'ats-reception',
-    title: 'Recepción ATS',
+    title: 'Recepción ATS (archivo)',
     navLabel: 'Recepción ATS',
     summary:
-      'Bandeja de ingreso de candidatos/paquetes ATS. Completa datos faltantes antes de presentar o enviar a RRHH.',
+      'Proceso antiguo de handoff ATS. Hoy es solo consulta histórica; el flujo activo es Presentaciones ATS.',
     sections: [
       {
-        heading: 'Para qué sirve',
-        body: 'Recibe handoffs de trabajadores desde el flujo ATS. Los paquetes incompletos generan alerta en la app hasta que se completen.',
+        heading: 'Estado actual',
+        body: 'Recepción ATS quedó deshabilitada como proceso operativo. Se mantiene para consultar paquetes antiguos ya procesados. Los nuevos envíos de candidatos a entrevista llegan a Presentaciones ATS.',
       },
       {
-        heading: 'Cómo usarlo',
+        heading: 'Qué hacer en su lugar',
         steps: [
-          'Abra Recepción ATS y revise los paquetes abiertos.',
-          'Complete la ficha del candidato (datos personales, documentos, etc.).',
-          'Marque o avance el flujo cuando la información esté lista.',
-          'Continúe en Presentaciones ATS o Envío Opalosis según el proceso.',
+          'Use Presentaciones ATS para pendientes, aprobación, rechazo y edición de ficha.',
+          'Si el candidato aprobado inicia labores, regístrelo en una unidad (fecha de ingreso).',
+          'Luego gestione el alta RRHH en Envío Opalosis.',
         ],
         tips: [
-          'El contador ámbar del menú indica pendientes. También puede aparecer un aviso modal periódico.',
+          'El contador del menú de Recepción ATS, si aparece, corresponde a pendientes legacy; no es el flujo de entrevista actual.',
         ],
       },
     ],
@@ -330,14 +356,65 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: 'ats-presentations',
     title: 'Presentaciones ATS',
     navLabel: 'Presentaciones ATS',
-    summary: 'Seguimiento de entrevistas / fichas de presentación de candidatos ATS.',
+    summary:
+      'Bandeja activa de candidatos enviados a entrevista desde el ATS: revisar ficha, aprobar, rechazar o archivar sin ingreso.',
     sections: [
       {
-        heading: 'Cómo usarlo',
+        heading: 'Para qué sirve',
+        body: 'El área usuaria trabaja solo en OpsFlow. Al presentar a entrevista, el ATS envía el candidato con su ficha complementaria. Aquí se decide el resultado de la presentación sin modificar etapas del proceso de selección en el ATS.',
+      },
+      {
+        heading: 'Filtros de la bandeja',
         steps: [
-          'Revise candidatos pendientes de presentación.',
-          'Complete o actualice el estado de la entrevista/ficha.',
-          'Avance al siguiente paso del flujo de ingreso cuando corresponda.',
+          'Pendientes: por revisar o en revisión.',
+          'Aprobados: aprobados (aún sin unidad) y ya registrados en unidad.',
+          'Rechazados: rechazados en entrevista (con motivo).',
+          'Archivados: aprobados que nunca iniciaron labores (sin contrato / sin ingreso).',
+          'Todos: vista completa.',
+        ],
+      },
+      {
+        heading: 'Cómo revisar y editar la ficha',
+        steps: [
+          'Abra el candidato desde la lista (la vista está pensada también para móvil).',
+          'Revise Identidad ATS y Datos del proceso (secciones colapsables).',
+          'En Ficha complementaria edite lo que falte o corrija datos.',
+          'Pulse Guardar avances. Puede guardar varias veces antes de decidir.',
+        ],
+        tips: [
+          'Si el ATS envió poca ficha, OpsFlow completa lo posible desde identidad y campos del proceso; el resto se edita aquí.',
+        ],
+      },
+      {
+        heading: 'Condiciones OpsFlow (salario y horario)',
+        body: 'Antes de registrar en unidad, el equipo interno define salario mensual, bono de movilidad, tipo de jornada (Full Time, Part Time, 12 horas), régimen (General, Pyme, Mype), días de trabajo, hora de entrada/salida y turno (Diurno, Tarde o Nocturno).',
+        steps: [
+          'Complete la sección Condiciones OpsFlow en la ficha del candidato (puede hacerlo antes o después de aprobar).',
+          'Pulse Guardar condiciones.',
+          'Al Registrar en unidad, esos datos precargan Personal. Lo que no venga en el paquete queda en blanco para completar después en la unidad.',
+        ],
+        tips: [
+          'No se puede registrar en unidad si faltan salario, bono de movilidad, jornada, régimen, días, horario o turno. El bono puede ser 0 si no aplica.',
+        ],
+      },
+      {
+        heading: 'Aprobar o rechazar',
+        steps: [
+          'Aprobar: deja al candidato listo para un posible ingreso; aún no es trabajador de OpsFlow.',
+          'Rechazar: exige motivo. Cierra la presentación.',
+          'Al aprobar/rechazar se registra un evento interno hacia el ATS (callback/outbox); no cambia etapas del proceso ATS.',
+        ],
+        tips: [
+          'Aprobar no encola Opalosis ni crea colaborador. Eso solo ocurre al Registrar en unidad.',
+        ],
+      },
+      {
+        heading: 'Registrar en unidad vs archivar sin ingreso',
+        body: 'La aprobación no significa que el candidato inicie labores. La fecha de ingreso es cuando se registra en una unidad.',
+        steps: [
+          'Registrar en unidad: crea el colaborador con datos del paquete + condiciones OpsFlow, fija el ingreso operativo y encola el envío a Opalosis.',
+          'Archivar sin ingreso: use cuando el aprobado no iniciará labores (no se presentó, no aceptó condiciones, cliente canceló, etc.). Requiere motivo.',
+          'Archivado sin ingreso es distinto de un cese: nunca trabajó ni tuvo contrato en OpsFlow.',
         ],
       },
     ],
@@ -346,21 +423,24 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: 'hr-opalosis',
     title: 'Envío Opalosis (RRHH)',
     navLabel: 'Envío Opalosis',
-    summary: 'Cola de envío de ingresos hacia el sistema Opalosis de RRHH.',
+    summary:
+      'Cola de envío de ingresos a Opalosis. Solo aplica después de registrar al candidato aprobado en una unidad.',
     sections: [
       {
         heading: 'Para qué sirve',
-        body: 'Tras completar la recepción/presentación ATS, los ingresos se preparan y envían a Opalosis para el alta en planilla/RRHH.',
+        body: 'Opalosis gestiona el ingreso/contratación en RRHH. OpsFlow encola el envío únicamente cuando un candidato de Presentaciones (o flujo equivalente) queda registrado en una unidad. El handoff de presentación por sí solo no dispara Opalosis.',
       },
       {
         heading: 'Cómo usarlo',
         steps: [
+          'Confirme que el trabajador ya fue registrado en una unidad desde Presentaciones ATS.',
           'Revise la cola de ítems pendientes o con error.',
-          'Edite datos si el ítem lo permite antes de reenviar.',
+          'Edite datos si el ítem lo permite antes de enviar o reenviar.',
           'Confirme el envío y verifique el estado resultante.',
         ],
         tips: [
           'Si un envío falla, corrija el dato indicado y reintente; no duplique el ingreso manualmente sin revisar el estado.',
+          'Candidatos solo aprobados (sin unidad) o archivados sin ingreso no deben aparecer aquí.',
         ],
       },
     ],
@@ -369,14 +449,17 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: 'archive',
     title: 'Archivo',
     navLabel: 'Archivo',
-    summary: 'Histórico de personal archivado o cesado para consulta.',
+    summary: 'Histórico de personal cesado o archivado que sí llegó a ser colaborador de una unidad.',
     sections: [
       {
         heading: 'Cómo usarlo',
         steps: [
           'Busque por nombre o documento.',
           'Abra el registro para ver el historial asociado.',
-          'Use esta vista para consultas; las altas nuevas se hacen desde Unidades o Trabajadores.',
+          'Use esta vista para consultas; las altas nuevas se hacen desde Unidades, Presentaciones ATS o Trabajadores.',
+        ],
+        tips: [
+          'Candidatos de Presentaciones ATS “Archivados (sin ingreso)” no son lo mismo: nunca fueron trabajadores. Consúltelos en Presentaciones ATS → Archivados.',
         ],
       },
     ],
