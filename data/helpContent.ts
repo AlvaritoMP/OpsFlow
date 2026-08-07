@@ -1,0 +1,480 @@
+export type AppHelpView =
+  | 'dashboard'
+  | 'units'
+  | 'unit-detail'
+  | 'settings'
+  | 'control-center'
+  | 'client-control-center'
+  | 'reports'
+  | 'audit-logs'
+  | 'operations-dashboard'
+  | 'assets-catalog'
+  | 'retenes'
+  | 'night-supervision'
+  | 'headcount'
+  | 'vacations'
+  | 'archive'
+  | 'workers-management'
+  | 'ats-reception'
+  | 'ats-presentations'
+  | 'hr-opalosis';
+
+export interface HelpSection {
+  heading: string;
+  body: string;
+  steps?: string[];
+  tips?: string[];
+}
+
+export interface HelpTopic {
+  id: AppHelpView | 'overview';
+  title: string;
+  navLabel: string;
+  summary: string;
+  sections: HelpSection[];
+}
+
+export const HELP_TOPICS: HelpTopic[] = [
+  {
+    id: 'overview',
+    title: 'Cómo funciona OpsFlow',
+    navLabel: 'Inicio / General',
+    summary:
+      'OpsFlow es el sistema operativo para gestionar unidades de servicio, personal, asistencia, vacaciones, retenes y flujos ATS/RRHH desde un solo lugar.',
+    sections: [
+      {
+        heading: 'Navegación',
+        body: 'Use el menú lateral izquierdo para cambiar de módulo. En móvil, abra el menú con el ícono de tres líneas. La opción Ayuda (ícono ?) está siempre disponible y se adapta a la pantalla en la que se encuentre.',
+        tips: [
+          'Los módulos visibles dependen de su rol y permisos.',
+          'Puede cerrar sesión desde el menú del usuario al pie de la barra lateral.',
+        ],
+      },
+      {
+        heading: 'Roles principales',
+        body: 'Cada usuario tiene un rol que define qué puede ver y editar.',
+        steps: [
+          'SUPER_ADMIN / ADMIN: acceso completo, configuración y auditoría.',
+          'OPERATIONS / OPERATIONS_SUPERVISOR: operación diaria de unidades, retenes, ATS y vacaciones.',
+          'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control y headcount (según permisos).',
+        ],
+      },
+      {
+        heading: 'Flujo típico de trabajo',
+        body: 'La operación diaria suele seguir este orden:',
+        steps: [
+          'Revisar el Dashboard o el Centro de Control para el estado general.',
+          'Entrar a una Unidad para personal, asistencia, bitácora o requerimientos.',
+          'Gestionar Retenes, Vacaciones o Supervisión Nocturna según la necesidad del día.',
+          'Completar flujos de Recepción ATS → Presentaciones → Envío Opalosis cuando hay ingresos.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'dashboard',
+    title: 'Dashboard',
+    navLabel: 'Dashboard',
+    summary:
+      'Vista resumen del estado operativo: unidades activas, personal, alertas e indicadores clave.',
+    sections: [
+      {
+        heading: 'Para qué sirve',
+        body: 'El Dashboard concentra métricas de unidades, trabajadores por turno, rotación, retenes y actividad reciente para tener una lectura rápida del día.',
+      },
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Revise las tarjetas superiores (unidades, personal, incidencias).',
+          'Use el mapa o listados para ir directo a una unidad (clic en la unidad).',
+          'Pase el cursor sobre indicadores para ver el detalle del cálculo cuando esté disponible.',
+        ],
+        tips: [
+          'Los usuarios CLIENT ven una versión filtrada según sus unidades visibles.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'control-center',
+    title: 'Centro de Control',
+    navLabel: 'Centro de Control',
+    summary:
+      'Tablero operativo de unidades y personal de gestión para seguimiento en tiempo casi real.',
+    sections: [
+      {
+        heading: 'Para qué sirve',
+        body: 'Permite ver y actualizar el estado de las unidades, cobertura y personal de gestión asignado sin entrar unidad por unidad.',
+      },
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Busque o filtre la unidad que necesita.',
+          'Revise estado, contacto y personal de gestión asociado.',
+          'Actualice información según su permiso de edición.',
+        ],
+        tips: [
+          'En pantallas pequeñas el panel ocupa todo el alto disponible; use el menú para salir a otros módulos.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'units',
+    title: 'Unidades',
+    navLabel: 'Unidades',
+    summary:
+      'Listado de sedes/servicios. Desde aquí se abre el detalle completo de cada unidad.',
+    sections: [
+      {
+        heading: 'Para qué sirve',
+        body: 'Las unidades son el núcleo de OpsFlow. Cada una agrupa personal, asistencia, logística, documentos, planos y requerimientos del cliente.',
+      },
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Use el buscador para filtrar por nombre o cliente.',
+          'Haga clic en una unidad para abrir su ficha detalle.',
+          'Si tiene permisos, cree unidades nuevas desde el botón correspondiente.',
+        ],
+        tips: [
+          'Hay dos clases: Operaciones (campo) y BPO (servicios administrativos). Las pestañas del detalle cambian según la clase.',
+          'Las unidades desactivadas no aparecen en la operación diaria.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'unit-detail',
+    title: 'Detalle de Unidad',
+    navLabel: 'Detalle de Unidad',
+    summary:
+      'Ficha completa de una unidad con pestañas para personal, asistencia, vacaciones, logística, bitácora y más.',
+    sections: [
+      {
+        heading: 'Pestañas principales',
+        body: 'Según el tipo de unidad (Operaciones o BPO) verá un conjunto distinto de pestañas.',
+        steps: [
+          'General: datos base, estado y responsables.',
+          'Personal: trabajadores asignados, altas, ceses y perfiles.',
+          'Asistencia: tareo / marcas del personal.',
+          'Vacaciones: control de goce por persona en la unidad.',
+          'Variables: conceptos variables de compensación (si aplica).',
+          'Logística: equipos y materiales (unidades de Operaciones).',
+          'Supervisión / Actividades: bitácora de eventos e incidencias.',
+          'Plano: planos y ubicación.',
+          'Requerimientos: solicitudes del cliente.',
+          'Documentos: archivos de la unidad.',
+          'Contactos / Bancos: solo en unidades BPO.',
+        ],
+      },
+      {
+        heading: 'Consejos',
+        body: 'Use el botón de volver para regresar al listado de unidades sin perder el contexto del menú.',
+        tips: [
+          'Los permisos por pestaña (ver/editar) se configuran en Configuración → Permisos.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'reports',
+    title: 'Informes',
+    navLabel: 'Informes',
+    summary: 'Reportes y analítica agregada a partir de las unidades y su operación.',
+    sections: [
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Seleccione el tipo de informe o periodo que necesita.',
+          'Filtre por unidad o cliente si la vista lo permite.',
+          'Exporte o revise los gráficos según la opción disponible.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'operations-dashboard',
+    title: 'Dashboard Operaciones',
+    navLabel: 'Dashboard Operaciones',
+    summary: 'Indicadores orientados al equipo de operaciones y supervisión.',
+    sections: [
+      {
+        heading: 'Para qué sirve',
+        body: 'Complementa el Dashboard principal con métricas y seguimiento específicos del área de operaciones.',
+      },
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Revise los indicadores del periodo mostrado.',
+          'Use los filtros o selectores de usuario/contexto si aparecen en pantalla.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'retenes',
+    title: 'Retenes',
+    navLabel: 'Retenes',
+    summary:
+      'Gestión del personal de retén: disponibilidad, asignación semanal a unidades y reportes.',
+    sections: [
+      {
+        heading: 'Vistas',
+        steps: [
+          'Semanal: calendario de asignaciones de la semana (navegue con las flechas).',
+          'Retenes: alta/edición del personal de retén (datos, foto, estado).',
+          'Reportes: consolidado mensual y exportación.',
+        ],
+      },
+      {
+        heading: 'Cómo asignar un retén',
+        steps: [
+          'Abra la vista Semanal o cree una asignación nueva.',
+          'Elija retén, unidad, fecha, horario y tipo (planificada o inmediata).',
+          'Indique el motivo y guarde.',
+          'Genere constancias o exportes cuando lo necesite desde las acciones disponibles.',
+        ],
+        tips: [
+          'Mantenga actualizado el estado del retén (disponible / no disponible) para evitar asignaciones incorrectas.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'headcount',
+    title: 'Headcount',
+    navLabel: 'Headcount',
+    summary: 'Control de puestos y cobertura de personal por unidad.',
+    sections: [
+      {
+        heading: 'Para qué sirve',
+        body: 'Compara lo requerido versus lo cubierto en cada unidad para detectar faltantes o sobrecupaciones.',
+      },
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Revise la matriz o listado de puestos por unidad.',
+          'Actualice asignaciones si tiene permiso de edición.',
+          'Use esta vista junto con Unidades → Personal para completar altas.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'vacations',
+    title: 'Vacaciones',
+    navLabel: 'Vacaciones',
+    summary:
+      'Control de vacaciones, calendario y autorizaciones pendientes.',
+    sections: [
+      {
+        heading: 'Para qué sirve',
+        body: 'Centraliza el goce vacacional y el flujo de autorización. Si usted es autorizador, verá un aviso en la app cuando haya solicitudes pendientes.',
+      },
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Revise el calendario o listados de vacaciones.',
+          'Si tiene el badge de pendientes, entre a la pestaña de Autorizaciones.',
+          'Apruebe o gestione cada solicitud según corresponda.',
+        ],
+        tips: [
+          'También puede gestionar vacaciones desde el detalle de cada unidad (pestaña Vacaciones).',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'workers-management',
+    title: 'Trabajadores',
+    navLabel: 'Trabajadores',
+    summary: 'Gestión transversal del personal operativo más allá de una sola unidad.',
+    sections: [
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Busque trabajadores por nombre o documento.',
+          'Revise su estado y unidades asociadas.',
+          'Use las acciones de edición según su permiso.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'ats-reception',
+    title: 'Recepción ATS',
+    navLabel: 'Recepción ATS',
+    summary:
+      'Bandeja de ingreso de candidatos/paquetes ATS. Completa datos faltantes antes de presentar o enviar a RRHH.',
+    sections: [
+      {
+        heading: 'Para qué sirve',
+        body: 'Recibe handoffs de trabajadores desde el flujo ATS. Los paquetes incompletos generan alerta en la app hasta que se completen.',
+      },
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Abra Recepción ATS y revise los paquetes abiertos.',
+          'Complete la ficha del candidato (datos personales, documentos, etc.).',
+          'Marque o avance el flujo cuando la información esté lista.',
+          'Continúe en Presentaciones ATS o Envío Opalosis según el proceso.',
+        ],
+        tips: [
+          'El contador ámbar del menú indica pendientes. También puede aparecer un aviso modal periódico.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'ats-presentations',
+    title: 'Presentaciones ATS',
+    navLabel: 'Presentaciones ATS',
+    summary: 'Seguimiento de entrevistas / fichas de presentación de candidatos ATS.',
+    sections: [
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Revise candidatos pendientes de presentación.',
+          'Complete o actualice el estado de la entrevista/ficha.',
+          'Avance al siguiente paso del flujo de ingreso cuando corresponda.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'hr-opalosis',
+    title: 'Envío Opalosis (RRHH)',
+    navLabel: 'Envío Opalosis',
+    summary: 'Cola de envío de ingresos hacia el sistema Opalosis de RRHH.',
+    sections: [
+      {
+        heading: 'Para qué sirve',
+        body: 'Tras completar la recepción/presentación ATS, los ingresos se preparan y envían a Opalosis para el alta en planilla/RRHH.',
+      },
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Revise la cola de ítems pendientes o con error.',
+          'Edite datos si el ítem lo permite antes de reenviar.',
+          'Confirme el envío y verifique el estado resultante.',
+        ],
+        tips: [
+          'Si un envío falla, corrija el dato indicado y reintente; no duplique el ingreso manualmente sin revisar el estado.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'archive',
+    title: 'Archivo',
+    navLabel: 'Archivo',
+    summary: 'Histórico de personal archivado o cesado para consulta.',
+    sections: [
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Busque por nombre o documento.',
+          'Abra el registro para ver el historial asociado.',
+          'Use esta vista para consultas; las altas nuevas se hacen desde Unidades o Trabajadores.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'night-supervision',
+    title: 'Supervisión Nocturna',
+    navLabel: 'Supervisión Nocturna',
+    summary: 'Registro y seguimiento de supervisiones en turno noche.',
+    sections: [
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Seleccione la unidad y el turno/fecha.',
+          'Registre hallazgos, visitas o incidencias.',
+          'Guarde y revise el historial de supervisiones previas.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'settings',
+    title: 'Configuración',
+    navLabel: 'Configuración',
+    summary:
+      'Administración del sistema: permisos, usuarios, clientes, branding, integraciones y puestos.',
+    sections: [
+      {
+        heading: 'Secciones',
+        steps: [
+          'Permisos: qué puede ver/editar cada rol por módulo.',
+          'Branding: logo y apariencia (Powered By).',
+          'Usuarios: altas, roles y unidades visibles para CLIENT.',
+          'Personal de gestión: staff de supervisión/gestión.',
+          'Clientes: razón social, RUC y representantes.',
+          'Integraciones: APIs (inventario, Gemini, etc.).',
+          'Puestos: catálogo de posiciones para headcount.',
+        ],
+        tips: [
+          'Solo roles con permiso SETTINGS acceden a este módulo.',
+          'Cambios de permisos afectan de inmediato la navegación del menú.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'assets-catalog',
+    title: 'Catálogo de Activos',
+    navLabel: 'Catálogo',
+    summary: 'Catálogo estándar de activos/equipos usados en logística de unidades.',
+    sections: [
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Consulte o edite ítems del catálogo según su permiso.',
+          'Los activos del catálogo alimentan la pestaña Logística de las unidades de Operaciones.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'audit-logs',
+    title: 'Auditoría',
+    navLabel: 'Auditoría',
+    summary: 'Registro de acciones relevantes del sistema (solo administradores).',
+    sections: [
+      {
+        heading: 'Cómo usarlo',
+        steps: [
+          'Filtre por fecha, usuario o tipo de evento si la vista lo permite.',
+          'Use esta bitácora para investigar cambios o accesos.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'client-control-center',
+    title: 'Centro de Control (Cliente)',
+    navLabel: 'Centro de Control Cliente',
+    summary: 'Vista de centro de control orientada a usuarios cliente.',
+    sections: [
+      {
+        heading: 'Cómo usarlo',
+        body: 'Muestra el estado de las unidades vinculadas al cliente. La edición está limitada según permisos del rol CLIENT.',
+      },
+    ],
+  },
+];
+
+export function resolveHelpTopicId(
+  currentView: string,
+  selectedUnitId: string | null
+): HelpTopic['id'] {
+  if (currentView === 'units' && selectedUnitId) return 'unit-detail';
+  const match = HELP_TOPICS.find((t) => t.id === currentView);
+  return match ? match.id : 'overview';
+}
+
+export function getHelpTopic(id: HelpTopic['id']): HelpTopic {
+  return HELP_TOPICS.find((t) => t.id === id) ?? HELP_TOPICS[0];
+}

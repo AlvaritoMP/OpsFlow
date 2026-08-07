@@ -16,7 +16,7 @@ import type {
 // ============================================
 
 function asRecord(data: unknown): Record<string, unknown> {
-  return asRecord(data);
+  return (data ?? {}) as Record<string, unknown>;
 }
 
 function transformPackageFromDB(data: Record<string, unknown>): InboundHandoffPackage {

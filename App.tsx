@@ -40,6 +40,7 @@ import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
 import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffService';
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
 import { filterOperationalUnits, isUnitOperational } from './utils/unitStatus';
+import { HelpPanel, HelpTriggerButton } from './components/HelpPanel';
 
 const ATS_ALERT_INTERVAL_MS = 5 * 60 * 1000;
 const ATS_COUNT_POLL_MS = 30 * 1000;
@@ -74,6 +75,7 @@ const App: React.FC = () => {
   const [atsIncomplete, setAtsIncomplete] = useState({ openPackages: 0, incompleteCandidates: 0 });
   const [atsPresentationPending, setAtsPresentationPending] = useState(0);
   const [showAtsReceptionAlert, setShowAtsReceptionAlert] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const currentViewRef = useRef(currentView);
   currentViewRef.current = currentView;
   
@@ -3376,6 +3378,15 @@ const App: React.FC = () => {
     <>
       <BirthdayAlertsModal />
       <AtsReceptionAlertModal />
+      <HelpPanel
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        currentView={currentView}
+        selectedUnitId={selectedUnitId}
+      />
+      {!showHelp && (
+        <HelpTriggerButton variant="floating" onClick={() => setShowHelp(true)} />
+      )}
       <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Mobile Overlay */}
       {sidebarOpen && (
@@ -3661,6 +3672,15 @@ const App: React.FC = () => {
               )}
             </>
           )}
+          <div className="pt-2 md:pt-3 border-t border-slate-800 mt-2">
+            <HelpTriggerButton
+              variant="sidebar"
+              onClick={() => {
+                setShowHelp(true);
+                setSidebarOpen(false);
+              }}
+            />
+          </div>
         </nav>
 
         {/* User Switcher for Demo */}
@@ -3744,7 +3764,7 @@ const App: React.FC = () => {
             <Menu size={22} />
           </button>
           <span className="font-bold text-slate-800 text-base">OpsFlow</span>
-          <div className="w-6"></div> {/* Spacer */}
+          <HelpTriggerButton variant="header" onClick={() => setShowHelp(true)} />
         </header>
 
         {/* Scrollable Content Area - FIXED LAYOUT for Control Center */}
