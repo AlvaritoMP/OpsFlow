@@ -116,17 +116,26 @@ function resolveWorkerName(item: HandoffItemPayload): string | null {
   return null;
 }
 
-/** Presentation if meta.purpose === 'presentation' and/or snapshotVersion >= 3 */
+/**
+ * Presentaciones ATS es el flujo activo.
+ * Legacy/hire solo si meta.purpose es hire|legacy|contratacion (Recepción ATS archivo).
+ * Cualquier otro caso (presentation, null, snapshotVersion >= 2, etc.) → presentation.
+ */
 function resolveItemPurpose(snapshot: HandoffItemPayload['workerSnapshot']): 'presentation' | null {
   const meta = snapshot?.meta ?? {};
   const purpose = asTrimmedString(meta.purpose).toLowerCase();
+  if (purpose === 'hire' || purpose === 'legacy' || purpose === 'contratacion') {
+    return null;
+  }
   if (purpose === 'presentation') return 'presentation';
 
   const versionRaw = meta.snapshotVersion;
   const version = typeof versionRaw === 'number' ? versionRaw : Number(versionRaw);
-  if (!Number.isNaN(version) && version >= 3) return 'presentation';
+  // v1 sin purpose = hire histórico; v2+ y el resto van a Presentaciones
+  if (!Number.isNaN(version) && version >= 2) return 'presentation';
+  if (!purpose) return 'presentation';
 
-  return null;
+  return 'presentation';
 }
 
 function resolveSnapshotVersion(snapshot: HandoffItemPayload['workerSnapshot']): number {
