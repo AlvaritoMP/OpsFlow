@@ -10,6 +10,10 @@ import type {
   WorkerSnapshot,
   WorkerSnapshotComplementary,
 } from '../types';
+import {
+  deriveComplementaryStatusFromData,
+  hydrateComplementaryFromSnapshot,
+} from '../utils/complementaryHydrate';
 
 // ============================================
 // FUNCIONES DE TRANSFORMACIÓN
@@ -42,18 +46,27 @@ function transformPackageFromDB(data: Record<string, unknown>): InboundHandoffPa
 
 function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem {
   const missing = data.complementary_missing_fields;
+  const snapshot = data.worker_snapshot as WorkerSnapshot;
+  const storedComplementary = (data.complementary as WorkerSnapshotComplementary) ?? null;
+  const complementary = hydrateComplementaryFromSnapshot(snapshot, storedComplementary);
+  const complementaryStatus = deriveComplementaryStatusFromData(
+    complementary,
+    (data.complementary_status as ComplementaryStatus) ?? null,
+    Array.isArray(missing) ? (missing as string[]) : undefined,
+  );
+
   return {
     id: data.id as string,
     packageId: data.package_id as string,
     sourceCandidateId: (data.source_candidate_id as string) ?? undefined,
     sourceProcessId: (data.source_process_id as string) ?? undefined,
     workerName: data.worker_name as string,
-    workerSnapshot: data.worker_snapshot as WorkerSnapshot,
+    workerSnapshot: snapshot,
     itemStatus: data.item_status as InboundHandoffItemStatus,
     purpose: (data.purpose as InboundHandoffItem['purpose']) ?? null,
     snapshotVersion: (data.snapshot_version as number) ?? undefined,
-    complementary: (data.complementary as WorkerSnapshotComplementary) ?? null,
-    complementaryStatus: (data.complementary_status as ComplementaryStatus) ?? null,
+    complementary,
+    complementaryStatus,
     complementaryFilledAt: (data.complementary_filled_at as string) ?? undefined,
     complementaryMissingFields: Array.isArray(missing)
       ? (missing as string[])

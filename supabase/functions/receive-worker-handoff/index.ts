@@ -178,6 +178,62 @@ function resolveComplementaryMissingFields(
   return raw.map((entry) => asTrimmedString(entry)).filter(Boolean);
 }
 
+/** Completa complementary parcial con identity + fields (ATS a veces manda ficha casi vacía). */
+function hydrateComplementary(
+  snapshot: HandoffItemPayload['workerSnapshot'],
+): Record<string, unknown> | null {
+  const base =
+    snapshot?.complementary && typeof snapshot.complementary === 'object'
+      ? { ...snapshot.complementary }
+      : {};
+  const identity = snapshot?.identity ?? {};
+  const fields = snapshot?.fields ?? {};
+
+  const fill = (key: string, ...candidates: unknown[]) => {
+    if (asTrimmedString(base[key])) return;
+    const value = pickFirst(...candidates);
+    if (value) base[key] = value;
+  };
+
+  fill('nombres', identity.nombres, fields.nombres, fields.firstName);
+  fill(
+    'apellidoPaterno',
+    identity.apellidoPaterno,
+    fields.apellidoPaterno,
+    fields.apPaterno,
+    fields.apellido_paterno,
+  );
+  fill(
+    'apellidoMaterno',
+    identity.apellidoMaterno,
+    fields.apellidoMaterno,
+    fields.apMaterno,
+    fields.apellido_materno,
+  );
+  fill('nroDocumento', identity.dni, fields.dni, fields.nroDocumento);
+  fill('fechaNacimiento', fields.fechaNacimiento, fields.fNac, fields.birthDate);
+  fill('edad', fields.edad, fields.age);
+  fill('sexo', fields.sexo, fields.sex, fields.gender);
+  fill('email', identity.email, fields.email);
+  fill('telefono', identity.phone, identity.phone2, fields.phone, fields.telefono);
+  fill('direccion', fields.direccion, fields.address);
+  fill('distrito', fields.distrito, fields.district);
+  fill('provincia', fields.provincia, fields.province);
+  fill('departamento', fields.departamento, fields.department);
+  fill('puestoContrato', fields.puestoContrato, fields.processTitle);
+  fill('unidadDestaque', fields.unidadDestaque, fields.unidad);
+  fill('bancoSueldo', fields.bancoSueldo, fields.banco);
+  fill('bancoCts', fields.bancoCts);
+  fill('estadoCivil', fields.estadoCivil);
+  fill('nacionalidad', fields.nacionalidad);
+
+  if (!asTrimmedString(base.tipoDocumento) && asTrimmedString(base.nroDocumento || identity.dni)) {
+    base.tipoDocumento = 'DNI';
+  }
+
+  return Object.keys(base).length > 0 ? base : null;
+}
+
 function validatePayload(payload: HandoffPayload): string | null {
   if (!payload.sourcePackageId || !isValidUuid(payload.sourcePackageId)) {
     return 'sourcePackageId is required and must be a valid UUID';
@@ -326,27 +382,28 @@ serve(async (req) => {
     const itemRows = payload.items.map((item) => {
       const snapshot = item.workerSnapshot!;
       const purpose = resolveItemPurpose(snapshot);
-      const complementary =
-        snapshot.complementary && typeof snapshot.complementary === 'object'
-          ? snapshot.complementary
-          : null;
+      const complementary = hydrateComplementary(snapshot);
+      const snapshotWithComplementary = complementary
+        ? { ...snapshot, complementary }
+        : snapshot;
       const complementaryStatus =
         purpose === 'presentation'
-          ? resolveComplementaryStatus(snapshot) ?? (complementary ? 'incomplete' : 'missing')
-          : resolveComplementaryStatus(snapshot);
+          ? resolveComplementaryStatus(snapshotWithComplementary) ??
+            (complementary ? 'incomplete' : 'missing')
+          : resolveComplementaryStatus(snapshotWithComplementary);
 
       return {
         package_id: insertedPackage.id,
         source_candidate_id: item.sourceCandidateId ?? null,
         source_process_id: item.sourceProcessId ?? null,
         worker_name: resolveWorkerName(item)!,
-        worker_snapshot: snapshot,
+        worker_snapshot: snapshotWithComplementary,
         item_status: purpose === 'presentation' ? 'pending_interview' : 'pending',
         purpose,
         snapshot_version: resolveSnapshotVersion(snapshot),
         complementary,
         complementary_status: complementaryStatus,
-        complementary_filled_at: resolveComplementaryFilledAt(snapshot),
+        complementary_filled_at: resolveComplementaryFilledAt(snapshotWithComplementary),
         complementary_missing_fields: resolveComplementaryMissingFields(snapshot),
       };
     });
