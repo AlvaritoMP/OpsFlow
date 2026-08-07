@@ -307,11 +307,82 @@ export interface OpalosisRegistroIngresoPayload {
   UbigeoId: number | null;
   SupervisorId: number | null;
   CentroCostoId: number | null;
-  EstadoCivilId: number | null;
+  /** Texto del estado civil (nombre del catálogo). El DTO NO acepta el Id. */
+  EstadoCivil: string | null;
   Observacion: string | null;
   UsuarioProcesoId: number | null;
   UsuarioOf: string | null;
   PayloadJson: string | null;
+  /** Datos adicionales/dinámicos fuera del DTO estándar (pares Campo/Valor). */
+  CamposDetalle: OpalosisRegistroIngresoDetalle[] | null;
+}
+
+/** Ítem de CamposDetalle (RegistroIngresoDetalleDTO): par Campo/Valor de texto. */
+export interface OpalosisRegistroIngresoDetalle {
+  Campo: string;
+  Valor: string;
+}
+
+/** Claves ATS que ya tienen columna propia en el RegistroIngresoDTO (no duplicar en CamposDetalle). */
+const ATS_KEYS_ALREADY_IN_DTO = new Set([
+  'fullName',
+  'dni',
+  'nombres',
+  'apellidoPaterno',
+  'apellidoMaterno',
+  'address',
+  'direccion',
+  'agreedSalary',
+  'salary',
+  'monthlySalary',
+  'sueldo',
+  'hireDate',
+  'startDate',
+  'fechaIngreso',
+  'birthDate',
+  'fechaNacimiento',
+  'phone',
+  'phone2',
+  'telefono',
+  'email',
+  'correo',
+  'correoPersonal',
+  'processTitle',
+  'puesto',
+  'clientName',
+]);
+
+/**
+ * Construye CamposDetalle solo con los datos adicionales/dinámicos del ATS que
+ * NO tienen equivalente en el RegistroIngresoDTO (ej. contacto de emergencia,
+ * mascotas u otros campos arbitrarios). La trazabilidad completa sigue en PayloadJson.
+ */
+export function buildCamposDetalle(
+  snapshot: HrOutboundWorkerSnapshot | null,
+  _hrFields: HrOpalosisIngresoFields,
+): OpalosisRegistroIngresoDetalle[] {
+  const out: OpalosisRegistroIngresoDetalle[] = [];
+  const seen = new Set<string>();
+
+  const push = (campo: string, valor: unknown) => {
+    if (valor === null || valor === undefined) return;
+    const value = typeof valor === 'object' ? JSON.stringify(valor) : String(valor);
+    if (!value.trim()) return;
+    const key = campo.trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push({ Campo: key, Valor: value });
+  };
+
+  if (snapshot) {
+    const atsFields = snapshot.ats?.fields ?? {};
+    for (const [key, value] of Object.entries(atsFields)) {
+      if (ATS_KEYS_ALREADY_IN_DTO.has(key)) continue;
+      push(key, value);
+    }
+  }
+
+  return out;
 }
 
 export interface OpalosisRegistroIngresoResponse {
@@ -645,11 +716,12 @@ export function mapHrFieldsToRegistroIngresoPayload(
     UbigeoId: hrFields.ubigeoId ?? null,
     SupervisorId: hrFields.supervisorId ?? null,
     CentroCostoId: hrFields.centroCostoId ?? null,
-    EstadoCivilId: hrFields.estadoCivilId ?? null,
+    EstadoCivil: nullIfEmpty(hrFields.labels?.estadoCivil) ?? null,
     Observacion: obsParts.length ? obsParts.join(' | ') : null,
     UsuarioProcesoId: hrFields.usuarioProcesoId ?? null,
     UsuarioOf: nullIfEmpty(hrFields.usuarioOf) ?? 'opsflow',
     PayloadJson: payloadJson,
+    CamposDetalle: buildCamposDetalle(snapshot ?? null, hrFields),
   };
 }
 

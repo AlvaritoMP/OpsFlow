@@ -313,6 +313,62 @@ function buildPayloadJsonFromSnapshot(
   });
 }
 
+/** Claves ATS que ya tienen columna propia en el RegistroIngresoDTO (no duplicar en CamposDetalle). */
+const ATS_KEYS_ALREADY_IN_DTO = new Set([
+  'fullName',
+  'dni',
+  'nombres',
+  'apellidoPaterno',
+  'apellidoMaterno',
+  'address',
+  'direccion',
+  'agreedSalary',
+  'salary',
+  'monthlySalary',
+  'sueldo',
+  'hireDate',
+  'startDate',
+  'fechaIngreso',
+  'birthDate',
+  'fechaNacimiento',
+  'phone',
+  'phone2',
+  'telefono',
+  'email',
+  'correo',
+  'correoPersonal',
+  'processTitle',
+  'puesto',
+  'clientName',
+]);
+
+/**
+ * CamposDetalle: solo datos adicionales/dinámicos del ATS sin equivalente en el
+ * RegistroIngresoDTO (contacto de emergencia, mascotas, etc.). La trazabilidad
+ * completa sigue viajando en PayloadJson.
+ */
+function buildCamposDetalle(
+  snapshot: Record<string, unknown> | null,
+): Array<{ Campo: string; Valor: string }> {
+  const out: Array<{ Campo: string; Valor: string }> = [];
+  const seen = new Set<string>();
+  const ats = (snapshot?.ats ?? {}) as Record<string, unknown>;
+  const fields = (ats.fields ?? {}) as Record<string, unknown>;
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (ATS_KEYS_ALREADY_IN_DTO.has(key)) continue;
+    if (value === null || value === undefined) continue;
+    const v = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    if (!v.trim()) continue;
+    const campo = key.trim();
+    if (!campo || seen.has(campo)) continue;
+    seen.add(campo);
+    out.push({ Campo: campo, Valor: v });
+  }
+
+  return out;
+}
+
 /** Construye RegistroIngresoDTO desde hr_fields + snapshot (inventario en PayloadJson). */
 function buildRegistroPayload(
   hrFields: Record<string, unknown>,
@@ -378,11 +434,14 @@ function buildRegistroPayload(
     UbigeoId: pickNumber(hrFields.ubigeoId),
     SupervisorId: pickNumber(hrFields.supervisorId),
     CentroCostoId: pickNumber(hrFields.centroCostoId),
-    EstadoCivilId: pickNumber(hrFields.estadoCivilId),
+    EstadoCivil:
+      pickString((hrFields.labels as Record<string, unknown> | undefined)?.estadoCivil, hrFields.estadoCivil) ||
+      null,
     Observacion: obsParts.length ? obsParts.join(' | ') : null,
     UsuarioProcesoId: pickNumber(hrFields.usuarioProcesoId),
     UsuarioOf: pickString(hrFields.usuarioOf) || 'opsflow',
     PayloadJson: payloadJson,
+    CamposDetalle: buildCamposDetalle(workerSnapshot ?? null),
   };
 }
 
