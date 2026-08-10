@@ -30,16 +30,16 @@ const MARGIN = 7;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
 /** Alturas base compactas (sin achicar tipografía). */
-const ROW_H_MIN = 6.4;
-const TABLE_H_MIN = 4.6;
-const TABLE_HEADER_H = 4.2;
-const SECTION_H = 4.4;
+const ROW_H_MIN = 5.8;
+const TABLE_H_MIN = 4.4;
+const TABLE_HEADER_H = 4;
+const SECTION_H = 4.2;
 
 const LABEL_FS = 5.5;
 const VALUE_FS = 7.2;
 const TABLE_VALUE_FS = 6.8;
-const LABEL_LH = 2.2;
-const VALUE_LH = 3.3;
+const LABEL_LH = 2.0;
+const VALUE_LH = 3.0;
 
 function text(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -303,11 +303,11 @@ class FichaPdfBuilder {
     this.doc.setFontSize(VALUE_FS);
     const valueLines = this.doc.splitTextToSize(value || ' ', Math.max(4, w - 1.6)) as string[];
     const needed =
-      1.4 +
+      1.05 +
       labelLines.length * LABEL_LH +
-      0.5 +
+      0.3 +
       Math.max(1, valueLines.length) * VALUE_LH +
-      0.8;
+      0.5;
     return { h: Math.max(ROW_H_MIN, needed), labelLines, valueLines };
   }
 
@@ -325,12 +325,12 @@ class FichaPdfBuilder {
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(LABEL_FS);
     this.doc.setTextColor(70, 70, 70);
-    this.doc.text(labelLines, x + 0.8, y + 2);
+    this.doc.text(labelLines, x + 0.8, y + 1.8);
     this.doc.setFont('helvetica', 'normal');
     this.doc.setFontSize(VALUE_FS);
     this.doc.setTextColor(15, 15, 15);
-    const valueTop = y + 1.4 + labelLines.length * LABEL_LH + 0.7;
-    const maxLines = Math.max(1, Math.floor((y + h - valueTop - 0.5) / VALUE_LH));
+    const valueTop = y + 1.15 + labelLines.length * LABEL_LH + 0.45;
+    const maxLines = Math.max(1, Math.floor((y + h - valueTop - 0.4) / VALUE_LH));
     this.doc.text(valueLines.slice(0, maxLines), x + 0.8, valueTop);
   }
 
@@ -401,12 +401,13 @@ class FichaPdfBuilder {
   }
 
   declaration() {
-    this.y += 1;
+    // Espacio extra: jsPDF usa y como baseline, si queda pegado se superpone a la tabla
+    this.y += 4.5;
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(7);
     this.doc.setTextColor(20, 20, 20);
     this.doc.text('Declaración Jurada y Autorización', MARGIN, this.y);
-    this.y += 3;
+    this.y += 3.2;
 
     const boxSize = 3;
     const boxX = MARGIN;
@@ -606,7 +607,7 @@ export async function buildOpaloPersonnelFichaPdf(
     ['Empresa', 'Puesto desempeñado', 'Fecha ingreso', 'Fecha cese', 'Motivo de cese / renuncia'],
     expWidths,
   );
-  for (const exp of padRows<WorkerSnapshotExperiencia>(ficha.experienciaLaboral, 2)) {
+  for (const exp of padRows<WorkerSnapshotExperiencia>(ficha.experienciaLaboral, 4)) {
     b.tableRow(
       [
         text(exp?.empresa),
@@ -625,7 +626,7 @@ export async function buildOpaloPersonnelFichaPdf(
   b.tableHeader(['Empresa', 'Puesto desempeñado', 'Jefe inmediato', 'Celular'], refWidths);
   const refsRaw = (ficha as Record<string, unknown>).referenciasLaborales;
   const refList = Array.isArray(refsRaw) ? (refsRaw as Array<Record<string, unknown>>) : [];
-  for (const ref of padRows(refList, 1)) {
+  for (const ref of padRows(refList, 2)) {
     b.tableRow(
       [text(ref?.empresa), text(ref?.puesto), text(ref?.jefeInmediato), text(ref?.celular ?? ref?.telefono)],
       refWidths,

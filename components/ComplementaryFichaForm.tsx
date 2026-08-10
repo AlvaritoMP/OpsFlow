@@ -206,6 +206,9 @@ export const ComplementaryFichaForm: React.FC<ComplementaryFichaFormProps> = ({
               <li key={idx} className="rounded-xl bg-slate-50 px-3 py-2.5">
                 {[fam.nombres, fam.apellidoPaterno, fam.apellidoMaterno].filter(Boolean).join(' ')}
                 {fam.parentesco ? ` · ${fam.parentesco}` : ''}
+                {fam.edad !== undefined && fam.edad !== null && String(fam.edad).trim() !== ''
+                  ? ` · ${fam.edad} años`
+                  : ''}
                 {fam.telefono ? ` · ${fam.telefono}` : ''}
               </li>
             ))}
