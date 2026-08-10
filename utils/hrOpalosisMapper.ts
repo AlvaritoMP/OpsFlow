@@ -40,6 +40,10 @@ const OPSFLOW_FIELD_LABELS: Record<string, string> = {
   clientName: 'Cliente',
   resourceId: 'ID recurso',
   unitId: 'ID unidad',
+  laborRegime: 'Régimen',
+  jornadaType: 'Jornada',
+  mobilityBonus: 'Movilidad',
+  familyAllowance: 'Asignación familiar',
 };
 
 /** Etiqueta del camino: preferir nombre conocido en UI; si es dinámico, usar la clave tal cual. */
@@ -746,12 +750,6 @@ export function mapSnapshotToHrFields(
       ),
     ) ?? '8 Horas';
 
-  const regimenLabel = pickString(
-    snapshot.opsflow.laborRegime,
-    fields.regimenLaboral,
-    fields.laborRegime,
-  );
-
   const departamentoLabel = pickString(
     complementary.departamento,
     fields.departamento,
@@ -784,6 +782,19 @@ export function mapSnapshotToHrFields(
     }
     return '';
   };
+
+  // OpsFlow UI lo llama «Régimen» (resources.labor_regime / opsflow_intake.laborRegime)
+  const regimenLabel =
+    pickString(
+      snapshot.opsflow.laborRegime,
+      fields.regimenLaboral,
+      fields.laborRegime,
+      fields.regimen,
+      fields.Regimen,
+      fields['Régimen'],
+      fields.regime,
+    ) || fieldKeyPick(/r[eé]gimen|laborRegime|labor.?regime/i);
+
   const departamentoFinal = departamentoLabel || fieldKeyPick(/departament/i);
   const provinciaFinal = provinciaLabel || fieldKeyPick(/provinc/i);
   const distritoFinal = distritoLabel || fieldKeyPick(/distrit|district/i);

@@ -214,12 +214,14 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState(item.workerSnapshot);
 
-  // Siempre rehidratar complementary desde el snapshot encolado (aunque no haya handoff)
+  // Rehidratar complementary + Régimen/jornada desde recurso e intake OpsFlow
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const { hydrateComplementaryFromSnapshot } = await import('../utils/complementaryHydrate');
+        const { supabase } = await import('../services/supabase');
+
         let complementary = hydrateComplementaryFromSnapshot(
           {
             identity: item.workerSnapshot.ats.identity,
@@ -229,6 +231,47 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
           },
           item.workerSnapshot.ats.complementary ?? null,
         );
+
+        let laborRegime = item.workerSnapshot.opsflow.laborRegime;
+        let jornadaType = item.workerSnapshot.opsflow.jornadaType;
+        let mobilityBonus = item.workerSnapshot.opsflow.mobilityBonus;
+        let familyAllowance = item.workerSnapshot.opsflow.familyAllowance;
+        let monthlySalary = item.workerSnapshot.opsflow.monthlySalary;
+        let assignedShift = item.workerSnapshot.opsflow.assignedShift;
+        const extraFields: Record<string, string | number | boolean | null> = {
+          ...(item.workerSnapshot.ats.fields ?? {}),
+        };
+
+        // Recurso OpsFlow (columna labor_regime = «Régimen» en UI)
+        if (item.resourceId) {
+          const { data: resRow } = await supabase
+            .from('resources')
+            .select(
+              'labor_regime, jornada_type, mobility_bonus, family_allowance, monthly_salary, assigned_shift, inbound_source_data',
+            )
+            .eq('id', item.resourceId)
+            .maybeSingle();
+          const row = resRow as Record<string, unknown> | null;
+          if (row) {
+            laborRegime =
+              (row.labor_regime as string) ||
+              laborRegime ||
+              ((row.inbound_source_data as { workerSnapshot?: { fields?: Record<string, unknown> } })
+                ?.workerSnapshot?.fields?.laborRegime as string) ||
+              undefined;
+            jornadaType = (row.jornada_type as string) || jornadaType;
+            if (row.mobility_bonus !== null && row.mobility_bonus !== undefined) {
+              mobilityBonus = Number(row.mobility_bonus);
+            }
+            if (row.family_allowance === true || row.family_allowance === false) {
+              familyAllowance = row.family_allowance as boolean;
+            }
+            if (row.monthly_salary !== null && row.monthly_salary !== undefined) {
+              monthlySalary = Number(row.monthly_salary);
+            }
+            assignedShift = (row.assigned_shift as string) || assignedShift;
+          }
+        }
 
         const handoffId = item.inboundHandoffItemId;
         if (handoffId) {
@@ -241,18 +284,58 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
               handoff.workerSnapshot ?? item.workerSnapshot,
               handoff.complementary ?? complementary,
             );
+            const intake = handoff.opsflowIntake;
+            if (intake?.laborRegime?.trim()) {
+              laborRegime = laborRegime || intake.laborRegime.trim();
+              extraFields.laborRegime = intake.laborRegime.trim();
+            }
+            if (intake?.jornadaType?.trim()) {
+              jornadaType = jornadaType || intake.jornadaType.trim();
+              extraFields.jornadaType = intake.jornadaType.trim();
+            }
+            if (intake?.shift?.trim()) {
+              assignedShift = assignedShift || intake.shift.trim();
+            }
+            if (intake?.monthlySalary != null) {
+              monthlySalary = monthlySalary ?? Number(intake.monthlySalary);
+            }
+            if (intake?.mobilityBonus != null) {
+              mobilityBonus = mobilityBonus ?? Number(intake.mobilityBonus);
+            }
+            if (intake?.familyAllowance === true || intake?.familyAllowance === false) {
+              familyAllowance = familyAllowance ?? intake.familyAllowance;
+            }
+            Object.assign(extraFields, handoff.workerSnapshot?.fields ?? {});
           }
         }
+
+        if (laborRegime) extraFields.laborRegime = laborRegime;
 
         if (cancelled) return;
         const nextSnapshot = {
           ...item.workerSnapshot,
+          opsflow: {
+            ...item.workerSnapshot.opsflow,
+            laborRegime: laborRegime || item.workerSnapshot.opsflow.laborRegime,
+            jornadaType: jornadaType || item.workerSnapshot.opsflow.jornadaType,
+            mobilityBonus:
+              mobilityBonus !== undefined
+                ? mobilityBonus
+                : item.workerSnapshot.opsflow.mobilityBonus,
+            familyAllowance:
+              familyAllowance !== undefined
+                ? familyAllowance
+                : item.workerSnapshot.opsflow.familyAllowance,
+            monthlySalary:
+              monthlySalary !== undefined
+                ? monthlySalary
+                : item.workerSnapshot.opsflow.monthlySalary,
+            assignedShift: assignedShift || item.workerSnapshot.opsflow.assignedShift,
+          },
           ats: {
             ...item.workerSnapshot.ats,
             complementary,
-            fields: {
-              ...(item.workerSnapshot.ats.fields ?? {}),
-            },
+            fields: extraFields,
           },
         };
         setSnapshot(nextSnapshot);
