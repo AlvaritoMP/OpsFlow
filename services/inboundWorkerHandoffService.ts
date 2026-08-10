@@ -499,6 +499,12 @@ export const inboundWorkerHandoffService = {
         jornadaType: intake.jornadaType?.trim() || '',
         laborRegime: intake.laborRegime?.trim() || '',
         mobilityBonus,
+        familyAllowance:
+          intake.familyAllowance === true
+            ? true
+            : intake.familyAllowance === false
+              ? false
+              : null,
         updatedAt: new Date().toISOString(),
         updatedByName: updatedByName?.trim() || undefined,
       };

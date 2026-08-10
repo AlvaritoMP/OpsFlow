@@ -23,6 +23,10 @@ function hasSpecifiedAmount(value: unknown): boolean {
   return Number.isFinite(num) && num >= 0;
 }
 
+function hasFamilyAllowanceChoice(value: unknown): boolean {
+  return value === true || value === false;
+}
+
 export function isOpsflowIntakeComplete(intake?: PresentationOpsflowIntake | null): boolean {
   if (!intake) return false;
   const salary = Number(intake.monthlySalary);
@@ -36,7 +40,8 @@ export function isOpsflowIntakeComplete(intake?: PresentationOpsflowIntake | nul
     Boolean(intake.shift?.trim()) &&
     Boolean(intake.jornadaType?.trim()) &&
     Boolean(intake.laborRegime?.trim()) &&
-    hasSpecifiedAmount(intake.mobilityBonus)
+    hasSpecifiedAmount(intake.mobilityBonus) &&
+    hasFamilyAllowanceChoice(intake.familyAllowance)
   );
 }
 
@@ -53,6 +58,7 @@ export function opsflowIntakeMissingLabels(
   if (!intake?.jornadaType?.trim()) missing.push('Tipo de jornada');
   if (!intake?.laborRegime?.trim()) missing.push('Régimen');
   if (!hasSpecifiedAmount(intake?.mobilityBonus)) missing.push('Bono de movilidad');
+  if (!hasFamilyAllowanceChoice(intake?.familyAllowance)) missing.push('Asignación familiar');
   return missing;
 }
 
@@ -166,6 +172,34 @@ export const OpsflowIntakeForm: React.FC<OpsflowIntakeFormProps> = ({
               !(REGIME_OPTIONS as readonly string[]).includes(value.laborRegime) && (
                 <option value={value.laborRegime}>{value.laborRegime}</option>
               )}
+          </select>
+        </label>
+
+        <label className="block sm:col-span-2">
+          <span className="mb-1.5 block text-xs font-medium text-slate-600">
+            Asignación familiar
+          </span>
+          <select
+            disabled={disabled}
+            value={
+              value.familyAllowance === true
+                ? 'yes'
+                : value.familyAllowance === false
+                  ? 'no'
+                  : ''
+            }
+            onChange={(e) => {
+              const raw = e.target.value;
+              onChange({
+                ...value,
+                familyAllowance: raw === 'yes' ? true : raw === 'no' ? false : null,
+              });
+            }}
+            className={inputClassName}
+          >
+            <option value="">Seleccionar…</option>
+            <option value="yes">Sí corresponde</option>
+            <option value="no">No corresponde</option>
           </select>
         </label>
 

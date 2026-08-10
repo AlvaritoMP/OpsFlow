@@ -269,6 +269,8 @@ export interface Resource {
   laborRegime?: string;
   /** Bono de movilidad (S/) */
   mobilityBonus?: number;
+  /** Si corresponde asignación familiar */
+  familyAllowance?: boolean;
   salaryIncrements?: SalaryIncrement[]; // Historial de incrementos salariales
 }
 
@@ -935,6 +937,8 @@ export interface PresentationOpsflowIntake {
   laborRegime?: string;
   /** Bono de movilidad (S/); 0 permitido si se especifica */
   mobilityBonus?: number | null;
+  /** true/false cuando el usuario ya marcó si corresponde asignación familiar */
+  familyAllowance?: boolean | null;
   updatedAt?: string;
   updatedByName?: string;
 }

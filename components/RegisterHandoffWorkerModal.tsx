@@ -166,6 +166,10 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
             form.mobilityBonus !== undefined && Number.isFinite(form.mobilityBonus)
               ? form.mobilityBonus
               : undefined,
+          familyAllowance:
+            form.familyAllowance === true || form.familyAllowance === false
+              ? form.familyAllowance
+              : undefined,
           externalId: form.externalId,
           inboundSourceData: buildResourceInboundSourceData(item, {
             sourcePackageId,
@@ -494,6 +498,35 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 }
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
               />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Asignación familiar
+                {isPrefilled('familyAllowance') && <PrefillBadge source="OpsFlow" />}
+              </label>
+              <select
+                value={
+                  form.familyAllowance === true
+                    ? 'yes'
+                    : form.familyAllowance === false
+                      ? 'no'
+                      : ''
+                }
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setForm({
+                    ...form,
+                    familyAllowance:
+                      raw === 'yes' ? true : raw === 'no' ? false : undefined,
+                  });
+                }}
+                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+              >
+                <option value="">Seleccionar...</option>
+                <option value="yes">Sí corresponde</option>
+                <option value="no">No corresponde</option>
+              </select>
             </div>
 
             <div>

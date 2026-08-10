@@ -113,6 +113,7 @@ function emptyOpsflowIntake(): PresentationOpsflowIntake {
     jornadaType: '',
     laborRegime: '',
     mobilityBonus: null,
+    familyAllowance: null,
   };
 }
 

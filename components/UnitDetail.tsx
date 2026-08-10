@@ -567,7 +567,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1, shift: '' as string | undefined });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number; familyAllowance?: boolean }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -2325,6 +2325,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           newWorkerForm.mobilityBonus !== undefined && Number.isFinite(newWorkerForm.mobilityBonus)
             ? Number(newWorkerForm.mobilityBonus)
             : undefined,
+        familyAllowance:
+          newWorkerForm.familyAllowance === true || newWorkerForm.familyAllowance === false
+            ? newWorkerForm.familyAllowance
+            : undefined,
       trainings: [],
       assignedAssets: []
       }, unit.id);
@@ -2343,7 +2347,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined });
+      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -8423,6 +8427,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         ))}
                       </select>
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Asignación familiar</label>
+                      <select
+                        className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                        value={
+                          newWorkerForm.familyAllowance === true
+                            ? 'yes'
+                            : newWorkerForm.familyAllowance === false
+                              ? 'no'
+                              : ''
+                        }
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          setNewWorkerForm({
+                            ...newWorkerForm,
+                            familyAllowance:
+                              raw === 'yes' ? true : raw === 'no' ? false : undefined,
+                          });
+                        }}
+                      >
+                        <option value="">Seleccionar...</option>
+                        <option value="yes">Sí corresponde</option>
+                        <option value="no">No corresponde</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
@@ -9121,6 +9150,35 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                   {opt}
                                                 </option>
                                               ))}
+                                          </select>
+                                      </div>
+                                      <div>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Asignación familiar</label>
+                                          <select
+                                              className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                              value={
+                                                editingResource.familyAllowance === true
+                                                  ? 'yes'
+                                                  : editingResource.familyAllowance === false
+                                                    ? 'no'
+                                                    : ''
+                                              }
+                                              onChange={(e) => {
+                                                const raw = e.target.value;
+                                                setEditingResource({
+                                                  ...editingResource,
+                                                  familyAllowance:
+                                                    raw === 'yes'
+                                                      ? true
+                                                      : raw === 'no'
+                                                        ? false
+                                                        : undefined,
+                                                });
+                                              }}
+                                          >
+                                              <option value="">Seleccionar...</option>
+                                              <option value="yes">Sí corresponde</option>
+                                              <option value="no">No corresponde</option>
                                           </select>
                                       </div>
                                   </div>

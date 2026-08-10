@@ -18,6 +18,7 @@ export interface HandoffWorkerPrefill {
   jornadaType?: string;
   laborRegime?: string;
   mobilityBonus?: number;
+  familyAllowance?: boolean;
   externalId?: string;
   /** Campos precargados desde ATS o intake OpsFlow (puesto y localidad los elige el operador) */
   prefilledFields: string[];
@@ -145,6 +146,14 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
     prefilledFields.push('mobilityBonus');
   }
 
+  const familyAllowance =
+    intake?.familyAllowance === true
+      ? true
+      : intake?.familyAllowance === false
+        ? false
+        : undefined;
+  if (familyAllowance !== undefined) prefilledFields.push('familyAllowance');
+
   const externalId = item.sourceCandidateId ?? item.workerSnapshot.meta?.sourceCandidateId;
 
   return {
@@ -167,6 +176,7 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
       mobilityBonus !== undefined && Number.isFinite(mobilityBonus) && mobilityBonus >= 0
         ? mobilityBonus
         : undefined,
+    familyAllowance,
     externalId: externalId ? String(externalId) : undefined,
     prefilledFields,
   };

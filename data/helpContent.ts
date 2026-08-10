@@ -184,7 +184,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'La fecha de ingreso del trabajador es la del registro en la unidad, no la de la aprobación en Presentaciones ATS.',
-          'Si llegó desde Presentaciones, salario, bono de movilidad, jornada, régimen, turno, días y horario se precargan desde las condiciones OpsFlow; el resto (localidad, etc.) puede quedar en blanco hasta completarlos aquí.',
+          'Si llegó desde Presentaciones, salario, bono de movilidad, asignación familiar, jornada, régimen, turno, días y horario se precargan desde las condiciones OpsFlow; el resto (localidad, etc.) puede quedar en blanco hasta completarlos aquí.',
           'En unidades BPO también puede existir un perfil BPO adicional; la ficha complementaria es independiente.',
         ],
       },
@@ -387,14 +387,14 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Condiciones OpsFlow (salario y horario)',
-        body: 'Antes de registrar en unidad, el equipo interno define salario mensual, bono de movilidad, tipo de jornada (Full Time, Part Time, 12 horas), régimen (General, Pyme, Mype), días de trabajo, hora de entrada/salida y turno (Diurno, Tarde o Nocturno).',
+        body: 'Antes de registrar en unidad, el equipo interno define salario mensual, bono de movilidad, asignación familiar (sí/no), tipo de jornada (Full Time, Part Time, 12 horas), régimen (General, Pyme, Mype), días de trabajo, hora de entrada/salida y turno (Diurno, Tarde o Nocturno).',
         steps: [
           'Complete la sección Condiciones OpsFlow en la ficha del candidato (puede hacerlo antes o después de aprobar).',
           'Pulse Guardar condiciones.',
           'Al Registrar en unidad, esos datos precargan Personal. Lo que no venga en el paquete queda en blanco para completar después en la unidad.',
         ],
         tips: [
-          'No se puede registrar en unidad si faltan salario, bono de movilidad, jornada, régimen, días, horario o turno. El bono puede ser 0 si no aplica.',
+          'No se puede registrar en unidad si faltan salario, bono de movilidad, asignación familiar, jornada, régimen, días, horario o turno. El bono puede ser 0 si no aplica.',
         ],
       },
       {

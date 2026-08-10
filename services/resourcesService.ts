@@ -912,6 +912,12 @@ function transformResourceFromDB(
       data.mobility_bonus !== null && data.mobility_bonus !== undefined
         ? Number(data.mobility_bonus)
         : undefined,
+    familyAllowance:
+      data.family_allowance === true
+        ? true
+        : data.family_allowance === false
+          ? false
+          : undefined,
   };
 }
 
@@ -1287,7 +1293,8 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
                              resource.exitTime !== undefined ||
                              resource.jornadaType !== undefined ||
                              resource.laborRegime !== undefined ||
-                             resource.mobilityBonus !== undefined;
+                             resource.mobilityBonus !== undefined ||
+                             resource.familyAllowance !== undefined;
   
   if (hasPersonnelFields) {
     if (resource.dni !== undefined) result.dni = resource.dni;
@@ -1318,6 +1325,14 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     if (resource.jornadaType !== undefined) result.jornada_type = resource.jornadaType || null;
     if (resource.laborRegime !== undefined) result.labor_regime = resource.laborRegime || null;
     if (resource.mobilityBonus !== undefined) result.mobility_bonus = resource.mobilityBonus;
+    if (resource.familyAllowance !== undefined) {
+      result.family_allowance =
+        resource.familyAllowance === true
+          ? true
+          : resource.familyAllowance === false
+            ? false
+            : null;
+    }
   }
 
   return result;
