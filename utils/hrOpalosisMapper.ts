@@ -958,11 +958,17 @@ export function mapHrFieldsToRegistroIngresoPayload(
     Turno: nullIfEmpty(hrFields.turno),
     Sueldo: hrFields.sueldo ?? null,
     Movilidad: hrFields.movilidad ?? 0,
-    SistemaPension: nullIfEmpty(hrFields.sistemaPension),
-    BancoPreferencia: nullIfEmpty(hrFields.bancoPreferencia),
-    // Códigos de catálogo Opalosis (además del texto)
-    ...(hrFields.fondoPensionId != null ? { FondoPensionId: hrFields.fondoPensionId } : {}),
-    ...(hrFields.bancoId != null ? { BancoId: hrFields.bancoId } : {}),
+    // Opalosis espera códigos de catálogo, no la etiqueta de texto
+    SistemaPension:
+      hrFields.fondoPensionId != null
+        ? String(hrFields.fondoPensionId)
+        : nullIfEmpty(hrFields.sistemaPension),
+    BancoPreferencia:
+      hrFields.bancoId != null
+        ? String(hrFields.bancoId)
+        : nullIfEmpty(hrFields.bancoPreferencia),
+    FondoPensionId: hrFields.fondoPensionId ?? null,
+    BancoId: hrFields.bancoId ?? null,
     NumeroCuentaTrabajador: nullIfEmpty(hrFields.numeroCuentaTrabajador),
     UrlDocumentoAdjunto: nullIfEmpty(hrFields.urlDocumentoAdjunto),
     TallaPoloCamisa: nullIfEmpty(hrFields.tallaPoloCamisa),
