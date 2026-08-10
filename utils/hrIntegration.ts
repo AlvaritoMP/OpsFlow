@@ -67,6 +67,16 @@ export function generateRefOperaciones(sequence: number): string {
   return `OPS-${dd}${mm}${yyyy}-${seq}`;
 }
 
+/** Ref única para encolados en lote (evita 409 por carrera en secuencia). */
+export function generateUniqueRefOperaciones(): string {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const uniq = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+  return `OPS-${dd}${mm}${yyyy}-${uniq}`;
+}
+
 /** Separa nombre completo en apellidos y nombres (heurística peruana). */
 export function splitFullName(fullName: string): {
   apellido_paterno: string;

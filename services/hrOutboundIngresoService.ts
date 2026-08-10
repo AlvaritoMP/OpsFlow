@@ -1,5 +1,5 @@
 import { supabase, handleSupabaseError } from './supabase';
-import { generateRefOperaciones } from '../utils/hrIntegration';
+import { generateUniqueRefOperaciones } from '../utils/hrIntegration';
 import {
   buildOutboundWorkerSnapshot,
   mapSnapshotToHrFields,
@@ -14,10 +14,134 @@ import type {
   HrOutboundIngresoQueueItem,
   HrUnitCacheEntry,
   HrUnitMapping,
+  InboundHandoffItem,
+  Resource,
   OpalosisCatalogItem,
   OpalosisCatalogName,
   Unit,
 } from '../types';
+import { ResourceType } from '../types';
+
+const SYNC_RESOURCE_SELECT =
+  'id, name, dni, unit_id, puesto, localidad, phone, birth_date, start_date, end_date, assigned_shift, monthly_salary, personnel_status, external_id, inbound_source_data, type';
+
+function lightResourceFromRow(data: Record<string, unknown>): Resource {
+  const birth = typeof data.birth_date === 'string' ? data.birth_date.split('T')[0] : undefined;
+  const start = typeof data.start_date === 'string' ? data.start_date.split('T')[0] : undefined;
+  const end = typeof data.end_date === 'string' ? data.end_date.split('T')[0] : undefined;
+  return {
+    id: data.id as string,
+    name: String(data.name ?? ''),
+    type: ResourceType.PERSONNEL,
+    quantity: 1,
+    unitId: (data.unit_id as string) || undefined,
+    dni: (data.dni as string) || undefined,
+    puesto: (data.puesto as string) || undefined,
+    localidad: (data.localidad as string) || undefined,
+    phone: (data.phone as string) || undefined,
+    birthDate: birth,
+    startDate: start,
+    endDate: end,
+    assignedShift: (data.assigned_shift as string) || undefined,
+    monthlySalary:
+      data.monthly_salary !== null && data.monthly_salary !== undefined
+        ? Number(data.monthly_salary)
+        : undefined,
+    personnelStatus: (data.personnel_status as Resource['personnelStatus']) || undefined,
+    externalId: (data.external_id as string) || undefined,
+    inboundSourceData: (data.inbound_source_data as Resource['inboundSourceData']) ?? undefined,
+    trainings: [],
+    assignedAssets: [],
+  };
+}
+
+function lightHandoffFromRow(data: Record<string, unknown>): InboundHandoffItem {
+  return {
+    id: data.id as string,
+    packageId: (data.package_id as string) || '',
+    workerName: String(data.worker_name ?? ''),
+    workerSnapshot: (data.worker_snapshot as InboundHandoffItem['workerSnapshot']) || {},
+    itemStatus: 'assigned',
+    sourceCandidateId: (data.source_candidate_id as string) || undefined,
+    sourceProcessId: (data.source_process_id as string) || undefined,
+    createdResourceId: (data.created_resource_id as string) || undefined,
+    createdAt: '',
+  };
+}
+
+async function loadQueuedResourceIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const pageSize = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('hr_outbound_ingreso_queue')
+      .select('resource_id')
+      .range(from, from + pageSize - 1);
+    if (error) {
+      const msg = error.message || String(error);
+      if (/403|permission|row-level security|RLS|Forbidden/i.test(msg)) {
+        throw new Error(
+          `Sin permiso RLS en hr_outbound_ingreso_queue. Ejecute database/migrations/MIGRATION_HR_OPALOSIS_RLS.sql en Supabase. Detalle: ${msg}`,
+        );
+      }
+      throw new Error(`No se pudo leer la cola Opalosis: ${msg}`);
+    }
+    if (!data?.length) break;
+    for (const row of ((data ?? []) as unknown as Array<{ resource_id?: string }>)) {
+      if (row.resource_id) ids.add(row.resource_id);
+    }
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return ids;
+}
+
+async function loadResourcesByIds(resourceIds: string[]): Promise<Map<string, Resource>> {
+  const map = new Map<string, Resource>();
+  const chunkSize = 100;
+  for (let i = 0; i < resourceIds.length; i += chunkSize) {
+    const chunk = resourceIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('resources')
+      .select(SYNC_RESOURCE_SELECT)
+      .in('id', chunk);
+    if (error) {
+      throw new Error(`No se pudieron cargar recursos para sincronizar: ${error.message}`);
+    }
+    for (const row of ((data ?? []) as unknown as Array<Record<string, unknown>>)) {
+      map.set(row.id as string, lightResourceFromRow(row));
+    }
+  }
+  return map;
+}
+
+async function loadHandoffsByResourceIds(
+  resourceIds: string[],
+): Promise<Map<string, InboundHandoffItem>> {
+  const map = new Map<string, InboundHandoffItem>();
+  const chunkSize = 100;
+  for (let i = 0; i < resourceIds.length; i += chunkSize) {
+    const chunk = resourceIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('inbound_worker_handoff_items')
+      .select(
+        'id, package_id, worker_name, worker_snapshot, source_candidate_id, source_process_id, created_resource_id',
+      )
+      .in('created_resource_id', chunk);
+    if (error) {
+      // Presentaciones opcionales: no abortar sync de altas directas
+      console.warn('No se pudieron cargar handoffs ATS para sync Opalosis:', error.message);
+      continue;
+    }
+    for (const row of ((data ?? []) as unknown as Array<Record<string, unknown>>)) {
+      const resourceId = row.created_resource_id as string | null;
+      if (!resourceId || map.has(resourceId)) continue;
+      map.set(resourceId, lightHandoffFromRow(row));
+    }
+  }
+  return map;
+}
 
 function transformQueueFromDB(data: Record<string, unknown>): HrOutboundIngresoQueueItem {
   return {
@@ -139,8 +263,7 @@ export const hrOutboundIngresoService = {
     }
 
     const mapping = await this.getUnitMapping(input.unit.id);
-    const sequence = (await this.countQueueItemsToday()) + 1;
-    const refOperaciones = generateRefOperaciones(sequence);
+    const refOperaciones = generateUniqueRefOperaciones();
     const workerSnapshot = buildOutboundWorkerSnapshot({
       ...input,
       opalosisUnidadId: mapping?.opalosisUnidadId ?? input.opalosisUnidadId,
@@ -177,6 +300,15 @@ export const hrOutboundIngresoService = {
       .single();
 
     if (error) {
+      // Ya encolado (unique resource_id) o carrera de ref → omitir
+      const status = (error as { status?: number }).status;
+      if (
+        error.code === '23505' ||
+        status === 409 ||
+        /duplicate|conflict|409|unique/i.test(error.message || '')
+      ) {
+        return null;
+      }
       throw new Error(`No se pudo encolar para Envío Opalosis: ${error.message}`);
     }
     return transformQueueFromDB(data as unknown as Record<string, unknown>);
@@ -186,22 +318,21 @@ export const hrOutboundIngresoService = {
    * Encola pendientes de envío a Opalosis:
    * 1) Todos los de Presentaciones ATS ya registrados en unidad (cualquier fecha).
    * 2) Personal dado de alta directo en Unidades (sin ATS) aún no encolado.
+   *
+   * Usa lecturas ligeras (sin getById / trainings / assets) para no saturar la red.
    */
   async syncMissingFromAssignedPresentations(units: Unit[]): Promise<{
     enqueued: number;
     skipped: number;
     errors: string[];
   }> {
-    const { inboundWorkerHandoffService } = await import('./inboundWorkerHandoffService');
-    const { resourcesService } = await import('./resourcesService');
-
-    const candidates: Array<{ itemId?: string; resourceId: string; workerName: string }> = [];
+    const candidates: Array<{ resourceId: string; workerName: string }> = [];
     const seenResources = new Set<string>();
 
     // 1) Presentaciones ATS con recurso creado (registrados en unidad)
     const { data: presentationRows, error: presentationError } = await supabase
       .from('inbound_worker_handoff_items')
-      .select('id, worker_name, created_resource_id, item_status, purpose')
+      .select('id, worker_name, created_resource_id')
       .not('created_resource_id', 'is', null)
       .order('updated_at', { ascending: false })
       .limit(500);
@@ -212,12 +343,11 @@ export const hrOutboundIngresoService = {
       );
     }
 
-    for (const raw of presentationRows ?? []) {
+    for (const raw of ((presentationRows ?? []) as unknown as Array<Record<string, unknown>>)) {
       const resourceId = raw.created_resource_id as string | null;
       if (!resourceId || seenResources.has(resourceId)) continue;
       seenResources.add(resourceId);
       candidates.push({
-        itemId: raw.id as string,
         resourceId,
         workerName: String(raw.worker_name ?? resourceId),
       });
@@ -239,7 +369,7 @@ export const hrOutboundIngresoService = {
       );
     }
 
-    for (const row of personnelRows ?? []) {
+    for (const row of ((personnelRows ?? []) as unknown as Array<Record<string, unknown>>)) {
       const resourceId = row.id as string;
       if (seenResources.has(resourceId)) continue;
       if (row.personnel_status === 'archivado' || row.personnel_status === 'cesado') continue;
@@ -250,9 +380,22 @@ export const hrOutboundIngresoService = {
       });
     }
 
+    const queuedIds = await loadQueuedResourceIds();
+    const pending = candidates.filter((c) => !queuedIds.has(c.resourceId));
+    let skipped = candidates.length - pending.length;
     let enqueued = 0;
-    let skipped = 0;
     const errors: string[] = [];
+
+    if (pending.length === 0) {
+      return { enqueued, skipped, errors };
+    }
+
+    const pendingIds = pending.map((p) => p.resourceId);
+    const [resourceById, handoffByResourceId] = await Promise.all([
+      loadResourcesByIds(pendingIds),
+      loadHandoffsByResourceIds(pendingIds),
+    ]);
+
     const unitById = new Map(units.map((u) => [u.id, u]));
 
     const resolveUnit = async (unitId: string): Promise<Unit | null> => {
@@ -264,59 +407,27 @@ export const hrOutboundIngresoService = {
         .eq('id', unitId)
         .maybeSingle();
       if (unitErr || !unitRow) return null;
+      const ur = unitRow as unknown as Record<string, unknown>;
       const unit = {
-        id: unitRow.id as string,
-        name: String(unitRow.name ?? 'Unidad'),
-        clientName: String(unitRow.client_name ?? ''),
-        status: unitRow.status,
+        id: ur.id as string,
+        name: String(ur.name ?? 'Unidad'),
+        clientName: String(ur.client_name ?? ''),
+        status: ur.status,
       } as Unit;
       unitById.set(unit.id, unit);
       return unit;
     };
 
-    for (const candidate of candidates) {
-      const { resourceId, workerName, itemId } = candidate;
+    for (const candidate of pending) {
+      const { resourceId, workerName } = candidate;
       try {
-        const existing = await supabase
-          .from('hr_outbound_ingreso_queue')
-          .select('id')
-          .eq('resource_id', resourceId)
-          .maybeSingle();
-        if (existing.data) {
-          skipped += 1;
-          continue;
-        }
-
-        const resource = await resourcesService.getById(resourceId);
+        const resource = resourceById.get(resourceId);
         if (!resource) {
           errors.push(`${workerName}: recurso no encontrado`);
           continue;
         }
 
-        let handoffItem = itemId
-          ? await inboundWorkerHandoffService.getItemById(itemId)
-          : null;
-        if (!handoffItem) {
-          const { data: linked } = await supabase
-            .from('inbound_worker_handoff_items')
-            .select('id')
-            .eq('created_resource_id', resourceId)
-            .maybeSingle();
-          if (linked?.id) {
-            handoffItem = await inboundWorkerHandoffService.getItemById(linked.id as string);
-          }
-        }
-
-        let unitId = resource.unitId;
-        if (!unitId) {
-          const { data: rawRes } = await supabase
-            .from('resources')
-            .select('unit_id')
-            .eq('id', resourceId)
-            .maybeSingle();
-          unitId = (rawRes?.unit_id as string | undefined) || undefined;
-          if (unitId) resource.unitId = unitId;
-        }
+        const unitId = resource.unitId;
         if (!unitId) {
           errors.push(`${workerName}: el recurso no tiene unidad asignada`);
           continue;
@@ -328,17 +439,26 @@ export const hrOutboundIngresoService = {
           continue;
         }
 
+        const handoffItem = handoffByResourceId.get(resourceId) ?? null;
         const created = await this.enqueueFromAssignment({
           resource,
           unit,
           handoffItem,
           sourcePackageId: handoffItem?.packageId,
-          sourceApp: resource.inboundSourceData?.sourceApp ?? (handoffItem ? 'Opalo ATS' : 'OpsFlow'),
+          sourceApp:
+            resource.inboundSourceData?.sourceApp ?? (handoffItem ? 'Opalo ATS' : 'OpsFlow'),
         });
         if (created) enqueued += 1;
         else skipped += 1;
       } catch (e) {
-        errors.push(`${workerName}: ${e instanceof Error ? e.message : String(e)}`);
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(`${workerName}: ${msg}`);
+        if (/403|permission|row-level security|RLS|Forbidden/i.test(msg)) {
+          errors.push(
+            'Se detuvo la sincronización: falta política RLS en tablas hr_outbound_*. Ejecute database/migrations/MIGRATION_HR_OPALOSIS_RLS.sql en Supabase.',
+          );
+          break;
+        }
       }
     }
 

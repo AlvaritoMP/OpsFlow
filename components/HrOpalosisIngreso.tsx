@@ -123,29 +123,13 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     setLoading(true);
     setError(null);
     try {
-      // Recuperar presentaciones ya en unidad que no llegaron a la cola (fallos silenciosos previos)
-      if (canEdit && units.length > 0) {
-        try {
-          const sync = await hrOutboundIngresoService.syncMissingFromAssignedPresentations(units);
-          if (sync.enqueued > 0) {
-            setSuccessMessage(
-              `Se encolaron ${sync.enqueued} trabajador(es) pendiente(s) de envío a Opalosis.`,
-            );
-          }
-          if (sync.errors.length > 0) {
-            setError(sync.errors.slice(0, 3).join(' | '));
-          }
-        } catch (syncErr) {
-          console.error('syncMissingFromAssignedPresentations:', syncErr);
-        }
-      }
       await Promise.all([loadQueue(), loadPackages()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar datos');
     } finally {
       setLoading(false);
     }
-  }, [loadQueue, loadPackages, canEdit, units]);
+  }, [loadQueue, loadPackages]);
 
   useEffect(() => {
     loadData();
