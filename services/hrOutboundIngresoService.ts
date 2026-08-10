@@ -349,9 +349,8 @@ export const hrOutboundIngresoService = {
   },
 
   /**
-   * Encola pendientes reales de envío a Opalosis (no toda la nómina):
-   * 1) Presentaciones ATS registradas en unidad en los últimos 60 días.
-   * 2) Altas directas de personal creadas en los últimos 30 días (aún no encoladas / excluidas).
+   * Encola solo Presentaciones ATS registradas en unidad (últimos 7 días).
+   * No incluye la nómina completa ni altas antiguas.
    */
   async syncMissingFromAssignedPresentations(units: Unit[]): Promise<{
     enqueued: number;
@@ -362,18 +361,15 @@ export const hrOutboundIngresoService = {
     const seenResources = new Set<string>();
 
     const presentationsSince = new Date();
-    presentationsSince.setDate(presentationsSince.getDate() - 60);
-    const personalSince = new Date();
-    personalSince.setDate(personalSince.getDate() - 30);
+    presentationsSince.setDate(presentationsSince.getDate() - 7);
 
-    // 1) Presentaciones ATS recientes con recurso creado
     const { data: presentationRows, error: presentationError } = await supabase
       .from('inbound_worker_handoff_items')
       .select('id, worker_name, created_resource_id')
       .not('created_resource_id', 'is', null)
       .gte('updated_at', presentationsSince.toISOString())
       .order('updated_at', { ascending: false })
-      .limit(500);
+      .limit(200);
 
     if (presentationError) {
       throw new Error(
@@ -391,34 +387,95 @@ export const hrOutboundIngresoService = {
       });
     }
 
-    // 2) Solo altas recientes en unidad (no la nómina histórica completa)
-    const { data: personnelRows, error: personnelError } = await supabase
-      .from('resources')
-      .select('id, name, unit_id, type, archived, personnel_status, created_at')
-      .eq('type', 'Personal')
-      .not('unit_id', 'is', null)
-      .or('archived.is.null,archived.eq.false')
-      .gte('created_at', personalSince.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(500);
+    return this.enqueueCandidateResources(candidates, units);
+  },
 
-    if (personnelError) {
-      throw new Error(
-        `No se pudo leer personal de unidades: ${personnelError.message}`,
-      );
+  /**
+   * Encola trabajadores exactos por DNI (p. ej. lote a enviar a Opalosis).
+   * Acepta DNIs con o sin ceros a la izquierda.
+   */
+  async enqueueByDnis(
+    dnis: string[],
+    units: Unit[],
+  ): Promise<{ enqueued: number; skipped: number; errors: string[]; notFound: string[] }> {
+    const normalized = [
+      ...new Set(
+        dnis
+          .map((d) => String(d).trim())
+          .filter(Boolean)
+          .map((d) => d.replace(/\s+/g, '')),
+      ),
+    ];
+    if (normalized.length === 0) {
+      return { enqueued: 0, skipped: 0, errors: [], notFound: [] };
     }
 
-    for (const row of ((personnelRows ?? []) as unknown as Array<Record<string, unknown>>)) {
-      const resourceId = row.id as string;
-      if (seenResources.has(resourceId)) continue;
-      if (row.personnel_status === 'archivado' || row.personnel_status === 'cesado') continue;
-      seenResources.add(resourceId);
+    const variants = new Set<string>();
+    for (const dni of normalized) {
+      variants.add(dni);
+      const stripped = dni.replace(/^0+/, '') || '0';
+      variants.add(stripped);
+      if (/^\d+$/.test(dni) && dni.length < 8) {
+        variants.add(dni.padStart(8, '0'));
+      }
+      if (/^\d+$/.test(stripped) && stripped.length < 8) {
+        variants.add(stripped.padStart(8, '0'));
+      }
+    }
+
+    const { data: rows, error } = await supabase
+      .from('resources')
+      .select(SYNC_RESOURCE_SELECT)
+      .eq('type', 'Personal')
+      .in('dni', [...variants]);
+
+    if (error) {
+      throw new Error(`No se pudieron buscar DNIs: ${error.message}`);
+    }
+
+    const byDni = new Map<string, Resource>();
+    for (const row of ((rows ?? []) as unknown as Array<Record<string, unknown>>)) {
+      const resource = lightResourceFromRow(row);
+      const key = String(resource.dni ?? '').trim();
+      if (key) byDni.set(key, resource);
+    }
+
+    const matchResource = (dni: string): Resource | undefined => {
+      if (byDni.has(dni)) return byDni.get(dni);
+      const stripped = dni.replace(/^0+/, '') || '0';
+      for (const [key, resource] of byDni) {
+        if (key === dni || key === stripped) return resource;
+        if ((key.replace(/^0+/, '') || '0') === stripped) return resource;
+      }
+      return undefined;
+    };
+
+    const candidates: Array<{ resourceId: string; workerName: string }> = [];
+    const notFound: string[] = [];
+    const seen = new Set<string>();
+
+    for (const dni of normalized) {
+      const resource = matchResource(dni);
+      if (!resource) {
+        notFound.push(dni);
+        continue;
+      }
+      if (seen.has(resource.id)) continue;
+      seen.add(resource.id);
       candidates.push({
-        resourceId,
-        workerName: String(row.name ?? resourceId),
+        resourceId: resource.id,
+        workerName: resource.name || dni,
       });
     }
 
+    const result = await this.enqueueCandidateResources(candidates, units);
+    return { ...result, notFound };
+  },
+
+  async enqueueCandidateResources(
+    candidates: Array<{ resourceId: string; workerName: string }>,
+    units: Unit[],
+  ): Promise<{ enqueued: number; skipped: number; errors: string[] }> {
     const queuedIds = await loadQueuedResourceIds();
     const pending = candidates.filter((c) => !queuedIds.has(c.resourceId));
     let skipped = candidates.length - pending.length;

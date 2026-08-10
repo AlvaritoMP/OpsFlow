@@ -1,6 +1,5 @@
--- Limpieza de cola masiva: elimina pendientes actuales (libera UNIQUE resource_id).
--- Úsalo si «Sincronizar cola» encoló la nómina histórica completa.
--- Luego, en la UI, vuelve a «Sincronizar cola» (presentaciones 60d + altas 30d).
+-- Deja la cola pendiente vacía para luego encolar solo el lote por DNI desde la UI
+-- («Encolar por DNI»).
 
 DELETE FROM public.hr_outbound_ingreso_queue
 WHERE queue_status = 'pendiente_envio';

@@ -211,8 +211,8 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
       ].filter(Boolean);
       setSuccessMessage(
         parts.length
-          ? `Sincronización cola Opalosis: ${parts.join(', ')}.`
-          : 'Sincronización cola Opalosis: nada pendiente.',
+          ? `Sincronización (presentaciones 7 días): ${parts.join(', ')}.`
+          : 'Sincronización: nada pendiente en presentaciones recientes.',
       );
       if (result.errors.length > 0) {
         setError(result.errors.slice(0, 5).join(' | '));
@@ -225,10 +225,67 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     }
   };
 
+  const handleEnqueueByDnis = async () => {
+    if (!canEdit) return;
+    const defaultDnis = [
+      '03650253',
+      '47637086',
+      '76674556',
+      '42716960',
+      '48487983',
+      '75559932',
+      '46904348',
+      '06302994',
+    ];
+    const raw = window.prompt(
+      'DNIs a encolar (separados por coma). Se limpia la cola pendiente y se encolan solo estos:',
+      defaultDnis.join(', '),
+    );
+    if (raw === null) return;
+
+    const dnis = raw
+      .split(/[\s,;]+/)
+      .map((d) => d.trim())
+      .filter(Boolean);
+    if (dnis.length === 0) {
+      setError('No se ingresó ningún DNI.');
+      return;
+    }
+
+    const ok = window.confirm(
+      `Se quitarán los pendientes actuales y se encolarán ${dnis.length} DNI(s).\n¿Continuar?`,
+    );
+    if (!ok) return;
+
+    setSyncing(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      await hrOutboundIngresoService.excludeAllPending('Reemplazo por encolado selectivo DNI');
+      const result = await hrOutboundIngresoService.enqueueByDnis(dnis, units);
+      const parts = [
+        result.enqueued > 0 ? `${result.enqueued} encolado(s)` : null,
+        result.skipped > 0 ? `${result.skipped} omitido(s)` : null,
+        result.notFound.length > 0 ? `no encontrados: ${result.notFound.join(', ')}` : null,
+      ].filter(Boolean);
+      setSuccessMessage(
+        parts.length ? `Encolado por DNI: ${parts.join(' · ')}.` : 'Ningún DNI encolado.',
+      );
+      if (result.errors.length > 0) {
+        setError(result.errors.slice(0, 5).join(' | '));
+      }
+      await loadQueue();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al encolar por DNI');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleClearAllPending = async () => {
     if (!canEdit || queueItems.length === 0) return;
     const ok = window.confirm(
-      `¿Quitar los ${queueItems.length} trabajadores pendientes de la cola?\n\nÚsalo para limpiar un sync masivo. Luego pulsa «Sincronizar cola» para recuperar solo presentaciones recientes y altas nuevas.`,
+      `¿Quitar los ${queueItems.length} trabajadores pendientes de la cola?\n\nLuego usa «Encolar por DNI» para el lote exacto a enviar.`,
     );
     if (!ok) return;
     setSyncing(true);
@@ -430,10 +487,22 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
           {canEdit && (
             <button
               type="button"
+              onClick={handleEnqueueByDnis}
+              disabled={syncing || loading}
+              className="flex min-h-[40px] items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-900 hover:bg-blue-100 disabled:opacity-60"
+              title="Limpia pendientes y encola solo los DNIs que indiques"
+            >
+              {syncing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              Encolar por DNI
+            </button>
+          )}
+          {canEdit && (
+            <button
+              type="button"
               onClick={handleSyncMissing}
               disabled={syncing || loading}
               className="flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-              title="Encola presentaciones ATS (60 días) y altas directas (30 días); reapertura si estaban excluidos"
+              title="Solo presentaciones ATS registradas en los últimos 7 días"
             >
               {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
               Sincronizar cola
