@@ -843,6 +843,8 @@ export interface WorkerSnapshotComplementary {
   bancoCts?: string;
   sistemaPensionesAnterior?: string;
   sistemaPensionesDeseado?: string;
+  /** ¿Cómo se enteró del empleo? (ATS: Fuente / source) */
+  comoSeEnteroEmpleo?: string;
   declaracionAceptada?: boolean;
   submittedAt?: string;
   [key: string]: unknown;

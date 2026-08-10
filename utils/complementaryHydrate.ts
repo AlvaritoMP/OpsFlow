@@ -95,6 +95,34 @@ export function hydrateComplementaryFromSnapshot(
   fill('bancoCts', fields.bancoCts);
   fill('estadoCivil', fields.estadoCivil, fields.estado_civil);
   fill('nacionalidad', fields.nacionalidad, fields.nationality);
+  fill(
+    'comoSeEnteroEmpleo',
+    fields.source,
+    fields.Fuente,
+    fields.fuente,
+    fields.Source,
+    fields.FUENTE,
+    fields.comoSeEnteroEmpleo,
+  );
+
+  // Fallback: buscar por etiqueta "Fuente" en fieldLabels del ATS
+  if (!asText(complementary.comoSeEnteroEmpleo)) {
+    const labels = snapshot?.meta?.fieldLabels ?? {};
+    for (const [key, label] of Object.entries(labels)) {
+      if (asText(label).toLowerCase() === 'fuente' && asText(fields[key])) {
+        complementary.comoSeEnteroEmpleo = asText(fields[key]);
+        break;
+      }
+    }
+  }
+  if (!asText(complementary.comoSeEnteroEmpleo)) {
+    for (const [key, value] of Object.entries(fields)) {
+      if (/fuente|^source$/i.test(key) && asText(value)) {
+        complementary.comoSeEnteroEmpleo = asText(value);
+        break;
+      }
+    }
+  }
 
   if (!asText(complementary.tipoDocumento) && asText(complementary.nroDocumento || identity.dni)) {
     complementary.tipoDocumento = 'DNI';

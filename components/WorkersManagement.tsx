@@ -23,6 +23,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
   const [unitFilter, setUnitFilter] = useState<string>('all');
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [selectedWorker, setSelectedWorker] = useState<WorkerWithUnit | null>(null);
+  const [downloadingFichaId, setDownloadingFichaId] = useState<string | null>(null);
   const getWorkerInitial = (name?: string) => (name?.trim().charAt(0) || '?').toUpperCase();
 
   // Obtener todos los trabajadores de todas las unidades
@@ -170,11 +171,20 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
     return <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">Sin estado</span>;
   };
 
-  const handleDownloadFicha = (worker: WorkerWithUnit) => {
-    downloadOpaloPersonnelFicha(worker, {
-      unitName: worker.unitName,
-      clientName: worker.clientName,
-    });
+  const handleDownloadFicha = async (worker: WorkerWithUnit) => {
+    if (downloadingFichaId) return;
+    setDownloadingFichaId(worker.id);
+    try {
+      await downloadOpaloPersonnelFicha(worker, {
+        unitName: worker.unitName,
+        clientName: worker.clientName,
+      });
+    } catch (err) {
+      console.error('Error al generar Ficha Opalo:', err);
+      alert('No se pudo generar la Ficha de Personal. Intente nuevamente.');
+    } finally {
+      setDownloadingFichaId(null);
+    }
   };
 
   return (
@@ -376,12 +386,13 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDownloadFicha(worker)}
-                          className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 text-sm font-medium"
+                          onClick={() => void handleDownloadFicha(worker)}
+                          disabled={downloadingFichaId === worker.id}
+                          className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 text-sm font-medium disabled:opacity-50"
                           title="Descargar Ficha de Personal Opalo"
                         >
                           <FileDown className="w-3.5 h-3.5" />
-                          Ficha PDF
+                          {downloadingFichaId === worker.id ? 'Generando…' : 'Ficha PDF'}
                         </button>
                       </div>
                     </td>
@@ -402,11 +413,12 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => handleDownloadFicha(selectedWorker)}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                  onClick={() => void handleDownloadFicha(selectedWorker)}
+                  disabled={downloadingFichaId === selectedWorker.id}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                 >
                   <FileDown className="w-4 h-4" />
-                  Descargar Ficha Opalo
+                  {downloadingFichaId === selectedWorker.id ? 'Generando…' : 'Descargar Ficha Opalo'}
                 </button>
                 <button
                   type="button"

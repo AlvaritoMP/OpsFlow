@@ -13,6 +13,13 @@ import { extractHandoffNameParts } from './handoffNameParts';
 type FichaContext = {
   unitName?: string;
   clientName?: string;
+  /** Logo en data URL (recortado). Si no se pasa, se usa assets/logo-opalo.jpg */
+  logoDataUrl?: string | null;
+};
+
+type PreparedLogo = {
+  dataUrl: string;
+  aspect: number;
 };
 
 type Cell = { label: string; value: string; span?: number };
@@ -88,6 +95,14 @@ function resolveFicha(worker: Resource, ctx: FichaContext = {}): WorkerSnapshotC
   fill('puestoContrato', worker.puesto);
   fill('unidadDestaque', ctx.unitName, worker.localidad);
   fill('distrito', worker.localidad);
+  fill(
+    'comoSeEnteroEmpleo',
+    snapshot?.fields?.source,
+    snapshot?.fields?.Fuente,
+    snapshot?.fields?.fuente,
+    snapshot?.fields?.Source,
+    snapshot?.fields?.FUENTE,
+  );
 
   return complementary;
 }
@@ -106,6 +121,105 @@ function safeFilenamePart(value: string): string {
     .slice(0, 60);
 }
 
+const OPALO_LOGO_SRC = new URL('../assets/logo-opalo.jpg', import.meta.url).href;
+
+/** Recorta el espacio en blanco alrededor del logo manteniendo colores originales. */
+function prepareLogoDataUrl(src: string): Promise<PreparedLogo | null> {
+  return new Promise((resolve) => {
+    if (!src || src.startsWith('blob:')) {
+      resolve(null);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const width = img.naturalWidth || img.width || 0;
+        const height = img.naturalHeight || img.height || 0;
+        if (!width || !height) {
+          resolve(null);
+          return;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+
+        let minX = width;
+        let minY = height;
+        let maxX = 0;
+        let maxY = 0;
+        let found = false;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const a = data[i + 3];
+            // Ignorar blanco / casi blanco / transparente
+            if (a < 20) continue;
+            if (r > 245 && g > 245 && b > 245) continue;
+            found = true;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+
+        if (!found) {
+          resolve({ dataUrl: canvas.toDataURL('image/png'), aspect: width / height });
+          return;
+        }
+
+        const pad = Math.max(2, Math.round(Math.min(width, height) * 0.02));
+        minX = Math.max(0, minX - pad);
+        minY = Math.max(0, minY - pad);
+        maxX = Math.min(width - 1, maxX + pad);
+        maxY = Math.min(height - 1, maxY + pad);
+
+        const cropW = maxX - minX + 1;
+        const cropH = maxY - minY + 1;
+        const out = document.createElement('canvas');
+        out.width = cropW;
+        out.height = cropH;
+        const outCtx = out.getContext('2d');
+        if (!outCtx) {
+          resolve(null);
+          return;
+        }
+        outCtx.fillStyle = '#ffffff';
+        outCtx.fillRect(0, 0, cropW, cropH);
+        outCtx.drawImage(canvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+        resolve({
+          dataUrl: out.toDataURL('image/png'),
+          aspect: cropW / Math.max(cropH, 1),
+        });
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+async function resolveOpaloLogo(explicit?: string | null): Promise<PreparedLogo | null> {
+  if (explicit) {
+    const prepared = await prepareLogoDataUrl(explicit);
+    if (prepared) return prepared;
+  }
+  return prepareLogoDataUrl(OPALO_LOGO_SRC);
+}
+
 class FichaPdfBuilder {
   doc: jsPDF;
   y = MARGIN;
@@ -121,11 +235,38 @@ class FichaPdfBuilder {
     this.y = MARGIN;
   }
 
-  title() {
+  title(logo?: PreparedLogo | null) {
+    const logoH = 11;
+    const maxLogoW = 52;
+    const logoW = logo
+      ? Math.min(maxLogoW, Math.max(28, logoH * logo.aspect))
+      : 28;
+    const gap = 5;
+    const headerH = Math.max(14, logoH + 2);
+
+    if (logo?.dataUrl) {
+      try {
+        this.doc.addImage(logo.dataUrl, 'PNG', MARGIN, this.y + 0.5, logoW, logoH);
+      } catch {
+        this.doc.setFont('helvetica', 'bold');
+        this.doc.setFontSize(11);
+        this.doc.setTextColor(16, 43, 82);
+        this.doc.text('opalo', MARGIN, this.y + 8);
+      }
+    } else {
+      this.doc.setFont('helvetica', 'bold');
+      this.doc.setFontSize(11);
+      this.doc.setTextColor(16, 43, 82);
+      this.doc.text('opalo', MARGIN, this.y + 8);
+    }
+
+    // Título a la derecha del logo (evita solaparse)
+    const titleX = MARGIN + logoW + gap;
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(13);
-    this.doc.text('FICHA DE PERSONAL', PAGE_W / 2, this.y + 4, { align: 'center' });
-    this.y += 9;
+    this.doc.setTextColor(20, 20, 20);
+    this.doc.text('FICHA DE PERSONAL', titleX, this.y + 8);
+    this.y += headerH;
     this.doc.setDrawColor(30, 30, 30);
     this.doc.setLineWidth(0.4);
     this.doc.line(MARGIN, this.y, PAGE_W - MARGIN, this.y);
@@ -151,15 +292,17 @@ class FichaPdfBuilder {
     this.doc.setLineWidth(0.15);
     this.doc.rect(x, y, w, h, 'S');
     this.doc.setFont('helvetica', 'bold');
-    this.doc.setFontSize(5.5);
+    this.doc.setFontSize(5.2);
     this.doc.setTextColor(70, 70, 70);
-    this.doc.text(label.toUpperCase(), x + 1, y + 2.4);
+    const labelLines = this.doc.splitTextToSize(label.toUpperCase(), Math.max(4, w - 2));
+    this.doc.text(labelLines.slice(0, 2), x + 1, y + 2.3);
     this.doc.setFont('helvetica', 'normal');
     this.doc.setFontSize(7.5);
     this.doc.setTextColor(15, 15, 15);
+    const valueTop = labelLines.length > 1 ? y + 6.2 : y + 5.2;
     const lines = this.doc.splitTextToSize(value || ' ', w - 2);
-    const maxLines = Math.max(1, Math.floor((h - 3.4) / this.lineH));
-    this.doc.text(lines.slice(0, maxLines), x + 1, y + 5.2);
+    const maxLines = Math.max(1, Math.floor((h - (valueTop - y) - 0.6) / this.lineH));
+    this.doc.text(lines.slice(0, maxLines), x + 1, valueTop);
   }
 
   row(cells: Cell[], rowHeight = 9) {
@@ -237,23 +380,61 @@ class FichaPdfBuilder {
   }
 
   declaration() {
-    this.ensureSpace(28);
+    this.ensureSpace(36);
     this.y += 2;
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(7);
+    this.doc.setTextColor(20, 20, 20);
     this.doc.text('Declaración Jurada y Autorización', MARGIN, this.y);
     this.y += 3.5;
+
+    // Checkbox marcado + wording de aceptación
+    const boxSize = 3.2;
+    const boxX = MARGIN;
+    const boxY = this.y - 0.2;
+    this.doc.setDrawColor(30, 30, 30);
+    this.doc.setLineWidth(0.35);
+    this.doc.rect(boxX, boxY, boxSize, boxSize, 'S');
+    // Marca (check) dentro del cuadro
+    this.doc.setLineWidth(0.45);
+    this.doc.line(boxX + 0.6, boxY + 1.6, boxX + 1.3, boxY + 2.5);
+    this.doc.line(boxX + 1.3, boxY + 2.5, boxX + 2.6, boxY + 0.7);
+
+    this.doc.setFont('helvetica', 'bold');
+    this.doc.setFontSize(6.2);
+    this.doc.text(
+      'Declaro haber leído y acepto la Declaración Jurada y Autorización siguiente:',
+      boxX + boxSize + 1.5,
+      this.y + 2.1,
+    );
+    this.y += 5.2;
+
     this.doc.setFont('helvetica', 'normal');
     this.doc.setFontSize(5.8);
     const body =
       'Declaro que la información brindada y los datos registrados en esta ficha son verdaderos y tienen carácter de declaración jurada. En tanto no informe por escrito algún cambio, autorizo a LA EMPRESA a utilizar válidamente los datos contenidos en el presente documento. Asimismo, declaro tener pleno conocimiento que en caso brinde información falsa estaré incurriendo en una falta grave laboral conforme a lo establecido en el literal d) del artículo 25 del D.L. N° 728. Asimismo, autorizo a LA EMPRESA de forma expresa, inequívoca e informada a: (i) recopilar, registrar, organizar, almacenar, conservar, elaborar, modificar, bloquear, suprimir, extraer, consultar, utilizar, transferir, exportar, importar o procesar (tratar), de cualquier otra forma, los datos personales por sí mismo o a través de terceros y (ii) a elaborar bases de datos de forma indefinida con la información proporcionada. LA EMPRESA declara que resguardará la información conforme a las disposiciones de la Ley N° 29733, Ley de protección de datos personales.';
     const lines = this.doc.splitTextToSize(body, CONTENT_W);
     this.doc.text(lines, MARGIN, this.y);
-    this.y += lines.length * 2.4 + 2;
+    this.y += lines.length * 2.4 + 3;
+
     this.doc.setFont('helvetica', 'italic');
     this.doc.setFontSize(5.5);
     this.doc.setTextColor(90, 90, 90);
     this.doc.text('* Documento de carácter oficial para la administración de personal y legajo.', MARGIN, this.y);
+    this.y += 5;
+
+    // Disclaimer de firma digital al final
+    this.ensureSpace(8);
+    this.doc.setDrawColor(160, 160, 160);
+    this.doc.setLineWidth(0.2);
+    this.doc.line(MARGIN, this.y, PAGE_W - MARGIN, this.y);
+    this.y += 4;
+    this.doc.setFont('helvetica', 'bold');
+    this.doc.setFontSize(7);
+    this.doc.setTextColor(40, 40, 40);
+    this.doc.text('Documento firmado digitalmente en plataforma Onyx', PAGE_W / 2, this.y, {
+      align: 'center',
+    });
     this.doc.setTextColor(20, 20, 20);
   }
 }
@@ -264,11 +445,15 @@ function padRows<T>(rows: T[] | undefined, min: number): Array<T | undefined> {
   return list;
 }
 
-export function buildOpaloPersonnelFichaPdf(worker: Resource, ctx: FichaContext = {}): jsPDF {
+export async function buildOpaloPersonnelFichaPdf(
+  worker: Resource,
+  ctx: FichaContext = {},
+): Promise<jsPDF> {
   const ficha = resolveFicha(worker, ctx);
+  const logo = await resolveOpaloLogo(ctx.logoDataUrl);
   const b = new FichaPdfBuilder();
 
-  b.title();
+  b.title(logo);
 
   // I. DATOS PERSONALES
   b.section('I. DATOS PERSONALES');
@@ -277,15 +462,18 @@ export function buildOpaloPersonnelFichaPdf(worker: Resource, ctx: FichaContext 
     { label: 'Apellido materno', value: text(ficha.apellidoMaterno) },
     { label: 'Nombre(s)', value: text(ficha.nombres), span: 1.4 },
   ]);
-  b.row([
-    { label: 'Fecha nac. (DD/MM/AAAA)', value: formatDateDisplay(ficha.fechaNacimiento) },
-    { label: 'Nacionalidad', value: text(ficha.nacionalidad) },
-    { label: 'Edad', value: text(ficha.edad) },
-    { label: 'Tipo doc.', value: text(ficha.tipoDocumento) },
-    { label: 'N° documento', value: text(ficha.nroDocumento) },
-    { label: 'Sexo', value: text(ficha.sexo) },
-    { label: 'Estado civil', value: text(ficha.estadoCivil) },
-  ]);
+  b.row(
+    [
+      { label: 'Fecha de nac. (DD/MM/AAAA)', value: formatDateDisplay(ficha.fechaNacimiento), span: 1.7 },
+      { label: 'Nacionalidad', value: text(ficha.nacionalidad), span: 0.75 },
+      { label: 'Edad', value: text(ficha.edad), span: 0.55 },
+      { label: 'Tipo doc.', value: text(ficha.tipoDocumento), span: 0.7 },
+      { label: 'N° documento', value: text(ficha.nroDocumento), span: 1.05 },
+      { label: 'Sexo', value: text(ficha.sexo), span: 0.65 },
+      { label: 'Estado civil', value: text(ficha.estadoCivil), span: 0.85 },
+    ],
+    10,
+  );
   b.row([
     { label: 'Dirección de domicilio actual', value: text(ficha.direccion), span: 2.2 },
     { label: 'Distrito', value: text(ficha.distrito) },
@@ -422,7 +610,7 @@ export function buildOpaloPersonnelFichaPdf(worker: Resource, ctx: FichaContext 
     { label: 'Puesto a ocupar', value: text(ficha.puestoContrato) || text(worker.puesto), span: 1.4 },
     {
       label: '¿Cómo se enteró del empleo?',
-      value: extraField(ficha, 'comoSeEnteroEmpleo'),
+      value: text(ficha.comoSeEnteroEmpleo),
     },
   ]);
   b.row([
@@ -451,7 +639,10 @@ export function getOpaloPersonnelFichaFilename(worker: Resource): string {
   return `Ficha_Personal_Opalo_${dni}_${name}.pdf`;
 }
 
-export function downloadOpaloPersonnelFicha(worker: Resource, ctx: FichaContext = {}): void {
-  const doc = buildOpaloPersonnelFichaPdf(worker, ctx);
+export async function downloadOpaloPersonnelFicha(
+  worker: Resource,
+  ctx: FichaContext = {},
+): Promise<void> {
+  const doc = await buildOpaloPersonnelFichaPdf(worker, ctx);
   doc.save(getOpaloPersonnelFichaFilename(worker));
 }
