@@ -26,8 +26,20 @@ type Cell = { label: string; value: string; span?: number };
 
 const PAGE_W = 210;
 const PAGE_H = 297;
-const MARGIN = 10;
+const MARGIN = 7;
 const CONTENT_W = PAGE_W - MARGIN * 2;
+
+/** Alturas base compactas (sin achicar tipografía). */
+const ROW_H_MIN = 6.4;
+const TABLE_H_MIN = 4.6;
+const TABLE_HEADER_H = 4.2;
+const SECTION_H = 4.4;
+
+const LABEL_FS = 5.5;
+const VALUE_FS = 7.2;
+const TABLE_VALUE_FS = 6.8;
+const LABEL_LH = 2.2;
+const VALUE_LH = 3.3;
 
 function text(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -223,103 +235,121 @@ async function resolveOpaloLogo(explicit?: string | null): Promise<PreparedLogo 
 class FichaPdfBuilder {
   doc: jsPDF;
   y = MARGIN;
-  private readonly lineH = 4.2;
 
   constructor() {
     this.doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   }
 
-  private ensureSpace(needed: number) {
-    if (this.y + needed <= PAGE_H - MARGIN) return;
-    this.doc.addPage();
-    this.y = MARGIN;
+  /** La ficha es estrictamente de 1 hoja: no crea páginas nuevas. */
+  private ensureSpace(_needed: number) {
+    // no-op
   }
 
   title(logo?: PreparedLogo | null) {
-    const logoH = 11;
-    const maxLogoW = 52;
+    const logoH = 9;
+    const maxLogoW = 42;
     const logoW = logo
-      ? Math.min(maxLogoW, Math.max(28, logoH * logo.aspect))
-      : 28;
-    const gap = 5;
-    const headerH = Math.max(14, logoH + 2);
+      ? Math.min(maxLogoW, Math.max(24, logoH * logo.aspect))
+      : 24;
+    const headerH = 11;
 
     if (logo?.dataUrl) {
       try {
-        this.doc.addImage(logo.dataUrl, 'PNG', MARGIN, this.y + 0.5, logoW, logoH);
+        this.doc.addImage(logo.dataUrl, 'PNG', MARGIN, this.y + 0.6, logoW, logoH);
       } catch {
         this.doc.setFont('helvetica', 'bold');
         this.doc.setFontSize(11);
         this.doc.setTextColor(16, 43, 82);
-        this.doc.text('opalo', MARGIN, this.y + 8);
+        this.doc.text('opalo', MARGIN, this.y + 7);
       }
     } else {
       this.doc.setFont('helvetica', 'bold');
       this.doc.setFontSize(11);
       this.doc.setTextColor(16, 43, 82);
-      this.doc.text('opalo', MARGIN, this.y + 8);
+      this.doc.text('opalo', MARGIN, this.y + 7);
     }
 
-    // Título a la derecha del logo (evita solaparse)
-    const titleX = MARGIN + logoW + gap;
+    // Título al extremo derecho, opuesto al logo
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(13);
     this.doc.setTextColor(20, 20, 20);
-    this.doc.text('FICHA DE PERSONAL', titleX, this.y + 8);
+    this.doc.text('FICHA DE PERSONAL', PAGE_W - MARGIN, this.y + 7, { align: 'right' });
     this.y += headerH;
     this.doc.setDrawColor(30, 30, 30);
-    this.doc.setLineWidth(0.4);
+    this.doc.setLineWidth(0.35);
     this.doc.line(MARGIN, this.y, PAGE_W - MARGIN, this.y);
-    this.y += 3;
+    this.y += 1.6;
   }
 
   section(title: string) {
-    this.ensureSpace(8);
+    this.ensureSpace(SECTION_H);
     this.doc.setFillColor(235, 235, 235);
-    this.doc.rect(MARGIN, this.y, CONTENT_W, 5.5, 'F');
+    this.doc.rect(MARGIN, this.y, CONTENT_W, SECTION_H, 'F');
     this.doc.setDrawColor(80, 80, 80);
-    this.doc.setLineWidth(0.2);
-    this.doc.rect(MARGIN, this.y, CONTENT_W, 5.5, 'S');
+    this.doc.setLineWidth(0.15);
+    this.doc.rect(MARGIN, this.y, CONTENT_W, SECTION_H, 'S');
     this.doc.setFont('helvetica', 'bold');
-    this.doc.setFontSize(8);
+    this.doc.setFontSize(7.5);
     this.doc.setTextColor(20, 20, 20);
-    this.doc.text(title, MARGIN + 1.5, this.y + 3.8);
-    this.y += 5.5;
+    this.doc.text(title, MARGIN + 1.2, this.y + 3);
+    this.y += SECTION_H;
   }
 
-  private drawCell(x: number, y: number, w: number, h: number, label: string, value: string) {
+  private measureLabeledCell(w: number, label: string, value: string): { h: number; labelLines: string[]; valueLines: string[] } {
+    this.doc.setFont('helvetica', 'bold');
+    this.doc.setFontSize(LABEL_FS);
+    const labelLines = this.doc.splitTextToSize(label.toUpperCase(), Math.max(4, w - 1.6)).slice(0, 2) as string[];
+    this.doc.setFont('helvetica', 'normal');
+    this.doc.setFontSize(VALUE_FS);
+    const valueLines = this.doc.splitTextToSize(value || ' ', Math.max(4, w - 1.6)) as string[];
+    const needed =
+      1.4 +
+      labelLines.length * LABEL_LH +
+      0.5 +
+      Math.max(1, valueLines.length) * VALUE_LH +
+      0.8;
+    return { h: Math.max(ROW_H_MIN, needed), labelLines, valueLines };
+  }
+
+  private drawLabeledCell(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    labelLines: string[],
+    valueLines: string[],
+  ) {
     this.doc.setDrawColor(120, 120, 120);
-    this.doc.setLineWidth(0.15);
+    this.doc.setLineWidth(0.12);
     this.doc.rect(x, y, w, h, 'S');
     this.doc.setFont('helvetica', 'bold');
-    this.doc.setFontSize(5.2);
+    this.doc.setFontSize(LABEL_FS);
     this.doc.setTextColor(70, 70, 70);
-    const labelLines = this.doc.splitTextToSize(label.toUpperCase(), Math.max(4, w - 2));
-    this.doc.text(labelLines.slice(0, 2), x + 1, y + 2.3);
+    this.doc.text(labelLines, x + 0.8, y + 2);
     this.doc.setFont('helvetica', 'normal');
-    this.doc.setFontSize(7.5);
+    this.doc.setFontSize(VALUE_FS);
     this.doc.setTextColor(15, 15, 15);
-    const valueTop = labelLines.length > 1 ? y + 6.2 : y + 5.2;
-    const lines = this.doc.splitTextToSize(value || ' ', w - 2);
-    const maxLines = Math.max(1, Math.floor((h - (valueTop - y) - 0.6) / this.lineH));
-    this.doc.text(lines.slice(0, maxLines), x + 1, valueTop);
+    const valueTop = y + 1.4 + labelLines.length * LABEL_LH + 0.7;
+    const maxLines = Math.max(1, Math.floor((y + h - valueTop - 0.5) / VALUE_LH));
+    this.doc.text(valueLines.slice(0, maxLines), x + 0.8, valueTop);
   }
 
-  row(cells: Cell[], rowHeight = 9) {
+  row(cells: Cell[]) {
     const totalSpan = cells.reduce((sum, c) => sum + (c.span ?? 1), 0) || 1;
+    const widths = cells.map((c) => (CONTENT_W * (c.span ?? 1)) / totalSpan);
+    const measured = cells.map((c, i) => this.measureLabeledCell(widths[i], c.label, c.value));
+    const rowHeight = Math.max(...measured.map((m) => m.h), ROW_H_MIN);
     this.ensureSpace(rowHeight);
     let x = MARGIN;
-    for (const cell of cells) {
-      const span = cell.span ?? 1;
-      const w = (CONTENT_W * span) / totalSpan;
-      this.drawCell(x, this.y, w, rowHeight, cell.label, cell.value);
-      x += w;
-    }
+    measured.forEach((m, i) => {
+      this.drawLabeledCell(x, this.y, widths[i], rowHeight, m.labelLines, m.valueLines);
+      x += widths[i];
+    });
     this.y += rowHeight;
   }
 
   tableHeader(headers: string[], widths: number[]) {
-    const h = 5.2;
+    const h = TABLE_HEADER_H;
     this.ensureSpace(h);
     let x = MARGIN;
     this.doc.setFillColor(245, 245, 245);
@@ -327,108 +357,94 @@ class FichaPdfBuilder {
     headers.forEach((header, i) => {
       const w = widths[i];
       this.doc.setDrawColor(120, 120, 120);
-      this.doc.setLineWidth(0.15);
+      this.doc.setLineWidth(0.12);
       this.doc.rect(x, this.y, w, h, 'S');
       this.doc.setFont('helvetica', 'bold');
-      this.doc.setFontSize(5.5);
+      this.doc.setFontSize(LABEL_FS);
       this.doc.setTextColor(60, 60, 60);
-      this.doc.text(header.toUpperCase(), x + 1, this.y + 3.5);
+      const lines = this.doc.splitTextToSize(header.toUpperCase(), Math.max(3, w - 1.4));
+      this.doc.text(lines.slice(0, 1), x + 0.7, this.y + 2.8);
       x += w;
     });
     this.y += h;
   }
 
-  tableRow(values: string[], widths: number[], rowHeight = 6.5) {
+  tableRow(values: string[], widths: number[]) {
+    this.doc.setFont('helvetica', 'normal');
+    this.doc.setFontSize(TABLE_VALUE_FS);
+    const lineSets = values.map((value, i) =>
+      this.doc.splitTextToSize(value || ' ', Math.max(3, widths[i] - 1.4)) as string[],
+    );
+    const maxLines = Math.max(1, ...lineSets.map((lines) => lines.length));
+    const rowHeight = Math.max(TABLE_H_MIN, 1.4 + maxLines * 3.1 + 0.8);
     this.ensureSpace(rowHeight);
     let x = MARGIN;
-    values.forEach((value, i) => {
+    lineSets.forEach((lines, i) => {
       const w = widths[i];
       this.doc.setDrawColor(120, 120, 120);
-      this.doc.setLineWidth(0.15);
+      this.doc.setLineWidth(0.12);
       this.doc.rect(x, this.y, w, rowHeight, 'S');
       this.doc.setFont('helvetica', 'normal');
-      this.doc.setFontSize(6.5);
+      this.doc.setFontSize(TABLE_VALUE_FS);
       this.doc.setTextColor(20, 20, 20);
-      const lines = this.doc.splitTextToSize(value || ' ', w - 2);
-      this.doc.text(lines.slice(0, 2), x + 1, this.y + 2.8);
+      this.doc.text(lines, x + 0.7, this.y + 2.9);
       x += w;
     });
     this.y += rowHeight;
   }
 
-  emptyRows(count: number, widths: number[], rowHeight = 6.5) {
-    for (let i = 0; i < count; i++) {
-      this.tableRow(widths.map(() => ''), widths, rowHeight);
-    }
-  }
-
   paragraph(label: string, value: string) {
-    this.ensureSpace(10);
-    this.doc.setDrawColor(120, 120, 120);
-    this.doc.setLineWidth(0.15);
-    const h = 9;
-    this.doc.rect(MARGIN, this.y, CONTENT_W, h, 'S');
-    this.doc.setFont('helvetica', 'bold');
-    this.doc.setFontSize(5.5);
-    this.doc.setTextColor(70, 70, 70);
-    this.doc.text(label.toUpperCase(), MARGIN + 1, this.y + 2.4);
-    this.doc.setFont('helvetica', 'normal');
-    this.doc.setFontSize(7.5);
-    this.doc.setTextColor(15, 15, 15);
-    this.doc.text(value || ' ', MARGIN + 1, this.y + 5.8);
-    this.y += h;
+    const measured = this.measureLabeledCell(CONTENT_W, label, value);
+    this.ensureSpace(measured.h);
+    this.drawLabeledCell(MARGIN, this.y, CONTENT_W, measured.h, measured.labelLines, measured.valueLines);
+    this.y += measured.h;
   }
 
   declaration() {
-    this.ensureSpace(36);
-    this.y += 2;
+    this.y += 1;
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(7);
     this.doc.setTextColor(20, 20, 20);
     this.doc.text('Declaración Jurada y Autorización', MARGIN, this.y);
-    this.y += 3.5;
+    this.y += 3;
 
-    // Checkbox marcado + wording de aceptación
-    const boxSize = 3.2;
+    const boxSize = 3;
     const boxX = MARGIN;
-    const boxY = this.y - 0.2;
+    const boxY = this.y - 0.15;
     this.doc.setDrawColor(30, 30, 30);
-    this.doc.setLineWidth(0.35);
+    this.doc.setLineWidth(0.3);
     this.doc.rect(boxX, boxY, boxSize, boxSize, 'S');
-    // Marca (check) dentro del cuadro
-    this.doc.setLineWidth(0.45);
-    this.doc.line(boxX + 0.6, boxY + 1.6, boxX + 1.3, boxY + 2.5);
-    this.doc.line(boxX + 1.3, boxY + 2.5, boxX + 2.6, boxY + 0.7);
+    this.doc.setLineWidth(0.4);
+    this.doc.line(boxX + 0.5, boxY + 1.5, boxX + 1.2, boxY + 2.3);
+    this.doc.line(boxX + 1.2, boxY + 2.3, boxX + 2.45, boxY + 0.65);
 
     this.doc.setFont('helvetica', 'bold');
-    this.doc.setFontSize(6.2);
+    this.doc.setFontSize(6);
     this.doc.text(
       'Declaro haber leído y acepto la Declaración Jurada y Autorización siguiente:',
-      boxX + boxSize + 1.5,
-      this.y + 2.1,
+      boxX + boxSize + 1.3,
+      this.y + 2,
     );
-    this.y += 5.2;
+    this.y += 4.2;
 
     this.doc.setFont('helvetica', 'normal');
-    this.doc.setFontSize(5.8);
+    this.doc.setFontSize(5.5);
     const body =
       'Declaro que la información brindada y los datos registrados en esta ficha son verdaderos y tienen carácter de declaración jurada. En tanto no informe por escrito algún cambio, autorizo a LA EMPRESA a utilizar válidamente los datos contenidos en el presente documento. Asimismo, declaro tener pleno conocimiento que en caso brinde información falsa estaré incurriendo en una falta grave laboral conforme a lo establecido en el literal d) del artículo 25 del D.L. N° 728. Asimismo, autorizo a LA EMPRESA de forma expresa, inequívoca e informada a: (i) recopilar, registrar, organizar, almacenar, conservar, elaborar, modificar, bloquear, suprimir, extraer, consultar, utilizar, transferir, exportar, importar o procesar (tratar), de cualquier otra forma, los datos personales por sí mismo o a través de terceros y (ii) a elaborar bases de datos de forma indefinida con la información proporcionada. LA EMPRESA declara que resguardará la información conforme a las disposiciones de la Ley N° 29733, Ley de protección de datos personales.';
     const lines = this.doc.splitTextToSize(body, CONTENT_W);
     this.doc.text(lines, MARGIN, this.y);
-    this.y += lines.length * 2.4 + 3;
+    this.y += lines.length * 2.15 + 1.2;
 
     this.doc.setFont('helvetica', 'italic');
-    this.doc.setFontSize(5.5);
+    this.doc.setFontSize(5.2);
     this.doc.setTextColor(90, 90, 90);
     this.doc.text('* Documento de carácter oficial para la administración de personal y legajo.', MARGIN, this.y);
-    this.y += 5;
+    this.y += 3;
 
-    // Disclaimer de firma digital al final
-    this.ensureSpace(8);
     this.doc.setDrawColor(160, 160, 160);
-    this.doc.setLineWidth(0.2);
+    this.doc.setLineWidth(0.15);
     this.doc.line(MARGIN, this.y, PAGE_W - MARGIN, this.y);
-    this.y += 4;
+    this.y += 3;
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(7);
     this.doc.setTextColor(40, 40, 40);
@@ -437,6 +453,31 @@ class FichaPdfBuilder {
     });
     this.doc.setTextColor(20, 20, 20);
   }
+}
+
+function normalizeNivelKey(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function matchEducationLevel(rawNivel: string, target: string): boolean {
+  const n = normalizeNivelKey(rawNivel);
+  const t = normalizeNivelKey(target);
+  if (!n) return false;
+  if (n === t) return true;
+  if (t.startsWith('otros') && (n.includes('otro') || n.includes('postgrado') || n.includes('maestr') || n.includes('doctor'))) {
+    return true;
+  }
+  if (t.startsWith('univers') && (n.includes('univers') || n.includes('licen') || n.includes('bachiller'))) {
+    return true;
+  }
+  if (t.startsWith('tecnic') && n.includes('tecnic')) return true;
+  if (t.startsWith('secund') && n.includes('secund')) return true;
+  if (t.startsWith('primar') && n.includes('primar')) return true;
+  return n.includes(t) || t.includes(n);
 }
 
 function padRows<T>(rows: T[] | undefined, min: number): Array<T | undefined> {
@@ -462,8 +503,7 @@ export async function buildOpaloPersonnelFichaPdf(
     { label: 'Apellido materno', value: text(ficha.apellidoMaterno) },
     { label: 'Nombre(s)', value: text(ficha.nombres), span: 1.4 },
   ]);
-  b.row(
-    [
+  b.row([
       { label: 'Fecha de nac. (DD/MM/AAAA)', value: formatDateDisplay(ficha.fechaNacimiento), span: 1.7 },
       { label: 'Nacionalidad', value: text(ficha.nacionalidad), span: 0.75 },
       { label: 'Edad', value: text(ficha.edad), span: 0.55 },
@@ -471,9 +511,7 @@ export async function buildOpaloPersonnelFichaPdf(
       { label: 'N° documento', value: text(ficha.nroDocumento), span: 1.05 },
       { label: 'Sexo', value: text(ficha.sexo), span: 0.65 },
       { label: 'Estado civil', value: text(ficha.estadoCivil), span: 0.85 },
-    ],
-    10,
-  );
+    ]);
   b.row([
     { label: 'Dirección de domicilio actual', value: text(ficha.direccion), span: 2.2 },
     { label: 'Distrito', value: text(ficha.distrito) },
@@ -504,7 +542,7 @@ export async function buildOpaloPersonnelFichaPdf(
     ['Apellido paterno', 'Apellido materno', 'Nombre(s)', 'Parentesco', 'Edad', 'Celular'],
     famWidths,
   );
-  for (const fam of padRows<WorkerSnapshotFamiliar>(ficha.familiares, 3)) {
+  for (const fam of padRows<WorkerSnapshotFamiliar>(ficha.familiares, 2)) {
     b.tableRow(
       [
         text(fam?.apellidoPaterno),
@@ -531,19 +569,24 @@ export async function buildOpaloPersonnelFichaPdf(
   b.section('III. DATOS DE INSTRUCCIÓN');
   const eduWidths = [28, 55, 40, 35, CONTENT_W - 158];
   b.tableHeader(['Nivel', 'Institución', 'Lugar', 'Periodo', 'Grado obtenido'], eduWidths);
-  const defaultLevels = ['Secundaria', 'Técnico', 'Universitario', 'Otros / Postgrado'];
+  const defaultLevels = ['Primaria', 'Secundaria', 'Técnico', 'Universitario', 'Otros / Postgrado'];
   const educacion = ficha.educacion ?? [];
-  const eduRows: Array<WorkerSnapshotEducacion | undefined> = defaultLevels.map((nivel) => {
-    const found = educacion.find((e) => text(e.nivel).toLowerCase() === nivel.toLowerCase());
-    return found ?? { nivel };
-  });
-  for (const extra of educacion) {
-    const nivel = text(extra.nivel).toLowerCase();
-    if (!defaultLevels.some((d) => d.toLowerCase() === nivel)) {
-      eduRows.push(extra);
+  const usedIndexes = new Set<number>();
+  const eduRows: WorkerSnapshotEducacion[] = defaultLevels.map((nivel) => {
+    const idx = educacion.findIndex(
+      (e, i) => !usedIndexes.has(i) && matchEducationLevel(text(e.nivel), nivel),
+    );
+    if (idx >= 0) {
+      usedIndexes.add(idx);
+      return { ...educacion[idx], nivel };
     }
+    return { nivel };
+  });
+  for (let i = 0; i < educacion.length; i++) {
+    if (usedIndexes.has(i)) continue;
+    eduRows.push(educacion[i]);
   }
-  for (const edu of eduRows.slice(0, 6)) {
+  for (const edu of eduRows.slice(0, 5)) {
     b.tableRow(
       [
         text(edu?.nivel),
@@ -563,7 +606,7 @@ export async function buildOpaloPersonnelFichaPdf(
     ['Empresa', 'Puesto desempeñado', 'Fecha ingreso', 'Fecha cese', 'Motivo de cese / renuncia'],
     expWidths,
   );
-  for (const exp of padRows<WorkerSnapshotExperiencia>(ficha.experienciaLaboral, 3)) {
+  for (const exp of padRows<WorkerSnapshotExperiencia>(ficha.experienciaLaboral, 2)) {
     b.tableRow(
       [
         text(exp?.empresa),
@@ -576,13 +619,13 @@ export async function buildOpaloPersonnelFichaPdf(
     );
   }
 
-  // V. REFERENCIAS LABORALES (estructura lista; datos aún no modelados de forma canónica)
+  // V. REFERENCIAS LABORALES
   b.section('V. REFERENCIAS LABORALES');
   const refWidths = [55, 50, 50, CONTENT_W - 155];
   b.tableHeader(['Empresa', 'Puesto desempeñado', 'Jefe inmediato', 'Celular'], refWidths);
   const refsRaw = (ficha as Record<string, unknown>).referenciasLaborales;
   const refList = Array.isArray(refsRaw) ? (refsRaw as Array<Record<string, unknown>>) : [];
-  for (const ref of padRows(refList, 2)) {
+  for (const ref of padRows(refList, 1)) {
     b.tableRow(
       [text(ref?.empresa), text(ref?.puesto), text(ref?.jefeInmediato), text(ref?.celular ?? ref?.telefono)],
       refWidths,
@@ -596,7 +639,7 @@ export async function buildOpaloPersonnelFichaPdf(
     ['Tipo de enfermedad / accidentes', 'Edad', 'Diagnóstico', 'Secuela / observación'],
     healthWidths,
   );
-  for (const item of padRows<WorkerSnapshotAntecedenteSalud>(ficha.antecedentesSalud, 2)) {
+  for (const item of padRows<WorkerSnapshotAntecedenteSalud>(ficha.antecedentesSalud, 1)) {
     b.tableRow(
       [text(item?.tipoEnfermedad), text(item?.edad), text(item?.diagnostico), text(item?.secuela)],
       healthWidths,
@@ -629,6 +672,11 @@ export async function buildOpaloPersonnelFichaPdf(
   ]);
 
   b.declaration();
+
+  // Garantiza una sola hoja
+  while (b.doc.getNumberOfPages() > 1) {
+    b.doc.deletePage(2);
+  }
 
   return b.doc;
 }
