@@ -297,9 +297,37 @@ export const hrOutboundIngresoService = {
           continue;
         }
 
-        const unit = resource.unitId ? unitById.get(resource.unitId) : undefined;
+        let unitId = resource.unitId;
+        if (!unitId) {
+          const { data: rawRes } = await supabase
+            .from('resources')
+            .select('unit_id')
+            .eq('id', resourceId)
+            .maybeSingle();
+          unitId = (rawRes?.unit_id as string | undefined) || undefined;
+          if (unitId) resource.unitId = unitId;
+        }
+
+        let unit = unitId ? unitById.get(unitId) : undefined;
+        if (!unit && unitId) {
+          const { data: unitRow, error: unitErr } = await supabase
+            .from('units')
+            .select('*')
+            .eq('id', unitId)
+            .maybeSingle();
+          if (unitErr || !unitRow) {
+            errors.push(`${workerName}: unidad ${unitId} no encontrada en OpsFlow`);
+            continue;
+          }
+          unit = {
+            id: unitRow.id as string,
+            name: String(unitRow.name ?? 'Unidad'),
+            clientName: String(unitRow.client_name ?? unitRow.clientName ?? ''),
+            status: unitRow.status,
+          } as Unit;
+        }
         if (!unit) {
-          errors.push(`${workerName}: unidad no encontrada en OpsFlow`);
+          errors.push(`${workerName}: el recurso no tiene unidad asignada`);
           continue;
         }
 

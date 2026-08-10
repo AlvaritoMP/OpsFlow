@@ -272,6 +272,8 @@ export interface Resource {
   /** Si corresponde asignación familiar */
   familyAllowance?: boolean;
   salaryIncrements?: SalaryIncrement[]; // Historial de incrementos salariales
+  /** Unidad actual del recurso (FK resources.unit_id) */
+  unitId?: string;
 }
 
 export interface SalaryIncrement {

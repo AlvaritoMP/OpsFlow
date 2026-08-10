@@ -918,6 +918,7 @@ function transformResourceFromDB(
         : data.family_allowance === false
           ? false
           : undefined,
+    unitId: data.unit_id || undefined,
   };
 }
 
