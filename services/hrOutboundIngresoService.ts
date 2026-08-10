@@ -74,9 +74,11 @@ async function loadQueuedResourceIds(): Promise<Set<string>> {
   const pageSize = 1000;
   let from = 0;
   for (;;) {
+    // Solo bloquean re-encolado los activos; «excluido» se puede reabrir
     const { data, error } = await supabase
       .from('hr_outbound_ingreso_queue')
       .select('resource_id')
+      .in('queue_status', ['pendiente_envio', 'incluido_paquete'])
       .range(from, from + pageSize - 1);
     if (error) {
       const msg = error.message || String(error);
@@ -251,19 +253,32 @@ export const hrOutboundIngresoService = {
   async enqueueFromAssignment(input: EnqueueAssignmentInput): Promise<HrOutboundIngresoQueueItem | null> {
     const existing = await supabase
       .from('hr_outbound_ingreso_queue')
-      .select('id')
+      .select('id, queue_status, ref_operaciones')
       .eq('resource_id', input.resource.id)
       .maybeSingle();
 
     if (existing.error) {
       throw new Error(`No se pudo verificar la cola Opalosis: ${existing.error.message}`);
     }
-    if (existing.data) {
-      return null; // ya estaba encolado
+
+    const existingRow = existing.data as
+      | { id: string; queue_status: string; ref_operaciones: string }
+      | null;
+
+    // Ya activo en cola o ya enviado en paquete → no duplicar
+    if (
+      existingRow &&
+      (existingRow.queue_status === 'pendiente_envio' ||
+        existingRow.queue_status === 'incluido_paquete')
+    ) {
+      return null;
     }
 
     const mapping = await this.getUnitMapping(input.unit.id);
-    const refOperaciones = generateUniqueRefOperaciones();
+    const refOperaciones =
+      existingRow?.queue_status === 'excluido' && existingRow.ref_operaciones
+        ? existingRow.ref_operaciones
+        : generateUniqueRefOperaciones();
     const workerSnapshot = buildOutboundWorkerSnapshot({
       ...input,
       opalosisUnidadId: mapping?.opalosisUnidadId ?? input.opalosisUnidadId,
@@ -282,25 +297,44 @@ export const hrOutboundIngresoService = {
       };
     }
 
+    const payload = {
+      resource_id: input.resource.id,
+      inbound_handoff_item_id: input.handoffItem?.id ?? null,
+      opsflow_unit_id: input.unit.id,
+      worker_name: input.resource.name,
+      assigned_at: new Date().toISOString(),
+      report_date: todayReportDate(),
+      worker_snapshot: workerSnapshot,
+      hr_fields: hrFields,
+      ref_operaciones: refOperaciones,
+      queue_status: 'pendiente_envio' as const,
+      exclusion_note: null,
+      package_id: null,
+    };
+
+    // Reabrir fila excluida (UNIQUE resource_id impide INSERT)
+    if (existingRow?.queue_status === 'excluido') {
+      const { data, error } = await supabase
+        .from('hr_outbound_ingreso_queue')
+        .update(payload)
+        .eq('id', existingRow.id)
+        .eq('queue_status', 'excluido')
+        .select('*')
+        .single();
+
+      if (error) {
+        throw new Error(`No se pudo reabrir en cola Opalosis: ${error.message}`);
+      }
+      return transformQueueFromDB(data as unknown as Record<string, unknown>);
+    }
+
     const { data, error } = await supabase
       .from('hr_outbound_ingreso_queue')
-      .insert({
-        resource_id: input.resource.id,
-        inbound_handoff_item_id: input.handoffItem?.id ?? null,
-        opsflow_unit_id: input.unit.id,
-        worker_name: input.resource.name,
-        assigned_at: new Date().toISOString(),
-        report_date: todayReportDate(),
-        worker_snapshot: workerSnapshot,
-        hr_fields: hrFields,
-        ref_operaciones: refOperaciones,
-        queue_status: 'pendiente_envio',
-      })
+      .insert(payload)
       .select('*')
       .single();
 
     if (error) {
-      // Ya encolado (unique resource_id) o carrera de ref → omitir
       const status = (error as { status?: number }).status;
       if (
         error.code === '23505' ||
@@ -316,8 +350,8 @@ export const hrOutboundIngresoService = {
 
   /**
    * Encola pendientes reales de envío a Opalosis (no toda la nómina):
-   * 1) Presentaciones ATS registradas en unidad en los últimos 30 días.
-   * 2) Altas directas de personal creadas en los últimos 14 días (aún no encoladas).
+   * 1) Presentaciones ATS registradas en unidad en los últimos 60 días.
+   * 2) Altas directas de personal creadas en los últimos 30 días (aún no encoladas / excluidas).
    */
   async syncMissingFromAssignedPresentations(units: Unit[]): Promise<{
     enqueued: number;
@@ -328,9 +362,9 @@ export const hrOutboundIngresoService = {
     const seenResources = new Set<string>();
 
     const presentationsSince = new Date();
-    presentationsSince.setDate(presentationsSince.getDate() - 30);
+    presentationsSince.setDate(presentationsSince.getDate() - 60);
     const personalSince = new Date();
-    personalSince.setDate(personalSince.getDate() - 14);
+    personalSince.setDate(personalSince.getDate() - 30);
 
     // 1) Presentaciones ATS recientes con recurso creado
     const { data: presentationRows, error: presentationError } = await supabase
@@ -470,14 +504,14 @@ export const hrOutboundIngresoService = {
     return { enqueued, skipped, errors };
   },
 
-  /** Excluye todos los pendientes actuales (p. ej. limpieza tras sync masivo erróneo). */
+  /** Vacía la cola pendiente (DELETE) para liberar UNIQUE(resource_id). */
   async excludeAllPending(note?: string): Promise<number> {
+    // Conservamos el nombre del método (UI); borramos pendientes en vez de
+    // marcar excluido, para que un sync posterior pueda reencolar correctamente.
+    void note;
     const { data, error } = await supabase
       .from('hr_outbound_ingreso_queue')
-      .update({
-        queue_status: 'excluido',
-        exclusion_note: note?.trim() || 'Limpieza cola masiva',
-      })
+      .delete()
       .eq('queue_status', 'pendiente_envio')
       .select('id');
 

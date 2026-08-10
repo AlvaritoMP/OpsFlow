@@ -1,10 +1,6 @@
--- Limpieza de cola masiva: excluye todos los pendientes actuales.
+-- Limpieza de cola masiva: elimina pendientes actuales (libera UNIQUE resource_id).
 -- Úsalo si «Sincronizar cola» encoló la nómina histórica completa.
--- Luego, en la UI, vuelve a «Sincronizar cola» (solo presentaciones 30d + altas 14d).
+-- Luego, en la UI, vuelve a «Sincronizar cola» (presentaciones 60d + altas 30d).
 
-UPDATE public.hr_outbound_ingreso_queue
-SET
-  queue_status = 'excluido',
-  exclusion_note = COALESCE(exclusion_note, 'Limpieza cola masiva (sync histórico)'),
-  updated_at = NOW()
+DELETE FROM public.hr_outbound_ingreso_queue
 WHERE queue_status = 'pendiente_envio';

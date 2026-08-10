@@ -228,7 +228,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
   const handleClearAllPending = async () => {
     if (!canEdit || queueItems.length === 0) return;
     const ok = window.confirm(
-      `¿Excluir los ${queueItems.length} trabajadores pendientes de la cola?\n\nÚsalo para limpiar el sync masivo (nómina histórica). Luego puedes pulsar «Sincronizar cola» para recuperar solo presentaciones recientes y altas nuevas.`,
+      `¿Quitar los ${queueItems.length} trabajadores pendientes de la cola?\n\nÚsalo para limpiar un sync masivo. Luego pulsa «Sincronizar cola» para recuperar solo presentaciones recientes y altas nuevas.`,
     );
     if (!ok) return;
     setSyncing(true);
@@ -238,7 +238,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
       const n = await hrOutboundIngresoService.excludeAllPending(
         'Limpieza cola masiva (sync histórico)',
       );
-      setSuccessMessage(`Se excluyeron ${n} pendiente(s) de la cola.`);
+      setSuccessMessage(`Se quitaron ${n} pendiente(s) de la cola.`);
       setSelectedIds(new Set());
       await loadQueue();
     } catch (e) {
@@ -433,7 +433,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
               onClick={handleSyncMissing}
               disabled={syncing || loading}
               className="flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-              title="Encola presentaciones ATS (30 días) y altas directas (14 días) que aún no están en esta cola"
+              title="Encola presentaciones ATS (60 días) y altas directas (30 días); reapertura si estaban excluidos"
             >
               {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
               Sincronizar cola
