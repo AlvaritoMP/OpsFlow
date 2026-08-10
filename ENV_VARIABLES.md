@@ -76,7 +76,42 @@ Ver `INBOUND_WORKER_HANDOFF.md` para URL del endpoint y ejemplo de payload.
 
 ## Envío Opalosis (Edge Function — solo servidor)
 
-La integración outbound hacia Opalosis usa la Edge Function `hr-opalosis-integration`. **No** expongas estas variables en el frontend:
+La integración outbound hacia Opalosis usa la Edge Function `hr-opalosis-integration`. **No** expongas estas variables en el frontend.
+
+### Modo recomendado: proxy EasyPanel (evita ECONNRESET Deno→IIS)
+
+Supabase Edge no puede completar el handshake TLS con Onyx (IIS 8.0). EasyPanel sí. Flujo:
+
+```
+Edge Function → EasyPanel /api/opalosis-proxy/* → Onyx
+```
+
+**Variables en EasyPanel (servicio OpsFlow):**
+
+| Variable | Valor |
+|----------|-------|
+| `OPALOSIS_API_BASE_URL` | `https://onyx.opaloperu.com/apiempleadoregistro/api/opsflow` |
+| `OPALOSIS_API_KEY` | API Key de OpaloSis |
+| `OPALOSIS_PROXY_SECRET` | Secret largo compartido (solo servidor) |
+
+**Secrets en Supabase (Edge Function):**
+
+| Variable | Valor |
+|----------|-------|
+| `OPALOSIS_PROXY_URL` | `https://<tu-host-easypanel>/api/opalosis-proxy` |
+| `OPALOSIS_PROXY_SECRET` | El **mismo** secret que en EasyPanel |
+| `OPALOSIS_USE_MOCK` | `false` |
+
+Con el proxy configurado, `OPALOSIS_API_KEY` **ya no es necesaria** en Supabase (la key vive solo en EasyPanel).
+
+Prueba del proxy (desde cualquier máquina, con el secret):
+
+```powershell
+Invoke-RestMethod -Uri "https://<tu-host>/api/opalosis-proxy/tipo-documento" `
+  -Headers @{ "X-OpsFlow-Proxy-Secret" = "<secret>" }
+```
+
+### Modo directo (legacy — falla desde Supabase Edge)
 
 | Variable | Descripción | Ejemplo (pruebas) |
 |----------|-------------|-------------------|

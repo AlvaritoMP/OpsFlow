@@ -70,10 +70,19 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
+function getProxyConfig(): { proxyUrl: string; proxySecret: string } | null {
+  const proxyUrl = Deno.env.get('OPALOSIS_PROXY_URL')?.trim();
+  const proxySecret = Deno.env.get('OPALOSIS_PROXY_SECRET')?.trim();
+  if (!proxyUrl || !proxySecret) return null;
+  return { proxyUrl: proxyUrl.replace(/\/$/, ''), proxySecret };
+}
+
 function isMockMode(): boolean {
   const explicit = Deno.env.get('OPALOSIS_USE_MOCK');
   if (explicit === 'false') return false;
   if (explicit === 'true') return true;
+  // Proxy EasyPanel (recomendado) o llamada directa a Onyx
+  if (getProxyConfig()) return false;
   const baseUrl = Deno.env.get('OPALOSIS_API_BASE_URL')?.trim();
   const apiKey = Deno.env.get('OPALOSIS_API_KEY')?.trim();
   return !baseUrl || !apiKey;
@@ -86,16 +95,34 @@ function getOpalosisConfig(): { baseUrl: string; apiKey: string } | null {
   return { baseUrl: baseUrl.replace(/\/$/, ''), apiKey };
 }
 
+/**
+ * Llama a Opalosis.
+ * Si existe OPALOSIS_PROXY_URL, la petición sale vía EasyPanel (Node → Onyx),
+ * evitando el ECONNRESET del runtime Deno/Supabase Edge contra IIS 8.0.
+ */
 async function callOpalosis(
   path: string,
   options: { method?: string; body?: unknown; query?: Record<string, string | number | undefined> } = {},
 ): Promise<{ ok: boolean; status: number; data: unknown }> {
-  const config = getOpalosisConfig();
-  if (!config) throw new Error('Opalosis no configurado');
+  const proxy = getProxyConfig();
+  const relativePath = path.startsWith('/') ? path : `/${path}`;
+  const method = options.method ?? 'GET';
 
-  const url = new URL(
-    `${config.baseUrl}${path.startsWith('/') ? path : `/${path}`}`,
-  );
+  let url: URL;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (proxy) {
+    url = new URL(`${proxy.proxyUrl}${relativePath}`);
+    headers['X-OpsFlow-Proxy-Secret'] = proxy.proxySecret;
+  } else {
+    const config = getOpalosisConfig();
+    if (!config) throw new Error('Opalosis no configurado (ni proxy ni API directa)');
+    url = new URL(`${config.baseUrl}${relativePath}`);
+    headers['X-Api-Key'] = config.apiKey;
+  }
+
   if (options.query) {
     for (const [k, v] of Object.entries(options.query)) {
       if (v !== undefined && v !== null && String(v).trim() !== '') {
@@ -105,11 +132,8 @@ async function callOpalosis(
   }
 
   const response = await fetch(url.toString(), {
-    method: options.method ?? 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Api-Key': config.apiKey,
-    },
+    method,
+    headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
 

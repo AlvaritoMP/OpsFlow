@@ -52,21 +52,43 @@ Detalle clave: el error ocurre en la fase **Connect** (establecimiento de conexi
 ]
 ```
 
-### 2.3. Contraste (ampliado)
+### 2.3. Contraste (ampliado — pruebas OpaloSis + OpsFlow)
 
-| Origen | Tipo de red | Destino | Resultado |
-|--------|-------------|---------|-----------|
-| PC en red de OpsFlow | ISP oficina (residencial/comercial) | `onyx.../tipo-documento` | ✅ HTTP 200 |
-| Otras PCs **fuera** de la red de OpsFlow | ISP residenciales/comerciales varios | `onyx.../tipo-documento` | ✅ HTTP 200 |
-| Supabase Edge Function | IP de **datacenter/nube** | `onyx.../tipo-documento` | ❌ Connection reset (os error 104), 3/3 |
+| Origen | Tipo de red / runtime | Destino | Resultado |
+|--------|----------------------|---------|-----------|
+| PC oficina | ISP oficina | `onyx.../tipo-documento` | ✅ HTTP 200 |
+| PC red doméstica | ISP residencial | `onyx.../tipo-documento` | ✅ HTTP 200 |
+| Laptop datos móviles | Red celular | `onyx.../tipo-documento` | ✅ HTTP 200 |
+| **Azure Cloud Shell** | Infraestructura cloud externa (Microsoft) | `onyx.../tipo-documento` | ✅ HTTP 200 |
+| **Linux remoto (`curl -v`)** | Servidor Linux externo | `onyx.../tipo-documento` | ✅ HTTP 200 (TLS 1.2 / IIS 8.0) |
+| **Supabase Edge Function** | Deno Deploy (runtime de la función) | `onyx.../tipo-documento` | ❌ Connection reset (os error 104), 3/3 |
 
-**Conclusión:** el acceso **no depende de una red específica** (funciona desde múltiples PCs y redes externas). El único origen que Onyx **rechaza (resetea)** es el de **infraestructura de nube/datacenter** (Supabase). Esto es característico de un **bloqueo que discrimina por tipo de origen**:
+**Conclusión revisada:** el problema **no es “cualquier nube”**. Azure Cloud Shell y Linux remoto obtienen HTTP 200. El único entorno donde se reproduce el fallo es el **runtime de Supabase Edge Functions**.
 
-- **(a) Bloqueo por ASN de hosting/nube:** el WAF/firewall corta IPs de proveedores de nube (anti-bot/anti-scraping) y permite ISPs residenciales/comerciales.
-- **(b) Bloqueo por huella TLS (JA3/JA4):** el WAF resetea clientes cuyo *fingerprint* TLS no está permitido (el `fetch` del runtime del servidor difiere del de un navegador/PowerShell).
-- **(c) Geobloqueo por región de salida** de la nube.
+Causas más plausibles con esta evidencia:
 
-En los tres casos el síntoma es el mismo: reset en fase **Connect** solo para el origen de nube.
+- **(a) Incompatibilidad TLS del cliente Deno/Supabase con IIS 8.0** (negocia TLS 1.2 + cipher `ECDHE-RSA-AES256-SHA384`, sin HTTP/2). Curl/PowerShell/Azure negocian bien; Deno puede resetearse en el handshake.
+- **(b) Bloqueo/filtrado específico hacia rangos o ASN usados por Supabase / Deno Deploy** (menos probable solo, dado que Azure Cloud Shell sí funciona).
+- **(c) Política de egress propia de Supabase Edge** hacia ese host.
+
+### 2.4. Handshake exitoso desde Linux remoto (`curl -v`) — referencia de comparación
+
+Misma URL y API Key, desde un equipo remoto Linux (HTTP 200). Detalle TLS/servidor:
+
+```
+* Trying 38.253.153.202:443...
+* Connected to onyx.opaloperu.com (38.253.153.202) port 443
+* TLSv1.3 (OUT), TLS handshake, Client hello (1):
+* ... negociado hacia abajo ...
+* SSL connection using TLSv1.2 / ECDHE-RSA-AES256-SHA384
+* ALPN: server did not agree on a protocol. Uses default.   ← sin HTTP/2
+* Server certificate: CN=*.opaloperu.com (DigiCert RapidSSL)
+* Server: Microsoft-IIS/8.0
+* X-AspNet-Version: 4.0.30319
+HTTP/1.1 200 OK
+```
+
+**Implicación:** Onyx/IIS **acepta** clientes compatibles con **TLS 1.2** y cifrado antiguo (`ECDHE-RSA-AES256-SHA384`). El fallo de Supabase Edge ocurre en fase **Connect** (antes de HTTP), coherente con un **corte en el handshake TLS** del cliente Deno/Supabase frente a ese stack (IIS 8.0 + TLS 1.2 + sin ALPN h2), no con un rechazo HTTP 401/403 de la API Key.
 
 ---
 
@@ -75,9 +97,10 @@ En los tres casos el síntoma es el mismo: reset en fase **Connect** solo para e
 - **No es la API Key:** con la misma key, desde la red de OpsFlow la respuesta es 200.
 - **No es la URL ni el endpoint:** idéntica URL funciona desde la red de OpsFlow.
 - **No es el payload/código de OpsFlow:** el error es en un **GET de catálogo** (sin cuerpo) y ocurre en la fase de conexión, no de aplicación.
-- **No es intermitente:** 3 de 3 intentos fallaron con el mismo error exacto.
+- **No es intermitente:** 3 de 3 intentos fallaron con el mismo error exacto (reconfirmado 2026-08-10).
 - **No es DNS:** la URL se resuelve; el fallo es reset de conexión, no "host not found".
-- **No es una red específica de OpsFlow:** la misma petición funciona (HTTP 200) desde **varias PCs y redes externas distintas**; solo falla desde el origen de **nube/datacenter** (Supabase).
+- **No es “cualquier cloud”:** Azure Cloud Shell obtiene HTTP 200; solo falla el runtime de **Supabase Edge Functions**.
+- **No es una red específica de OpsFlow:** funciona desde oficina, casa, datos móviles y Azure Cloud Shell.
 
 ---
 
@@ -98,10 +121,11 @@ El tramo **Supabase → Onyx** debe quedar permitido. Opciones (cualquiera destr
 | # | Pregunta |
 |---|----------|
 | 1 | ¿Onyx aplica filtrado por IP / geobloqueo / WAF sobre `apiempleadoregistro/api/opsflow`? |
-| 2 | ¿Qué IP(s) de origen están actualmente autorizadas (por eso funciona desde nuestra red)? |
+| 2 | ¿Hay logs del lado Onyx del reset de conexión hacia origen Supabase/Deno Deploy (fecha 2026-08-07 y 2026-08-10)? |
 | 3 | ¿Cómo se autoriza un nuevo origen? ¿Aceptan un origen de nube o exigen IP estática? |
-| 4 | ¿Hay un WAF/CDN (Cloudflare, F5, etc.) delante de Onyx que pueda estar reseteando clientes de datacenter? |
+| 4 | ¿Hay un WAF/CDN (Cloudflare, F5, Imperva, etc.) delante de Onyx? ¿Puede estar reseteando por **huella TLS (JA3)** del cliente Deno? |
 | 5 | ¿Restricción por User-Agent, TLS mínimo o cabeceras específicas además de `X-Api-Key`? |
+| 6 | Dado que **Azure Cloud Shell sí funciona**, ¿pueden comparar en logs qué diferencia hay vs una conexión desde Supabase Edge (ASN, TLS fingerprint, región)? |
 
 ---
 
