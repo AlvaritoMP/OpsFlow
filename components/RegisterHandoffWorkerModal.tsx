@@ -183,23 +183,31 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
       await inboundWorkerHandoffService.registerItemAsResource(item.id, unitId, resource.id);
 
-      onSuccess();
-      onClose();
-
       const unit = units.find((u) => u.id === unitId);
       if (unit) {
-        void hrOutboundIngresoService
-          .enqueueFromAssignment({
+        try {
+          await hrOutboundIngresoService.enqueueFromAssignment({
             resource,
             unit,
             handoffItem: item,
             sourcePackageId,
             sourceApp,
-          })
-          .catch((err) => {
-            console.error('No se pudo encolar ingreso HR tras registrar colaborador:', err);
           });
+        } catch (enqueueErr) {
+          console.error('No se pudo encolar ingreso HR tras registrar colaborador:', enqueueErr);
+          setError(
+            `Colaborador registrado, pero no se encoló para Envío Opalosis: ${
+              enqueueErr instanceof Error ? enqueueErr.message : String(enqueueErr)
+            }. Usa «Sincronizar cola» en Envío Opalosis.`,
+          );
+          setSaving(false);
+          onSuccess();
+          return;
+        }
       }
+
+      onSuccess();
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar el colaborador.');
     } finally {

@@ -98,6 +98,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [simulatedNotice, setSimulatedNotice] = useState(false);
   const [editingItem, setEditingItem] = useState<HrOutboundIngresoQueueItem | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const unitNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -120,13 +121,29 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     setLoading(true);
     setError(null);
     try {
+      // Recuperar presentaciones ya en unidad que no llegaron a la cola (fallos silenciosos previos)
+      if (canEdit && units.length > 0) {
+        try {
+          const sync = await hrOutboundIngresoService.syncMissingFromAssignedPresentations(units);
+          if (sync.enqueued > 0) {
+            setSuccessMessage(
+              `Se encolaron ${sync.enqueued} trabajador(es) pendiente(s) de envío a Opalosis.`,
+            );
+          }
+          if (sync.errors.length > 0) {
+            setError(sync.errors.slice(0, 3).join(' | '));
+          }
+        } catch (syncErr) {
+          console.error('syncMissingFromAssignedPresentations:', syncErr);
+        }
+      }
       await Promise.all([loadQueue(), loadPackages()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar datos');
     } finally {
       setLoading(false);
     }
-  }, [loadQueue, loadPackages]);
+  }, [loadQueue, loadPackages, canEdit, units]);
 
   useEffect(() => {
     loadData();
@@ -195,6 +212,33 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     }
   };
 
+  const handleSyncMissing = async () => {
+    if (!canEdit) return;
+    setSyncing(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const result = await hrOutboundIngresoService.syncMissingFromAssignedPresentations(units);
+      const parts = [
+        result.enqueued > 0 ? `${result.enqueued} encolado(s)` : null,
+        result.skipped > 0 ? `${result.skipped} ya estaban / omitidos` : null,
+      ].filter(Boolean);
+      setSuccessMessage(
+        parts.length
+          ? `Sincronización cola Opalosis: ${parts.join(', ')}.`
+          : 'Sincronización cola Opalosis: nada pendiente.',
+      );
+      if (result.errors.length > 0) {
+        setError(result.errors.slice(0, 5).join(' | '));
+      }
+      await loadQueue();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al sincronizar cola');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleExclude = async (itemId: string) => {
     if (!canEdit) return;
     const note = window.prompt('Motivo de exclusión (opcional):');
@@ -236,7 +280,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
 
   if (selectedPackage) {
     return (
-      <div className="space-y-6">
+      <div className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-4 md:p-6 space-y-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -360,23 +404,42 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-4 md:p-6 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">Reporte de ingresos → Opalosis</h2>
-          <p className="text-sm text-slate-500">
-            Asignaciones desde ATS que se acumulan aquí para envío batch a RRHH.
+        <div className="min-w-0">
+          <div className="mb-1 flex items-center gap-2 text-slate-500">
+            <Send size={18} className="shrink-0" />
+            <span className="text-[11px] uppercase tracking-wide">OpsFlow → Opalosis RRHH</span>
+          </div>
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Envío Opalosis</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Trabajadores registrados en unidad hoy (u otra fecha) pendientes de envío a RRHH.
+            Completa datos y envía; no se mandan solos al registrar.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={loadData}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          Actualizar
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleSyncMissing}
+              disabled={syncing || loading}
+              className="flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              title="Encola presentaciones ya registradas en unidad que faltan en esta cola"
+            >
+              {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              Sincronizar cola
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={loadData}
+            disabled={loading}
+            className="flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            Actualizar
+          </button>
+        </div>
       </div>
 
       {simulatedNotice && (
@@ -483,12 +546,24 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
               <Loader2 size={24} className="animate-spin text-slate-400" />
             </div>
           ) : queueItems.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-16 text-center">
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-16 text-center px-4">
               <Package className="mx-auto mb-3 text-slate-400" size={40} />
               <p className="font-medium text-slate-700">Sin ingresos pendientes para esta fecha</p>
-              <p className="mt-1 text-sm text-slate-500">
-                Los trabajadores aparecen aquí al asignarlos desde Recepción ATS.
+              <p className="mt-1 text-sm text-slate-500 max-w-md mx-auto">
+                Aquí se listan los registrados en unidad aún no enviados a Opalosis. Si ya
+                registró a alguien hoy y no aparece, pulse «Sincronizar cola».
               </p>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={handleSyncMissing}
+                  disabled={syncing}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                  Sincronizar cola
+                </button>
+              )}
             </div>
           ) : (
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -529,7 +604,15 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                             />
                           </td>
                         )}
-                        <td className="px-4 py-3 font-medium text-slate-800">{item.workerName}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-800">{item.workerName}</div>
+                          <div className="text-xs text-slate-500">
+                            Doc:{' '}
+                            {item.hrFields?.documento ||
+                              item.workerSnapshot?.opsflow?.dni ||
+                              '—'}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-slate-600">
                           {unitNameById.get(item.opsflowUnitId) ?? '—'}
                         </td>
