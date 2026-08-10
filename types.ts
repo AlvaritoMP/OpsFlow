@@ -1022,7 +1022,11 @@ export interface HrOpalosisIngresoFields {
   sueldo?: number | null;
   movilidad?: number | null;
   sistemaPension?: string | null;
+  /** ID catálogo Opalosis fondo-pension (FondoPensionId) */
+  fondoPensionId?: number | null;
   bancoPreferencia?: string | null;
+  /** ID catálogo Opalosis banco (BancoId) */
+  bancoId?: number | null;
   numeroCuentaTrabajador?: string | null;
   urlDocumentoAdjunto?: string | null;
   tallaPoloCamisa?: string | null;

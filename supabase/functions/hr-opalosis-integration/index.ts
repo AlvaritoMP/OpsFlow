@@ -448,6 +448,8 @@ function buildRegistroPayload(
     Movilidad: pickNumber(hrFields.movilidad) ?? 0,
     SistemaPension: pickString(hrFields.sistemaPension) || null,
     BancoPreferencia: pickString(hrFields.bancoPreferencia) || null,
+    FondoPensionId: pickNumber(hrFields.fondoPensionId) ?? null,
+    BancoId: pickNumber(hrFields.bancoId) ?? null,
     NumeroCuentaTrabajador: pickString(hrFields.numeroCuentaTrabajador) || null,
     UrlDocumentoAdjunto: pickString(hrFields.urlDocumentoAdjunto) || null,
     TallaPoloCamisa: pickString(hrFields.tallaPoloCamisa) || null,

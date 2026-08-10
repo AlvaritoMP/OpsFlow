@@ -336,6 +336,8 @@ export interface OpalosisRegistroIngresoPayload {
   Movilidad: number | null;
   SistemaPension: string | null;
   BancoPreferencia: string | null;
+  FondoPensionId?: number | null;
+  BancoId?: number | null;
   NumeroCuentaTrabajador: string | null;
   UrlDocumentoAdjunto: string | null;
   TallaPoloCamisa: string | null;
@@ -590,7 +592,9 @@ export function normalizeHrFields(raw: unknown): HrOpalosisIngresoFields | null 
         sueldo: pickNumber(r.sueldo) ?? null,
         movilidad: pickNumber(r.movilidad) ?? 0,
         sistemaPension: nullIfEmpty(pickString(r.sistemaPension)),
+        fondoPensionId: pickNumber(r.fondoPensionId) ?? null,
         bancoPreferencia: nullIfEmpty(pickString(r.bancoPreferencia)),
+        bancoId: pickNumber(r.bancoId) ?? null,
         numeroCuentaTrabajador: nullIfEmpty(pickString(r.numeroCuentaTrabajador)),
         urlDocumentoAdjunto: nullIfEmpty(pickString(r.urlDocumentoAdjunto)),
         tallaPoloCamisa: nullIfEmpty(pickString(r.tallaPoloCamisa)),
@@ -880,7 +884,9 @@ export function mapSnapshotToHrFields(
     sueldo,
     movilidad,
     sistemaPension: nullIfEmpty(pensionLabel),
+    fondoPensionId: pickNumber(fields.fondoPensionId) ?? null,
     bancoPreferencia: nullIfEmpty(bancoLabel),
+    bancoId: pickNumber(fields.bancoId) ?? null,
     numeroCuentaTrabajador: nullIfEmpty(
       pickString(fields.numeroCuenta, fields.bankAccount, fields.numeroCuentaTrabajador),
     ),
@@ -954,6 +960,9 @@ export function mapHrFieldsToRegistroIngresoPayload(
     Movilidad: hrFields.movilidad ?? 0,
     SistemaPension: nullIfEmpty(hrFields.sistemaPension),
     BancoPreferencia: nullIfEmpty(hrFields.bancoPreferencia),
+    // Códigos de catálogo Opalosis (además del texto)
+    ...(hrFields.fondoPensionId != null ? { FondoPensionId: hrFields.fondoPensionId } : {}),
+    ...(hrFields.bancoId != null ? { BancoId: hrFields.bancoId } : {}),
     NumeroCuentaTrabajador: nullIfEmpty(hrFields.numeroCuentaTrabajador),
     UrlDocumentoAdjunto: nullIfEmpty(hrFields.urlDocumentoAdjunto),
     TallaPoloCamisa: nullIfEmpty(hrFields.tallaPoloCamisa),
@@ -1069,7 +1078,9 @@ export function mergeHrFieldsWithSnapshot(
     tieneAsignacionFamiliar:
       existing.tieneAsignacionFamiliar || mapped.tieneAsignacionFamiliar,
     sistemaPension: existing.sistemaPension || mapped.sistemaPension,
+    fondoPensionId: pickFilledNum(existing.fondoPensionId, mapped.fondoPensionId),
     bancoPreferencia: existing.bancoPreferencia || mapped.bancoPreferencia,
+    bancoId: pickFilledNum(existing.bancoId, mapped.bancoId),
     tallaPoloCamisa: existing.tallaPoloCamisa || mapped.tallaPoloCamisa,
     tallaCasaca: existing.tallaCasaca || mapped.tallaCasaca,
     tallaPantalon: existing.tallaPantalon || mapped.tallaPantalon,

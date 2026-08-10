@@ -486,6 +486,104 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
     form.ubigeoId,
   ]);
 
+  /** Asocia FondoPensionId / BancoId Opalosis a partir del texto OpsFlow. */
+  useEffect(() => {
+    const pensionLabel = (form.labels?.fondoPension || form.sistemaPension || '').trim();
+    const bancoLabel = (form.labels?.banco || form.bancoPreferencia || '').trim();
+    if ((!pensionLabel || form.fondoPensionId) && (!bancoLabel || form.bancoId)) return;
+
+    let cancelled = false;
+    const normalize = (s: string) =>
+      s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const findBest = (items: OpalosisCatalogItem[], label: string) => {
+      const target = normalize(label);
+      if (!target || items.length === 0) return null;
+      return (
+        items.find((it) => normalize(it.label) === target) ||
+        items.find(
+          (it) =>
+            normalize(it.label).includes(target) || target.includes(normalize(it.label)),
+        ) ||
+        null
+      );
+    };
+
+    (async () => {
+      try {
+        let fondoPensionId = form.fondoPensionId ?? null;
+        let bancoId = form.bancoId ?? null;
+        let sistemaPension = form.sistemaPension ?? null;
+        let bancoPreferencia = form.bancoPreferencia ?? null;
+        let fondoName = form.labels?.fondoPension;
+        let bancoName = form.labels?.banco;
+
+        if (pensionLabel && !fondoPensionId) {
+          const { items } = await hrOutboundIngresoService.fetchCatalog({
+            catalog: 'fondo-pension',
+            buscar: pensionLabel,
+          });
+          const hit = findBest(items, pensionLabel);
+          if (hit) {
+            fondoPensionId = hit.id;
+            sistemaPension = hit.label;
+            fondoName = hit.label;
+          }
+        }
+
+        if (bancoLabel && !bancoId) {
+          const { items } = await hrOutboundIngresoService.fetchCatalog({
+            catalog: 'banco',
+            buscar: bancoLabel,
+          });
+          const hit = findBest(items, bancoLabel);
+          if (hit) {
+            bancoId = hit.id;
+            bancoPreferencia = hit.label;
+            bancoName = hit.label;
+          }
+        }
+
+        if (cancelled) return;
+        setForm((prev) => {
+          if (prev.fondoPensionId === fondoPensionId && prev.bancoId === bancoId) return prev;
+          return {
+            ...prev,
+            fondoPensionId,
+            bancoId,
+            sistemaPension: sistemaPension || prev.sistemaPension,
+            bancoPreferencia: bancoPreferencia || prev.bancoPreferencia,
+            labels: {
+              ...prev.labels,
+              fondoPension: fondoName || prev.labels?.fondoPension,
+              banco: bancoName || prev.labels?.banco,
+            },
+          };
+        });
+      } catch {
+        // catálogo no disponible
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    form.labels?.fondoPension,
+    form.labels?.banco,
+    form.sistemaPension,
+    form.bancoPreferencia,
+    form.fondoPensionId,
+    form.bancoId,
+  ]);
+
   const blockers = useMemo(() => listHrFieldBlockers(form), [form]);
   const warnings = useMemo(() => listHrFieldWarnings(form), [form]);
   const fieldInventory = useMemo(
@@ -915,25 +1013,39 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
               <CatalogSearch
                 catalog="fondo-pension"
                 label="Sistema pensión"
-                valueId={undefined}
-                valueLabel={form.sistemaPension ?? form.labels?.fondoPension}
+                valueId={form.fondoPensionId}
+                valueLabel={form.labels?.fondoPension ?? form.sistemaPension ?? undefined}
                 loadOnMount
                 autoMatchLabel
                 onSelect={(it) => {
-                  setField('sistemaPension', it?.label ?? form.sistemaPension ?? null);
-                  setLabel('fondoPension', it?.label ?? form.labels?.fondoPension);
+                  setForm((prev) => ({
+                    ...prev,
+                    fondoPensionId: it?.id ?? null,
+                    sistemaPension: it?.label ?? null,
+                    labels: {
+                      ...prev.labels,
+                      fondoPension: it?.label ?? undefined,
+                    },
+                  }));
                 }}
               />
               <CatalogSearch
                 catalog="banco"
                 label="Banco preferencia (banco sueldo)"
-                valueId={undefined}
-                valueLabel={form.bancoPreferencia ?? form.labels?.banco}
+                valueId={form.bancoId}
+                valueLabel={form.labels?.banco ?? form.bancoPreferencia ?? undefined}
                 loadOnMount
                 autoMatchLabel
                 onSelect={(it) => {
-                  setField('bancoPreferencia', it?.label ?? form.bancoPreferencia ?? null);
-                  setLabel('banco', it?.label ?? form.labels?.banco);
+                  setForm((prev) => ({
+                    ...prev,
+                    bancoId: it?.id ?? null,
+                    bancoPreferencia: it?.label ?? null,
+                    labels: {
+                      ...prev.labels,
+                      banco: it?.label ?? undefined,
+                    },
+                  }));
                 }}
               />
               <div className="sm:col-span-2">
