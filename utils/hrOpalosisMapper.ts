@@ -462,6 +462,13 @@ export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOu
       monthlySalary: resource.monthlySalary,
       personnelStatus: resource.personnelStatus,
       externalId: resource.externalId,
+      jornadaType: resource.jornadaType,
+      laborRegime: resource.laborRegime,
+      mobilityBonus: resource.mobilityBonus,
+      familyAllowance: resource.familyAllowance,
+      workDays: resource.workDays,
+      entryTime: resource.entryTime,
+      exitTime: resource.exitTime,
     },
     ats: {
       sourceApp:
@@ -475,7 +482,28 @@ export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOu
       handoffItemId: handoffItem?.id ?? resource.inboundSourceData?.handoffItemId,
       workerName: handoffItem?.workerName ?? resource.name,
       identity: ats?.identity,
-      fields: ats?.fields,
+      fields: {
+        ...(ats?.fields ?? {}),
+        // Intake OpsFlow de la presentación (si existe) como campos ATS auxiliares
+        ...(handoffItem?.opsflowIntake?.monthlySalary != null
+          ? { agreedSalary: handoffItem.opsflowIntake.monthlySalary }
+          : {}),
+        ...(handoffItem?.opsflowIntake?.shift
+          ? { shift: handoffItem.opsflowIntake.shift }
+          : {}),
+        ...(handoffItem?.opsflowIntake?.jornadaType
+          ? { jornadaType: handoffItem.opsflowIntake.jornadaType }
+          : {}),
+        ...(handoffItem?.opsflowIntake?.laborRegime
+          ? { laborRegime: handoffItem.opsflowIntake.laborRegime }
+          : {}),
+        ...(handoffItem?.opsflowIntake?.mobilityBonus != null
+          ? { mobilityBonus: handoffItem.opsflowIntake.mobilityBonus }
+          : {}),
+        ...(handoffItem?.opsflowIntake?.familyAllowance != null
+          ? { familyAllowance: handoffItem.opsflowIntake.familyAllowance }
+          : {}),
+      },
       meta: ats?.meta,
     },
   };
@@ -616,11 +644,53 @@ export function mapSnapshotToHrFields(
     null;
 
   const sueldo =
-    pickNumber(snapshot.opsflow.monthlySalary, fields.agreedSalary, fields.sueldo, fields.salary) ??
-    null;
+    pickNumber(
+      snapshot.opsflow.monthlySalary,
+      fields.agreedSalary,
+      fields.sueldo,
+      fields.salary,
+      fields.monthlySalary,
+    ) ?? null;
 
-  const cargoLabel = pickString(snapshot.opsflow.puesto, fields.processTitle, fields.cargo);
-  const turno = pickString(snapshot.opsflow.assignedShift, fields.turno, fields.shift) || null;
+  const cargoLabel = pickString(
+    snapshot.opsflow.puesto,
+    fields.processTitle,
+    fields.cargo,
+    fields.puesto,
+    fields.jobTitle,
+  );
+  const turno =
+    pickString(snapshot.opsflow.assignedShift, fields.turno, fields.shift) || null;
+
+  const movilidad =
+    pickNumber(
+      snapshot.opsflow.mobilityBonus,
+      fields.movilidad,
+      fields.mobilityBonus,
+      fields.bonoMovilidad,
+    ) ?? 0;
+
+  const familyAllowance =
+    snapshot.opsflow.familyAllowance === true ||
+    fields.tieneAsignacionFamiliar === true ||
+    fields.asignacionFamiliar === true ||
+    fields.familyAllowance === true;
+
+  const jornadaLaboral =
+    nullIfEmpty(
+      pickString(
+        snapshot.opsflow.jornadaType,
+        fields.jornadaLaboral,
+        fields.jornada,
+        fields.jornadaType,
+      ),
+    ) ?? '8 Horas';
+
+  const regimenLabel = pickString(
+    snapshot.opsflow.laborRegime,
+    fields.regimenLaboral,
+    fields.laborRegime,
+  );
 
   return {
     tipoDocumentoId: 1,
@@ -638,7 +708,7 @@ export function mapSnapshotToHrFields(
       pickString(snapshot.opsflow.phone, identity.phone, identity.phone2, fields.phone),
     ),
     correoPersonal: nullIfEmpty(pickString(identity.email, fields.email, fields.correo)),
-    tieneAsignacionFamiliar: false,
+    tieneAsignacionFamiliar: familyAllowance,
     tieneHijos: false,
     empleadoCargoId: pickNumber(fields.empleadoCargoId) ?? null,
     lugarTrabajoId: options?.opalosisUnidadId ?? pickNumber(fields.lugarTrabajoId) ?? null,
@@ -646,10 +716,10 @@ export function mapSnapshotToHrFields(
     modeloContratoId: pickNumber(fields.modeloContratoId) ?? null,
     regimenLaboralId: pickNumber(fields.regimenLaboralId) ?? null,
     mesesContrato: pickNumber(fields.mesesContrato) ?? null,
-    jornadaLaboral: nullIfEmpty(pickString(fields.jornadaLaboral)) ?? '8 Horas',
+    jornadaLaboral,
     turno,
     sueldo,
-    movilidad: pickNumber(fields.movilidad) ?? 0,
+    movilidad,
     sistemaPension: nullIfEmpty(pickString(fields.sistemaPension, fields.fondoPension)),
     bancoPreferencia: nullIfEmpty(pickString(fields.bancoPreferencia, fields.bancoId)),
     numeroCuentaTrabajador: nullIfEmpty(pickString(fields.numeroCuenta, fields.bankAccount)),
@@ -664,6 +734,7 @@ export function mapSnapshotToHrFields(
       tipoDocumento: 'Documento (selección Opalosis; el valor origen puede ser DNI/CE/pasaporte)',
       empleadoCargo: cargoLabel || undefined,
       lugarTrabajo: snapshot.opsflow.unitName || undefined,
+      regimenLaboral: regimenLabel || undefined,
       opalo: undefined,
     },
   };
@@ -731,42 +802,108 @@ export function mapHrFieldsToRegistroIngresoPayload(
 
 export function listHrFieldWarnings(fields: HrOpalosisIngresoFields): string[] {
   const warnings: string[] = [];
-  if (!fields.documento) warnings.push('Sin documento');
-  if (!fields.apellidoPaterno) warnings.push('Sin apellido paterno');
-  if (!fields.apellidoMaterno) warnings.push('Sin apellido materno');
-  if (!fields.nombres) warnings.push('Sin nombres');
+  if (!fields.apellidoMaterno?.trim()) warnings.push('Sin apellido materno');
   if (!fields.fechaIngreso) warnings.push('Sin fecha de ingreso');
-  if (!fields.empleadoCargoId) warnings.push('Sin cargo Opalosis (EmpleadoCargoId)');
-  if (!fields.lugarTrabajoId) warnings.push('Sin lugar de trabajo (LugarTrabajoId)');
+  if (!fields.empleadoCargoId) {
+    warnings.push(
+      fields.labels?.empleadoCargo
+        ? `Cargo OpsFlow «${fields.labels.empleadoCargo}» sin ID Opalosis (RRHH puede tipificar)`
+        : 'Sin cargo Opalosis (EmpleadoCargoId)',
+    );
+  }
+  if (!fields.lugarTrabajoId) {
+    warnings.push(
+      fields.labels?.lugarTrabajo
+        ? `Unidad OpsFlow «${fields.labels.lugarTrabajo}» sin LugarTrabajoId (mapear unidad o tipificar en RRHH)`
+        : 'Sin lugar de trabajo (LugarTrabajoId)',
+    );
+  }
   if (fields.sueldo === null || fields.sueldo === undefined || fields.sueldo <= 0) {
-    warnings.push('Sueldo obligatorio (> 0)');
+    warnings.push('Sin sueldo (> 0) — se envía null para que RRHH complete');
   }
   if (fields.movilidad === null || fields.movilidad === undefined) {
-    warnings.push('Movilidad debe enviarse (puede ser 0)');
+    warnings.push('Movilidad no definida (se enviará 0)');
   }
   if (!fields.urlDocumentoAdjunto) {
-    warnings.push('Sin UrlDocumentoAdjunto (carpeta SharePoint)');
+    warnings.push('Sin UrlDocumentoAdjunto (opcional; RRHH puede adjuntar después)');
   }
   if (!fields.correoPersonal) warnings.push('Sin correo personal');
   if (!fields.fechaNacimiento) warnings.push('Sin fecha de nacimiento');
   return warnings;
 }
 
+/**
+ * Bloquea envío solo si falta identidad mínima.
+ * Cargo/lugar/sueldo/URL son catálogos Opalosis: van como advertencia y en el inventario;
+ * RRHH tipifica en OpaloSis. No hay match 1:1 obligatorio previo al POST.
+ */
 export function listHrFieldBlockers(fields: HrOpalosisIngresoFields): string[] {
   const blockers: string[] = [];
   if (!fields.documento?.trim()) blockers.push('Documento');
-  if (!fields.apellidoPaterno?.trim()) blockers.push('Apellido paterno');
-  if (!fields.apellidoMaterno?.trim()) blockers.push('Apellido materno');
-  if (!fields.nombres?.trim()) blockers.push('Nombres');
-  if (!fields.fechaIngreso) blockers.push('Fecha de ingreso');
-  if (!fields.empleadoCargoId) blockers.push('Cargo');
-  if (!fields.lugarTrabajoId) blockers.push('Lugar de trabajo');
-  if (fields.sueldo === null || fields.sueldo === undefined || Number(fields.sueldo) <= 0) {
-    blockers.push('Sueldo');
-  }
-  if (fields.movilidad === null || fields.movilidad === undefined) blockers.push('Movilidad');
-  if (!fields.urlDocumentoAdjunto?.trim()) blockers.push('URL documentos (SharePoint)');
+  const hasName =
+    Boolean(fields.nombres?.trim()) ||
+    Boolean(fields.apellidoPaterno?.trim()) ||
+    Boolean(fields.apellidoMaterno?.trim());
+  if (!hasName) blockers.push('Nombre (nombres o apellidos)');
   return blockers;
+}
+
+/** Rellena huecos de hr_fields con lo ya conocido en el snapshot OpsFlow/ATS. */
+export function mergeHrFieldsWithSnapshot(
+  existing: HrOpalosisIngresoFields | null | undefined,
+  snapshot: HrOutboundWorkerSnapshot,
+  refOperaciones: string,
+  options?: {
+    opalosisUnidadId?: number | null;
+    empresaCodigo?: number | null;
+    usuarioOf?: string | null;
+  },
+): HrOpalosisIngresoFields {
+  const mapped = mapSnapshotToHrFields(snapshot, refOperaciones, options);
+  if (!existing) return mapped;
+
+  const pickFilledString = (a?: string | null, b?: string | null) => {
+    const av = a?.trim();
+    if (av) return a as string;
+    return b ?? '';
+  };
+  const pickFilledNum = (a?: number | null, b?: number | null) =>
+    a !== null && a !== undefined ? a : (b ?? null);
+
+  return {
+    ...mapped,
+    ...existing,
+    documento: pickFilledString(existing.documento, mapped.documento),
+    apellidoPaterno: pickFilledString(existing.apellidoPaterno, mapped.apellidoPaterno),
+    apellidoMaterno: pickFilledString(existing.apellidoMaterno, mapped.apellidoMaterno),
+    nombres: pickFilledString(existing.nombres, mapped.nombres),
+    sexo: pickFilledString(existing.sexo, mapped.sexo) || 'M',
+    fechaIngreso: pickFilledString(existing.fechaIngreso, mapped.fechaIngreso),
+    fechaNacimiento: existing.fechaNacimiento || mapped.fechaNacimiento,
+    direccion: existing.direccion || mapped.direccion,
+    telefono: existing.telefono || mapped.telefono,
+    correoPersonal: existing.correoPersonal || mapped.correoPersonal,
+    empleadoCargoId: pickFilledNum(existing.empleadoCargoId, mapped.empleadoCargoId),
+    lugarTrabajoId: pickFilledNum(existing.lugarTrabajoId, mapped.lugarTrabajoId),
+    sueldo: pickFilledNum(existing.sueldo, mapped.sueldo),
+    movilidad:
+      existing.movilidad !== null && existing.movilidad !== undefined
+        ? existing.movilidad
+        : mapped.movilidad,
+    jornadaLaboral: existing.jornadaLaboral || mapped.jornadaLaboral,
+    turno: existing.turno || mapped.turno,
+    urlDocumentoAdjunto: existing.urlDocumentoAdjunto || mapped.urlDocumentoAdjunto,
+    tieneAsignacionFamiliar:
+      existing.tieneAsignacionFamiliar || mapped.tieneAsignacionFamiliar,
+    labels: {
+      ...mapped.labels,
+      ...existing.labels,
+      empleadoCargo: existing.labels?.empleadoCargo || mapped.labels?.empleadoCargo,
+      lugarTrabajo: existing.labels?.lugarTrabajo || mapped.labels?.lugarTrabajo,
+      regimenLaboral: existing.labels?.regimenLaboral || mapped.labels?.regimenLaboral,
+    },
+    refOperaciones: existing.refOperaciones || mapped.refOperaciones || refOperaciones,
+  };
 }
 
 export { HR_SHAREPOINT_DOCS_LIBRARY_URL };

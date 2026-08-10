@@ -12,7 +12,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { hrOutboundIngresoService } from '../services/hrOutboundIngresoService';
-import { listHrFieldBlockers, listHrFieldWarnings } from '../utils/hrOpalosisMapper';
+import { listHrFieldBlockers, listHrFieldWarnings, mergeHrFieldsWithSnapshot } from '../utils/hrOpalosisMapper';
 import { toOpsflowDate } from '../utils/hrIntegration';
 import { HrOpalosisEditQueueItemModal } from './HrOpalosisEditQueueItemModal';
 import type {
@@ -156,12 +156,18 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     if (!canEdit || selectedIds.size === 0) return;
 
     const selected = queueItems.filter((i) => selectedIds.has(i.id));
-    const incomplete = selected.filter(
-      (i) => !i.hrFields || listHrFieldBlockers(i.hrFields).length > 0,
-    );
+    const incomplete = selected.filter((i) => {
+      const merged = i.hrFields
+        ? mergeHrFieldsWithSnapshot(i.hrFields, i.workerSnapshot, i.refOperaciones, {
+            opalosisUnidadId: i.hrFields.lugarTrabajoId ?? null,
+            empresaCodigo: i.hrFields.opaloId ?? null,
+          })
+        : mergeHrFieldsWithSnapshot(null, i.workerSnapshot, i.refOperaciones);
+      return listHrFieldBlockers(merged).length > 0;
+    });
     if (incomplete.length > 0) {
       setError(
-        `${incomplete.length} trabajador(es) tienen datos incompletos. Complete el formulario (cargo, lugar, sueldo, movilidad, URL SharePoint, etc.) antes de enviar.`,
+        `${incomplete.length} trabajador(es) sin documento o nombre. Completa al menos identidad mínima; cargo/lugar/sueldo Opalosis no son obligatorios para enviar (RRHH tipifica en OpaloSis).`,
       );
       return;
     }
@@ -171,6 +177,20 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     setSuccessMessage(null);
 
     try {
+      // Rehidratar huecos desde snapshot OpsFlow/ATS antes de enviar
+      for (const item of selected) {
+        const merged = mergeHrFieldsWithSnapshot(
+          item.hrFields,
+          item.workerSnapshot,
+          item.refOperaciones,
+          {
+            opalosisUnidadId: item.hrFields?.lugarTrabajoId ?? null,
+            empresaCodigo: item.hrFields?.opaloId ?? null,
+          },
+        );
+        await hrOutboundIngresoService.updateQueueItemHrFields(item.id, merged);
+      }
+
       const result = await hrOutboundIngresoService.sendPackage({
         queueItemIds: Array.from(selectedIds),
         reportDate: reportDate || todayIsoDate(),
@@ -729,13 +749,19 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                         </td>
                         <td className="px-4 py-3">
                           {blockers.length === 0 ? (
-                            <span className="text-xs text-green-600">Listo</span>
+                            <span
+                              className="text-xs text-green-600"
+                              title={warnings.length ? warnings.join(' · ') : undefined}
+                            >
+                              Listo para enviar
+                              {warnings.length > 0 ? ` (${warnings.length} tipificables)` : ''}
+                            </span>
                           ) : (
                             <span
                               className="text-xs text-amber-600"
                               title={[...blockers, ...warnings].join(', ')}
                             >
-                              {blockers.length} faltante(s)
+                              {blockers.length} obligatorio(s)
                             </span>
                           )}
                         </td>

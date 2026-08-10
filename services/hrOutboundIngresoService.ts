@@ -23,7 +23,7 @@ import type {
 import { ResourceType } from '../types';
 
 const SYNC_RESOURCE_SELECT =
-  'id, name, dni, unit_id, puesto, localidad, phone, birth_date, start_date, end_date, assigned_shift, monthly_salary, personnel_status, external_id, inbound_source_data, type';
+  'id, name, dni, unit_id, puesto, localidad, phone, birth_date, start_date, end_date, assigned_shift, monthly_salary, personnel_status, external_id, inbound_source_data, type, jornada_type, labor_regime, mobility_bonus, family_allowance, work_days, entry_time, exit_time';
 
 function lightResourceFromRow(data: Record<string, unknown>): Resource {
   const birth = typeof data.birth_date === 'string' ? data.birth_date.split('T')[0] : undefined;
@@ -50,6 +50,23 @@ function lightResourceFromRow(data: Record<string, unknown>): Resource {
     personnelStatus: (data.personnel_status as Resource['personnelStatus']) || undefined,
     externalId: (data.external_id as string) || undefined,
     inboundSourceData: (data.inbound_source_data as Resource['inboundSourceData']) ?? undefined,
+    jornadaType: (data.jornada_type as string) || undefined,
+    laborRegime: (data.labor_regime as string) || undefined,
+    mobilityBonus:
+      data.mobility_bonus !== null && data.mobility_bonus !== undefined
+        ? Number(data.mobility_bonus)
+        : undefined,
+    familyAllowance:
+      data.family_allowance === true
+        ? true
+        : data.family_allowance === false
+          ? false
+          : undefined,
+    workDays: Array.isArray(data.work_days)
+      ? (data.work_days as string[]).filter(Boolean)
+      : undefined,
+    entryTime: (data.entry_time as string) || undefined,
+    exitTime: (data.exit_time as string) || undefined,
     trainings: [],
     assignedAssets: [],
   };
@@ -65,6 +82,7 @@ function lightHandoffFromRow(data: Record<string, unknown>): InboundHandoffItem 
     sourceCandidateId: (data.source_candidate_id as string) || undefined,
     sourceProcessId: (data.source_process_id as string) || undefined,
     createdResourceId: (data.created_resource_id as string) || undefined,
+    opsflowIntake: (data.opsflow_intake as InboundHandoffItem['opsflowIntake']) ?? null,
     createdAt: '',
   };
 }
@@ -128,7 +146,7 @@ async function loadHandoffsByResourceIds(
     const { data, error } = await supabase
       .from('inbound_worker_handoff_items')
       .select(
-        'id, package_id, worker_name, worker_snapshot, source_candidate_id, source_process_id, created_resource_id',
+        'id, package_id, worker_name, worker_snapshot, source_candidate_id, source_process_id, created_resource_id, opsflow_intake',
       )
       .in('created_resource_id', chunk);
     if (error) {

@@ -1130,6 +1130,13 @@ export interface HrOutboundWorkerSnapshot {
     monthlySalary?: number;
     personnelStatus?: string;
     externalId?: string;
+    jornadaType?: string;
+    laborRegime?: string;
+    mobilityBonus?: number;
+    familyAllowance?: boolean;
+    workDays?: string[];
+    entryTime?: string;
+    exitTime?: string;
   };
   ats: {
     sourceApp: string;

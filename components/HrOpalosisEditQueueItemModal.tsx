@@ -6,6 +6,7 @@ import {
   buildWorkerFieldInventory,
   listHrFieldBlockers,
   listHrFieldWarnings,
+  mergeHrFieldsWithSnapshot,
 } from '../utils/hrOpalosisMapper';
 import type {
   HrOpalosisIngresoFields,
@@ -30,6 +31,7 @@ function CatalogSearch({
   provinciaId,
   minChars = 1,
   loadOnMount = false,
+  autoMatchLabel = false,
 }: {
   catalog: OpalosisCatalogName;
   label: string;
@@ -40,6 +42,8 @@ function CatalogSearch({
   provinciaId?: number | null;
   minChars?: number;
   loadOnMount?: boolean;
+  /** Si hay etiqueta OpsFlow y aún no hay ID, intenta emparejar con el catálogo. */
+  autoMatchLabel?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<OpalosisCatalogItem[]>([]);
@@ -47,6 +51,16 @@ function CatalogSearch({
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const matchedRef = useRef(false);
+
+  const normalize = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
   const load = async (buscar?: string) => {
     setLoading(true);
@@ -68,14 +82,33 @@ function CatalogSearch({
   };
 
   useEffect(() => {
-    if (loadOnMount) {
-      load();
+    if (loadOnMount || (autoMatchLabel && valueLabel && !valueId)) {
+      load(autoMatchLabel && valueLabel && !valueId ? valueLabel : undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, loadOnMount, departamentoId, provinciaId]);
+  }, [catalog, loadOnMount, departamentoId, provinciaId, autoMatchLabel, valueLabel, valueId]);
 
   useEffect(() => {
-    if (loadOnMount) return;
+    if (!autoMatchLabel || valueId || !valueLabel || matchedRef.current || items.length === 0) {
+      return;
+    }
+    const target = normalize(valueLabel);
+    if (!target) return;
+    const exact = items.find((it) => normalize(it.label) === target);
+    const partial = items.find(
+      (it) =>
+        normalize(it.label).includes(target) || target.includes(normalize(it.label)),
+    );
+    const hit = exact || partial;
+    if (hit) {
+      matchedRef.current = true;
+      onSelect(hit);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, autoMatchLabel, valueId, valueLabel]);
+
+  useEffect(() => {
+    if (loadOnMount || autoMatchLabel) return;
     if (timer.current) clearTimeout(timer.current);
     if (!query.trim() || query.trim().length < minChars) {
       setItems([]);
@@ -104,6 +137,10 @@ function CatalogSearch({
             Cambiar
           </button>
         </div>
+      ) : valueLabel ? (
+        <p className="mb-1 truncate text-xs text-slate-500" title={valueLabel}>
+          OpsFlow: {valueLabel} (sin ID Opalosis aún)
+        </p>
       ) : null}
       <div className="relative">
         <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
@@ -147,22 +184,17 @@ function CatalogSearch({
 }
 
 export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, onSaved }) => {
-  const [form, setForm] = useState<HrOpalosisIngresoFields>(() => {
-    const base = item.hrFields ?? {
-      tipoDocumentoId: 1,
-      documento: '',
-      apellidoPaterno: '',
-      apellidoMaterno: '',
-      nombres: '',
-      sexo: 'M',
-      fechaIngreso: new Date().toISOString().slice(0, 10),
-      movilidad: 0,
-      paisId: 173,
-      opaloId: 103,
-      refOperaciones: item.refOperaciones,
-    };
-    return { ...base, refOperaciones: base.refOperaciones ?? item.refOperaciones };
-  });
+  const [form, setForm] = useState<HrOpalosisIngresoFields>(() =>
+    mergeHrFieldsWithSnapshot(
+      item.hrFields,
+      item.workerSnapshot,
+      item.refOperaciones,
+      {
+        opalosisUnidadId: item.hrFields?.lugarTrabajoId ?? null,
+        empresaCodigo: item.hrFields?.opaloId ?? null,
+      },
+    ),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -218,8 +250,14 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
           )}
 
           {blockers.length > 0 && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <strong>Obligatorio para enviar:</strong> {blockers.join(', ')}
+            </div>
+          )}
+          {warnings.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              <strong>Campos recomendados faltantes:</strong> {blockers.join(', ')}
+              <strong>Opcional / tipificación Opalosis:</strong> {warnings.join(' · ')}. Se puede
+              enviar igual; los textos OpsFlow van en el inventario para que RRHH los asocie.
             </div>
           )}
 
@@ -299,7 +337,7 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Apellido materno *</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Apellido materno</label>
                 <input
                   value={form.apellidoMaterno}
                   onChange={(e) => setField('apellidoMaterno', e.target.value)}
@@ -428,7 +466,7 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
             <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Datos laborales</h4>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Fecha ingreso *</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Fecha ingreso</label>
                 <input
                   type="date"
                   value={form.fechaIngreso}
@@ -449,22 +487,24 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
               />
               <CatalogSearch
                 catalog="empleado-cargo"
-                label="Cargo *"
+                label="Cargo Opalosis (opcional)"
                 valueId={form.empleadoCargoId}
                 valueLabel={form.labels?.empleadoCargo}
+                autoMatchLabel
                 onSelect={(it) => {
                   setField('empleadoCargoId', it?.id ?? null);
-                  setLabel('empleadoCargo', it?.label);
+                  setLabel('empleadoCargo', it?.label ?? form.labels?.empleadoCargo);
                 }}
               />
               <CatalogSearch
                 catalog="lugar-trabajo"
-                label="Lugar de trabajo *"
+                label="Lugar de trabajo Opalosis (opcional)"
                 valueId={form.lugarTrabajoId}
                 valueLabel={form.labels?.lugarTrabajo}
+                autoMatchLabel
                 onSelect={(it) => {
                   setField('lugarTrabajoId', it?.id ?? null);
-                  setLabel('lugarTrabajo', it?.label);
+                  setLabel('lugarTrabajo', it?.label ?? form.labels?.lugarTrabajo);
                 }}
               />
               <CatalogSearch
@@ -484,9 +524,10 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 valueId={form.regimenLaboralId}
                 valueLabel={form.labels?.regimenLaboral}
                 loadOnMount
+                autoMatchLabel
                 onSelect={(it) => {
                   setField('regimenLaboralId', it?.id ?? null);
-                  setLabel('regimenLaboral', it?.label);
+                  setLabel('regimenLaboral', it?.label ?? form.labels?.regimenLaboral);
                 }}
               />
               <div>
@@ -542,7 +583,7 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
             <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pago</h4>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Sueldo *</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Sueldo</label>
                 <input
                   type="number"
                   step="0.01"
@@ -609,7 +650,9 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
               </a>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">UrlDocumentoAdjunto *</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  UrlDocumentoAdjunto (opcional)
+                </label>
               <input
                 value={form.urlDocumentoAdjunto ?? ''}
                 onChange={(e) => setField('urlDocumentoAdjunto', e.target.value || null)}
