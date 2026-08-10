@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw } from 'lucide-react';
+import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw, FileDown } from 'lucide-react';
 import { Unit, Resource, ResourceType, Client } from '../types';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
+import { downloadOpaloPersonnelFicha } from '../utils/generateOpaloPersonnelFichaPdf';
 import { SafeImage } from './SafeImage';
 
 interface WorkersManagementProps {
@@ -167,6 +168,13 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
       return <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">Activo</span>;
     }
     return <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">Sin estado</span>;
+  };
+
+  const handleDownloadFicha = (worker: WorkerWithUnit) => {
+    downloadOpaloPersonnelFicha(worker, {
+      unitName: worker.unitName,
+      clientName: worker.clientName,
+    });
   };
 
   return (
@@ -358,12 +366,24 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                       {getStatusBadge(worker)}
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => setSelectedWorker(worker)}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                      >
-                        Ver detalles
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedWorker(worker)}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          Ver detalles
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadFicha(worker)}
+                          className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 text-sm font-medium"
+                          title="Descargar Ficha de Personal Opalo"
+                        >
+                          <FileDown className="w-3.5 h-3.5" />
+                          Ficha PDF
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -377,14 +397,25 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
       {selectedWorker && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+            <div className="p-6 border-b border-slate-200 flex items-center justify-between gap-3">
               <h2 className="text-xl font-bold text-slate-900">Detalles del Trabajador</h2>
-              <button
-                onClick={() => setSelectedWorker(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadFicha(selectedWorker)}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                >
+                  <FileDown className="w-4 h-4" />
+                  Descargar Ficha Opalo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedWorker(null)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
