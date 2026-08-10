@@ -30,7 +30,7 @@ const MARGIN = 7;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
 /** Alturas base compactas (sin achicar tipografía). */
-const ROW_H_MIN = 5.8;
+const ROW_H_MIN = 7.2;
 const TABLE_H_MIN = 4.4;
 const TABLE_HEADER_H = 4;
 const SECTION_H = 4.2;
@@ -38,8 +38,20 @@ const SECTION_H = 4.2;
 const LABEL_FS = 5.5;
 const VALUE_FS = 7.2;
 const TABLE_VALUE_FS = 6.8;
-const LABEL_LH = 2.0;
-const VALUE_LH = 3.0;
+const PT_TO_MM = 25.4 / 72;
+const LINE_FACTOR = 1.15;
+
+function fontLineHeightMm(fontSizePt: number): number {
+  return fontSizePt * PT_TO_MM * LINE_FACTOR;
+}
+
+function fontAscentMm(fontSizePt: number): number {
+  return fontSizePt * PT_TO_MM * 0.8;
+}
+
+function fontDescentMm(fontSizePt: number): number {
+  return fontSizePt * PT_TO_MM * 0.25;
+}
 
 function text(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -301,13 +313,23 @@ class FichaPdfBuilder {
     const labelLines = this.doc.splitTextToSize(label.toUpperCase(), Math.max(4, w - 1.6)).slice(0, 2) as string[];
     this.doc.setFont('helvetica', 'normal');
     this.doc.setFontSize(VALUE_FS);
-    const valueLines = this.doc.splitTextToSize(value || ' ', Math.max(4, w - 1.6)) as string[];
-    const needed =
-      1.05 +
-      labelLines.length * LABEL_LH +
-      0.3 +
-      Math.max(1, valueLines.length) * VALUE_LH +
-      0.5;
+    const rawValue = text(value);
+    const valueLines = (
+      rawValue
+        ? (this.doc.splitTextToSize(rawValue, Math.max(4, w - 1.6)) as string[])
+        : ['']
+    ).slice(0, 3);
+
+    const labelLh = fontLineHeightMm(LABEL_FS);
+    const valueLh = fontLineHeightMm(VALUE_FS);
+    const topPad = 0.5;
+    const labelBlock =
+      fontAscentMm(LABEL_FS) + Math.max(0, labelLines.length - 1) * labelLh + fontDescentMm(LABEL_FS);
+    const gap = 0.7;
+    const valueBlock =
+      fontAscentMm(VALUE_FS) + Math.max(0, valueLines.length - 1) * valueLh + fontDescentMm(VALUE_FS);
+    const bottomPad = 0.55;
+    const needed = topPad + labelBlock + gap + valueBlock + bottomPad;
     return { h: Math.max(ROW_H_MIN, needed), labelLines, valueLines };
   }
 
@@ -322,16 +344,26 @@ class FichaPdfBuilder {
     this.doc.setDrawColor(120, 120, 120);
     this.doc.setLineWidth(0.12);
     this.doc.rect(x, y, w, h, 'S');
+
+    const labelLh = fontLineHeightMm(LABEL_FS);
+    const valueLh = fontLineHeightMm(VALUE_FS);
+    const topPad = 0.5;
+    const labelBaseline = y + topPad + fontAscentMm(LABEL_FS);
+    const labelBottom =
+      labelBaseline + Math.max(0, labelLines.length - 1) * labelLh + fontDescentMm(LABEL_FS);
+    const valueBaseline = labelBottom + 0.7 + fontAscentMm(VALUE_FS);
+
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(LABEL_FS);
     this.doc.setTextColor(70, 70, 70);
-    this.doc.text(labelLines, x + 0.8, y + 1.8);
+    this.doc.text(labelLines, x + 0.8, labelBaseline);
+
     this.doc.setFont('helvetica', 'normal');
     this.doc.setFontSize(VALUE_FS);
     this.doc.setTextColor(15, 15, 15);
-    const valueTop = y + 1.15 + labelLines.length * LABEL_LH + 0.45;
-    const maxLines = Math.max(1, Math.floor((y + h - valueTop - 0.4) / VALUE_LH));
-    this.doc.text(valueLines.slice(0, maxLines), x + 0.8, valueTop);
+    const available = y + h - valueBaseline - fontDescentMm(VALUE_FS) - 0.3;
+    const maxLines = Math.max(1, Math.floor(available / valueLh) + 1);
+    this.doc.text(valueLines.slice(0, maxLines), x + 0.8, valueBaseline);
   }
 
   row(cells: Cell[]) {
@@ -402,12 +434,12 @@ class FichaPdfBuilder {
 
   declaration() {
     // Espacio extra: jsPDF usa y como baseline, si queda pegado se superpone a la tabla
-    this.y += 4.5;
+    this.y += 5.5;
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(7);
     this.doc.setTextColor(20, 20, 20);
     this.doc.text('Declaración Jurada y Autorización', MARGIN, this.y);
-    this.y += 3.2;
+    this.y += 3.4;
 
     const boxSize = 3;
     const boxX = MARGIN;
