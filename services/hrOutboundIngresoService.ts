@@ -315,11 +315,9 @@ export const hrOutboundIngresoService = {
   },
 
   /**
-   * Encola pendientes de envío a Opalosis:
-   * 1) Todos los de Presentaciones ATS ya registrados en unidad (cualquier fecha).
-   * 2) Personal dado de alta directo en Unidades (sin ATS) aún no encolado.
-   *
-   * Usa lecturas ligeras (sin getById / trainings / assets) para no saturar la red.
+   * Encola pendientes reales de envío a Opalosis (no toda la nómina):
+   * 1) Presentaciones ATS registradas en unidad en los últimos 30 días.
+   * 2) Altas directas de personal creadas en los últimos 14 días (aún no encoladas).
    */
   async syncMissingFromAssignedPresentations(units: Unit[]): Promise<{
     enqueued: number;
@@ -329,11 +327,17 @@ export const hrOutboundIngresoService = {
     const candidates: Array<{ resourceId: string; workerName: string }> = [];
     const seenResources = new Set<string>();
 
-    // 1) Presentaciones ATS con recurso creado (registrados en unidad)
+    const presentationsSince = new Date();
+    presentationsSince.setDate(presentationsSince.getDate() - 30);
+    const personalSince = new Date();
+    personalSince.setDate(personalSince.getDate() - 14);
+
+    // 1) Presentaciones ATS recientes con recurso creado
     const { data: presentationRows, error: presentationError } = await supabase
       .from('inbound_worker_handoff_items')
       .select('id, worker_name, created_resource_id')
       .not('created_resource_id', 'is', null)
+      .gte('updated_at', presentationsSince.toISOString())
       .order('updated_at', { ascending: false })
       .limit(500);
 
@@ -353,15 +357,16 @@ export const hrOutboundIngresoService = {
       });
     }
 
-    // 2) Personal activo en unidad (incluye altas directas sin ATS)
+    // 2) Solo altas recientes en unidad (no la nómina histórica completa)
     const { data: personnelRows, error: personnelError } = await supabase
       .from('resources')
-      .select('id, name, unit_id, type, archived, personnel_status')
+      .select('id, name, unit_id, type, archived, personnel_status, created_at')
       .eq('type', 'Personal')
       .not('unit_id', 'is', null)
       .or('archived.is.null,archived.eq.false')
+      .gte('created_at', personalSince.toISOString())
       .order('created_at', { ascending: false })
-      .limit(1000);
+      .limit(500);
 
     if (personnelError) {
       throw new Error(
@@ -463,6 +468,21 @@ export const hrOutboundIngresoService = {
     }
 
     return { enqueued, skipped, errors };
+  },
+
+  /** Excluye todos los pendientes actuales (p. ej. limpieza tras sync masivo erróneo). */
+  async excludeAllPending(note?: string): Promise<number> {
+    const { data, error } = await supabase
+      .from('hr_outbound_ingreso_queue')
+      .update({
+        queue_status: 'excluido',
+        exclusion_note: note?.trim() || 'Limpieza cola masiva',
+      })
+      .eq('queue_status', 'pendiente_envio')
+      .select('id');
+
+    if (error) throw error;
+    return (data ?? []).length;
   },
 
   async updateQueueItemHrFields(

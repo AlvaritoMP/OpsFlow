@@ -225,6 +225,29 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     }
   };
 
+  const handleClearAllPending = async () => {
+    if (!canEdit || queueItems.length === 0) return;
+    const ok = window.confirm(
+      `¿Excluir los ${queueItems.length} trabajadores pendientes de la cola?\n\nÚsalo para limpiar el sync masivo (nómina histórica). Luego puedes pulsar «Sincronizar cola» para recuperar solo presentaciones recientes y altas nuevas.`,
+    );
+    if (!ok) return;
+    setSyncing(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const n = await hrOutboundIngresoService.excludeAllPending(
+        'Limpieza cola masiva (sync histórico)',
+      );
+      setSuccessMessage(`Se excluyeron ${n} pendiente(s) de la cola.`);
+      setSelectedIds(new Set());
+      await loadQueue();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al limpiar cola');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleExclude = async (itemId: string) => {
     if (!canEdit) return;
     const note = window.prompt('Motivo de exclusión (opcional):');
@@ -399,7 +422,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
           </div>
           <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Envío Opalosis</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Trabajadores registrados en unidad hoy (u otra fecha) pendientes de envío a RRHH.
+            Altas recientes (Presentaciones ATS o altas directas) pendientes de envío a RRHH.
             Completa datos y envía; no se mandan solos al registrar.
           </p>
         </div>
@@ -410,10 +433,21 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
               onClick={handleSyncMissing}
               disabled={syncing || loading}
               className="flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-              title="Encola Presentaciones ATS ya en unidad + altas directas en Unidades que aún no están en esta cola"
+              title="Encola presentaciones ATS (30 días) y altas directas (14 días) que aún no están en esta cola"
             >
               {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
               Sincronizar cola
+            </button>
+          )}
+          {canEdit && queueItems.length > 0 && tab === 'cola' && (
+            <button
+              type="button"
+              onClick={handleClearAllPending}
+              disabled={syncing || loading}
+              className="flex min-h-[40px] items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+              title="Excluye todos los pendientes (p. ej. limpieza tras sync de nómina histórica)"
+            >
+              Limpiar pendientes
             </button>
           )}
           <button
