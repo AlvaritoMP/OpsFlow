@@ -757,17 +757,36 @@ export function mapSnapshotToHrFields(
     fields.departamento,
     fields.department,
     fields.departamentoNombre,
+    fields.Departamento,
+    fields.Department,
   );
   const provinciaLabel = pickString(
     complementary.provincia,
     fields.provincia,
     fields.province,
+    fields.Provincia,
+    fields.Province,
   );
   const distritoLabel = pickString(
     complementary.distrito,
     fields.distrito,
     fields.district,
+    fields.Distrito,
+    fields.District,
   );
+
+  // Fallback: claves ATS con mayúsculas / variantes en fields
+  const fieldKeyPick = (re: RegExp) => {
+    for (const [k, v] of Object.entries(fields)) {
+      if (re.test(k) && v !== null && v !== undefined && String(v).trim()) {
+        return String(v).trim();
+      }
+    }
+    return '';
+  };
+  const departamentoFinal = departamentoLabel || fieldKeyPick(/departament/i);
+  const provinciaFinal = provinciaLabel || fieldKeyPick(/provinc/i);
+  const distritoFinal = distritoLabel || fieldKeyPick(/distrit|district/i);
   const bancoLabel = pickString(
     complementary.bancoSueldo,
     fields.bancoSueldo,
@@ -872,9 +891,9 @@ export function mapSnapshotToHrFields(
       empleadoCargo: cargoLabel || undefined,
       lugarTrabajo: snapshot.opsflow.unitName || complementary.unidadDestaque || undefined,
       regimenLaboral: regimenLabel || undefined,
-      departamento: departamentoLabel || undefined,
-      provincia: provinciaLabel || undefined,
-      distrito: distritoLabel || undefined,
+      departamento: departamentoFinal || undefined,
+      provincia: provinciaFinal || undefined,
+      distrito: distritoFinal || undefined,
       banco: bancoLabel || undefined,
       fondoPension: pensionLabel || undefined,
       estadoCivil: estadoCivilLabel || undefined,

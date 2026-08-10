@@ -87,6 +87,9 @@ function CatalogSearch({
   };
 
   useEffect(() => {
+    // Distritos suelen requerir provincia; provincias pueden buscarse solo por nombre
+    if (catalog === 'distritos' && !provinciaId && !valueLabel) return;
+
     if (loadOnMount || (autoMatchLabel && valueLabel && !valueId)) {
       load(autoMatchLabel && valueLabel && !valueId ? valueLabel : undefined);
     }
@@ -211,28 +214,45 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState(item.workerSnapshot);
 
+  // Siempre rehidratar complementary desde el snapshot encolado (aunque no haya handoff)
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const handoffId = item.inboundHandoffItemId;
-      if (!handoffId) return;
       try {
-        const { inboundWorkerHandoffService } = await import('../services/inboundWorkerHandoffService');
-        const handoff = await inboundWorkerHandoffService.getItemById(handoffId);
-        if (cancelled || !handoff) return;
+        const { hydrateComplementaryFromSnapshot } = await import('../utils/complementaryHydrate');
+        let complementary = hydrateComplementaryFromSnapshot(
+          {
+            identity: item.workerSnapshot.ats.identity,
+            fields: item.workerSnapshot.ats.fields,
+            complementary: item.workerSnapshot.ats.complementary,
+            meta: item.workerSnapshot.ats.meta,
+          },
+          item.workerSnapshot.ats.complementary ?? null,
+        );
+
+        const handoffId = item.inboundHandoffItemId;
+        if (handoffId) {
+          const { inboundWorkerHandoffService } = await import(
+            '../services/inboundWorkerHandoffService'
+          );
+          const handoff = await inboundWorkerHandoffService.getItemById(handoffId);
+          if (!cancelled && handoff) {
+            complementary = hydrateComplementaryFromSnapshot(
+              handoff.workerSnapshot ?? item.workerSnapshot,
+              handoff.complementary ?? complementary,
+            );
+          }
+        }
+
+        if (cancelled) return;
         const nextSnapshot = {
           ...item.workerSnapshot,
           ats: {
             ...item.workerSnapshot.ats,
-            complementary:
-              handoff.complementary ??
-              item.workerSnapshot.ats.complementary ??
-              handoff.workerSnapshot?.complementary,
+            complementary,
             fields: {
               ...(item.workerSnapshot.ats.fields ?? {}),
-              ...(handoff.workerSnapshot?.fields ?? {}),
             },
-            identity: handoff.workerSnapshot?.identity ?? item.workerSnapshot.ats.identity,
           },
         };
         setSnapshot(nextSnapshot);
@@ -243,13 +263,145 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
           }),
         );
       } catch {
-        // Si no se puede recargar handoff, se usa el snapshot ya encolado
+        // snapshot encolado
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [item]);
+
+  /** Resuelve IDs Opalosis de ubigeo en cascada a partir de etiquetas OpsFlow. */
+  useEffect(() => {
+    const depLabel = form.labels?.departamento?.trim();
+    const provLabel = form.labels?.provincia?.trim();
+    const distLabel = form.labels?.distrito?.trim();
+    if (!depLabel && !provLabel && !distLabel) return;
+    if (form.departamentoId && form.provinciaId && form.ubigeoId) return;
+
+    let cancelled = false;
+    const normalize = (s: string) =>
+      s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const findBest = (items: OpalosisCatalogItem[], label: string) => {
+      const target = normalize(label);
+      if (!target || items.length === 0) return null;
+      return (
+        items.find((it) => normalize(it.label) === target) ||
+        items.find(
+          (it) =>
+            normalize(it.label).includes(target) || target.includes(normalize(it.label)),
+        ) ||
+        null
+      );
+    };
+
+    (async () => {
+      try {
+        let depId = form.departamentoId ?? null;
+        let provId = form.provinciaId ?? null;
+        let distId = form.ubigeoId ?? null;
+        let depName = form.labels?.departamento;
+        let provName = form.labels?.provincia;
+        let distName = form.labels?.distrito;
+
+        if (depLabel && !depId) {
+          const { items } = await hrOutboundIngresoService.fetchCatalog({
+            catalog: 'departamentos',
+            buscar: depLabel,
+          });
+          const hit = findBest(items, depLabel);
+          if (hit) {
+            depId = hit.id;
+            depName = hit.label;
+          }
+        }
+
+        if (provLabel && !provId) {
+          const { items } = await hrOutboundIngresoService.fetchCatalog({
+            catalog: 'provincias',
+            buscar: provLabel,
+            departamentoId: depId ?? undefined,
+          });
+          const hit = findBest(items, provLabel);
+          if (hit) {
+            provId = hit.id;
+            provName = hit.label;
+            const rawDep = Number(
+              hit.raw?.DepartamentoId ?? hit.raw?.departamentoId ?? 0,
+            );
+            if (!depId && rawDep) {
+              depId = rawDep;
+              depName = depName || depLabel || undefined;
+            }
+          }
+        }
+
+        if (distLabel && !distId) {
+          const { items } = await hrOutboundIngresoService.fetchCatalog({
+            catalog: 'distritos',
+            buscar: distLabel,
+            departamentoId: depId ?? undefined,
+            provinciaId: provId ?? undefined,
+          });
+          const hit = findBest(items, distLabel);
+          if (hit) {
+            distId = hit.id;
+            distName = hit.label;
+            const rawDep = Number(
+              hit.raw?.DepartamentoId ?? hit.raw?.departamentoId ?? 0,
+            );
+            const rawProv = Number(
+              hit.raw?.ProvinciaId ?? hit.raw?.provinciaId ?? 0,
+            );
+            if (!depId && rawDep) depId = rawDep;
+            if (!provId && rawProv) provId = rawProv;
+          }
+        }
+
+        if (cancelled) return;
+        setForm((prev) => {
+          const same =
+            prev.departamentoId === depId &&
+            prev.provinciaId === provId &&
+            prev.ubigeoId === distId;
+          if (same) return prev;
+          return {
+            ...prev,
+            departamentoId: depId,
+            provinciaId: provId,
+            ubigeoId: distId,
+            labels: {
+              ...prev.labels,
+              departamento: depName || prev.labels?.departamento,
+              provincia: provName || prev.labels?.provincia,
+              distrito: distName || prev.labels?.distrito,
+            },
+          };
+        });
+      } catch {
+        // Catálogo no disponible: se dejan etiquetas OpsFlow sin ID
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    form.labels?.departamento,
+    form.labels?.provincia,
+    form.labels?.distrito,
+    form.departamentoId,
+    form.provinciaId,
+    form.ubigeoId,
+  ]);
 
   const blockers = useMemo(() => listHrFieldBlockers(form), [form]);
   const warnings = useMemo(() => listHrFieldWarnings(form), [form]);
@@ -482,12 +634,17 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 valueLabel={form.labels?.departamento}
                 autoMatchLabel
                 onSelect={(it) => {
-                  setField('departamentoId', it?.id ?? null);
-                  setField('provinciaId', null);
-                  setField('ubigeoId', null);
-                  setLabel('departamento', it?.label ?? form.labels?.departamento);
-                  setLabel('provincia', undefined);
-                  setLabel('distrito', undefined);
+                  setForm((prev) => ({
+                    ...prev,
+                    departamentoId: it?.id ?? null,
+                    // Solo limpiar IDs hijos; conservar etiquetas OpsFlow para cascada
+                    provinciaId: null,
+                    ubigeoId: null,
+                    labels: {
+                      ...prev.labels,
+                      departamento: it?.label ?? prev.labels?.departamento,
+                    },
+                  }));
                 }}
               />
               <CatalogSearch
@@ -498,10 +655,15 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 departamentoId={form.departamentoId}
                 autoMatchLabel
                 onSelect={(it) => {
-                  setField('provinciaId', it?.id ?? null);
-                  setField('ubigeoId', null);
-                  setLabel('provincia', it?.label ?? form.labels?.provincia);
-                  setLabel('distrito', undefined);
+                  setForm((prev) => ({
+                    ...prev,
+                    provinciaId: it?.id ?? null,
+                    ubigeoId: null,
+                    labels: {
+                      ...prev.labels,
+                      provincia: it?.label ?? prev.labels?.provincia,
+                    },
+                  }));
                 }}
               />
               <CatalogSearch
@@ -513,8 +675,14 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 provinciaId={form.provinciaId}
                 autoMatchLabel
                 onSelect={(it) => {
-                  setField('ubigeoId', it?.id ?? null);
-                  setLabel('distrito', it?.label ?? form.labels?.distrito);
+                  setForm((prev) => ({
+                    ...prev,
+                    ubigeoId: it?.id ?? null,
+                    labels: {
+                      ...prev.labels,
+                      distrito: it?.label ?? prev.labels?.distrito,
+                    },
+                  }));
                 }}
               />
             </div>

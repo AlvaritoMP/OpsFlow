@@ -79,9 +79,16 @@ export function hydrateComplementaryFromSnapshot(
   fill('email', identity.email, fields.email);
   fill('telefono', identity.phone, identity.phone2, fields.phone, fields.telefono);
   fill('direccion', fields.direccion, fields.address);
-  fill('distrito', fields.distrito, fields.district);
-  fill('provincia', fields.provincia, fields.province);
-  fill('departamento', fields.departamento, fields.department, fields.departamentoNombre);
+  fill('distrito', fields.distrito, fields.district, fields.Distrito, fields.District);
+  fill('provincia', fields.provincia, fields.province, fields.Provincia, fields.Province);
+  fill(
+    'departamento',
+    fields.departamento,
+    fields.department,
+    fields.departamentoNombre,
+    fields.Departamento,
+    fields.Department,
+  );
   fill('puestoContrato', fields.puestoContrato, fields.processTitle);
   fill('unidadDestaque', fields.unidadDestaque, fields.unidad);
   fill('bancoSueldo', fields.bancoSueldo, fields.banco);
