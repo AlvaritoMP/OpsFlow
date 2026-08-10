@@ -1,54 +1,32 @@
 /**
- * Conversión de fechas entre OpsFlow (dd-MM-yyyy en UI) y Opalosis (yyyy-MM-dd en JSON API).
+ * Conversión de fechas entre OpsFlow (dd/mm/yyyy en UI) y Opalosis (yyyy-MM-dd en JSON API).
+ * Acepta también el histórico dd-MM-yyyy.
  */
 
-const OPSFLOW_DATE_RE = /^(\d{2})-(\d{2})-(\d{4})$/;
-const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+import { formatDateDisplay, parseDateInput } from './dateFormat';
 
-/** Convierte dd-MM-yyyy o yyyy-MM-dd → yyyy-MM-dd para la API de Opalosis. */
+/** Convierte dd/mm/yyyy | dd-MM-yyyy | yyyy-MM-dd → yyyy-MM-dd para la API de Opalosis. */
 export function toOpalosisDate(value: string): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-
-  const isoMatch = trimmed.match(ISO_DATE_RE);
-  if (isoMatch) return trimmed;
-
-  const opsMatch = trimmed.match(OPSFLOW_DATE_RE);
-  if (opsMatch) {
-    const [, dd, mm, yyyy] = opsMatch;
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  return null;
+  const parsed = parseDateInput(value);
+  if (!parsed) return null;
+  return parsed;
 }
 
-/** Convierte yyyy-MM-dd → dd-MM-yyyy para mostrar en OpsFlow. */
+/** Convierte yyyy-MM-dd → dd/mm/yyyy para mostrar en OpsFlow. */
 export function toOpsflowDate(value: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return '';
-
-  const isoMatch = trimmed.match(ISO_DATE_RE);
-  if (isoMatch) {
-    const [, yyyy, mm, dd] = isoMatch;
-    return `${dd}-${mm}-${yyyy}`;
-  }
-
-  const opsMatch = trimmed.match(OPSFLOW_DATE_RE);
-  if (opsMatch) return trimmed;
-
-  return trimmed;
+  return formatDateDisplay(value) || value?.trim() || '';
 }
 
-/** Fecha de hoy en formato dd-MM-yyyy (OpsFlow UI). */
+/** Fecha de hoy en formato dd/mm/yyyy (OpsFlow UI). */
 export function todayOpsflowDate(): string {
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, '0');
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const yyyy = now.getFullYear();
-  return `${dd}-${mm}-${yyyy}`;
+  return `${dd}/${mm}/${yyyy}`;
 }
 
-/** Valida que una fecha OpsFlow (dd-MM-yyyy) sea válida. */
+/** Valida que una fecha OpsFlow (dd/mm/yyyy o dd-MM-yyyy) sea válida. */
 export function isValidOpsflowDate(value: string): boolean {
   const iso = toOpalosisDate(value);
   if (!iso) return false;

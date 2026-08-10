@@ -1147,6 +1147,7 @@ export interface HrOutboundWorkerSnapshot {
     workerName: string;
     identity?: WorkerSnapshotIdentity;
     fields?: Record<string, string | number | boolean | null>;
+    complementary?: WorkerSnapshotComplementary;
     meta?: WorkerSnapshotMeta;
   };
 }

@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { hrOutboundIngresoService } from '../services/hrOutboundIngresoService';
 import { listHrFieldBlockers, listHrFieldWarnings, mergeHrFieldsWithSnapshot } from '../utils/hrOpalosisMapper';
-import { toOpsflowDate } from '../utils/hrIntegration';
+import { formatDateDisplay } from '../utils/dateFormat';
+import { DateInput } from './DateInput';
 import { HrOpalosisEditQueueItemModal } from './HrOpalosisEditQueueItemModal';
 import type {
   HrOutboundIngresoPackage,
@@ -74,7 +75,7 @@ function formatDateTime(value?: string): string {
 }
 
 function formatReportDate(iso: string): string {
-  return toOpsflowDate(iso);
+  return formatDateDisplay(iso);
 }
 
 export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
@@ -614,10 +615,9 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                 Fecha del reporte
               </label>
               <div className="flex items-center gap-2">
-                <input
-                  type="date"
+                <DateInput
                   value={reportDate}
-                  onChange={(e) => setReportDate(e.target.value)}
+                  onChange={(iso) => setReportDate(iso)}
                   className="rounded-lg border border-slate-300 p-2 text-sm"
                 />
                 {reportDate && (

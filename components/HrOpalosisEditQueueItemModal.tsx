@@ -8,6 +8,7 @@ import {
   listHrFieldWarnings,
   mergeHrFieldsWithSnapshot,
 } from '../utils/hrOpalosisMapper';
+import { DateInput } from './DateInput';
 import type {
   HrOpalosisIngresoFields,
   HrOutboundIngresoQueueItem,
@@ -52,6 +53,10 @@ function CatalogSearch({
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const matchedRef = useRef(false);
+
+  useEffect(() => {
+    matchedRef.current = false;
+  }, [valueLabel, departamentoId, provinciaId, catalog]);
 
   const normalize = (s: string) =>
     s
@@ -138,9 +143,16 @@ function CatalogSearch({
           </button>
         </div>
       ) : valueLabel ? (
-        <p className="mb-1 truncate text-xs text-slate-500" title={valueLabel}>
-          OpsFlow: {valueLabel} (sin ID Opalosis aún)
-        </p>
+        <div className="mb-1 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+          <span className="truncate text-emerald-900">{valueLabel}</span>
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className="ml-2 text-xs text-emerald-700 hover:text-emerald-900"
+          >
+            Cambiar
+          </button>
+        </div>
       ) : null}
       <div className="relative">
         <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
@@ -197,12 +209,53 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState(item.workerSnapshot);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const handoffId = item.inboundHandoffItemId;
+      if (!handoffId) return;
+      try {
+        const { inboundWorkerHandoffService } = await import('../services/inboundWorkerHandoffService');
+        const handoff = await inboundWorkerHandoffService.getItemById(handoffId);
+        if (cancelled || !handoff) return;
+        const nextSnapshot = {
+          ...item.workerSnapshot,
+          ats: {
+            ...item.workerSnapshot.ats,
+            complementary:
+              handoff.complementary ??
+              item.workerSnapshot.ats.complementary ??
+              handoff.workerSnapshot?.complementary,
+            fields: {
+              ...(item.workerSnapshot.ats.fields ?? {}),
+              ...(handoff.workerSnapshot?.fields ?? {}),
+            },
+            identity: handoff.workerSnapshot?.identity ?? item.workerSnapshot.ats.identity,
+          },
+        };
+        setSnapshot(nextSnapshot);
+        setForm(
+          mergeHrFieldsWithSnapshot(item.hrFields, nextSnapshot, item.refOperaciones, {
+            opalosisUnidadId: item.hrFields?.lugarTrabajoId ?? null,
+            empresaCodigo: item.hrFields?.opaloId ?? null,
+          }),
+        );
+      } catch {
+        // Si no se puede recargar handoff, se usa el snapshot ya encolado
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item]);
 
   const blockers = useMemo(() => listHrFieldBlockers(form), [form]);
   const warnings = useMemo(() => listHrFieldWarnings(form), [form]);
   const fieldInventory = useMemo(
-    () => buildWorkerFieldInventory(item.workerSnapshot, form),
-    [item.workerSnapshot, form],
+    () => buildWorkerFieldInventory(snapshot, form),
+    [snapshot, form],
   );
 
   const setField = <K extends keyof HrOpalosisIngresoFields>(key: K, value: HrOpalosisIngresoFields[K]) => {
@@ -364,11 +417,12 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Fecha nacimiento</label>
-                <input
-                  type="date"
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Fecha nacimiento (dd/mm/yyyy)
+                </label>
+                <DateInput
                   value={form.fechaNacimiento ?? ''}
-                  onChange={(e) => setField('fechaNacimiento', e.target.value || null)}
+                  onChange={(iso) => setField('fechaNacimiento', iso || null)}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
               </div>
@@ -378,9 +432,10 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 valueId={form.estadoCivilId}
                 valueLabel={form.labels?.estadoCivil}
                 loadOnMount
+                autoMatchLabel
                 onSelect={(it) => {
                   setField('estadoCivilId', it?.id ?? null);
-                  setLabel('estadoCivil', it?.label);
+                  setLabel('estadoCivil', it?.label ?? form.labels?.estadoCivil);
                 }}
               />
               <div>
@@ -425,11 +480,12 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 label="Departamento"
                 valueId={form.departamentoId}
                 valueLabel={form.labels?.departamento}
+                autoMatchLabel
                 onSelect={(it) => {
                   setField('departamentoId', it?.id ?? null);
                   setField('provinciaId', null);
                   setField('ubigeoId', null);
-                  setLabel('departamento', it?.label);
+                  setLabel('departamento', it?.label ?? form.labels?.departamento);
                   setLabel('provincia', undefined);
                   setLabel('distrito', undefined);
                 }}
@@ -440,10 +496,11 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 valueId={form.provinciaId}
                 valueLabel={form.labels?.provincia}
                 departamentoId={form.departamentoId}
+                autoMatchLabel
                 onSelect={(it) => {
                   setField('provinciaId', it?.id ?? null);
                   setField('ubigeoId', null);
-                  setLabel('provincia', it?.label);
+                  setLabel('provincia', it?.label ?? form.labels?.provincia);
                   setLabel('distrito', undefined);
                 }}
               />
@@ -454,9 +511,10 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 valueLabel={form.labels?.distrito}
                 departamentoId={form.departamentoId}
                 provinciaId={form.provinciaId}
+                autoMatchLabel
                 onSelect={(it) => {
                   setField('ubigeoId', it?.id ?? null);
-                  setLabel('distrito', it?.label);
+                  setLabel('distrito', it?.label ?? form.labels?.distrito);
                 }}
               />
             </div>
@@ -466,11 +524,12 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
             <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Datos laborales</h4>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Fecha ingreso</label>
-                <input
-                  type="date"
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Fecha ingreso (dd/mm/yyyy)
+                </label>
+                <DateInput
                   value={form.fechaIngreso}
-                  onChange={(e) => setField('fechaIngreso', e.target.value)}
+                  onChange={(iso) => setField('fechaIngreso', iso || form.fechaIngreso)}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
               </div>
@@ -606,21 +665,24 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 catalog="fondo-pension"
                 label="Sistema pensión"
                 valueId={undefined}
-                valueLabel={form.sistemaPension ?? undefined}
+                valueLabel={form.sistemaPension ?? form.labels?.fondoPension}
                 loadOnMount
+                autoMatchLabel
                 onSelect={(it) => {
-                  setField('sistemaPension', it?.label ?? null);
-                  setLabel('fondoPension', it?.label);
+                  setField('sistemaPension', it?.label ?? form.sistemaPension ?? null);
+                  setLabel('fondoPension', it?.label ?? form.labels?.fondoPension);
                 }}
               />
               <CatalogSearch
                 catalog="banco"
-                label="Banco preferencia"
-                valueId={form.bancoPreferencia ? Number(form.bancoPreferencia) : null}
-                valueLabel={form.labels?.banco}
+                label="Banco preferencia (banco sueldo)"
+                valueId={undefined}
+                valueLabel={form.bancoPreferencia ?? form.labels?.banco}
+                loadOnMount
+                autoMatchLabel
                 onSelect={(it) => {
-                  setField('bancoPreferencia', it ? String(it.id) : null);
-                  setLabel('banco', it?.label);
+                  setField('bancoPreferencia', it?.label ?? form.bancoPreferencia ?? null);
+                  setLabel('banco', it?.label ?? form.labels?.banco);
                 }}
               />
               <div className="sm:col-span-2">

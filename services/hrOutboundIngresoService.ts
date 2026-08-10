@@ -83,6 +83,7 @@ function lightHandoffFromRow(data: Record<string, unknown>): InboundHandoffItem 
     sourceProcessId: (data.source_process_id as string) || undefined,
     createdResourceId: (data.created_resource_id as string) || undefined,
     opsflowIntake: (data.opsflow_intake as InboundHandoffItem['opsflowIntake']) ?? null,
+    complementary: (data.complementary as InboundHandoffItem['complementary']) ?? null,
     createdAt: '',
   };
 }
@@ -146,7 +147,7 @@ async function loadHandoffsByResourceIds(
     const { data, error } = await supabase
       .from('inbound_worker_handoff_items')
       .select(
-        'id, package_id, worker_name, worker_snapshot, source_candidate_id, source_process_id, created_resource_id, opsflow_intake',
+        'id, package_id, worker_name, worker_snapshot, source_candidate_id, source_process_id, created_resource_id, opsflow_intake, complementary',
       )
       .in('created_resource_id', chunk);
     if (error) {

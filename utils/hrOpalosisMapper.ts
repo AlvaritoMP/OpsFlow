@@ -5,6 +5,7 @@ import type {
   InboundHandoffItem,
   Resource,
   Unit,
+  WorkerSnapshotComplementary,
 } from '../types';
 import {
   HR_DEFAULT_OPALO_ID,
@@ -19,6 +20,7 @@ import {
   hasStructuredNameParts,
 } from './handoffNameParts';
 import { HANDOFF_FIELD_LABELS } from './workerSnapshotMapper';
+import { hydrateComplementaryFromSnapshot } from './complementaryHydrate';
 
 const OPSFLOW_FIELD_LABELS: Record<string, string> = {
   name: 'Nombre',
@@ -156,6 +158,39 @@ export function buildWorkerFieldInventory(
     'sourceProcessId',
     snapshot.ats.sourceProcessId,
   );
+
+  const complementary = snapshot.ats.complementary;
+  if (complementary) {
+    const compLabels: Record<string, string> = {
+      departamento: 'Departamento',
+      provincia: 'Provincia',
+      distrito: 'Distrito',
+      bancoSueldo: 'Banco sueldo',
+      bancoCts: 'Banco CTS',
+      sistemaPensionesDeseado: 'Sistema pensiones deseado',
+      sistemaPensionesAnterior: 'Sistema pensiones anterior',
+      tallaCamisa: 'Talla camisa',
+      tallaPantalon: 'Talla pantalón',
+      tallaCalzado: 'Talla calzado',
+      estadoCivil: 'Estado civil',
+      fechaNacimiento: 'Fecha de nacimiento',
+      direccion: 'Dirección',
+      puestoContrato: 'Puesto contrato',
+      unidadDestaque: 'Unidad destaque',
+    };
+    for (const [key, value] of Object.entries(complementary)) {
+      if (value === null || value === undefined) continue;
+      if (typeof value === 'object') continue;
+      pushInventoryItem(
+        items,
+        'ats',
+        `complementary.${key}`,
+        compLabels[key] || key,
+        value,
+        'Ficha complementaria ATS/OpsFlow',
+      );
+    }
+  }
 
   const ops = snapshot.opsflow;
   for (const key of Object.keys(OPSFLOW_FIELD_LABELS) as Array<keyof typeof ops>) {
@@ -441,6 +476,10 @@ export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOu
   const { resource, unit, handoffItem, sourcePackageId, sourceApp } = input;
   const ats =
     resource.inboundSourceData?.workerSnapshot ?? handoffItem?.workerSnapshot ?? undefined;
+  const complementary = hydrateComplementaryFromSnapshot(
+    ats,
+    handoffItem?.complementary ?? ats?.complementary ?? null,
+  );
 
   return {
     capturedAt: new Date().toISOString(),
@@ -484,7 +523,6 @@ export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOu
       identity: ats?.identity,
       fields: {
         ...(ats?.fields ?? {}),
-        // Intake OpsFlow de la presentación (si existe) como campos ATS auxiliares
         ...(handoffItem?.opsflowIntake?.monthlySalary != null
           ? { agreedSalary: handoffItem.opsflowIntake.monthlySalary }
           : {}),
@@ -504,6 +542,7 @@ export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOu
           ? { familyAllowance: handoffItem.opsflowIntake.familyAllowance }
           : {}),
       },
+      complementary,
       meta: ats?.meta,
     },
   };
@@ -615,32 +654,52 @@ export function mapSnapshotToHrFields(
 ): HrOpalosisIngresoFields {
   const identity = snapshot.ats.identity ?? {};
   const fields = snapshot.ats.fields ?? {};
+  const complementary: WorkerSnapshotComplementary =
+    snapshot.ats.complementary ??
+    hydrateComplementaryFromSnapshot(
+      {
+        identity: snapshot.ats.identity,
+        fields: snapshot.ats.fields,
+        meta: snapshot.ats.meta,
+      },
+      null,
+    );
 
   const structuredParts = extractHandoffNameParts(
-    { identity, fields, meta: snapshot.ats.meta },
+    { identity, fields, meta: snapshot.ats.meta, complementary },
     identity,
   );
   const splitParts = splitFullName(snapshot.opsflow.name || snapshot.ats.workerName || '');
   const apellido_paterno = hasStructuredNameParts(structuredParts)
-    ? structuredParts.apellidoPaterno || splitParts.apellido_paterno
-    : splitParts.apellido_paterno;
+    ? structuredParts.apellidoPaterno ||
+      pickString(complementary.apellidoPaterno) ||
+      splitParts.apellido_paterno
+    : pickString(complementary.apellidoPaterno) || splitParts.apellido_paterno;
   const apellido_materno = hasStructuredNameParts(structuredParts)
-    ? structuredParts.apellidoMaterno || splitParts.apellido_materno
-    : splitParts.apellido_materno;
+    ? structuredParts.apellidoMaterno ||
+      pickString(complementary.apellidoMaterno) ||
+      splitParts.apellido_materno
+    : pickString(complementary.apellidoMaterno) || splitParts.apellido_materno;
   const nombres = hasStructuredNameParts(structuredParts)
     ? structuredParts.nombres ||
+      pickString(complementary.nombres) ||
       splitParts.nombres ||
       pickString(identity.fullName, snapshot.opsflow.name)
-    : splitParts.nombres || pickString(identity.fullName, snapshot.opsflow.name);
+    : pickString(complementary.nombres) ||
+      splitParts.nombres ||
+      pickString(identity.fullName, snapshot.opsflow.name);
 
   const fechaIngreso =
     normalizeIsoDate(snapshot.opsflow.startDate) ??
     normalizeIsoDate(fields.hireDate as string | undefined) ??
+    normalizeIsoDate(fields.startDate as string | undefined) ??
     new Date().toISOString().slice(0, 10);
 
   const fechaNacimiento =
     normalizeIsoDate(snapshot.opsflow.birthDate) ??
+    normalizeIsoDate(complementary.fechaNacimiento) ??
     normalizeIsoDate(fields.birthDate as string | undefined) ??
+    normalizeIsoDate(fields.fechaNacimiento as string | undefined) ??
     null;
 
   const sueldo =
@@ -654,6 +713,7 @@ export function mapSnapshotToHrFields(
 
   const cargoLabel = pickString(
     snapshot.opsflow.puesto,
+    complementary.puestoContrato,
     fields.processTitle,
     fields.cargo,
     fields.puesto,
@@ -692,22 +752,91 @@ export function mapSnapshotToHrFields(
     fields.laborRegime,
   );
 
+  const departamentoLabel = pickString(
+    complementary.departamento,
+    fields.departamento,
+    fields.department,
+    fields.departamentoNombre,
+  );
+  const provinciaLabel = pickString(
+    complementary.provincia,
+    fields.provincia,
+    fields.province,
+  );
+  const distritoLabel = pickString(
+    complementary.distrito,
+    fields.distrito,
+    fields.district,
+  );
+  const bancoLabel = pickString(
+    complementary.bancoSueldo,
+    fields.bancoSueldo,
+    fields.banco,
+    fields.bancoPreferencia,
+  );
+  const pensionLabel = pickString(
+    complementary.sistemaPensionesDeseado,
+    complementary.sistemaPensionesAnterior,
+    fields.sistemaPension,
+    fields.fondoPension,
+    fields.sistemaPensionesDeseado,
+    fields.sistemaPensionesAnterior,
+  );
+  const estadoCivilLabel = pickString(
+    complementary.estadoCivil,
+    fields.estadoCivil,
+    fields.estado_civil,
+  );
+
+  const tallaPolo = pickString(
+    complementary.tallaCamisa,
+    fields.tallaCamisa,
+    fields.tallaPoloCamisa,
+    fields.tallaPolo,
+  );
+  const tallaPantalon = pickString(
+    complementary.tallaPantalon,
+    fields.tallaPantalon,
+  );
+  const tallaCasaca = pickString(fields.tallaCasaca, fields.tallaChaqueta);
+  const tallaZapatos =
+    pickNumber(complementary.tallaCalzado, fields.tallaCalzado, fields.tallaZapatos) ?? null;
+
+  const sexoRaw = pickString(complementary.sexo, fields.sexo, fields.gender) || 'M';
+
   return {
     tipoDocumentoId: 1,
-    documento: pickString(snapshot.opsflow.dni, identity.dni),
+    documento: pickString(
+      snapshot.opsflow.dni,
+      complementary.nroDocumento,
+      identity.dni,
+    ),
     apellidoPaterno: apellido_paterno,
     apellidoMaterno: apellido_materno,
     nombres: nombres,
-    sexo: (pickString(fields.sexo, fields.gender) || 'M').slice(0, 1).toUpperCase(),
+    sexo: sexoRaw.slice(0, 1).toUpperCase(),
     fechaIngreso,
     fechaNacimiento,
     direccion: nullIfEmpty(
-      pickString(fields.address, fields.direccion, snapshot.opsflow.localidad),
+      pickString(
+        complementary.direccion,
+        fields.address,
+        fields.direccion,
+        snapshot.opsflow.localidad,
+      ),
     ),
     telefono: nullIfEmpty(
-      pickString(snapshot.opsflow.phone, identity.phone, identity.phone2, fields.phone),
+      pickString(
+        complementary.telefono,
+        snapshot.opsflow.phone,
+        identity.phone,
+        identity.phone2,
+        fields.phone,
+      ),
     ),
-    correoPersonal: nullIfEmpty(pickString(identity.email, fields.email, fields.correo)),
+    correoPersonal: nullIfEmpty(
+      pickString(complementary.email, identity.email, fields.email, fields.correo),
+    ),
     tieneAsignacionFamiliar: familyAllowance,
     tieneHijos: false,
     empleadoCargoId: pickNumber(fields.empleadoCargoId) ?? null,
@@ -720,12 +849,20 @@ export function mapSnapshotToHrFields(
     turno,
     sueldo,
     movilidad,
-    sistemaPension: nullIfEmpty(pickString(fields.sistemaPension, fields.fondoPension)),
-    bancoPreferencia: nullIfEmpty(pickString(fields.bancoPreferencia, fields.bancoId)),
-    numeroCuentaTrabajador: nullIfEmpty(pickString(fields.numeroCuenta, fields.bankAccount)),
+    sistemaPension: nullIfEmpty(pensionLabel),
+    bancoPreferencia: nullIfEmpty(bancoLabel),
+    numeroCuentaTrabajador: nullIfEmpty(
+      pickString(fields.numeroCuenta, fields.bankAccount, fields.numeroCuentaTrabajador),
+    ),
     urlDocumentoAdjunto: nullIfEmpty(pickString(fields.urlDocumentoAdjunto, fields.documentUrl)),
+    tallaPoloCamisa: nullIfEmpty(tallaPolo),
+    tallaCasaca: nullIfEmpty(tallaCasaca),
+    tallaPantalon: nullIfEmpty(tallaPantalon),
+    tallaZapatos,
     paisId: HR_DEFAULT_PAIS_ID,
     ubigeoId: pickNumber(fields.ubigeoId) ?? null,
+    departamentoId: pickNumber(fields.departamentoId) ?? null,
+    provinciaId: pickNumber(fields.provinciaId) ?? null,
     estadoCivilId: pickNumber(fields.estadoCivilId) ?? null,
     observacion: nullIfEmpty(pickString(fields.observacion, fields.notes)),
     usuarioOf: options?.usuarioOf ?? 'opsflow',
@@ -733,8 +870,14 @@ export function mapSnapshotToHrFields(
     labels: {
       tipoDocumento: 'Documento (selección Opalosis; el valor origen puede ser DNI/CE/pasaporte)',
       empleadoCargo: cargoLabel || undefined,
-      lugarTrabajo: snapshot.opsflow.unitName || undefined,
+      lugarTrabajo: snapshot.opsflow.unitName || complementary.unidadDestaque || undefined,
       regimenLaboral: regimenLabel || undefined,
+      departamento: departamentoLabel || undefined,
+      provincia: provinciaLabel || undefined,
+      distrito: distritoLabel || undefined,
+      banco: bancoLabel || undefined,
+      fondoPension: pensionLabel || undefined,
+      estadoCivil: estadoCivilLabel || undefined,
       opalo: undefined,
     },
   };
@@ -895,12 +1038,29 @@ export function mergeHrFieldsWithSnapshot(
     urlDocumentoAdjunto: existing.urlDocumentoAdjunto || mapped.urlDocumentoAdjunto,
     tieneAsignacionFamiliar:
       existing.tieneAsignacionFamiliar || mapped.tieneAsignacionFamiliar,
+    sistemaPension: existing.sistemaPension || mapped.sistemaPension,
+    bancoPreferencia: existing.bancoPreferencia || mapped.bancoPreferencia,
+    tallaPoloCamisa: existing.tallaPoloCamisa || mapped.tallaPoloCamisa,
+    tallaCasaca: existing.tallaCasaca || mapped.tallaCasaca,
+    tallaPantalon: existing.tallaPantalon || mapped.tallaPantalon,
+    tallaZapatos: pickFilledNum(existing.tallaZapatos, mapped.tallaZapatos),
+    departamentoId: pickFilledNum(existing.departamentoId, mapped.departamentoId),
+    provinciaId: pickFilledNum(existing.provinciaId, mapped.provinciaId),
+    ubigeoId: pickFilledNum(existing.ubigeoId, mapped.ubigeoId),
+    estadoCivilId: pickFilledNum(existing.estadoCivilId, mapped.estadoCivilId),
+    regimenLaboralId: pickFilledNum(existing.regimenLaboralId, mapped.regimenLaboralId),
     labels: {
       ...mapped.labels,
       ...existing.labels,
       empleadoCargo: existing.labels?.empleadoCargo || mapped.labels?.empleadoCargo,
       lugarTrabajo: existing.labels?.lugarTrabajo || mapped.labels?.lugarTrabajo,
       regimenLaboral: existing.labels?.regimenLaboral || mapped.labels?.regimenLaboral,
+      departamento: existing.labels?.departamento || mapped.labels?.departamento,
+      provincia: existing.labels?.provincia || mapped.labels?.provincia,
+      distrito: existing.labels?.distrito || mapped.labels?.distrito,
+      banco: existing.labels?.banco || mapped.labels?.banco,
+      fondoPension: existing.labels?.fondoPension || mapped.labels?.fondoPension,
+      estadoCivil: existing.labels?.estadoCivil || mapped.labels?.estadoCivil,
     },
     refOperaciones: existing.refOperaciones || mapped.refOperaciones || refOperaciones,
   };
