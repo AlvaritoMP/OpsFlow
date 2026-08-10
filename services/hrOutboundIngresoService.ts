@@ -163,7 +163,7 @@ export const hrOutboundIngresoService = {
       .from('hr_outbound_ingreso_queue')
       .insert({
         resource_id: input.resource.id,
-        inbound_handoff_item_id: input.handoffItem.id,
+        inbound_handoff_item_id: input.handoffItem?.id ?? null,
         opsflow_unit_id: input.unit.id,
         worker_name: input.resource.name,
         assigned_at: new Date().toISOString(),
@@ -183,8 +183,9 @@ export const hrOutboundIngresoService = {
   },
 
   /**
-   * Recupera presentaciones ya registradas en unidad que no llegaron a la cola Opalosis
-   * (p. ej. fallos silenciosos previos del encolado).
+   * Encola pendientes de envío a Opalosis:
+   * 1) Todos los de Presentaciones ATS ya registrados en unidad (cualquier fecha).
+   * 2) Personal dado de alta directo en Unidades (sin ATS) aún no encolado.
    */
   async syncMissingFromAssignedPresentations(units: Unit[]): Promise<{
     enqueued: number;
@@ -194,41 +195,26 @@ export const hrOutboundIngresoService = {
     const { inboundWorkerHandoffService } = await import('./inboundWorkerHandoffService');
     const { resourcesService } = await import('./resourcesService');
 
-    const { data: rows, error } = await supabase
-      .from('inbound_worker_handoff_items')
-      .select('id, worker_name, created_resource_id, item_status')
-      .not('created_resource_id', 'is', null)
-      .in('item_status', ['assigned', 'approved'])
-      .order('updated_at', { ascending: false })
-      .limit(150);
-
-    if (error) {
-      throw new Error(`No se pudieron leer presentaciones asignadas: ${error.message}`);
-    }
-
-    // También recursos creados hoy (por si el ítem no quedó en status assigned)
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const { data: todayResources, error: todayErr } = await supabase
-      .from('resources')
-      .select('id, name, created_at')
-      .gte('created_at', startOfDay.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (todayErr) {
-      console.warn('syncMissing: no se pudieron listar resources de hoy', todayErr.message);
-    }
-
     const candidates: Array<{ itemId?: string; resourceId: string; workerName: string }> = [];
     const seenResources = new Set<string>();
 
-    for (const raw of rows ?? []) {
+    // 1) Presentaciones ATS con recurso creado (registrados en unidad)
+    const { data: presentationRows, error: presentationError } = await supabase
+      .from('inbound_worker_handoff_items')
+      .select('id, worker_name, created_resource_id, item_status, purpose')
+      .not('created_resource_id', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(500);
+
+    if (presentationError) {
+      throw new Error(
+        `No se pudieron leer presentaciones ATS: ${presentationError.message}`,
+      );
+    }
+
+    for (const raw of presentationRows ?? []) {
       const resourceId = raw.created_resource_id as string | null;
       if (!resourceId || seenResources.has(resourceId)) continue;
-      // Solo encolar si ya hay recurso creado (registro en unidad)
-      if (raw.item_status !== 'assigned' && raw.item_status !== 'approved') continue;
-      // approved sin assigned no debería tener created_resource_id, pero por si acaso
-      if (raw.item_status === 'approved') continue;
       seenResources.add(resourceId);
       candidates.push({
         itemId: raw.id as string,
@@ -237,21 +223,30 @@ export const hrOutboundIngresoService = {
       });
     }
 
-    for (const res of todayResources ?? []) {
-      const resourceId = res.id as string;
+    // 2) Personal activo en unidad (incluye altas directas sin ATS)
+    const { data: personnelRows, error: personnelError } = await supabase
+      .from('resources')
+      .select('id, name, unit_id, type, archived, personnel_status')
+      .eq('type', 'Personal')
+      .not('unit_id', 'is', null)
+      .or('archived.is.null,archived.eq.false')
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    if (personnelError) {
+      throw new Error(
+        `No se pudo leer personal de unidades: ${personnelError.message}`,
+      );
+    }
+
+    for (const row of personnelRows ?? []) {
+      const resourceId = row.id as string;
       if (seenResources.has(resourceId)) continue;
-      // Buscar handoff ligado
-      const { data: linked } = await supabase
-        .from('inbound_worker_handoff_items')
-        .select('id, worker_name')
-        .eq('created_resource_id', resourceId)
-        .maybeSingle();
-      if (!linked) continue;
+      if (row.personnel_status === 'archivado' || row.personnel_status === 'cesado') continue;
       seenResources.add(resourceId);
       candidates.push({
-        itemId: linked.id as string,
         resourceId,
-        workerName: String(linked.worker_name ?? res.name ?? resourceId),
+        workerName: String(row.name ?? resourceId),
       });
     }
 
@@ -259,6 +254,25 @@ export const hrOutboundIngresoService = {
     let skipped = 0;
     const errors: string[] = [];
     const unitById = new Map(units.map((u) => [u.id, u]));
+
+    const resolveUnit = async (unitId: string): Promise<Unit | null> => {
+      const cached = unitById.get(unitId);
+      if (cached) return cached;
+      const { data: unitRow, error: unitErr } = await supabase
+        .from('units')
+        .select('id, name, client_name, status')
+        .eq('id', unitId)
+        .maybeSingle();
+      if (unitErr || !unitRow) return null;
+      const unit = {
+        id: unitRow.id as string,
+        name: String(unitRow.name ?? 'Unidad'),
+        clientName: String(unitRow.client_name ?? ''),
+        status: unitRow.status,
+      } as Unit;
+      unitById.set(unit.id, unit);
+      return unit;
+    };
 
     for (const candidate of candidates) {
       const { resourceId, workerName, itemId } = candidate;
@@ -292,10 +306,6 @@ export const hrOutboundIngresoService = {
             handoffItem = await inboundWorkerHandoffService.getItemById(linked.id as string);
           }
         }
-        if (!handoffItem) {
-          errors.push(`${workerName}: ítem de presentación no encontrado`);
-          continue;
-        }
 
         let unitId = resource.unitId;
         if (!unitId) {
@@ -307,27 +317,14 @@ export const hrOutboundIngresoService = {
           unitId = (rawRes?.unit_id as string | undefined) || undefined;
           if (unitId) resource.unitId = unitId;
         }
-
-        let unit = unitId ? unitById.get(unitId) : undefined;
-        if (!unit && unitId) {
-          const { data: unitRow, error: unitErr } = await supabase
-            .from('units')
-            .select('*')
-            .eq('id', unitId)
-            .maybeSingle();
-          if (unitErr || !unitRow) {
-            errors.push(`${workerName}: unidad ${unitId} no encontrada en OpsFlow`);
-            continue;
-          }
-          unit = {
-            id: unitRow.id as string,
-            name: String(unitRow.name ?? 'Unidad'),
-            clientName: String(unitRow.client_name ?? unitRow.clientName ?? ''),
-            status: unitRow.status,
-          } as Unit;
-        }
-        if (!unit) {
+        if (!unitId) {
           errors.push(`${workerName}: el recurso no tiene unidad asignada`);
+          continue;
+        }
+
+        const unit = await resolveUnit(unitId);
+        if (!unit) {
+          errors.push(`${workerName}: unidad ${unitId} no encontrada en OpsFlow`);
           continue;
         }
 
@@ -335,8 +332,8 @@ export const hrOutboundIngresoService = {
           resource,
           unit,
           handoffItem,
-          sourcePackageId: handoffItem.packageId,
-          sourceApp: resource.inboundSourceData?.sourceApp,
+          sourcePackageId: handoffItem?.packageId,
+          sourceApp: resource.inboundSourceData?.sourceApp ?? (handoffItem ? 'Opalo ATS' : 'OpsFlow'),
         });
         if (created) enqueued += 1;
         else skipped += 1;

@@ -429,7 +429,7 @@ function nullIfEmpty(value?: string | null): string | null {
 export interface EnqueueAssignmentInput {
   resource: Resource;
   unit: Unit;
-  handoffItem: InboundHandoffItem;
+  handoffItem?: InboundHandoffItem | null;
   sourcePackageId?: string;
   sourceApp?: string;
   opalosisUnidadId?: number | null;
@@ -439,7 +439,8 @@ export interface EnqueueAssignmentInput {
 
 export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOutboundWorkerSnapshot {
   const { resource, unit, handoffItem, sourcePackageId, sourceApp } = input;
-  const ats = resource.inboundSourceData?.workerSnapshot ?? handoffItem.workerSnapshot;
+  const ats =
+    resource.inboundSourceData?.workerSnapshot ?? handoffItem?.workerSnapshot ?? undefined;
 
   return {
     capturedAt: new Date().toISOString(),
@@ -463,13 +464,16 @@ export function buildOutboundWorkerSnapshot(input: EnqueueAssignmentInput): HrOu
       externalId: resource.externalId,
     },
     ats: {
-      sourceApp: sourceApp ?? resource.inboundSourceData?.sourceApp ?? 'Opalo ATS',
+      sourceApp:
+        sourceApp ??
+        resource.inboundSourceData?.sourceApp ??
+        (handoffItem ? 'Opalo ATS' : 'OpsFlow'),
       sourcePackageId: sourcePackageId ?? resource.inboundSourceData?.sourcePackageId,
       sourceCandidateId:
-        handoffItem.sourceCandidateId ?? resource.inboundSourceData?.sourceCandidateId,
-      sourceProcessId: handoffItem.sourceProcessId ?? resource.inboundSourceData?.sourceProcessId,
-      handoffItemId: handoffItem.id,
-      workerName: handoffItem.workerName,
+        handoffItem?.sourceCandidateId ?? resource.inboundSourceData?.sourceCandidateId,
+      sourceProcessId: handoffItem?.sourceProcessId ?? resource.inboundSourceData?.sourceProcessId,
+      handoffItemId: handoffItem?.id ?? resource.inboundSourceData?.handoffItemId,
+      workerName: handoffItem?.workerName ?? resource.name,
       identity: ats?.identity,
       fields: ats?.fields,
       meta: ats?.meta,

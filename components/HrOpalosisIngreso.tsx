@@ -83,7 +83,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
   currentUserName,
 }) => {
   const [tab, setTab] = useState<ViewTab>('cola');
-  const [reportDate, setReportDate] = useState(todayIsoDate());
+  const [reportDate, setReportDate] = useState(''); // vacío = todas las fechas pendientes
   const [queueItems, setQueueItems] = useState<HrOutboundIngresoQueueItem[]>([]);
   const [packages, setPackages] = useState<HrOutboundIngresoPackage[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<HrOutboundIngresoPackageWithItems | null>(
@@ -107,7 +107,9 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
   }, [units]);
 
   const loadQueue = useCallback(async () => {
-    const items = await hrOutboundIngresoService.listQueueItems({ reportDate });
+    const items = await hrOutboundIngresoService.listQueueItems(
+      reportDate ? { reportDate } : { status: 'pendiente_envio' },
+    );
     setQueueItems(items);
     setSelectedIds(new Set(items.map((i) => i.id)));
   }, [reportDate]);
@@ -187,7 +189,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     try {
       const result = await hrOutboundIngresoService.sendPackage({
         queueItemIds: Array.from(selectedIds),
-        reportDate,
+        reportDate: reportDate || todayIsoDate(),
         senderNote: senderNote.trim() || undefined,
         sentByName: currentUserName,
       });
@@ -424,7 +426,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
               onClick={handleSyncMissing}
               disabled={syncing || loading}
               className="flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-              title="Encola presentaciones ya registradas en unidad que faltan en esta cola"
+              title="Encola Presentaciones ATS ya en unidad + altas directas en Unidades que aún no están en esta cola"
             >
               {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
               Sincronizar cola
@@ -504,12 +506,28 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                 <Calendar size={14} />
                 Fecha del reporte
               </label>
-              <input
-                type="date"
-                value={reportDate}
-                onChange={(e) => setReportDate(e.target.value)}
-                className="rounded-lg border border-slate-300 p-2 text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={reportDate}
+                  onChange={(e) => setReportDate(e.target.value)}
+                  className="rounded-lg border border-slate-300 p-2 text-sm"
+                />
+                {reportDate && (
+                  <button
+                    type="button"
+                    onClick={() => setReportDate('')}
+                    className="text-xs font-medium text-blue-600 hover:underline"
+                  >
+                    Ver todas
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {reportDate
+                  ? 'Filtrando por esta fecha.'
+                  : 'Mostrando todos los pendientes (cualquier fecha).'}
+              </p>
             </div>
             {canEdit && queueItems.length > 0 && (
               <>
@@ -548,10 +566,10 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
           ) : queueItems.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-16 text-center px-4">
               <Package className="mx-auto mb-3 text-slate-400" size={40} />
-              <p className="font-medium text-slate-700">Sin ingresos pendientes para esta fecha</p>
+              <p className="font-medium text-slate-700">Sin ingresos pendientes</p>
               <p className="mt-1 text-sm text-slate-500 max-w-md mx-auto">
-                Aquí se listan los registrados en unidad aún no enviados a Opalosis. Si ya
-                registró a alguien hoy y no aparece, pulse «Sincronizar cola».
+                Incluye Presentaciones ATS ya registradas en unidad y altas directas en Unidades.
+                Pulse «Sincronizar cola» para recuperar los que aún no están aquí.
               </p>
               {canEdit && (
                 <button
