@@ -114,6 +114,55 @@ function deriveComplementaryStatus(
   return 'complete';
 }
 
+function normalizeResourceStartDate(value: unknown): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  const raw = String(value).trim();
+  if (!raw) return undefined;
+  // YYYY-MM-DD or ISO datetime → date part
+  const datePart = raw.includes('T') ? raw.slice(0, 10) : raw.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(datePart) ? datePart : raw;
+}
+
+async function attachResourceStartDates(
+  items: InboundHandoffItem[],
+): Promise<InboundHandoffItem[]> {
+  const resourceIds = [
+    ...new Set(
+      items
+        .map((item) => item.createdResourceId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  if (resourceIds.length === 0) return items;
+
+  try {
+    const { data, error } = await supabase
+      .from('resources')
+      .select('id, start_date')
+      .in('id', resourceIds);
+    if (error) throw error;
+
+    const startByResourceId = new Map<string, string>();
+    for (const row of data ?? []) {
+      const record = asRecord(row);
+      const startDate = normalizeResourceStartDate(record.start_date);
+      if (typeof record.id === 'string' && startDate) {
+        startByResourceId.set(record.id, startDate);
+      }
+    }
+
+    return items.map((item) => {
+      const resourceStartDate = item.createdResourceId
+        ? startByResourceId.get(item.createdResourceId)
+        : undefined;
+      return resourceStartDate ? { ...item, resourceStartDate } : item;
+    });
+  } catch (error) {
+    console.error('No se pudieron cargar fechas de inicio de recursos:', error);
+    return items;
+  }
+}
+
 // ============================================
 // SERVICIO DE RECEPCIÓN ATS
 // ============================================
@@ -268,12 +317,15 @@ export const inboundWorkerHandoffService = {
       const row = asRecord(data);
       const pkg = row.inbound_worker_handoff_packages as Record<string, unknown> | undefined;
       const item = transformItemFromDB(row);
-      return {
-        ...item,
-        sourcePackageId: (pkg?.source_package_id as string) ?? undefined,
-        sourceApp: (pkg?.source_app as string) ?? undefined,
-        packageReceivedAt: (pkg?.received_at as string) ?? undefined,
-      };
+      const [enriched] = await attachResourceStartDates([
+        {
+          ...item,
+          sourcePackageId: (pkg?.source_package_id as string) ?? undefined,
+          sourceApp: (pkg?.source_app as string) ?? undefined,
+          packageReceivedAt: (pkg?.received_at as string) ?? undefined,
+        },
+      ]);
+      return enriched ?? null;
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -308,7 +360,7 @@ export const inboundWorkerHandoffService = {
       const { data, error } = await query;
       if (error) throw error;
 
-      return (data ?? []).map((row) => {
+      const items = (data ?? []).map((row) => {
         const record = asRecord(row);
         const pkg = record.inbound_worker_handoff_packages as Record<string, unknown> | undefined;
         const item = transformItemFromDB(record);
@@ -319,6 +371,8 @@ export const inboundWorkerHandoffService = {
           packageReceivedAt: (pkg?.received_at as string) ?? undefined,
         };
       });
+
+      return attachResourceStartDates(items);
     } catch (error) {
       handleSupabaseError(error);
       return [];

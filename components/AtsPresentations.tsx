@@ -89,10 +89,42 @@ function formatDateTime(value?: string): string {
   });
 }
 
+function formatDateOnly(value?: string): string {
+  if (!value) return '—';
+  const raw = value.includes('T') ? value.slice(0, 10) : value;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? new Date(`${raw}T12:00:00`)
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('es-PE', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'Sí' : 'No';
   return String(value);
+}
+
+function resolvePresentationUnitName(item: InboundHandoffItem, units: Unit[]): string | undefined {
+  if (!item.assignedWorkUnitId) return undefined;
+  return units.find((u) => u.id === item.assignedWorkUnitId)?.name ?? item.assignedWorkUnitId;
+}
+
+function resolvePresentationStartDate(item: InboundHandoffItem): string | undefined {
+  if (item.resourceStartDate) return item.resourceStartDate;
+  const fields = item.workerSnapshot.fields ?? {};
+  const candidates = [fields.hireDate, fields.startDate, fields.fechaIngreso, fields.fechaInicio];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      const raw = candidate.trim();
+      return raw.includes('T') ? raw.slice(0, 10) : raw.slice(0, 10);
+    }
+  }
+  return undefined;
 }
 
 function fichaBadge(status?: ComplementaryStatus | null) {
@@ -268,6 +300,12 @@ function PresentationDetail({
   const intakeMissing = opsflowIntakeMissingLabels(intakeDirty ? intakeDraft : item.opsflowIntake);
   const canArchiveNoHire = canRegister;
   const canShowAssigned = item.itemStatus === 'assigned';
+  const assignedUnitName = canShowAssigned
+    ? resolvePresentationUnitName(item, units)
+    : undefined;
+  const assignedStartDate = canShowAssigned
+    ? resolvePresentationStartDate(item)
+    : undefined;
   const badge = fichaBadge(
     dirty
       ? deriveComplementaryStatusFromData(draft, item.complementaryStatus, item.complementaryMissingFields)
@@ -767,9 +805,8 @@ function PresentationDetail({
       {canShowAssigned && (
         <p className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
           Ya registrado en unidad
-          {item.assignedWorkUnitId
-            ? `: ${units.find((u) => u.id === item.assignedWorkUnitId)?.name ?? item.assignedWorkUnitId}`
-            : ''}
+          {assignedUnitName ? `: ${assignedUnitName}` : ''}
+          {assignedStartDate ? ` · Inicio ${formatDateOnly(assignedStartDate)}` : ''}
           . Opalosis se gestiona desde Envío Opalosis.
         </p>
       )}
@@ -948,6 +985,14 @@ export const AtsPresentations: React.FC<AtsPresentationsProps> = ({
               complementary.puestoContrato ||
               item.workerSnapshot.fields?.puestoContrato ||
               item.workerSnapshot.fields?.processTitle;
+            const showAssignmentSummary =
+              item.itemStatus === 'approved' || item.itemStatus === 'assigned';
+            const unitName = showAssignmentSummary
+              ? resolvePresentationUnitName(item, units)
+              : undefined;
+            const startDate = showAssignmentSummary
+              ? resolvePresentationStartDate(item)
+              : undefined;
 
             return (
               <li key={item.id}>
@@ -964,6 +1009,13 @@ export const AtsPresentations: React.FC<AtsPresentationsProps> = ({
                         ? ` · DNI ${item.workerSnapshot.identity.dni}`
                         : ''}
                     </p>
+                    {showAssignmentSummary && (unitName || startDate) && (
+                      <p className="mt-1 truncate text-xs text-slate-600">
+                        {unitName ? `Unidad: ${unitName}` : null}
+                        {unitName && startDate ? ' · ' : null}
+                        {startDate ? `Inicio: ${formatDateOnly(startDate)}` : null}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-slate-400">
                       {formatDateTime(item.packageReceivedAt ?? item.createdAt)}
                     </p>

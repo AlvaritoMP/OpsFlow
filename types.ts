@@ -916,6 +916,8 @@ export interface InboundHandoffItem {
   assignedWorkUnitId?: string;
   assignedAt?: string;
   createdResourceId?: string;
+  /** Fecha de inicio del recurso creado al registrar (YYYY-MM-DD), joined al listar */
+  resourceStartDate?: string;
   createdAt: string;
   updatedAt?: string;
   /** Joined from package when listing presentations */
