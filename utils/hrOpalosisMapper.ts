@@ -901,8 +901,9 @@ export function mapSnapshotToHrFields(
     labels: {
       tipoDocumento: 'Documento (selección Opalosis; el valor origen puede ser DNI/CE/pasaporte)',
       empleadoCargo: cargoLabel || undefined,
-      // Lugar de trabajo = unidad OpsFlow (unitName / assignedWorkUnitId → LugarTrabajoId).
-      // No usar unidadDestaque (ficha ATS): es un dato distinto.
+      // Lugar de trabajo = unidad OpsFlow tipificada.
+      // Prioridad de ID: resource.unitId / assignedWorkUnitId → LugarTrabajoId (mapeo).
+      // Si solo hay unitName (sin ID), se envía como etiqueta para que RRHH tipifique.
       lugarTrabajo: snapshot.opsflow.unitName || undefined,
       regimenLaboral: regimenLabel || undefined,
       departamento: departamentoFinal || undefined,

@@ -542,9 +542,15 @@ export const hrOutboundIngresoService = {
           continue;
         }
 
-        const unitId = resource.unitId;
+        const handoffItem = handoffByResourceId.get(resourceId) ?? null;
+        // Lugar de trabajo: ID de unidad OpsFlow (resource.unitId o handoff.assignedWorkUnitId).
+        // unitName solo es etiqueta; sin ID no se puede mapear LugarTrabajoId automáticamente.
+        const unitId = resource.unitId || handoffItem?.assignedWorkUnitId;
         if (!unitId) {
-          errors.push(`${workerName}: el recurso no tiene unidad asignada`);
+          errors.push(
+            `${workerName}: sin unidad OpsFlow (resource.unitId / assignedWorkUnitId vacíos). ` +
+              'Si solo hay nombre de unidad, tipificar LugarTrabajoId manualmente en Envío Opalosis.',
+          );
           continue;
         }
 
@@ -554,7 +560,6 @@ export const hrOutboundIngresoService = {
           continue;
         }
 
-        const handoffItem = handoffByResourceId.get(resourceId) ?? null;
         const created = await this.enqueueFromAssignment({
           resource,
           unit,
