@@ -89,8 +89,10 @@ export function hydrateComplementaryFromSnapshot(
     fields.Departamento,
     fields.Department,
   );
-  fill('puestoContrato', fields.puestoContrato, fields.processTitle);
-  fill('unidadDestaque', fields.unidadDestaque, fields.unidad);
+  // Solo el campo explícito de ficha; no copiar processTitle (proceso ATS) ni puesto OpsFlow.
+  fill('puestoContrato', fields.puestoContrato);
+  // Solo unidad de destaque de ficha; no copiar fields.unidad ni unidad OpsFlow.
+  fill('unidadDestaque', fields.unidadDestaque);
   fill('bancoSueldo', fields.bancoSueldo, fields.banco);
   fill('bancoCts', fields.bancoCts);
   fill('estadoCivil', fields.estadoCivil, fields.estado_civil);

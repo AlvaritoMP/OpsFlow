@@ -367,9 +367,9 @@ const ATS_KEYS_ALREADY_IN_DTO = new Set([
 ]);
 
 /**
- * CamposDetalle: solo datos adicionales/dinámicos del ATS sin equivalente en el
- * RegistroIngresoDTO (contacto de emergencia, mascotas, etc.). La trazabilidad
- * completa sigue viajando en PayloadJson.
+ * CamposDetalle: extras ATS sin columna DTO + datos OpsFlow (días/horario) +
+ * puestoContrato / unidadDestaque de ficha (distintos de cargo/lugar tipados).
+ * La trazabilidad completa sigue viajando en PayloadJson.
  */
 function buildCamposDetalle(
   snapshot: Record<string, unknown> | null,
@@ -377,18 +377,30 @@ function buildCamposDetalle(
   const out: Array<{ Campo: string; Valor: string }> = [];
   const seen = new Set<string>();
   const ats = (snapshot?.ats ?? {}) as Record<string, unknown>;
+  const ops = (snapshot?.opsflow ?? {}) as Record<string, unknown>;
   const fields = (ats.fields ?? {}) as Record<string, unknown>;
+  const complementary = (ats.complementary ?? {}) as Record<string, unknown>;
+
+  const push = (campoRaw: string, value: unknown) => {
+    if (value === null || value === undefined) return;
+    const v = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    if (!v.trim()) return;
+    const campo = campoRaw.trim();
+    if (!campo || seen.has(campo)) return;
+    seen.add(campo);
+    out.push({ Campo: campo, Valor: v });
+  };
 
   for (const [key, value] of Object.entries(fields)) {
     if (ATS_KEYS_ALREADY_IN_DTO.has(key)) continue;
-    if (value === null || value === undefined) continue;
-    const v = typeof value === 'object' ? JSON.stringify(value) : String(value);
-    if (!v.trim()) continue;
-    const campo = key.trim();
-    if (!campo || seen.has(campo)) continue;
-    seen.add(campo);
-    out.push({ Campo: campo, Valor: v });
+    push(key, value);
   }
+
+  push('puestoContrato', complementary.puestoContrato);
+  push('unidadDestaque', complementary.unidadDestaque);
+  push('workDays', ops.workDays);
+  push('entryTime', ops.entryTime);
+  push('exitTime', ops.exitTime);
 
   return out;
 }

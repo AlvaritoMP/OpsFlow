@@ -116,8 +116,7 @@ function resolveFicha(worker: Resource, ctx: FichaContext = {}): WorkerSnapshotC
   fill('tipoDocumento', worker.dni ? 'DNI' : '');
   fill('telefono', worker.phone);
   fill('fechaNacimiento', worker.birthDate);
-  fill('puestoContrato', worker.puesto);
-  fill('unidadDestaque', ctx.unitName, worker.localidad);
+  // puestoContrato / unidadDestaque: solo ficha; no mezclar con puesto/unidad OpsFlow.
   fill('distrito', worker.localidad);
   fill(
     'comoSeEnteroEmpleo',
@@ -682,8 +681,8 @@ export async function buildOpaloPersonnelFichaPdf(
   // VII. DATOS DE INCORPORACIÓN
   b.section('VII. DATOS DE INCORPORACIÓN');
   b.row([
-    { label: 'Unidad de destaque', value: text(ficha.unidadDestaque) || text(ctx.unitName), span: 1.4 },
-    { label: 'Puesto a ocupar', value: text(ficha.puestoContrato) || text(worker.puesto), span: 1.4 },
+    { label: 'Unidad de destaque', value: text(ficha.unidadDestaque), span: 1.4 },
+    { label: 'Puesto a ocupar', value: text(ficha.puestoContrato), span: 1.4 },
     {
       label: '¿Cómo se enteró del empleo?',
       value: text(ficha.comoSeEnteroEmpleo),

@@ -394,9 +394,11 @@ const ATS_KEYS_ALREADY_IN_DTO = new Set([
 ]);
 
 /**
- * Construye CamposDetalle solo con los datos adicionales/dinámicos del ATS que
- * NO tienen equivalente en el RegistroIngresoDTO (ej. contacto de emergencia,
- * mascotas u otros campos arbitrarios). La trazabilidad completa sigue en PayloadJson.
+ * Construye CamposDetalle con:
+ * - extras dinámicos ATS sin columna en el DTO
+ * - datos OpsFlow que no tienen columna propia (días/horario)
+ * - ficha: puestoContrato / unidadDestaque (distintos de cargo/lugar tipados)
+ * La trazabilidad completa sigue en PayloadJson.
  */
 export function buildCamposDetalle(
   snapshot: HrOutboundWorkerSnapshot | null,
@@ -421,6 +423,15 @@ export function buildCamposDetalle(
       if (ATS_KEYS_ALREADY_IN_DTO.has(key)) continue;
       push(key, value);
     }
+
+    const complementary = snapshot.ats?.complementary;
+    push('puestoContrato', complementary?.puestoContrato);
+    push('unidadDestaque', complementary?.unidadDestaque);
+
+    const ops = snapshot.opsflow;
+    push('workDays', ops?.workDays);
+    push('entryTime', ops?.entryTime);
+    push('exitTime', ops?.exitTime);
   }
 
   return out;
@@ -719,40 +730,23 @@ export function mapSnapshotToHrFields(
       fields.monthlySalary,
     ) ?? null;
 
-  const cargoLabel = pickString(
-    snapshot.opsflow.puesto,
-    complementary.puestoContrato,
-    fields.processTitle,
-    fields.cargo,
-    fields.puesto,
-    fields.jobTitle,
-  );
-  const turno =
-    pickString(snapshot.opsflow.assignedShift, fields.turno, fields.shift) || null;
+  // Cargo Opalosis = puesto OpsFlow (resource.puesto → EmpleadoCargoId).
+  // No mezclar con puestoContrato / processTitle (ficha o proceso ATS): son datos distintos.
+  const cargoLabel = pickString(snapshot.opsflow.puesto);
+  const turno = pickString(snapshot.opsflow.assignedShift) || null;
 
-  const movilidad =
-    pickNumber(
-      snapshot.opsflow.mobilityBonus,
-      fields.movilidad,
-      fields.mobilityBonus,
-      fields.bonoMovilidad,
-    ) ?? 0;
+  const movilidad = pickNumber(snapshot.opsflow.mobilityBonus) ?? 0;
 
+  // Si OpsFlow ya definió asignación familiar (intake), esa decisión manda.
   const familyAllowance =
-    snapshot.opsflow.familyAllowance === true ||
-    fields.tieneAsignacionFamiliar === true ||
-    fields.asignacionFamiliar === true ||
-    fields.familyAllowance === true;
+    typeof snapshot.opsflow.familyAllowance === 'boolean'
+      ? snapshot.opsflow.familyAllowance
+      : fields.tieneAsignacionFamiliar === true ||
+        fields.asignacionFamiliar === true ||
+        fields.familyAllowance === true;
 
   const jornadaLaboral =
-    nullIfEmpty(
-      pickString(
-        snapshot.opsflow.jornadaType,
-        fields.jornadaLaboral,
-        fields.jornada,
-        fields.jornadaType,
-      ),
-    ) ?? '8 Horas';
+    nullIfEmpty(pickString(snapshot.opsflow.jornadaType)) ?? '8 Horas';
 
   const departamentoLabel = pickString(
     complementary.departamento,
@@ -787,17 +781,18 @@ export function mapSnapshotToHrFields(
     return '';
   };
 
-  // OpsFlow UI lo llama «Régimen» (resources.labor_regime / opsflow_intake.laborRegime)
+  // Régimen: prioridad OpsFlow (intake / resource); ATS solo si OpsFlow no lo trajo.
   const regimenLabel =
+    pickString(snapshot.opsflow.laborRegime) ||
     pickString(
-      snapshot.opsflow.laborRegime,
       fields.regimenLaboral,
       fields.laborRegime,
       fields.regimen,
       fields.Regimen,
       fields['Régimen'],
       fields.regime,
-    ) || fieldKeyPick(/r[eé]gimen|laborRegime|labor.?regime/i);
+    ) ||
+    fieldKeyPick(/r[eé]gimen|laborRegime|labor.?regime/i);
 
   const departamentoFinal = departamentoLabel || fieldKeyPick(/departament/i);
   const provinciaFinal = provinciaLabel || fieldKeyPick(/provinc/i);
@@ -861,8 +856,8 @@ export function mapSnapshotToHrFields(
     ),
     telefono: nullIfEmpty(
       pickString(
-        complementary.telefono,
         snapshot.opsflow.phone,
+        complementary.telefono,
         identity.phone,
         identity.phone2,
         fields.phone,
@@ -906,7 +901,9 @@ export function mapSnapshotToHrFields(
     labels: {
       tipoDocumento: 'Documento (selección Opalosis; el valor origen puede ser DNI/CE/pasaporte)',
       empleadoCargo: cargoLabel || undefined,
-      lugarTrabajo: snapshot.opsflow.unitName || complementary.unidadDestaque || undefined,
+      // Lugar de trabajo = unidad OpsFlow (unitName / assignedWorkUnitId → LugarTrabajoId).
+      // No usar unidadDestaque (ficha ATS): es un dato distinto.
+      lugarTrabajo: snapshot.opsflow.unitName || undefined,
       regimenLaboral: regimenLabel || undefined,
       departamento: departamentoFinal || undefined,
       provincia: provinciaFinal || undefined,

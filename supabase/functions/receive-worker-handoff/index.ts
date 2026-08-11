@@ -220,8 +220,8 @@ function hydrateComplementary(
   fill('distrito', fields.distrito, fields.district);
   fill('provincia', fields.provincia, fields.province);
   fill('departamento', fields.departamento, fields.department);
-  fill('puestoContrato', fields.puestoContrato, fields.processTitle);
-  fill('unidadDestaque', fields.unidadDestaque, fields.unidad);
+  fill('puestoContrato', fields.puestoContrato);
+  fill('unidadDestaque', fields.unidadDestaque);
   fill('bancoSueldo', fields.bancoSueldo, fields.banco);
   fill('bancoCts', fields.bancoCts);
   fill('estadoCivil', fields.estadoCivil);
