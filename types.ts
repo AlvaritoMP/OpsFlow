@@ -244,6 +244,8 @@ export interface Resource {
   localidad?: string;
   /** Teléfono de contacto del trabajador */
   phone?: string;
+  /** Correo electrónico de contacto del trabajador */
+  email?: string;
   puesto?: string; // Puesto o cargo del trabajador
   birthDate?: string; // Fecha de nacimiento (YYYY-MM-DD)
   startDate?: string; // Fecha de inicio de la relación laboral (YYYY-MM-DD): primer contrato; no se actualiza en renovaciones

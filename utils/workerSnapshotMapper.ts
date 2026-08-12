@@ -5,6 +5,7 @@ export interface HandoffWorkerPrefill {
   name: string;
   dni: string;
   phone: string;
+  email: string;
   puesto: string;
   localidad: string;
   birthDate: string;
@@ -105,6 +106,13 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
   ).trim();
   if (phone) prefilledFields.push('phone');
 
+  const email = (
+    identity.email?.trim() ||
+    (typeof complementary?.email === 'string' ? complementary.email.trim() : '') ||
+    ''
+  ).trim();
+  if (email) prefilledFields.push('email');
+
   const startDate = normalizeDate(fields.hireDate);
   if (startDate) prefilledFields.push('startDate');
 
@@ -160,6 +168,7 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
     name,
     dni,
     phone,
+    email,
     puesto: '',
     localidad: '',
     birthDate,

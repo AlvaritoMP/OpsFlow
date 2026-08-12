@@ -882,6 +882,7 @@ function transformResourceFromDB(
     dni: data.dni,
     localidad: data.localidad || undefined,
     phone: data.phone || undefined,
+    email: data.email || undefined,
     puesto: data.puesto,
     birthDate: normalizeDateFromDB(data.birth_date),
     isShared: data.is_shared ?? false, // Por defecto false (único)
@@ -1283,6 +1284,8 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
                              resource.personnelStatus !== undefined ||
                              resource.dni !== undefined ||
                              resource.localidad !== undefined ||
+                             resource.phone !== undefined ||
+                             resource.email !== undefined ||
                              resource.puesto !== undefined ||
                              resource.archived !== undefined ||
                              resource.endDate !== undefined ||
@@ -1301,6 +1304,7 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     if (resource.dni !== undefined) result.dni = resource.dni;
     if (resource.localidad !== undefined) result.localidad = resource.localidad;
     if (resource.phone !== undefined) result.phone = resource.phone;
+    if (resource.email !== undefined) result.email = resource.email;
     if (resource.puesto !== undefined) result.puesto = resource.puesto;
     if (resource.birthDate !== undefined) result.birth_date = normalizeDateToDB(resource.birthDate);
     if (resource.isShared !== undefined) result.is_shared = resource.isShared;

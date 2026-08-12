@@ -79,6 +79,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
         (w.dni && w.dni.toLowerCase().includes(query)) ||
         (w.puesto && w.puesto.toLowerCase().includes(query)) ||
         (w.phone && w.phone.toLowerCase().includes(query)) ||
+        (w.email && w.email.toLowerCase().includes(query)) ||
         (w.localidad && w.localidad.toLowerCase().includes(query)) ||
         w.unitName.toLowerCase().includes(query) ||
         w.clientName.toLowerCase().includes(query)
@@ -132,6 +133,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
       'DNI': worker.dni || '-',
       'Puesto': worker.puesto || '-',
       'Teléfono': worker.phone || '-',
+      'Correo': worker.email || '-',
       'Localidad': worker.localidad || '-',
       'Unidad': worker.unitName,
       'Cliente': worker.clientName,
@@ -329,6 +331,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">DNI</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Puesto</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Teléfono</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Correo</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Unidad</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Cliente</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Estado</th>
@@ -338,7 +341,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
             <tbody className="divide-y divide-slate-200">
               {filteredWorkers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                     No se encontraron trabajadores con los filtros aplicados.
                   </td>
                 </tr>
@@ -370,6 +373,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.dni || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.puesto || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600 font-mono">{worker.phone || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600 break-all">{worker.email || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.unitName}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.clientName}</td>
                     <td className="px-4 py-3">
@@ -446,6 +450,18 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                 <div>
                   <label className="text-sm font-medium text-slate-700">Teléfono</label>
                   <div className="text-sm text-slate-900 font-mono">{selectedWorker.phone || '-'}</div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700">Correo electrónico</label>
+                  <div className="text-sm text-slate-900 break-all">
+                    {selectedWorker.email ? (
+                      <a href={`mailto:${selectedWorker.email}`} className="text-blue-600 hover:underline">
+                        {selectedWorker.email}
+                      </a>
+                    ) : (
+                      '-'
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700">Localidad</label>

@@ -570,7 +570,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1, shift: '' as string | undefined });
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number; familyAllowance?: boolean }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; email?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number; familyAllowance?: boolean }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -2301,6 +2301,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         puesto: newWorkerForm.puesto || undefined,
         localidad: newWorkerForm.localidad?.trim() || undefined,
         phone: newWorkerForm.phone?.trim() || undefined,
+        email: newWorkerForm.email?.trim() || undefined,
         birthDate: newWorkerForm.birthDate || undefined,
         isShared: newWorkerForm.isShared || false,
         startDate: newWorkerForm.startDate || undefined,
@@ -2340,7 +2341,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
+      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
       setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
       setTimeout(() => setNotification(null), 3000);
       
@@ -2429,6 +2430,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             puesto: row.puesto?.trim() || undefined,
             localidad: row.localidad?.trim() || undefined,
             phone: row.telefono?.trim() || undefined,
+            email: row.email?.trim() || undefined,
             isShared: row.compartido === true || row.compartido === 'true' || row.compartido === 'Sí' || row.compartido === 'Sí' || false,
             startDate: row.fechaInicio || undefined,
             endDate: row.fechaFin || undefined, // Solo para monitoreo, NO archiva automáticamente
@@ -3096,6 +3098,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Puesto',
         'Localidad',
         'Teléfono',
+        'Correo',
         'Zonas Asignadas',
         'Estado',
         'Fecha Inicio',
@@ -3116,6 +3119,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Puesto': worker.puesto || '',
         'Localidad': worker.localidad || '',
         'Teléfono': worker.phone || '',
+        'Correo': worker.email || '',
         'Zonas Asignadas': worker.assignedZones?.join(', ') || 'Sin zona',
         'Estado': worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo'),
         'Fecha Inicio': (() => {
@@ -6440,6 +6444,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 )}
                               </div>
                               <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Correo</p>
+                                {worker.email?.trim() ? (
+                                  <a
+                                    href={`mailto:${worker.email.trim()}`}
+                                    className="inline-flex items-center gap-1.5 text-slate-800 break-all hover:text-blue-700"
+                                  >
+                                    <Mail size={14} className="shrink-0 text-slate-400" />
+                                    {worker.email.trim()}
+                                  </a>
+                                ) : (
+                                  <p className="text-slate-400 italic">—</p>
+                                )}
+                              </div>
+                              <div className="min-w-0">
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">DNI</p>
                                 <p className="font-mono text-slate-700">{worker.dni || '—'}</p>
                               </div>
@@ -8095,6 +8113,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <li><strong>Puesto</strong> (opcional) - Cargo o puesto del trabajador</li>
                   <li><strong>Localidad</strong> (opcional) - Distrito, ciudad u otro lugar de referencia</li>
                   <li><strong>Teléfono</strong> (opcional) - Número de contacto del trabajador</li>
+                  <li><strong>Correo</strong> / <strong>Email</strong> (opcional) - Correo electrónico de contacto</li>
                   <li><strong>Zonas</strong> (opcional) - Zonas asignadas, separadas por coma o punto y coma</li>
                   <li><strong>Turno</strong> (opcional) - Diurno, Nocturno o Mixto</li>
                   <li><strong>Fecha Inicio</strong> (opcional) - Formato: YYYY-MM-DD o DD/MM/YYYY</li>
@@ -8346,6 +8365,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     value={newWorkerForm.phone || ''}
                     onChange={e => setNewWorkerForm({ ...newWorkerForm, phone: e.target.value })}
                     placeholder="Ej. 987654321"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Correo electrónico</label>
+                  <input
+                    type="email"
+                    className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                    value={newWorkerForm.email || ''}
+                    onChange={e => setNewWorkerForm({ ...newWorkerForm, email: e.target.value })}
+                    placeholder="Ej. nombre@correo.com"
                   />
                 </div>
                 
@@ -9015,6 +9045,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       />
                                     );
                                   })()}
+                              </div>
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">Correo electrónico</label>
+                                  <input
+                                      type="email"
+                                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                                      value={editingResource.email || ''}
+                                      onChange={e => setEditingResource({ ...editingResource, email: e.target.value })}
+                                      placeholder="Ej. nombre@correo.com"
+                                  />
                               </div>
                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                                 <label className="flex items-center space-x-2 cursor-pointer">

@@ -115,6 +115,7 @@ function resolveFicha(worker: Resource, ctx: FichaContext = {}): WorkerSnapshotC
   fill('nroDocumento', worker.dni);
   fill('tipoDocumento', worker.dni ? 'DNI' : '');
   fill('telefono', worker.phone);
+  fill('email', worker.email);
   fill('fechaNacimiento', worker.birthDate);
   // puestoContrato / unidadDestaque: solo ficha; no mezclar con puesto/unidad OpsFlow.
   fill('distrito', worker.localidad);

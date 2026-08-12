@@ -149,6 +149,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
           compliancePercentage: 100,
           dni: form.dni.trim() || undefined,
           phone: form.phone.trim() || undefined,
+          email: form.email.trim() || undefined,
           puesto: form.puesto.trim() || undefined,
           localidad: form.localidad.trim() || undefined,
           birthDate: form.birthDate || undefined,
@@ -348,6 +349,19 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Correo electrónico{isPrefilled('email') && <PrefillBadge />}
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+                placeholder="nombre@correo.com"
               />
             </div>
 
