@@ -6076,9 +6076,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          onClick={() => togglePersonnelExpand(worker.id)}
                          className="min-w-0 flex-1 text-left group/name focus:outline-none"
                          disabled={isArchivingPersonnel === worker.id}
+                         title={worker.name ? `Ver datos completos: ${worker.name}` : 'Ver datos completos'}
                        >
                          <div className="flex items-center gap-2">
-                           <p className="text-sm font-medium text-slate-900 truncate underline decoration-dotted group-hover/name:decoration-solid group-hover/name:text-blue-700">
+                           <p
+                             className={`text-sm font-medium text-slate-900 underline decoration-dotted group-hover/name:decoration-solid group-hover/name:text-blue-700 ${
+                               expandedPersonnel === worker.id ? 'whitespace-normal break-words' : 'truncate'
+                             }`}
+                             title={worker.name}
+                           >
                              {worker.name}
                            </p>
                            {worker.inTraining && (
@@ -6102,7 +6108,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                            ) : null}
                          </p>
                          {worker.puesto ? (
-                           <p className="hidden lg:block text-xs min-w-0 text-slate-500 truncate">{worker.puesto}</p>
+                           <p
+                             className={`hidden lg:block text-xs min-w-0 text-slate-500 ${
+                               expandedPersonnel === worker.id ? 'whitespace-normal break-words' : 'truncate'
+                             }`}
+                             title={worker.puesto}
+                           >
+                             {worker.puesto}
+                           </p>
                          ) : null}
                        </button>
                     </div>
@@ -6111,7 +6124,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </div>
                     <div className="col-span-1 hidden md:flex items-center justify-center min-w-0 px-1">
                        {worker.phone?.trim() ? (
-                         <span className="truncate max-w-full font-mono text-sm text-slate-600" title={worker.phone.trim()}>{worker.phone.trim()}</span>
+                         <button
+                           type="button"
+                           onClick={() => togglePersonnelExpand(worker.id)}
+                           className={`max-w-full font-mono text-sm text-slate-600 hover:text-blue-700 underline decoration-dotted hover:decoration-solid text-center ${
+                             expandedPersonnel === worker.id ? 'whitespace-normal break-all' : 'truncate'
+                           }`}
+                           title={`Ver datos completos: ${worker.phone.trim()}`}
+                           disabled={isArchivingPersonnel === worker.id}
+                         >
+                           {worker.phone.trim()}
+                         </button>
                        ) : (
                          <span className="text-slate-300 italic">-</span>
                        )}
@@ -6186,7 +6209,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </div>
                     <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-600 min-w-0 px-1">
                        {worker.localidad?.trim() ? (
-                         <span className="truncate max-w-full" title={worker.localidad.trim()}>{worker.localidad.trim()}</span>
+                         <span
+                           className={`max-w-full text-center ${
+                             expandedPersonnel === worker.id ? 'whitespace-normal break-words' : 'truncate'
+                           }`}
+                           title={worker.localidad.trim()}
+                         >
+                           {worker.localidad.trim()}
+                         </span>
                        ) : (
                          <span className="text-slate-300 italic">-</span>
                        )}
@@ -6381,6 +6411,78 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  {/* Expanded Details */}
                  {expandedPersonnel === worker.id && (
                     <div className="bg-slate-50/50 p-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2 duration-200">
+                        {/* Datos completos: evita que nombres/teléfonos/localidad queden cortados en pantallas estrechas */}
+                        <div className="md:col-span-2 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <h5 className="text-xs font-bold text-slate-500 uppercase mb-3 flex items-center">
+                              <UserCheck size={14} className="mr-1.5" /> Datos del colaborador
+                            </h5>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Nombre</p>
+                                <p className="font-medium text-slate-900 break-words">{worker.name || '—'}</p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Puesto</p>
+                                <p className="text-slate-700 break-words">{worker.puesto?.trim() || '—'}</p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Teléfono</p>
+                                {worker.phone?.trim() ? (
+                                  <a
+                                    href={`tel:${worker.phone.trim().replace(/\s+/g, '')}`}
+                                    className="inline-flex items-center gap-1.5 font-mono text-slate-800 break-all hover:text-blue-700"
+                                  >
+                                    <Phone size={14} className="shrink-0 text-slate-400" />
+                                    {worker.phone.trim()}
+                                  </a>
+                                ) : (
+                                  <p className="text-slate-400 italic">—</p>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">DNI</p>
+                                <p className="font-mono text-slate-700">{worker.dni || '—'}</p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Cumpleaños</p>
+                                <p className="text-slate-700">
+                                  {worker.birthDate ? formatDateFromString(worker.birthDate) : '—'}
+                                </p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Localidad</p>
+                                <p className="text-slate-700 break-words flex items-start gap-1.5">
+                                  {worker.localidad?.trim() ? (
+                                    <>
+                                      <MapPin size={14} className="shrink-0 text-slate-400 mt-0.5" />
+                                      <span>{worker.localidad.trim()}</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-slate-400 italic">—</span>
+                                  )}
+                                </p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Estado</p>
+                                <p className="text-slate-700">
+                                  {worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo')}
+                                </p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Turno</p>
+                                <p className="text-slate-700 break-words">{worker.assignedShift || '—'}</p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Zona / Grupo</p>
+                                {(worker.assignedZones?.length ?? 0) > 0 ? (
+                                  <ZoneNameBadges unitZones={unit.zones} zoneNames={worker.assignedZones!} size="xs" />
+                                ) : (
+                                  <p className="text-slate-400 italic">Sin zona</p>
+                                )}
+                              </div>
+                            </div>
+                        </div>
+
                         {/* Training History */}
                         <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
                             <div className="flex justify-between items-center mb-3">
@@ -6425,8 +6527,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         <div className="flex items-center flex-1 min-w-0">
                                             <div className="mr-2 shrink-0">{getAssetIcon(a.type)}</div>
                                             <div className="min-w-0 flex-1">
-                                                <p className="font-medium text-slate-700 truncate">{a.name}</p>
-                                                <p className="text-xs text-slate-500 truncate">
+                                                <p className="font-medium text-slate-700 break-words" title={a.name}>{a.name}</p>
+                                                <p className="text-xs text-slate-500 break-words" title={[
+                                                    a.dateAssigned,
+                                                    (a.serialNumber || (a as any).serial_number) && `SN: ${a.serialNumber || (a as any).serial_number}`,
+                                                    (a.phoneNumber || (a as any).phone_number) && `Tel: ${a.phoneNumber || (a as any).phone_number}`,
+                                                    a.constancyCode && `Const: ${a.constancyCode}`,
+                                                ].filter(Boolean).join(' • ')}>
                                                     {a.dateAssigned} 
                                                     {(a.serialNumber || (a as any).serial_number) && ` • SN: ${a.serialNumber || (a as any).serial_number}`}
                                                     {(a.phoneNumber || (a as any).phone_number) && ` • Tel: ${a.phoneNumber || (a as any).phone_number}`}
@@ -6747,7 +6854,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 </div>
                                             )}
                                              <div>
-                                                 <p className="text-sm font-medium text-slate-900 truncate max-w-[120px]" title={worker.name}>{worker.name}</p>
+                                                 <p className="text-sm font-medium text-slate-900 break-words max-w-[180px]" title={worker.name}>{worker.name}</p>
                                                  <p className="text-[10px] text-slate-400">{worker.assignedShift || 'N/A'}</p>
                                              </div>
                                          </div>
