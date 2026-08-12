@@ -1111,4 +1111,56 @@ export function mergeHrFieldsWithSnapshot(
   };
 }
 
+/**
+ * Al refrescar un ítem aún pendiente: datos vivos (ficha landing / alta OpsFlow)
+ * pisan campos de persona; se conservan IDs que RRHH ya tipificó en Opalosis.
+ */
+export function refreshHrFieldsFromLiveSnapshot(
+  existing: HrOpalosisIngresoFields | null | undefined,
+  snapshot: HrOutboundWorkerSnapshot,
+  refOperaciones: string,
+  options?: {
+    opalosisUnidadId?: number | null;
+    empresaCodigo?: number | null;
+    usuarioOf?: string | null;
+  },
+): HrOpalosisIngresoFields {
+  const mapped = mapSnapshotToHrFields(snapshot, refOperaciones, options);
+  if (!existing) return mapped;
+
+  const keepId = (current?: number | null, next?: number | null) =>
+    current !== null && current !== undefined ? current : (next ?? null);
+
+  return {
+    ...mapped,
+    empleadoCargoId: keepId(existing.empleadoCargoId, mapped.empleadoCargoId),
+    lugarTrabajoId: keepId(existing.lugarTrabajoId, mapped.lugarTrabajoId),
+    modeloContratoId: keepId(existing.modeloContratoId, mapped.modeloContratoId),
+    regimenLaboralId: keepId(existing.regimenLaboralId, mapped.regimenLaboralId),
+    fondoPensionId: keepId(existing.fondoPensionId, mapped.fondoPensionId),
+    bancoId: keepId(existing.bancoId, mapped.bancoId),
+    departamentoId: keepId(existing.departamentoId, mapped.departamentoId),
+    provinciaId: keepId(existing.provinciaId, mapped.provinciaId),
+    ubigeoId: keepId(existing.ubigeoId, mapped.ubigeoId),
+    estadoCivilId: keepId(existing.estadoCivilId, mapped.estadoCivilId),
+    supervisorId: keepId(existing.supervisorId, mapped.supervisorId),
+    centroCostoId: keepId(existing.centroCostoId, mapped.centroCostoId),
+    usuarioProcesoId: keepId(existing.usuarioProcesoId, mapped.usuarioProcesoId),
+    opaloId: keepId(existing.opaloId, mapped.opaloId) ?? mapped.opaloId,
+    usuarioOf: existing.usuarioOf || mapped.usuarioOf,
+    observacion: existing.observacion || mapped.observacion,
+    refOperaciones: existing.refOperaciones || mapped.refOperaciones || refOperaciones,
+    labels: {
+      ...existing.labels,
+      ...mapped.labels,
+      empleadoCargo: existing.empleadoCargoId
+        ? existing.labels?.empleadoCargo || mapped.labels?.empleadoCargo
+        : mapped.labels?.empleadoCargo || existing.labels?.empleadoCargo,
+      lugarTrabajo: existing.lugarTrabajoId
+        ? existing.labels?.lugarTrabajo || mapped.labels?.lugarTrabajo
+        : mapped.labels?.lugarTrabajo || existing.labels?.lugarTrabajo,
+    },
+  };
+}
+
 export { HR_SHAREPOINT_DOCS_LIBRARY_URL };

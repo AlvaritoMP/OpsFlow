@@ -81,8 +81,14 @@ export const WorkerComplementaryPanel: React.FC<WorkerComplementaryPanelProps> =
       const updated = await resourcesService.update(worker.id, {
         inboundSourceData,
       });
+      try {
+        const { hrOutboundIngresoService } = await import('../services/hrOutboundIngresoService');
+        await hrOutboundIngresoService.refreshPendingQueueFromResource(worker.id);
+      } catch (enqueueErr) {
+        console.warn('Ficha guardada, pero no se actualizó la cola Opalosis:', enqueueErr);
+      }
       setDirty(false);
-      setSavedMsg('Ficha guardada');
+      setSavedMsg('Ficha guardada. Si está pendiente de Envío Opalosis, la cola se actualizó.');
       onSaved?.(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar la ficha');
@@ -121,8 +127,9 @@ export const WorkerComplementaryPanel: React.FC<WorkerComplementaryPanelProps> =
       {open && (
         <div className="space-y-4 border-t border-slate-100 px-4 py-4">
           <p className="text-xs leading-relaxed text-slate-500">
-            Información de la ficha del candidato/trabajador. Consulta y edita con autonomía; no
-            modifica etapas del ATS.
+            Datos del trabajador (referidos y altas directas suelen completarlos en el landing
+            /ficha). Si el colaborador está pendiente de Envío Opalosis, guardar aquí actualiza esa
+            cola.
           </p>
 
           {error && (

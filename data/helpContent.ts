@@ -189,6 +189,15 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
       },
       {
+        heading: 'Alta directa de colaborador',
+        body: 'Los referidos se activan en la unidad sin pasar por ATS, por eso no traen ficha complementaria. Al crearlos (Nuevo colaborador o carga masiva) OpsFlow los encola en Envío Opalosis y usted les envía el landing /ficha para que completen sus datos.',
+        tips: [
+          'Use DNI al dar de alta: el landing abre la ficha con ese documento.',
+          'Mientras el ítem siga pendiente, lo que el trabajador guarde en /ficha (o usted en Ficha complementaria) actualiza la cola. Si ya se envió a Opalosis, no se pisa.',
+          'El alta queda en la unidad aunque falle el encolado; use «Sincronizar cola» en Envío Opalosis.',
+        ],
+      },
+      {
         heading: 'Consejos',
         body: 'Use el botón de volver para regresar al listado de unidades sin perder el contexto del menú.',
         tips: [
@@ -383,6 +392,20 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'Si el ATS envió poca ficha, OpsFlow completa lo posible desde identidad y campos del proceso; el resto se edita aquí.',
+          'También puede enviar al trabajador el link público /ficha para que complete la ficha con su DNI (hasta 3 aperturas, sin login).',
+        ],
+      },
+      {
+        heading: 'Landing público de ficha (sin login)',
+        body: 'Cualquier persona puede abrir https://<tu-dominio>/ficha, ingresar su DNI y completar la ficha complementaria. No requiere cuenta en OpsFlow.',
+        steps: [
+          'Copie el link con el botón “Link ficha pública” en esta bandeja y envíelo al trabajador.',
+          'El trabajador ingresa su DNI de 8 dígitos y completa el formulario.',
+          'Cada DNI puede abrir la ficha hasta 3 veces. Al agotar las aperturas, la ficha queda bloqueada (solo lectura).',
+          'Lo guardado se replica en la presentación ATS y, si ya es colaborador, en su ficha de personal.',
+        ],
+        tips: [
+          'Una recarga o un nuevo ingreso de DNI cuenta como otra apertura. La sesión actual (unas 12 horas) no consume un cupo extra al guardar.',
         ],
       },
       {
@@ -424,16 +447,16 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: 'Envío Opalosis (RRHH)',
     navLabel: 'Envío Opalosis',
     summary:
-      'Cola de envío de ingresos a Opalosis. Solo aplica después de registrar al candidato aprobado en una unidad.',
+      'Cola de envío de ingresos a Opalosis. Se llena al registrar un candidato de Presentaciones en una unidad o al crear un colaborador directo en OpsFlow.',
     sections: [
       {
         heading: 'Para qué sirve',
-        body: 'Opalosis gestiona el ingreso/contratación en RRHH. OpsFlow encola el envío únicamente cuando un candidato de Presentaciones (o flujo equivalente) queda registrado en una unidad. El handoff de presentación por sí solo no dispara Opalosis.',
+        body: 'Opalosis gestiona el ingreso/contratación en RRHH. La cola se llena al registrar un candidato de Presentaciones en una unidad, o al crear un referido/alta directa en Personal. Esos últimos no traen ficha ATS: completan datos en /ficha y, si el ítem sigue pendiente, la cola se actualiza sola.',
       },
       {
         heading: 'Cómo usarlo',
         steps: [
-          'Confirme que el trabajador ya fue registrado en una unidad desde Presentaciones ATS.',
+          'Confirme que el trabajador ya está en una unidad (Presentaciones ATS o alta directa en Personal).',
           'Revise la cola de ítems pendientes o con error.',
           'Edite datos si el ítem lo permite antes de enviar o reenviar.',
           'Confirme el envío y verifique el estado resultante.',
@@ -441,6 +464,8 @@ export const HELP_TOPICS: HelpTopic[] = [
         tips: [
           'Si un envío falla, corrija el dato indicado y reintente; no duplique el ingreso manualmente sin revisar el estado.',
           'Candidatos solo aprobados (sin unidad) o archivados sin ingreso no deben aparecer aquí.',
+          '«Sincronizar cola» recupera presentaciones y altas directas de los últimos 7 días que no hayan quedado encoladas.',
+          'Antes de enviar, OpsFlow refresca la ficha viva (landing o edición en unidad). Un paquete ya enviado no se modifica.',
         ],
       },
     ],

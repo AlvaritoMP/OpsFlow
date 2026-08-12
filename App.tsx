@@ -37,6 +37,8 @@ import { PasswordReset } from './components/PasswordReset';
 import { WorkersManagement } from './components/WorkersManagement';
 import { InboundWorkerHandoff } from './components/InboundWorkerHandoff';
 import { AtsPresentations } from './components/AtsPresentations';
+import { ComplementaryFichaLanding } from './components/ComplementaryFichaLanding';
+import { isPublicComplementaryFichaPath } from './services/publicComplementaryFichaService';
 import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
 import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffService';
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
@@ -47,9 +49,10 @@ import { HelpPanel, HelpTriggerButton } from './components/HelpPanel';
 const ATS_COUNT_POLL_MS = 30 * 1000;
 
 const App: React.FC = () => {
+  const isPublicFichaLanding = isPublicComplementaryFichaPath();
   // Estado de autenticación
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(!isPublicFichaLanding);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis'>('dashboard');
@@ -299,6 +302,11 @@ const App: React.FC = () => {
   useEffect(() => {
     let mounted = true;
     
+    if (isPublicFichaLanding) {
+      setAuthLoading(false);
+      return;
+    }
+
     const checkAuth = async () => {
       try {
         const dbUser = await authService.getCurrentUser();
@@ -356,7 +364,7 @@ const App: React.FC = () => {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isPublicFichaLanding]);
 
   // Actualizar currentUser cuando se carguen los usuarios
   useEffect(() => {
@@ -1606,6 +1614,10 @@ const App: React.FC = () => {
 
 
   const renderContent = () => {
+    if (isPublicFichaLanding) {
+      return <ComplementaryFichaLanding />;
+    }
+
     // Mostrar error si hay uno crítico
     if (appError && !authLoading) {
       return (
@@ -3222,6 +3234,10 @@ const App: React.FC = () => {
 
     return null;
   };
+
+  if (isPublicFichaLanding) {
+    return <ComplementaryFichaLanding />;
+  }
 
   // Si no está autenticado, solo mostrar el login (ya manejado en renderContent)
   if (!isAuthenticated || !currentUser) {

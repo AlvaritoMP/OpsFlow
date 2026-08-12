@@ -39,3 +39,6 @@ verify_jwt = false
 
 [functions.update-user-password]
 verify_jwt = false
+
+[functions.public-complementary-ficha]
+verify_jwt = false

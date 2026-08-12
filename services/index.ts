@@ -25,4 +25,5 @@ export * from './vacationAuthService';
 export * from './vacationAuditService';
 export * from './variableCompensationsService';
 export * from './inboundWorkerHandoffService';
+export * from './publicComplementaryFichaService';
 

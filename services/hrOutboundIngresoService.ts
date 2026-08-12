@@ -4,6 +4,7 @@ import {
   buildOutboundWorkerSnapshot,
   mapSnapshotToHrFields,
   normalizeHrFields,
+  refreshHrFieldsFromLiveSnapshot,
   type EnqueueAssignmentInput,
 } from '../utils/hrOpalosisMapper';
 import type {
@@ -23,7 +24,7 @@ import type {
 import { ResourceType } from '../types';
 
 const SYNC_RESOURCE_SELECT =
-  'id, name, dni, unit_id, puesto, localidad, phone, birth_date, start_date, end_date, assigned_shift, monthly_salary, personnel_status, external_id, inbound_source_data, type, jornada_type, labor_regime, mobility_bonus, family_allowance, work_days, entry_time, exit_time';
+  'id, name, dni, unit_id, puesto, localidad, phone, email, birth_date, start_date, end_date, assigned_shift, monthly_salary, personnel_status, external_id, inbound_source_data, type, jornada_type, labor_regime, mobility_bonus, family_allowance, work_days, entry_time, exit_time';
 
 function lightResourceFromRow(data: Record<string, unknown>): Resource {
   const birth = typeof data.birth_date === 'string' ? data.birth_date.split('T')[0] : undefined;
@@ -39,6 +40,7 @@ function lightResourceFromRow(data: Record<string, unknown>): Resource {
     puesto: (data.puesto as string) || undefined,
     localidad: (data.localidad as string) || undefined,
     phone: (data.phone as string) || undefined,
+    email: (data.email as string) || undefined,
     birthDate: birth,
     startDate: start,
     endDate: end,
@@ -368,8 +370,121 @@ export const hrOutboundIngresoService = {
   },
 
   /**
-   * Encola solo Presentaciones ATS registradas en unidad (últimos 7 días).
-   * No incluye la nómina completa ni altas antiguas.
+   * Alta directa en OpsFlow (modal Nuevo colaborador / carga masiva).
+   * Encola en pendiente_envio igual que el registro desde Presentaciones ATS.
+   */
+  async enqueueFromDirectOpsflowCreate(
+    resource: Resource,
+    unit: Unit,
+    usuarioOf?: string | null,
+  ): Promise<HrOutboundIngresoQueueItem | null> {
+    if (resource.type !== ResourceType.PERSONNEL) return null;
+    return this.enqueueFromAssignment({
+      resource: { ...resource, unitId: resource.unitId || unit.id },
+      unit,
+      sourceApp: 'OpsFlow',
+      usuarioOf: usuarioOf?.trim() || 'opsflow',
+    });
+  },
+
+  /**
+   * Reconstruye snapshot + hr_fields de un ítem aún pendiente a partir del
+   * trabajador vivo (ficha landing / edición en unidad). No toca ítems ya enviados.
+   */
+  async refreshPendingQueueFromResource(
+    resourceId: string,
+  ): Promise<HrOutboundIngresoQueueItem | null> {
+    const { data: row, error } = await supabase
+      .from('hr_outbound_ingreso_queue')
+      .select('*')
+      .eq('resource_id', resourceId)
+      .eq('queue_status', 'pendiente_envio')
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`No se pudo leer la cola Opalosis: ${error.message}`);
+    }
+    if (!row) return null;
+
+    const current = transformQueueFromDB(row as unknown as Record<string, unknown>);
+    const [resourceById, handoffByResourceId] = await Promise.all([
+      loadResourcesByIds([resourceId]),
+      loadHandoffsByResourceIds([resourceId]),
+    ]);
+    const resource = resourceById.get(resourceId);
+    if (!resource) return current;
+
+    const unitId = resource.unitId || current.opsflowUnitId;
+    const { data: unitRow, error: unitErr } = await supabase
+      .from('units')
+      .select('id, name, client_name, status')
+      .eq('id', unitId)
+      .maybeSingle();
+    if (unitErr || !unitRow) return current;
+
+    const ur = unitRow as unknown as Record<string, unknown>;
+    const unit = {
+      id: ur.id as string,
+      name: String(ur.name ?? 'Unidad'),
+      clientName: String(ur.client_name ?? ''),
+      status: ur.status,
+    } as Unit;
+
+    const handoffItem = handoffByResourceId.get(resourceId) ?? null;
+    const mapping = await this.getUnitMapping(unit.id);
+    const snapshot = buildOutboundWorkerSnapshot({
+      resource: { ...resource, unitId: resource.unitId || unit.id },
+      unit,
+      handoffItem,
+      sourceApp:
+        resource.inboundSourceData?.sourceApp ?? (handoffItem ? 'Opalo ATS' : 'OpsFlow'),
+      sourcePackageId: handoffItem?.packageId ?? resource.inboundSourceData?.sourcePackageId,
+      opalosisUnidadId: mapping?.opalosisUnidadId ?? current.hrFields?.lugarTrabajoId,
+      empresaCodigo: mapping?.empresaCodigo ?? current.hrFields?.opaloId,
+    });
+    const hrFields = refreshHrFieldsFromLiveSnapshot(
+      current.hrFields,
+      snapshot,
+      current.refOperaciones,
+      {
+        opalosisUnidadId: mapping?.opalosisUnidadId ?? current.hrFields?.lugarTrabajoId ?? null,
+        empresaCodigo: mapping?.empresaCodigo ?? current.hrFields?.opaloId ?? null,
+        usuarioOf: current.hrFields?.usuarioOf ?? 'opsflow',
+      },
+    );
+    if (mapping?.opalosisUnidadNombre && !hrFields.labels?.lugarTrabajo) {
+      hrFields.labels = {
+        ...hrFields.labels,
+        lugarTrabajo: mapping.opalosisUnidadNombre,
+      };
+    }
+
+    const workerName =
+      `${hrFields.apellidoPaterno} ${hrFields.apellidoMaterno} ${hrFields.nombres}`.trim() ||
+      resource.name;
+
+    const { data: updated, error: updateError } = await supabase
+      .from('hr_outbound_ingreso_queue')
+      .update({
+        worker_snapshot: snapshot,
+        hr_fields: hrFields,
+        worker_name: workerName,
+      })
+      .eq('id', current.id)
+      .eq('queue_status', 'pendiente_envio')
+      .select('*')
+      .single();
+
+    if (updateError) {
+      throw new Error(`No se pudo actualizar la cola Opalosis: ${updateError.message}`);
+    }
+    return transformQueueFromDB(updated as unknown as Record<string, unknown>);
+  },
+
+  /**
+   * Recupera ítems faltantes de los últimos 7 días:
+   * presentaciones ATS ya registradas en unidad y altas directas de personal.
+   * No incluye la nómina histórica.
    */
   async syncMissingFromAssignedPresentations(units: Unit[]): Promise<{
     enqueued: number;
@@ -381,12 +496,13 @@ export const hrOutboundIngresoService = {
 
     const presentationsSince = new Date();
     presentationsSince.setDate(presentationsSince.getDate() - 7);
+    const sinceIso = presentationsSince.toISOString();
 
     const { data: presentationRows, error: presentationError } = await supabase
       .from('inbound_worker_handoff_items')
       .select('id, worker_name, created_resource_id')
       .not('created_resource_id', 'is', null)
-      .gte('updated_at', presentationsSince.toISOString())
+      .gte('updated_at', sinceIso)
       .order('updated_at', { ascending: false })
       .limit(200);
 
@@ -403,6 +519,31 @@ export const hrOutboundIngresoService = {
       candidates.push({
         resourceId,
         workerName: String(raw.worker_name ?? resourceId),
+      });
+    }
+
+    const { data: recentPersonnel, error: personnelError } = await supabase
+      .from('resources')
+      .select('id, name')
+      .eq('type', 'Personal')
+      .eq('archived', false)
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    if (personnelError) {
+      throw new Error(
+        `No se pudieron leer altas directas de personal: ${personnelError.message}`,
+      );
+    }
+
+    for (const raw of ((recentPersonnel ?? []) as unknown as Array<Record<string, unknown>>)) {
+      const resourceId = raw.id as string | null;
+      if (!resourceId || seenResources.has(resourceId)) continue;
+      seenResources.add(resourceId);
+      candidates.push({
+        resourceId,
+        workerName: String(raw.name ?? resourceId),
       });
     }
 

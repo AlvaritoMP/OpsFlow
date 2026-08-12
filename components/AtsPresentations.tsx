@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardList,
+  Copy,
   Loader2,
   RefreshCw,
   Save,
@@ -14,6 +15,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
+import { getPublicComplementaryFichaUrl } from '../services/publicComplementaryFichaService';
 import { RegisterHandoffWorkerModal } from './RegisterHandoffWorkerModal';
 import { ComplementaryFichaForm } from './ComplementaryFichaForm';
 import {
@@ -129,6 +131,40 @@ function resolvePresentationStartDate(item: InboundHandoffItem): string | undefi
 
 function fichaBadge(status?: ComplementaryStatus | null) {
   return FICHA_BADGE[status ?? 'missing'];
+}
+
+function PublicFichaLinkButton() {
+  const [copied, setCopied] = useState(false);
+  const url = getPublicComplementaryFichaUrl();
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = url;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleCopy()}
+      title={url}
+      className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+    >
+      <Copy size={16} />
+      {copied ? 'Link copiado' : 'Link ficha pública'}
+    </button>
+  );
 }
 
 function resolveItemComplementary(item: InboundHandoffItem): WorkerSnapshotComplementary {
@@ -930,14 +966,17 @@ export const AtsPresentations: React.FC<AtsPresentationsProps> = ({
             Revisa y edita la ficha, luego aprueba o rechaza. Opalosis solo tras registro.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void loadItems()}
-          className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw size={16} />
-          Actualizar
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <PublicFichaLinkButton />
+          <button
+            type="button"
+            onClick={() => void loadItems()}
+            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            <RefreshCw size={16} />
+            Actualizar
+          </button>
+        </div>
       </div>
 
       <div className="-mx-3 mb-4 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">

@@ -74,6 +74,16 @@ La ingesta desde Opalo ATS usa la Edge Function `receive-worker-handoff`. **No**
 
 Ver `INBOUND_WORKER_HANDOFF.md` para URL del endpoint y ejemplo de payload.
 
+## Ficha complementaria pública (Edge Function)
+
+Landing sin login en `/ficha`. El trabajador ingresa su DNI y completa la ficha (máximo 3 aperturas por DNI).
+
+1. Ejecutar `migrations/MIGRATION_PUBLIC_COMPLEMENTARY_FICHA.sql` en el SQL Editor de Supabase.
+2. Desplegar la Edge Function `public-complementary-ficha` (`verify_jwt = false`).
+3. Secrets de la función: `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` (ya usadas por otras funciones).
+
+URL para compartir con trabajadores: `https://<tu-dominio>/ficha`
+
 ## Envío Opalosis (Edge Function — solo servidor)
 
 La integración outbound hacia Opalosis usa la Edge Function `hr-opalosis-integration`. **No** expongas estas variables en el frontend.

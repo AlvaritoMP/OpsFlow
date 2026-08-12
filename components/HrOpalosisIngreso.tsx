@@ -153,43 +153,51 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
     }
   };
 
-  const handleSendPackage = async () => {
-    if (!canEdit || selectedIds.size === 0) return;
-
-    const selected = queueItems.filter((i) => selectedIds.has(i.id));
-    const incomplete = selected.filter((i) => {
-      const merged = i.hrFields
-        ? mergeHrFieldsWithSnapshot(i.hrFields, i.workerSnapshot, i.refOperaciones, {
-            opalosisUnidadId: i.hrFields.lugarTrabajoId ?? null,
-            empresaCodigo: i.hrFields.opaloId ?? null,
-          })
-        : mergeHrFieldsWithSnapshot(null, i.workerSnapshot, i.refOperaciones);
-      return listHrFieldBlockers(merged).length > 0;
-    });
-    if (incomplete.length > 0) {
-      setError(
-        `${incomplete.length} trabajador(es) sin documento o nombre. Completa al menos identidad mínima; cargo/lugar/sueldo Opalosis no son obligatorios para enviar (RRHH tipifica en OpaloSis).`,
+  const handleEditItem = async (item: HrOutboundIngresoQueueItem) => {
+    try {
+      const refreshed = await hrOutboundIngresoService.refreshPendingQueueFromResource(
+        item.resourceId,
       );
-      return;
+      setEditingItem(refreshed ?? item);
+    } catch {
+      setEditingItem(item);
     }
+  };
+    if (!canEdit || selectedIds.size === 0) return;
 
     setSending(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      // Rehidratar huecos desde snapshot OpsFlow/ATS antes de enviar
+      const selected = queueItems.filter((i) => selectedIds.has(i.id));
       for (const item of selected) {
-        const merged = mergeHrFieldsWithSnapshot(
-          item.hrFields,
-          item.workerSnapshot,
-          item.refOperaciones,
-          {
-            opalosisUnidadId: item.hrFields?.lugarTrabajoId ?? null,
-            empresaCodigo: item.hrFields?.opaloId ?? null,
-          },
+        try {
+          await hrOutboundIngresoService.refreshPendingQueueFromResource(item.resourceId);
+        } catch (refreshErr) {
+          console.warn('No se pudo refrescar ficha viva antes de enviar:', refreshErr);
+        }
+      }
+
+      const latest = await hrOutboundIngresoService.listQueueItems(
+        reportDate ? { reportDate } : { status: 'pendiente_envio' },
+      );
+      const latestSelected = latest.filter((i) => selectedIds.has(i.id));
+      const incomplete = latestSelected.filter((i) => {
+        const merged = i.hrFields
+          ? mergeHrFieldsWithSnapshot(i.hrFields, i.workerSnapshot, i.refOperaciones, {
+              opalosisUnidadId: i.hrFields.lugarTrabajoId ?? null,
+              empresaCodigo: i.hrFields.opaloId ?? null,
+            })
+          : mergeHrFieldsWithSnapshot(null, i.workerSnapshot, i.refOperaciones);
+        return listHrFieldBlockers(merged).length > 0;
+      });
+      if (incomplete.length > 0) {
+        setQueueItems(latest);
+        setError(
+          `${incomplete.length} trabajador(es) sin documento o nombre. Pida que completen la ficha en /ficha o complete identidad mínima aquí.`,
         );
-        await hrOutboundIngresoService.updateQueueItemHrFields(item.id, merged);
+        return;
       }
 
       const result = await hrOutboundIngresoService.sendPackage({
@@ -232,8 +240,8 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
       ].filter(Boolean);
       setSuccessMessage(
         parts.length
-          ? `Sincronización (presentaciones 7 días): ${parts.join(', ')}.`
-          : 'Sincronización: nada pendiente en presentaciones recientes.',
+          ? `Sincronización (7 días: presentaciones y altas directas): ${parts.join(', ')}.`
+          : 'Sincronización: nada pendiente en presentaciones ni altas directas recientes.',
       );
       if (result.errors.length > 0) {
         setError(result.errors.slice(0, 5).join(' | '));
@@ -500,8 +508,8 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
           </div>
           <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Envío Opalosis</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Altas recientes (Presentaciones ATS o altas directas) pendientes de envío a RRHH.
-            Completa datos y envía; no se mandan solos al registrar.
+            Referidos y altas directas entran aquí sin ficha ATS. Cuando completen /ficha (o se
+            edite la ficha en la unidad), la cola se actualiza si el envío sigue pendiente.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -523,7 +531,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
               onClick={handleSyncMissing}
               disabled={syncing || loading}
               className="flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-              title="Solo presentaciones ATS registradas en los últimos 7 días"
+              title="Presentaciones ATS y altas directas de los últimos 7 días"
             >
               {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
               Sincronizar cola
@@ -770,7 +778,7 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
                             <div className="flex flex-col items-start gap-1">
                               <button
                                 type="button"
-                                onClick={() => setEditingItem(item)}
+                                onClick={() => void handleEditItem(item)}
                                 className="text-xs font-medium text-blue-600 hover:text-blue-800"
                               >
                                 Completar / editar

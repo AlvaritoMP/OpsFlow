@@ -2342,8 +2342,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
       setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
-      setNotification({ type: 'success', message: 'Trabajador agregado correctamente' });
-      setTimeout(() => setNotification(null), 3000);
+
+      let enqueueWarning: string | null = null;
+      try {
+        const { hrOutboundIngresoService } = await import('../services/hrOutboundIngresoService');
+        await hrOutboundIngresoService.enqueueFromDirectOpsflowCreate(
+          newWorker,
+          unit,
+          currentUser?.name || currentUser?.email,
+        );
+      } catch (enqueueErr) {
+        console.error('No se pudo encolar ingreso HR tras alta directa:', enqueueErr);
+        enqueueWarning =
+          enqueueErr instanceof Error ? enqueueErr.message : String(enqueueErr);
+      }
+
+      setNotification({
+        type: enqueueWarning ? 'warning' : 'success',
+        message: enqueueWarning
+          ? `Trabajador agregado, pero no se encoló para Envío Opalosis: ${enqueueWarning}. Usa «Sincronizar cola» en Envío Opalosis.`
+          : 'Trabajador agregado y encolado en Envío Opalosis (pendiente de envío).',
+      });
+      setTimeout(() => setNotification(null), enqueueWarning ? 8000 : 4000);
       
       // Recargar en segundo plano para sincronizar con BD (sin afectar la UI)
       setTimeout(async () => {
@@ -2448,6 +2468,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           });
         }
       }
+
+      let enqueuedCount = 0;
+      if (createdWorkers.length > 0) {
+        const { hrOutboundIngresoService } = await import('../services/hrOutboundIngresoService');
+        for (const worker of createdWorkers) {
+          try {
+            await hrOutboundIngresoService.enqueueFromDirectOpsflowCreate(
+              worker,
+              unit,
+              currentUser?.name || currentUser?.email,
+            );
+            enqueuedCount += 1;
+          } catch (enqueueErr) {
+            errors.push({
+              row: 0,
+              error: `${worker.name}: creado, pero no se encoló para Opalosis (${
+                enqueueErr instanceof Error ? enqueueErr.message : String(enqueueErr)
+              })`,
+            });
+          }
+        }
+      }
       
       // Actualizar unidad con los nuevos trabajadores
       const updatedResources = [...unit.resources, ...createdWorkers];
@@ -2456,10 +2498,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Mostrar resultado
       if (createdWorkers.length > 0) {
         setNotification({ 
-          type: 'success', 
-          message: `Se importaron ${createdWorkers.length} trabajador(es) correctamente${errors.length > 0 ? `. ${errors.length} error(es).` : '.'}` 
+          type: enqueuedCount < createdWorkers.length ? 'warning' : 'success', 
+          message: `Se importaron ${createdWorkers.length} trabajador(es). ${enqueuedCount} encolado(s) para Envío Opalosis${errors.length > 0 ? `. ${errors.length} aviso(s).` : '.'}` 
         });
-        setTimeout(() => setNotification(null), 5000);
+        setTimeout(() => setNotification(null), 6000);
       }
       
       if (errors.length > 0) {
@@ -3243,6 +3285,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       if (!updatedResourceFromDB) {
         throw new Error('No se pudo recargar el recurso actualizado');
+      }
+
+      if (updatedResourceFromDB.type === ResourceType.PERSONNEL) {
+        try {
+          const { hrOutboundIngresoService } = await import('../services/hrOutboundIngresoService');
+          await hrOutboundIngresoService.refreshPendingQueueFromResource(updatedResourceFromDB.id);
+        } catch (enqueueErr) {
+          console.warn('Trabajador actualizado, pero no se refrescó la cola Opalosis:', enqueueErr);
+        }
       }
       
       // Actualizar solo el recurso localmente con los datos de la BD
@@ -8319,6 +8370,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
                   <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.dni || ''} onChange={e => setNewWorkerForm({...newWorkerForm, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
+                  <p className="mt-1 text-xs text-slate-500">Necesario para que el referido complete la ficha en /ficha y para el envío a Opalosis.</p>
                 </div>
                 
                 <div>
@@ -8587,6 +8639,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
                 </div>
 
+                <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                  Al registrar, el colaborador entra a Envío Opalosis. Como no pasó por ATS, envíele
+                  el link /ficha para que complete su ficha (hasta 3 aperturas). Esos datos se
+                  copian a la cola mientras el envío siga pendiente.
+                </p>
                 <button 
                   onClick={handleAddWorker} 
                   disabled={isSavingWorker}
