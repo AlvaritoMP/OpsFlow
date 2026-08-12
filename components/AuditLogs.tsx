@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FileText, Search, Filter, Download, Calendar, User, Activity, RefreshCw, Loader2 } from 'lucide-react';
 import { auditService, AuditLog, AuditActionType, AuditEntityType } from '../services/auditService';
 import { excelService } from '../services/excelService';
+import { DateInput } from './DateInput';
 
 export const AuditLogs: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -293,12 +294,11 @@ export const AuditLogs: React.FC = () => {
                 Fecha Inicio
               </label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  type="date"
+                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 z-10 pointer-events-none" size={18} />
+                <DateInput
                   value={filterStartDate}
-                  onChange={(e) => {
-                    setFilterStartDate(e.target.value);
+                  onChange={(v) => {
+                    setFilterStartDate(v);
                     setCurrentPage(1);
                   }}
                   className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
@@ -312,12 +312,11 @@ export const AuditLogs: React.FC = () => {
                 Fecha Fin
               </label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  type="date"
+                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 z-10 pointer-events-none" size={18} />
+                <DateInput
                   value={filterEndDate}
-                  onChange={(e) => {
-                    setFilterEndDate(e.target.value);
+                  onChange={(v) => {
+                    setFilterEndDate(v);
                     setCurrentPage(1);
                   }}
                   className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"

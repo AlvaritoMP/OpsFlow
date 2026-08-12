@@ -26,6 +26,8 @@ import {
   UNIT_CLASS_LABELS,
 } from '../utils/unitClassConfig';
 import { isUnitOperational } from '../utils/unitStatus';
+import { formatDateDisplay } from '../utils/dateFormat';
+import { DateInput } from './DateInput';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -210,7 +212,7 @@ const RequestDiscussionThread: React.FC<{
             <p className="whitespace-pre-wrap break-words">{comment.text}</p>
           </div>
           <span className="text-[10px] text-slate-400 mt-1 px-1">
-            {comment.author} • {new Date(comment.date).toLocaleDateString()}
+            {comment.author} • {formatDateDisplay(comment.date.slice(0, 10))}
           </span>
         </div>
       ))}
@@ -495,6 +497,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [localResources, setLocalResources] = useState<Resource[]>(unit.resources);
   const [rosterHasUnsavedChanges, setRosterHasUnsavedChanges] = useState(false);
   const [isSavingRoster, setIsSavingRoster] = useState(false);
+  const [isSavingUnit, setIsSavingUnit] = useState(false);
   const [dirtyRosterShifts, setDirtyRosterShifts] = useState<Set<string>>(new Set());
   
   // Sincronizar localResources cuando unit.resources cambia desde el padre
@@ -733,16 +736,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // Función para formatear fecha desde string YYYY-MM-DD
-  const formatDateFromString = (dateStr: string) => {
-    if (!dateStr) return '';
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    return date.toLocaleDateString('es-PE', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
-  };
+  const formatDateFromString = (dateStr: string) => formatDateDisplay(dateStr);
 
   const getBirthdayStatus = (birthDateStr: string) => {
     const [birthYear, birthMonth, birthDay] = birthDateStr.split('-').map(Number);
@@ -809,15 +803,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     await loadNightSupervisionShifts();
   };
 
-  // CRITICAL FIX: Sync local edit state when parent unit prop changes
-  // Solo sincronizar cuando cambia el ID de la unidad, no en cada cambio de unit
-  // Esto evita loops infinitos cuando unit se actualiza desde el padre
+  // Sincronizar editForm con la unidad del padre cuando no se está editando
   useEffect(() => {
-    if (!isEditing && previousUnitIdRef.current !== unit.id) {
+    if (!isEditing) {
       setEditForm(unit);
-      previousUnitIdRef.current = unit.id;
     }
-  }, [unit.id, isEditing]); // Solo cuando cambia el ID de la unidad o el estado de edición
+  }, [unit, isEditing]);
 
   // Initial Layer Set
   useEffect(() => {
@@ -862,7 +853,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // --- General Unit Update ---
   const handleSaveUnit = async () => {
-    if (!onUpdate) return;
+    if (!onUpdate || isSavingUnit) return;
 
     const deactivating =
       editForm.status === UnitStatus.DEACTIVATED && unit.status !== UnitStatus.DEACTIVATED;
@@ -1055,31 +1046,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       assignedStaff: editForm.assignedStaff !== undefined ? editForm.assignedStaff : unit.assignedStaff,
     };
     
+    setIsSavingUnit(true);
+
+    // Actualización optimista: reflejar cambios de inmediato en la UI de lectura
+    replaceUnitInState?.(cleanedForm);
+
+    // Persistir solo campos de información general (evita re-guardar cientos de recursos)
+    const { resources: _r, logs: _l, requests: _req, ...generalInfoPayload } = cleanedForm;
+
     try {
-      // Actualizar la unidad
       console.log('🔄 Llamando a onUpdate con:', { 
-        id: cleanedForm.id, 
-        name: cleanedForm.name,
-        address: cleanedForm.address,
-        imagesCount: cleanedForm.images.length,
-        resourcesCount: cleanedForm.resources?.length || 0,
-        images: cleanedForm.images,
-        latitude: cleanedForm.latitude,
-        longitude: cleanedForm.longitude,
-        hasCoordinates: !!(cleanedForm.latitude && cleanedForm.longitude)
+        id: generalInfoPayload.id, 
+        name: generalInfoPayload.name,
+        address: generalInfoPayload.address,
+        imagesCount: generalInfoPayload.images.length,
+        latitude: generalInfoPayload.latitude,
+        longitude: generalInfoPayload.longitude,
+        hasCoordinates: !!(generalInfoPayload.latitude && generalInfoPayload.longitude)
       });
-      console.log('🔄 Coordenadas detalladas:', {
-        latitude: cleanedForm.latitude,
-        longitude: cleanedForm.longitude,
-        typeLat: typeof cleanedForm.latitude,
-        typeLon: typeof cleanedForm.longitude
-      });
-      onUpdate(cleanedForm);
+      await onUpdate(generalInfoPayload as Unit);
       setIsEditing(false);
       
       setNotification({ type: 'success', message: 'Unidad actualizada correctamente' });
       setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
+      replaceUnitInState?.(unit);
       console.error('❌ Error al guardar unidad:', error);
       console.error('❌ Detalles del error:', {
         message: error.message,
@@ -1111,6 +1102,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         message: errorMessage
       });
       setTimeout(() => setNotification(null), 12000); // Más tiempo para leer mensajes de error de red
+    } finally {
+      setIsSavingUnit(false);
     }
   };
 
@@ -5290,8 +5283,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              <div className="absolute top-4 right-4 flex space-x-2">
                 {canEditGeneral && (
                   <button 
-                    onClick={() => setIsEditing(!isEditing)}
-                    className="flex items-center bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                    onClick={() => {
+                      if (isEditing) {
+                        setEditForm(unit);
+                        setIsEditing(false);
+                      } else {
+                        setEditForm(unit);
+                        setIsEditing(true);
+                      }
+                    }}
+                    disabled={isSavingUnit}
+                    className="flex items-center bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Edit2 size={16} className="mr-1.5"/> {isEditing ? 'Cancelar Edición' : 'Editar Información'}
                   </button>
@@ -5495,16 +5497,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                   <button 
                     onClick={handleSaveUnit} 
-                    disabled={uploadingImages.size > 0}
+                    disabled={uploadingImages.size > 0 || isSavingUnit}
                     className={`w-full py-2.5 rounded font-medium transition-colors ${
-                      uploadingImages.size > 0 
+                      uploadingImages.size > 0 || isSavingUnit
                         ? 'bg-slate-400 text-white cursor-not-allowed' 
                         : 'bg-blue-600 text-white hover:bg-blue-700'
                     }`}
                   >
                     {uploadingImages.size > 0 
                       ? `Subiendo ${uploadingImages.size} imagen(es)...` 
-                      : 'Guardar Cambios'
+                      : isSavingUnit
+                        ? 'Guardando...'
+                        : 'Guardar Cambios'
                     }
                   </button>
                </div>
@@ -7056,11 +7060,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 value={compensationForm.concept}
                 onChange={(e) => setCompensationForm({ ...compensationForm, concept: e.target.value })}
               />
-              <input
-                type="date"
+              <DateInput
                 className="border border-slate-300 rounded-lg p-2 outline-none"
                 value={compensationForm.paymentDate}
-                onChange={(e) => setCompensationForm({ ...compensationForm, paymentDate: e.target.value })}
+                onChange={(paymentDate) => setCompensationForm({ ...compensationForm, paymentDate })}
               />
               <button
                 onClick={handleSaveVariableCompensation}
@@ -7890,7 +7893,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         <option value="Visita Cliente">Visita Cliente</option>
                     </select>
                 </div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newEventForm.date} onChange={e => setNewEventForm({...newEventForm, date: e.target.value})} /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newEventForm.date} onChange={date => setNewEventForm({...newEventForm, date})} /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={newEventForm.description} onChange={e => setNewEventForm({...newEventForm, description: e.target.value})} /></div>
                 
                 <div>
@@ -8241,12 +8244,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Nacimiento</label>
-                  <input 
-                    type="date" 
-                    className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
-                    value={newWorkerForm.birthDate || ''} 
-                    onChange={e => setNewWorkerForm({...newWorkerForm, birthDate: e.target.value})} 
-                  />
+                  <DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.birthDate || ''} onChange={birthDate => setNewWorkerForm({...newWorkerForm, birthDate})} />
                   <p className="text-xs text-slate-500 mt-1">Se usará para generar alertas de cumpleaños</p>
                 </div>
                 
@@ -8339,14 +8337,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
-                    <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.startDate || ''} onChange={e => setNewWorkerForm({...newWorkerForm, startDate: e.target.value})} />
+                    <DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.startDate || ''} onChange={startDate => setNewWorkerForm({...newWorkerForm, startDate})} />
              </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
-                    <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.endDate || ''} onChange={e => {
-                      const endDate = e.target.value;
-                      setNewWorkerForm({...newWorkerForm, endDate});
-                    }} />
+                    <DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.endDate || ''} onChange={endDate => setNewWorkerForm({...newWorkerForm, endDate})} />
                     {newWorkerForm.endDate && (
                       <p className="text-xs text-amber-600 mt-1">El trabajador será cesado y archivado automáticamente</p>
                     )}
@@ -8520,21 +8515,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Registro *</label>
-                    <input 
-                      type="date" 
+                    <DateInput 
                       className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
                       value={newIncrementForm.incrementDate} 
-                      onChange={e => setNewIncrementForm({...newIncrementForm, incrementDate: e.target.value})} 
+                      onChange={incrementDate => setNewIncrementForm({...newIncrementForm, incrementDate})} 
                       required
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Aplicación *</label>
-                    <input 
-                      type="date" 
+                    <DateInput 
                       className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
                       value={newIncrementForm.effectiveDate} 
-                      onChange={e => setNewIncrementForm({...newIncrementForm, effectiveDate: e.target.value})} 
+                      onChange={effectiveDate => setNewIncrementForm({...newIncrementForm, effectiveDate})} 
                       required
                     />
                   </div>
@@ -8598,7 +8591,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Tema / Curso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.topic} onChange={e => setMassTrainingForm({...massTrainingForm, topic: e.target.value})} /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.date} onChange={e => setMassTrainingForm({...massTrainingForm, date: e.target.value})} /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.date} onChange={date => setMassTrainingForm({...massTrainingForm, date})} /></div>
                 <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Estado</label>
                     <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.status} onChange={e => setMassTrainingForm({...massTrainingForm, status: e.target.value})}>
@@ -8732,11 +8725,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label>
-                  <input 
-                    type="date" 
+                  <DateInput 
                     className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
                     value={assetAssignmentForm.dateAssigned} 
-                    onChange={e => setAssetAssignmentForm({...assetAssignmentForm, dateAssigned: e.target.value})} 
+                    onChange={dateAssigned => setAssetAssignmentForm({...assetAssignmentForm, dateAssigned})} 
                   />
                 </div>
                 <div>
@@ -8856,7 +8848,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Nacimiento</label>
-                                  <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.birthDate || ''} onChange={e => setEditingResource({...editingResource, birthDate: e.target.value})} />
+                                  <DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.birthDate || ''} onChange={birthDate => setEditingResource({...editingResource, birthDate})} />
                               </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
@@ -9008,20 +9000,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               <div className="grid grid-cols-2 gap-4">
                                   <div>
                                       <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
-                                      <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.startDate || ''} onChange={e => setEditingResource({...editingResource, startDate: e.target.value})} />
+                                      <DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.startDate || ''} onChange={startDate => setEditingResource({...editingResource, startDate})} />
                                   </div>
                                   <div>
                                       <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
-                                      <input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.endDate || ''} onChange={e => {
-                                        const endDate = e.target.value;
-                                        setEditingResource({
+                                      <DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.endDate || ''} onChange={endDate => setEditingResource({
                                           ...editingResource, 
                                           endDate,
                                           // NO cambiar automáticamente el estado basado en endDate
                                           // endDate es solo referencial para monitoreo del término del contrato
                                           // El cese/archivo se hace manualmente mediante la acción de "Cesar"
-                                        });
-                                      }} />
+                                        })} />
                                       {editingResource.endDate && (
                                         <p className="text-xs text-blue-600 mt-1">La fecha de fin de contrato es solo referencial para monitoreo. No afecta el estado del trabajador.</p>
                                       )}
@@ -9050,11 +9039,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   {editingResource.inTraining && (
                                       <div>
                                           <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio de Capacitación</label>
-                                          <input 
-                                              type="date" 
+                                          <DateInput 
                                               className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
                                               value={editingResource.trainingStartDate || ''} 
-                                              onChange={e => setEditingResource({...editingResource, trainingStartDate: e.target.value})} 
+                                              onChange={trainingStartDate => setEditingResource({...editingResource, trainingStartDate})} 
                                           />
                                           <p className="text-xs text-slate-500 mt-1">Después de 3 días se generará una alerta para crear el contrato de trabajo</p>
                                       </div>
@@ -9347,7 +9335,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Equipo: <span className="font-bold">{maintenanceResource.name}</span></p>
                 <div className="grid grid-cols-2 gap-4">
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.date} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, date: e.target.value})} /></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.date} onChange={date => setNewMaintenanceForm({...newMaintenanceForm, date})} /></div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
                         <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newMaintenanceForm.type} onChange={e => setNewMaintenanceForm({...newMaintenanceForm, type: e.target.value})}>
@@ -9422,7 +9410,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <button onClick={() => setEditingLog(null)} className="text-white/80 hover:text-white shrink-0 ml-2"><X size={20} /></button>
              </div>
              <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><input type="date" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingLog.date} onChange={e => setEditingLog({...editingLog, date: e.target.value})} /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingLog.date} onChange={date => setEditingLog({...editingLog, date})} /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label><textarea className="w-full border border-slate-300 rounded-lg p-2 outline-none h-24" value={editingLog.description} onChange={e => setEditingLog({...editingLog, description: e.target.value})} /></div>
                 
                  {/* Responsible Selection in Edit Log */}
@@ -10178,10 +10166,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Fecha de cese *
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={terminationDate}
-                  onChange={(e) => setTerminationDate(e.target.value)}
+                  onChange={setTerminationDate}
                   className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
@@ -10377,11 +10364,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Entrega</label>
-                <input
-                  type="date"
+                <DateInput
                   className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
                   value={editAssignedAssetForm.dateAssigned}
-                  onChange={e => setEditAssignedAssetForm({ ...editAssignedAssetForm, dateAssigned: e.target.value })}
+                  onChange={dateAssigned => setEditAssignedAssetForm({ ...editAssignedAssetForm, dateAssigned })}
                 />
               </div>
 
@@ -10488,10 +10474,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Fecha de inicio del nuevo contrato *
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={renewContractForm.startDate}
-                    onChange={(e) => setRenewContractForm({ ...renewContractForm, startDate: e.target.value })}
+                    onChange={startDate => setRenewContractForm({ ...renewContractForm, startDate })}
                     className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
@@ -10501,10 +10486,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Fecha de fin del nuevo contrato *
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={renewContractForm.endDate}
-                    onChange={(e) => setRenewContractForm({ ...renewContractForm, endDate: e.target.value })}
+                    onChange={endDate => setRenewContractForm({ ...renewContractForm, endDate })}
                     className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
                     required
                     min={renewContractForm.startDate}

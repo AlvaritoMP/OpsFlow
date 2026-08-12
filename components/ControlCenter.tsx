@@ -4,6 +4,7 @@ import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, Manage
 import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2, Cake } from 'lucide-react';
 import { checkPermission } from '../services/permissionService';
 import { SafeImage } from './SafeImage';
+import { DateInput } from './DateInput';
 
 interface ControlCenterProps {
   units: Unit[];
@@ -982,7 +983,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                     <div>
                         <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Fecha</label>
-                        <input type="date" className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} />
+                        <DateInput className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none" value={editForm.date} onChange={date => setEditForm({...editForm, date})} />
                     </div>
                     {/* Log Type */}
                     {editingEvent.category === 'Log' && (

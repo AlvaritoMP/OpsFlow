@@ -17,6 +17,7 @@ import { Unit, Resource, ResourceType, User, ManagementStaff } from '../types';
 import { nightSupervisionPdfService } from '../services/nightSupervisionPdfService';
 import { excelService } from '../services/excelService';
 import { storageService } from '../services/storageService';
+import { DateInput } from './DateInput';
 
 interface NightSupervisionProps {
   units: Unit[];
@@ -1130,19 +1131,19 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
         <div className="bg-white p-4 rounded-lg shadow-sm border flex flex-wrap gap-4">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-sm font-medium text-gray-700 mb-1">Desde</label>
-            <input
-              type="date"
+            <DateInput
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              max={dateTo}
+              onChange={setDateFrom}
               className="w-full px-3 py-2 border rounded-lg"
             />
           </div>
           <div className="flex-1 min-w-[200px]">
             <label className="block text-sm font-medium text-gray-700 mb-1">Hasta</label>
-            <input
-              type="date"
+            <DateInput
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              min={dateFrom}
+              onChange={setDateTo}
               className="w-full px-3 py-2 border rounded-lg"
             />
           </div>
@@ -1644,14 +1645,9 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Fecha del Turno *</label>
-                <input
-                  type="date"
+                <DateInput
                   value={shiftForm.date}
-                  onChange={(e) => {
-                    const selectedDate = e.target.value;
-                    const today = new Date().toISOString().split('T')[0];
-                    setShiftForm({ ...shiftForm, date: selectedDate });
-                  }}
+                  onChange={(selectedDate) => setShiftForm({ ...shiftForm, date: selectedDate })}
                   className="w-full px-3 py-2 border rounded-lg"
                   required
                 />
@@ -2391,19 +2387,19 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Desde</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={historicalDateFrom}
-                    onChange={(e) => setHistoricalDateFrom(e.target.value)}
+                    max={historicalDateTo}
+                    onChange={setHistoricalDateFrom}
                     className="w-full px-3 py-2 border rounded-lg"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Hasta</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={historicalDateTo}
-                    onChange={(e) => setHistoricalDateTo(e.target.value)}
+                    min={historicalDateFrom}
+                    onChange={setHistoricalDateTo}
                     className="w-full px-3 py-2 border rounded-lg"
                   />
                 </div>

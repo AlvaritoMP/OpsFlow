@@ -28,6 +28,7 @@ import {
   BpoPersonnelDocumentCategory,
 } from '../types';
 import { bpoPersonnelService } from '../services/bpoPersonnelService';
+import { DateInput } from './DateInput';
 
 interface BpoPersonnelProfilePanelProps {
   resourceId: string;
@@ -684,11 +685,10 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de nacimiento</label>
-                <input
-                  type="date"
+                <DateInput
                   className="w-full border rounded-lg p-2 text-sm"
                   value={dependentForm.birthDate}
-                  onChange={(e) => setDependentForm({ ...dependentForm, birthDate: e.target.value })}
+                  onChange={(birthDate) => setDependentForm({ ...dependentForm, birthDate })}
                 />
               </div>
               <label className="flex items-center gap-2 text-sm text-slate-600">

@@ -9,6 +9,7 @@ import {
   StaffStatus,
   Unit,
 } from '../types';
+import { DateInput } from './DateInput';
 import {
   HandoffWorkerPrefill,
   buildResourceInboundSourceData,
@@ -364,10 +365,9 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 Fecha de nacimiento{isPrefilled('birthDate') && <PrefillBadge />}
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={form.birthDate}
-                onChange={(e) => setForm({ ...form, birthDate: e.target.value })}
+                onChange={(birthDate) => setForm({ ...form, birthDate })}
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
               />
             </div>
@@ -376,10 +376,9 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 Fecha de ingreso{isPrefilled('startDate') && <PrefillBadge />}
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={form.startDate}
-                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                onChange={(startDate) => setForm({ ...form, startDate })}
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
               />
             </div>
@@ -541,10 +540,9 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 Fecha fin contrato (opcional)
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={form.endDate}
-                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                onChange={(endDate) => setForm({ ...form, endDate })}
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
               />
             </div>

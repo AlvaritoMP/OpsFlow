@@ -11,6 +11,10 @@ interface DateInputProps {
   id?: string;
   /** Placeholder visible; por defecto dd/mm/yyyy */
   placeholder?: string;
+  /** Límite inferior ISO yyyy-MM-dd */
+  min?: string;
+  /** Límite superior ISO yyyy-MM-dd */
+  max?: string;
 }
 
 /**
@@ -25,35 +29,54 @@ export const DateInput: React.FC<DateInputProps> = ({
   required = false,
   id,
   placeholder = 'dd/mm/yyyy',
+  min,
+  max,
 }) => {
   const autoId = useId();
   const pickerId = id || autoId;
   const [text, setText] = useState(() => formatDateDisplay(value));
   const [invalid, setInvalid] = useState(false);
+  const [rangeError, setRangeError] = useState(false);
 
   useEffect(() => {
     setText(formatDateDisplay(value));
     setInvalid(false);
+    setRangeError(false);
   }, [value]);
+
+  const isOutOfRange = (iso: string): boolean => {
+    if (min && iso < min) return true;
+    if (max && iso > max) return true;
+    return false;
+  };
 
   const commitText = (raw: string) => {
     const masked = maskDateInput(raw);
     setText(masked);
     if (!masked.trim()) {
       setInvalid(false);
+      setRangeError(false);
       if (value) onChange('');
       return;
     }
     if (masked.length < 10) {
       setInvalid(false);
+      setRangeError(false);
       return;
     }
     const iso = parseDateInput(masked);
     if (iso === null) {
       setInvalid(true);
+      setRangeError(false);
+      return;
+    }
+    if (isOutOfRange(iso)) {
+      setInvalid(true);
+      setRangeError(true);
       return;
     }
     setInvalid(false);
+    setRangeError(false);
     if (iso !== value) onChange(iso);
   };
 
@@ -73,16 +96,25 @@ export const DateInput: React.FC<DateInputProps> = ({
         onBlur={() => {
           if (!text.trim()) {
             setInvalid(false);
+            setRangeError(false);
             if (value) onChange('');
             return;
           }
           const iso = parseDateInput(text);
           if (!iso) {
             setInvalid(true);
+            setRangeError(false);
+            setText(formatDateDisplay(value));
+            return;
+          }
+          if (isOutOfRange(iso)) {
+            setInvalid(true);
+            setRangeError(true);
             setText(formatDateDisplay(value));
             return;
           }
           setInvalid(false);
+          setRangeError(false);
           setText(formatDateDisplay(iso));
           if (iso !== value) onChange(iso);
         }}
@@ -102,17 +134,24 @@ export const DateInput: React.FC<DateInputProps> = ({
           disabled={disabled}
           className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
           value={value || ''}
+          min={min || undefined}
+          max={max || undefined}
           onChange={e => {
-            onChange(e.target.value);
-            setText(formatDateDisplay(e.target.value));
+            const iso = e.target.value;
+            if (iso && isOutOfRange(iso)) return;
+            onChange(iso);
+            setText(formatDateDisplay(iso));
             setInvalid(false);
+            setRangeError(false);
           }}
           tabIndex={-1}
           aria-hidden
         />
       </label>
       {invalid && (
-        <p className="text-[11px] text-red-600 mt-1">Use el formato dd/mm/yyyy</p>
+        <p className="text-[11px] text-red-600 mt-1">
+          {rangeError ? 'La fecha está fuera del rango permitido' : 'Use el formato dd/mm/yyyy'}
+        </p>
       )}
     </div>
   );

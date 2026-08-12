@@ -166,6 +166,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
 
   const loadUnitsRef = useRef(loadUnits);
   loadUnitsRef.current = loadUnits;
+  const pendingUpdatesRef = useRef(0);
 
   // Al volver a la pestaña, refrescar datos desde Supabase (otros usuarios / otras pestañas).
   // silent: no activa el spinner global de carga.
@@ -174,8 +175,10 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
+      if (pendingUpdatesRef.current > 0) return;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
+        if (pendingUpdatesRef.current > 0) return;
         void loadUnitsRef.current({ silent: true });
       }, 500);
     };
@@ -212,6 +215,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
   };
 
   const updateUnit = async (id: string, unit: Partial<Unit>) => {
+    pendingUpdatesRef.current += 1;
     try {
       const updatedUnit = await unitsService.update(id, unit);
       setUnits((prev) => prev.map((u) => (u.id === id ? updatedUnit : u)));
@@ -219,6 +223,8 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     } catch (err: any) {
       setError(err.message || 'Error al actualizar unidad');
       throw err;
+    } finally {
+      pendingUpdatesRef.current -= 1;
     }
   };
 

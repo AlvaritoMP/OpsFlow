@@ -10,6 +10,7 @@ import {
 import { User, UserRole } from '../types';
 import { operationsMetricsService, UserMetrics, OperationsMetrics } from '../services/operationsMetricsService';
 import { excelService } from '../services/excelService';
+import { DateInput } from './DateInput';
 
 interface OperationsDashboardProps {
   currentUser: User;
@@ -208,19 +209,17 @@ export const OperationsDashboard: React.FC<OperationsDashboardProps> = ({ curren
           </div>
           <div>
             <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Desde</label>
-            <input
-              type="date"
+            <DateInput
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={setStartDate}
               className="w-full md:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           <div>
             <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Hasta</label>
-            <input
-              type="date"
+            <DateInput
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={setEndDate}
               className="w-full md:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>

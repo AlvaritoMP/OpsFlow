@@ -30,6 +30,7 @@ import {
 import { punchDisplay } from '../services/attendanceReportExcelParser';
 import { SafeImage } from './SafeImage';
 import { AttendanceMarkCommentBlock } from './AttendanceMarkCommentBlock';
+import { DateInput } from './DateInput';
 
 interface AttendanceEvolutionViewProps {
   unit: Unit;
@@ -198,22 +199,20 @@ export const AttendanceEvolutionView: React.FC<AttendanceEvolutionViewProps> = (
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1">Desde</label>
-          <input
-            type="date"
+          <DateInput
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
             value={dateFrom}
             max={dateTo}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={setDateFrom}
           />
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1">Hasta</label>
-          <input
-            type="date"
+          <DateInput
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
             value={dateTo}
             min={dateFrom}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={setDateTo}
           />
         </div>
         <button

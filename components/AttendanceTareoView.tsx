@@ -25,6 +25,7 @@ import {
 } from '../services/attendanceTareoService';
 import { SafeImage } from './SafeImage';
 import { AttendanceTareoKeysEditor, KeyGlyph } from './AttendanceTareoKeysEditor';
+import { DateInput } from './DateInput';
 
 interface AttendanceTareoViewProps {
   unit: Unit;
@@ -490,22 +491,20 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
       <div className="flex flex-wrap gap-3 items-end bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1">Desde</label>
-          <input
-            type="date"
+          <DateInput
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
             value={dateFrom}
             max={dateTo}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={setDateFrom}
           />
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1">Hasta</label>
-          <input
-            type="date"
+          <DateInput
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
             value={dateTo}
             min={dateFrom}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={setDateTo}
           />
         </div>
         <div>

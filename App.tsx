@@ -26,6 +26,7 @@ import { authService } from './services/authService';
 import { LogOut, FileText, RefreshCw, Eye, Cake, Download } from 'lucide-react';
 import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
+import { DateInput } from './components/DateInput';
 import { PositionsManagementSection } from './components/PositionsManagement';
 import { Headcount } from './components/Headcount';
 import { Vacations } from './components/Vacations';
@@ -3053,24 +3054,21 @@ const App: React.FC = () => {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Inicio</label>
-                          <input 
-                            type="date" 
+                          <DateInput 
                             className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
                             value={newStaffForm.startDate || ''} 
-                            onChange={e => setNewStaffForm({...newStaffForm, startDate: e.target.value})} 
+                            onChange={startDate => setNewStaffForm({...newStaffForm, startDate})} 
                           />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
-                          <input 
-                            type="date" 
+                          <DateInput 
                             className="w-full border border-slate-300 rounded-lg p-2 outline-none" 
                             value={newStaffForm.endDate || ''} 
-                            onChange={e => {
-                              const endDate = e.target.value;
+                            onChange={endDate => {
                               setNewStaffForm({
                                 ...newStaffForm, 
-                                endDate: endDate,
+                                endDate,
                                 // El trigger de la BD cambiará automáticamente el status a 'cesado'
                               });
                             }} 

@@ -9,6 +9,7 @@ import { retenesService, Reten, RetenAssignment } from '../services/retenesServi
 import { excelService } from '../services/excelService';
 import { Unit } from '../types';
 import { pdfConstancyService } from '../services/pdfConstancyService';
+import { DateInput } from './DateInput';
 
 interface RetenesProps {
   units: Unit[];
@@ -934,11 +935,10 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
               </div>
               <div>
                 <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Fecha *</label>
-                <input
-                  type="date"
+                <DateInput
                   className="w-full border border-slate-300 rounded-lg p-2 text-sm"
                   value={assignmentForm.assignment_date}
-                  onChange={e => setAssignmentForm({ ...assignmentForm, assignment_date: e.target.value })}
+                  onChange={(assignment_date) => setAssignmentForm({ ...assignmentForm, assignment_date })}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">

@@ -29,6 +29,7 @@ import { AttendanceEvolutionView } from './AttendanceEvolutionView';
 import { AttendanceConsolidatedView } from './AttendanceConsolidatedView';
 import { AttendanceTareoView } from './AttendanceTareoView';
 import { AttendanceMarkCommentBlock } from './AttendanceMarkCommentBlock';
+import { DateInput } from './DateInput';
 
 interface AttendanceReportsTabProps {
   unit: Unit;
@@ -209,11 +210,10 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-wrap items-end gap-4 shadow-sm">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha del reporte (si el archivo no lleva día claro)</label>
-            <input
-              type="date"
+            <DateInput
               className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
               value={reportDate}
-              onChange={(e) => setReportDate(e.target.value)}
+              onChange={setReportDate}
             />
           </div>
           <div>

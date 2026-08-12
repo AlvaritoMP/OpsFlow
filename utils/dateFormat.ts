@@ -3,6 +3,8 @@
  * Almacenamiento / API: yyyy-MM-dd
  */
 
+export const APP_DATE_LOCALE = 'es-PE';
+
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DISPLAY_RE = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 /** También acepta el formato histórico dd-MM-yyyy (HR/Opalosis UI) */
@@ -60,4 +62,49 @@ export function maskDateInput(raw: string): string {
   if (digits.length <= 2) return digits;
   if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+const DEFAULT_DATE_OPTS: Intl.DateTimeFormatOptions = {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+};
+
+function isoToLocalDate(iso: string): Date | null {
+  const m = iso.trim().match(ISO_RE);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const date = new Date(y, mo - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+  return date;
+}
+
+/** yyyy-MM-dd (o ISO datetime) → fecha local dd/mm/yyyy con locale Perú. */
+export function formatDateLocale(
+  iso: string | null | undefined,
+  options: Intl.DateTimeFormatOptions = DEFAULT_DATE_OPTS
+): string {
+  if (!iso?.trim()) return '';
+  const dateOnly = iso.trim().slice(0, 10);
+  const local = isoToLocalDate(dateOnly);
+  if (local) return local.toLocaleDateString(APP_DATE_LOCALE, options);
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleDateString(APP_DATE_LOCALE, options);
+}
+
+/** ISO datetime → dd/mm/yyyy hh:mm (locale Perú). */
+export function formatDateTimeDisplay(isoDateTime: string | null | undefined): string {
+  if (!isoDateTime?.trim()) return '';
+  const parsed = new Date(isoDateTime);
+  if (Number.isNaN(parsed.getTime())) return isoDateTime;
+  return parsed.toLocaleString(APP_DATE_LOCALE, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }

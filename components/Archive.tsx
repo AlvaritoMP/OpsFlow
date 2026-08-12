@@ -7,6 +7,7 @@ import { SafeImage } from './SafeImage';
 import { checkPermission } from '../services/permissionService';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import { filterOperationalUnits } from '../utils/unitStatus';
+import { DateInput } from './DateInput';
 
 interface ArchiveProps {
   currentUserRole?: UserRole;
@@ -532,10 +533,9 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Fecha de cese *
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={terminationDate}
-                    onChange={(e) => setTerminationDate(e.target.value)}
+                    onChange={setTerminationDate}
                     className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
