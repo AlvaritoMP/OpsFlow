@@ -163,6 +163,8 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
       setEditingItem(item);
     }
   };
+
+  const handleSendPackage = async () => {
     if (!canEdit || selectedIds.size === 0) return;
 
     setSending(true);
