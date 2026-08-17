@@ -218,6 +218,15 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
       },
       {
+        heading: 'Datos del colaborador',
+        body: 'Al expandir un trabajador en Personal verá Datos del colaborador. Ahí el usuario de OpsFlow puede registrar la jornada: 8 horas o 12 horas. El valor se guarda en el colaborador y queda disponible para edición posterior.',
+        steps: [
+          'Abra la unidad → Personal y expanda la fila del trabajador.',
+          'En Jornada elija 8 horas o 12 horas.',
+          'El cambio se guarda de inmediato si tiene permiso de edición de personal.',
+        ],
+      },
+      {
         heading: 'Alta directa de colaborador',
         body: 'Los referidos se activan en la unidad sin pasar por ATS, por eso no traen ficha complementaria. Al crearlos (Nuevo colaborador o carga masiva) OpsFlow los encola en Envío Opalosis y usted les envía el landing /ficha para que completen sus datos.',
         tips: [
@@ -439,14 +448,14 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Condiciones OpsFlow (salario y horario)',
-        body: 'Antes de registrar en unidad, el equipo interno define salario mensual, bono de movilidad, asignación familiar (sí/no), tipo de jornada (Full Time, Part Time, 12 horas), régimen (General, Pyme, Mype), días de trabajo, hora de entrada/salida y turno (Diurno, Tarde o Nocturno).',
+        body: 'Antes de registrar en unidad, el equipo interno define salario mensual, bono de movilidad, asignación familiar (sí/no), jornada (8 horas o 12 horas), régimen (General, Pyme, Mype), días de trabajo, hora de entrada/salida y turno (Diurno, Tarde o Nocturno).',
         steps: [
           'Complete la sección Condiciones OpsFlow en la ficha del candidato (puede hacerlo antes o después de aprobar).',
           'Pulse Guardar condiciones.',
           'Al Registrar en unidad, esos datos precargan Personal. Lo que no venga en el paquete queda en blanco para completar después en la unidad.',
         ],
         tips: [
-          'No se puede registrar en unidad si faltan salario, bono de movilidad, asignación familiar, jornada, régimen, días, horario o turno. El bono puede ser 0 si no aplica.',
+          'No se puede registrar en unidad si faltan salario, bono de movilidad, asignación familiar, jornada (8 o 12 horas), régimen, días, horario o turno. El bono puede ser 0 si no aplica.',
         ],
       },
       {

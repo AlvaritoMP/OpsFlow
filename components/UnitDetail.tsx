@@ -14,7 +14,7 @@ import { BpoContactsTab } from './BpoContactsTab';
 import { BpoBanksTab } from './BpoBanksTab';
 import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
 import { WorkerComplementaryPanel } from './WorkerComplementaryPanel';
-import { WORK_DAY_OPTIONS, JORNADA_OPTIONS, REGIME_OPTIONS } from './OpsflowIntakeForm';
+import { WORK_DAY_OPTIONS, REGIME_OPTIONS, jornadaOptionList } from './OpsflowIntakeForm';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import {
   UnitDetailTab,
@@ -501,6 +501,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Loading and notification states
   const [isSavingWorker, setIsSavingWorker] = useState(false);
   const [isUpdatingResource, setIsUpdatingResource] = useState(false);
+  const [savingJornadaWorkerId, setSavingJornadaWorkerId] = useState<string | null>(null);
   const [isDeletingResource, setIsDeletingResource] = useState(false);
   const [isArchivingPersonnel, setIsArchivingPersonnel] = useState<string | null>(null);
   const [isSavingRequest, setIsSavingRequest] = useState(false);
@@ -2781,6 +2782,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   // Funciones para gestionar incrementos salariales
+  const handleSaveWorkerJornada = async (worker: Resource, jornadaType: string) => {
+    if (!canEditPersonnel) return;
+    const next = jornadaType.trim();
+    if ((worker.jornadaType || '') === next) return;
+    setSavingJornadaWorkerId(worker.id);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      const updatedResource = await resourcesService.update(worker.id, {
+        type: ResourceType.PERSONNEL,
+        jornadaType: next,
+      });
+      const updatedUnit = {
+        ...unit,
+        resources: unit.resources.map((r) => (r.id === worker.id ? updatedResource : r)),
+      };
+      setLocalResources(updatedUnit.resources);
+      if (replaceUnitInState) {
+        replaceUnitInState(updatedUnit);
+      } else if (onUpdate) {
+        await onUpdate(updatedUnit);
+      }
+      try {
+        const { hrOutboundIngresoService } = await import('../services/hrOutboundIngresoService');
+        await hrOutboundIngresoService.refreshPendingQueueFromResource(updatedResource.id);
+      } catch (enqueueErr) {
+        console.warn('Jornada guardada, pero no se refrescó la cola Opalosis:', enqueueErr);
+      }
+      setNotification({ type: 'success', message: 'Jornada actualizada' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error al guardar jornada:', error);
+      setNotification({ type: 'error', message: 'No se pudo guardar la jornada. Intente nuevamente.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setSavingJornadaWorkerId(null);
+    }
+  };
+
   const persistWorkerResourceInUnit = async (workerId: string, monthlySalary: number) => {
     const { resourcesService } = await import('../services/resourcesService');
     const updatedResource = await resourcesService.update(workerId, {
@@ -6783,6 +6822,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 <p className="text-slate-700 break-words">{worker.assignedShift || '—'}</p>
                               </div>
                               <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jornada</p>
+                                {canEditPersonnel ? (
+                                  <>
+                                    <select
+                                      className="mt-0.5 w-full max-w-[14rem] rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100"
+                                      value={worker.jornadaType || ''}
+                                      disabled={savingJornadaWorkerId === worker.id || isUpdatingResource}
+                                      onChange={(e) => {
+                                        void handleSaveWorkerJornada(worker, e.target.value);
+                                      }}
+                                    >
+                                      <option value="">Seleccionar 8 o 12 horas</option>
+                                      {jornadaOptionList(worker.jornadaType).map((opt) => (
+                                        <option key={opt} value={opt}>
+                                          {opt}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <p className="mt-0.5 text-[11px] text-slate-400">Indique si es de 8 o 12 horas.</p>
+                                  </>
+                                ) : (
+                                  <p className="text-slate-700">{worker.jornadaType || '—'}</p>
+                                )}
+                              </div>
+                              <div className="min-w-0">
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Zona / Grupo</p>
                                 {(worker.assignedZones?.length ?? 0) > 0 ? (
                                   <ZoneNameBadges unitZones={unit.zones} zoneNames={worker.assignedZones!} size="xs" />
@@ -8952,14 +9016,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de jornada</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Jornada (8 o 12 horas)</label>
                       <select
                         className="w-full border border-slate-300 rounded-lg p-2 outline-none"
                         value={newWorkerForm.jornadaType || ''}
                         onChange={(e) => setNewWorkerForm({ ...newWorkerForm, jornadaType: e.target.value })}
                       >
                         <option value="">Seleccionar...</option>
-                        {JORNADA_OPTIONS.map((opt) => (
+                        {jornadaOptionList(newWorkerForm.jornadaType).map((opt) => (
                           <option key={opt} value={opt}>
                             {opt}
                           </option>
@@ -9678,7 +9742,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           />
                                       </div>
                                       <div>
-                                          <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de jornada</label>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Jornada (8 o 12 horas)</label>
                                           <select
                                               className="w-full border border-slate-300 rounded-lg p-2 outline-none"
                                               value={editingResource.jornadaType || ''}
@@ -9690,7 +9754,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                               }
                                           >
                                               <option value="">Seleccionar...</option>
-                                              {JORNADA_OPTIONS.map((opt) => (
+                                              {jornadaOptionList(editingResource.jornadaType).map((opt) => (
                                                 <option key={opt} value={opt}>
                                                   {opt}
                                                 </option>

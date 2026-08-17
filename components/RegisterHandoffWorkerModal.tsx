@@ -21,7 +21,7 @@ import {
   hasStructuredNameParts,
   resolveHandoffDisplayName,
 } from '../utils/handoffNameParts';
-import { getUnitRequiredPositionOptions } from '../utils/unitPositionOptions';
+import { jornadaOptionList } from './OpsflowIntakeForm';
 
 interface RegisterHandoffWorkerModalProps {
   item: InboundHandoffItem;
@@ -471,7 +471,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Tipo de jornada{isPrefilled('jornadaType') && <PrefillBadge source="OpsFlow" />}
+                Jornada (8 o 12 horas){isPrefilled('jornadaType') && <PrefillBadge source="OpsFlow" />}
               </label>
               <select
                 value={form.jornadaType ?? ''}
@@ -479,9 +479,11 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
               >
                 <option value="">Seleccionar...</option>
-                <option value="Full Time">Full Time</option>
-                <option value="Part Time">Part Time</option>
-                <option value="12 horas">12 horas</option>
+                {jornadaOptionList(form.jornadaType).map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
               </select>
             </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, UnitStatus, ResourceType, UserRole } from '../types';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical, Star, UserX } from 'lucide-react';
 import { UnitsMap } from './UnitsMap';
 
@@ -75,14 +75,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
     return uniqueCount + sharedCount;
   }, [units]);
   
-  const chartData = units
-    .filter(u => u.complianceHistory && u.complianceHistory.length > 0)
-    .map(u => ({
-      name: u.name.split(' ').slice(0, 2).join(' '), // Short name
-      score: u.complianceHistory[u.complianceHistory.length - 1]?.score || 0,
-      id: u.id
-    }));
-
   // Calculate workers by shift based on assignedShift field (not rostering)
   // No duplicar trabajadores compartidos
   const workersByShiftCount = useMemo(() => {
@@ -613,19 +605,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
   }, [units]);
 
   // Chart/Table order state for drag and drop
-  type ChartId = 'complianceChart' | 'activityChart' | 'recentActivity' | 'unitsMap';
-  const defaultChartOrder: ChartId[] = ['recentActivity', 'unitsMap', 'complianceChart', 'activityChart'];
+  type ChartId = 'activityChart' | 'recentActivity' | 'unitsMap';
+  const defaultChartOrder: ChartId[] = ['recentActivity', 'unitsMap', 'activityChart'];
+  const validChartIds = new Set<ChartId>(defaultChartOrder);
   
   const [chartOrder, setChartOrder] = useState<ChartId[]>(() => {
     const saved = localStorage.getItem('dashboard-chart-order');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      // Asegurar que 'unitsMap' esté en el orden (agregarlo si no está)
+      const parsed = JSON.parse(saved).filter((id: string) => validChartIds.has(id as ChartId)) as ChartId[];
       if (!parsed.includes('unitsMap')) {
-        const updated = ['unitsMap', ...parsed];
-        localStorage.setItem('dashboard-chart-order', JSON.stringify(updated));
-        return updated;
+        parsed.unshift('unitsMap');
       }
+      defaultChartOrder.forEach((id) => {
+        if (!parsed.includes(id)) parsed.push(id);
+      });
+      localStorage.setItem('dashboard-chart-order', JSON.stringify(parsed));
       return parsed;
     }
     return defaultChartOrder;
@@ -712,7 +706,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
     <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 animate-in fade-in duration-500">
       <header className="mb-4 md:mb-6">
         <h1 className="text-xl md:text-2xl font-bold text-slate-800">Panel General de Operaciones</h1>
-        <p className="text-sm md:text-base text-slate-500">Visión global del cumplimiento y estado de unidades.</p>
+        <p className="text-sm md:text-base text-slate-500">Visión global del estado de unidades.</p>
       </header>
 
       {/* KPI Cards */}
@@ -989,74 +983,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
           if (chartId === 'unitsMap' || chartId === 'recentActivity') {
             return null;
           }
-          if (chartId === 'complianceChart') {
-            return chartData.length > 0 ? (
-              <div
-                key={chartId}
-                draggable
-                onDragStart={(e) => handleChartDragStart(e, chartId)}
-                onDragOver={(e) => handleChartDragOver(e, chartId)}
-                onDragLeave={handleChartDragLeave}
-                onDrop={(e) => handleChartDrop(e, chartId)}
-                onDragEnd={handleChartDragEnd}
-                className={`
-                  bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
-                  transition-all duration-200
-                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
-                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
-                  hover:shadow-md hover:border-blue-300 cursor-move
-                `}
-              >
-                <div className="flex items-center justify-between mb-3 md:mb-4">
-                  <h3 className="text-base md:text-lg font-semibold text-slate-800">Cumplimiento del Servicio (Mes Actual)</h3>
-                  <GripVertical size={16} className="text-slate-400 opacity-50" />
-                </div>
-          <div className="h-64 md:h-80 w-full overflow-x-auto" style={{ minHeight: '256px', minWidth: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%" minHeight={256}>
-              <BarChart data={chartData} layout="vertical" margin={{ left: 40, right: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12 }} />
-                <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
-                <Tooltip 
-                  cursor={{fill: 'transparent'}}
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
-                />
-                <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={25} onClick={(data) => onSelectUnit(data.id)} className="cursor-pointer hover:opacity-80 transition-opacity">
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.score >= 95 ? '#22c55e' : entry.score >= 90 ? '#eab308' : '#ef4444'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <p className="text-[10px] md:text-xs text-slate-400 mt-2 text-center">* Click en la barra para ver detalle de la unidad</p>
-        </div>
-      ) : (
-              <div
-                key={chartId}
-                draggable
-                onDragStart={(e) => handleChartDragStart(e, chartId)}
-                onDragOver={(e) => handleChartDragOver(e, chartId)}
-                onDragLeave={handleChartDragLeave}
-                onDrop={(e) => handleChartDrop(e, chartId)}
-                onDragEnd={handleChartDragEnd}
-                className={`
-                  bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200
-                  transition-all duration-200
-                  ${draggedChart === chartId ? 'opacity-50 scale-95' : ''}
-                  ${dragOverChart === chartId ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
-                  hover:shadow-md hover:border-blue-300 cursor-move
-                `}
-              >
-                <div className="flex items-center justify-between mb-3 md:mb-4">
-                  <h3 className="text-base md:text-lg font-semibold text-slate-800">Cumplimiento del Servicio</h3>
-                  <GripVertical size={16} className="text-slate-400 opacity-50" />
-                </div>
-          <p className="text-sm md:text-base text-slate-500 text-center py-6 md:py-8">No hay datos de cumplimiento disponibles para mostrar.</p>
-        </div>
-            );
-          }
-          
           if (chartId === 'activityChart') {
             return unitsActivityData.length > 0 ? (
               <div
