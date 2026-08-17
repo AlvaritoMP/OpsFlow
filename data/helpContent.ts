@@ -174,6 +174,21 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
       },
       {
+        heading: 'Turnos / Rostering',
+        body: 'En Personal, el modo Turnos / Rostering muestra la programación semanal de cada colaborador. Puede ampliar el rango a 2 o 4 semanas, ver cuántos trabajadores están programados cada día y descargar la vista en PNG o PDF.',
+        steps: [
+          'Abra la unidad → Personal → Turnos / Rostering.',
+          'Elija 1, 2 o 4 semanas. Las flechas mueven el periodo completo.',
+          'Al pie de cada día aparece el total de programados (con desglose Día / Tarde / Noche). Al final de cada semana, el total de trabajadores con al menos un turno y la suma de turnos.',
+          'Use PNG o PDF para descargar la programación visible (recomendado: 1 semana para compartir o imprimir).',
+          'Si tiene permiso de edición, haga clic en un turno para ciclarlo (Día → Tarde → Noche → OFF) y pulse Guardar planificación.',
+        ],
+        tips: [
+          'Los nombres largos se recortan en la columna Colaborador; pase el cursor para ver el nombre completo.',
+          'Copiar a sem. siguiente replica solo la primera semana visible hacia la semana siguiente. Confirme con Guardar planificación.',
+        ],
+      },
+      {
         heading: 'Ficha complementaria del trabajador',
         body: 'Al expandir un colaborador en la pestaña Personal verá el panel Ficha complementaria. Ahí están los datos que vinieron del ATS (o que OpsFlow completó) y puede consultarlos o editarlos con autonomía.',
         steps: [
@@ -186,6 +201,20 @@ export const HELP_TOPICS: HelpTopic[] = [
           'La fecha de ingreso del trabajador es la del registro en la unidad, no la de la aprobación en Presentaciones ATS.',
           'Si llegó desde Presentaciones, salario, bono de movilidad, asignación familiar, jornada, régimen, turno, días y horario se precargan desde las condiciones OpsFlow; el resto (localidad, etc.) puede quedar en blanco hasta completarlos aquí.',
           'En unidades BPO también puede existir un perfil BPO adicional; la ficha complementaria es independiente.',
+        ],
+      },
+      {
+        heading: 'Información Salarial',
+        body: 'Al expandir un colaborador en Personal verá el bloque Información Salarial: salario bruto mensual, condición de trabajo (movilidad u otros montos adicionales) y bono de movilidad. Los bonos o conceptos variables del mes se gestionan en la pestaña Variables.',
+        steps: [
+          'Abra la unidad → Personal y expanda la fila del trabajador.',
+          'Revise salario bruto, condición de trabajo (movilidad) y bono de movilidad.',
+          'Si tiene permiso, use Editar para cambiar esos montos, o Registrar Incremento para dejar historial de aumentos.',
+          'Los conceptos variables (comisiones, bonos del mes) se cargan en la pestaña Variables.',
+        ],
+        tips: [
+          'El bono de movilidad puede ser 0 si no aplica.',
+          'Si el colaborador llegó desde Presentaciones ATS, salario y bono de movilidad se precargan desde las condiciones OpsFlow.',
         ],
       },
       {

@@ -226,7 +226,22 @@ const getMonday = (d: Date) => {
   const day = date.getDay();
   const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
   return new Date(date.setDate(diff));
-}
+};
+
+const toLocalDateStr = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const isProgrammedWorkShift = (type?: string) =>
+  type === 'Day' || type === 'Afternoon' || type === 'Night';
+
+const rosterShiftShortLabel = (type: string) =>
+  type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type === 'Vacation' ? 'Vac' : type;
+
+type RosterWeekCount = 1 | 2 | 4;
 
 type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'compliance' | 'salary' | 'zones' | 'localidad' | 'phone';
 type SortDirection = 'asc' | 'desc';
@@ -494,11 +509,34 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   
   // Roster State - Estado local optimizado para actualizaciones rápidas
   const [rosterStartDate, setRosterStartDate] = useState(getMonday(new Date()));
+  const [rosterWeekCount, setRosterWeekCount] = useState<RosterWeekCount>(1);
   const [localResources, setLocalResources] = useState<Resource[]>(unit.resources);
   const [rosterHasUnsavedChanges, setRosterHasUnsavedChanges] = useState(false);
   const [isSavingRoster, setIsSavingRoster] = useState(false);
+  const [isExportingRoster, setIsExportingRoster] = useState(false);
   const [isSavingUnit, setIsSavingUnit] = useState(false);
   const [dirtyRosterShifts, setDirtyRosterShifts] = useState<Set<string>>(new Set());
+  const rosterExportRef = useRef<HTMLDivElement>(null);
+
+  const rosterDates = useMemo(() => {
+    const dates: Date[] = [];
+    const monday = new Date(rosterStartDate);
+    const totalDays = rosterWeekCount * 7;
+    for (let i = 0; i < totalDays; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      dates.push(d);
+    }
+    return dates;
+  }, [rosterStartDate, rosterWeekCount]);
+
+  const rosterWeeks = useMemo(() => {
+    const weeks: Date[][] = [];
+    for (let w = 0; w < rosterWeekCount; w++) {
+      weeks.push(rosterDates.slice(w * 7, w * 7 + 7));
+    }
+    return weeks;
+  }, [rosterDates, rosterWeekCount]);
   
   // Sincronizar localResources cuando unit.resources cambia desde el padre
   useEffect(() => {
@@ -2903,17 +2941,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setRosterStartDate(getMonday(newDate));
   };
 
-  const getRosterDates = () => {
-      const dates = [];
-      const monday = new Date(rosterStartDate);
-      for (let i = 0; i < 7; i++) {
-          const d = new Date(monday);
-          d.setDate(monday.getDate() + i);
-          dates.push(d);
-      }
-      return dates;
-  };
-
   const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
      // No permitir cambios si el usuario no tiene permiso de edición
      if (!canEditPersonnel) return;
@@ -3033,7 +3060,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
 
   const handleReplicateWeek = () => {
-      const currentWeekDates = getRosterDates().map(d => d.toISOString().split('T')[0]);
+      const currentWeekDates = rosterDates.slice(0, 7).map(d => toLocalDateStr(d));
       const newDirtyKeys = new Set<string>();
       
       const updatedResources = localResources.map(r => {
@@ -3045,10 +3072,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           currentWeekDates.forEach(dateStr => {
               const shift = schedule.find(s => s.date === dateStr);
               if (shift) {
-                  // Calculate target date (+7 days)
-                  const targetDate = new Date(dateStr);
-                  targetDate.setDate(targetDate.getDate() + 7);
-                  const targetDateStr = targetDate.toISOString().split('T')[0];
+                  const [y, m, d] = dateStr.split('-').map(Number);
+                  const targetDate = new Date(y, m - 1, d + 7);
+                  const targetDateStr = toLocalDateStr(targetDate);
                   
                   // Remove existing shift at target date if any
                   const existingIdx = schedule.findIndex(s => s.date === targetDateStr);
@@ -3081,6 +3107,145 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           : 'No hay turnos en la semana actual para replicar.'
       });
       setTimeout(() => setNotification(null), 4000);
+  };
+
+  const prepareRosterNodeForCapture = (node: HTMLElement) => {
+    const restored: Array<() => void> = [];
+    const pushRestore = (el: HTMLElement, props: string[]) => {
+      const prev: Record<string, string> = {};
+      props.forEach((key) => {
+        prev[key] = (el.style as any)[key] ?? '';
+      });
+      restored.push(() => {
+        Object.entries(prev).forEach(([key, value]) => {
+          (el.style as any)[key] = value;
+        });
+      });
+    };
+
+    node.querySelectorAll<HTMLElement>('*').forEach((el) => {
+      const computed = window.getComputedStyle(el);
+      const clips =
+        computed.overflow === 'hidden' ||
+        computed.overflow === 'auto' ||
+        computed.overflow === 'scroll' ||
+        computed.overflowX === 'hidden' ||
+        computed.overflowX === 'auto' ||
+        computed.overflowX === 'scroll' ||
+        el.classList.contains('overflow-hidden') ||
+        el.classList.contains('overflow-x-auto') ||
+        el.classList.contains('overflow-y-auto') ||
+        el.classList.contains('overflow-auto');
+      if (!clips) return;
+      pushRestore(el, ['overflow', 'overflowX', 'overflowY', 'maxHeight', 'height']);
+      el.style.overflow = 'visible';
+      el.style.overflowX = 'visible';
+      el.style.overflowY = 'visible';
+      el.style.maxHeight = 'none';
+      el.style.height = 'auto';
+    });
+
+    pushRestore(node, ['overflow', 'height', 'maxHeight', 'paddingBottom']);
+    node.style.overflow = 'visible';
+    node.style.height = 'auto';
+    node.style.maxHeight = 'none';
+    node.style.paddingBottom = '16px';
+    return () => restored.forEach((fn) => fn());
+  };
+
+  const captureRosterImage = async (): Promise<string> => {
+    const node = rosterExportRef.current;
+    if (!node) throw new Error('No se encontró la programación para exportar');
+    const { toPng } = await import('html-to-image');
+    const restore = prepareRosterNodeForCapture(node);
+    try {
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      const width = Math.ceil(Math.max(node.scrollWidth, node.offsetWidth));
+      const height = Math.ceil(Math.max(node.scrollHeight, node.offsetHeight)) + 2;
+      const options = {
+        pixelRatio: 2 as const,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        width,
+        height,
+        style: {
+          width: `${width}px`,
+          height: `${height}px`,
+          overflow: 'visible',
+          transform: 'none',
+        },
+      };
+      try {
+        return await toPng(node, options);
+      } catch {
+        return await toPng(node, {
+          ...options,
+          filter: (element: HTMLElement) => {
+            if (!(element instanceof HTMLElement)) return true;
+            return element.tagName !== 'IMG';
+          },
+        });
+      }
+    } finally {
+      restore();
+    }
+  };
+
+  const rosterExportBasename = () => {
+    const start = rosterDates[0] ? toLocalDateStr(rosterDates[0]) : '';
+    const end = rosterDates[rosterDates.length - 1] ? toLocalDateStr(rosterDates[rosterDates.length - 1]) : '';
+    const unitSlug = (unit.name || 'unidad').replace(/[^\wáéíóúñÁÉÍÓÚÑ]+/gi, '_').replace(/^_|_$/g, '');
+    return `programacion_${unitSlug}_${start}_${end}`;
+  };
+
+  const handleExportRosterPng = async () => {
+    if (isExportingRoster) return;
+    setIsExportingRoster(true);
+    try {
+      const dataUrl = await captureRosterImage();
+      const link = document.createElement('a');
+      link.download = `${rosterExportBasename()}.png`;
+      link.href = dataUrl;
+      link.click();
+      setNotification({ type: 'success', message: 'Programación descargada en PNG' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error exportando roster PNG:', error);
+      setNotification({ type: 'error', message: 'No se pudo generar el PNG de la programación.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsExportingRoster(false);
+    }
+  };
+
+  const handleExportRosterPdf = async () => {
+    if (isExportingRoster) return;
+    setIsExportingRoster(true);
+    try {
+      const dataUrl = await captureRosterImage();
+      const { jsPDF } = await import('jspdf');
+      const img = new Image();
+      img.src = dataUrl;
+      await img.decode();
+      const pxWidth = img.naturalWidth || img.width;
+      const pxHeight = img.naturalHeight || img.height;
+      const pdf = new jsPDF({
+        orientation: pxWidth >= pxHeight ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [pxWidth, pxHeight],
+        hotfixes: ['px_scaling'],
+      });
+      pdf.addImage(dataUrl, 'PNG', 0, 0, pxWidth, pxHeight);
+      pdf.save(`${rosterExportBasename()}.pdf`);
+      setNotification({ type: 'success', message: 'Programación descargada en PDF' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error exportando roster PDF:', error);
+      setNotification({ type: 'error', message: 'No se pudo generar el PDF de la programación.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsExportingRoster(false);
+    }
   };
 
   // Limpiar duplicados de activos asignados
@@ -3149,6 +3314,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Cumplimiento (%)',
         'Salario Mensual (S/)',
         'Condición Trabajo (S/)',
+        'Bono Movilidad (S/)',
         'En Capacitación',
         'Archivado',
         'Cantidad Capacitaciones',
@@ -3175,7 +3341,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Turno': worker.assignedShift || '',
         'Cumplimiento (%)': worker.compliancePercentage || 0,
         'Salario Mensual (S/)': worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
-        'Condición Trabajo (S/)': worker.workConditionAmount ? `S/ ${worker.workConditionAmount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
+        'Condición Trabajo (S/)': worker.workConditionAmount != null ? `S/ ${worker.workConditionAmount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
+        'Bono Movilidad (S/)': worker.mobilityBonus != null ? `S/ ${Number(worker.mobilityBonus).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
         'En Capacitación': worker.inTraining ? 'Sí' : 'No',
         'Archivado': worker.archived ? 'Sí' : 'No',
         'Cantidad Capacitaciones': worker.trainings?.length || 0,
@@ -3956,6 +4123,49 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       return !r.archived && r.personnelStatus !== 'cesado';
     });
   }, [resourcesForRoster, showArchivedPersonnel, showCesadoPersonnel]);
+
+  const rosterDayTotals = useMemo(() => {
+    return rosterDates.map((date) => {
+      const dateStr = toLocalDateStr(date);
+      const counts = { programmed: 0, day: 0, afternoon: 0, night: 0, off: 0, vacation: 0 };
+      personnel.forEach((worker) => {
+        const type = worker.workSchedule?.find((s) => s.date === dateStr)?.type || 'OFF';
+        if (type === 'Day') {
+          counts.day += 1;
+          counts.programmed += 1;
+        } else if (type === 'Afternoon') {
+          counts.afternoon += 1;
+          counts.programmed += 1;
+        } else if (type === 'Night') {
+          counts.night += 1;
+          counts.programmed += 1;
+        } else if (type === 'Vacation') {
+          counts.vacation += 1;
+        } else {
+          counts.off += 1;
+        }
+      });
+      return { dateStr, ...counts };
+    });
+  }, [rosterDates, personnel]);
+
+  const rosterWeekSummaries = useMemo(() => {
+    return rosterWeeks.map((weekDates) => {
+      const dateStrs = weekDates.map(toLocalDateStr);
+      const programmedIds = new Set<string>();
+      personnel.forEach((worker) => {
+        const hasShift = dateStrs.some((dateStr) =>
+          isProgrammedWorkShift(worker.workSchedule?.find((s) => s.date === dateStr)?.type)
+        );
+        if (hasShift) programmedIds.add(worker.id);
+      });
+      const programmedByDay = dateStrs.reduce((acc, dateStr) => {
+        const day = rosterDayTotals.find((t) => t.dateStr === dateStr);
+        return acc + (day?.programmed || 0);
+      }, 0);
+      return { programmedWorkers: programmedIds.size, programmedShifts: programmedByDay };
+    });
+  }, [rosterWeeks, personnel, rosterDayTotals]);
 
   const getPersonnelSortValue = (worker: Resource, key: PersonnelSortKey): string | number => {
     switch (key) {
@@ -6696,7 +6906,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                               <p className="text-xs text-slate-600 mt-1">
                                                 {contract.monthlySalary !== undefined ? `Salario: S/ ${Number(contract.monthlySalary).toFixed(2)}` : 'Salario: -'}
                                                 {' • '}
-                                                {contract.workConditionAmount !== undefined ? `Condición: S/ ${Number(contract.workConditionAmount).toFixed(2)}` : 'Condición: -'}
+                                                {contract.workConditionAmount !== undefined ? `Condición (movilidad/bonos): S/ ${Number(contract.workConditionAmount).toFixed(2)}` : 'Condición: -'}
                                               </p>
                                             )}
                                         </div>
@@ -6711,17 +6921,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center"><DollarSign size={14} className="mr-1.5"/> Información Salarial</h5>
                                 {canEditPersonnel && <button onClick={() => handleOpenSalaryIncrementModal(worker)} className="text-xs text-green-600 hover:underline flex items-center"><TrendingUp size={12} className="mr-1"/> Registrar Incremento</button>}
                             </div>
+                            <p className="text-xs text-slate-500 mb-4">
+                                Incluye salario bruto, condición de trabajo (movilidad u otros montos adicionales) y bono de movilidad. Los bonos variables del mes se cargan en la pestaña Variables.
+                            </p>
                             <div className="grid grid-cols-2 gap-4 mb-4">
                                 <div>
                                     <p className="text-xs text-slate-500 mb-1">Salario Bruto Mensual</p>
                                     <p className="text-sm font-semibold text-slate-700">
-                                        {worker.monthlySalary ? `S/ ${worker.monthlySalary.toFixed(2)}` : 'No registrado'}
+                                        {worker.monthlySalary != null ? `S/ ${worker.monthlySalary.toFixed(2)}` : 'No registrado'}
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-xs text-slate-500 mb-1">Condición de Trabajo</p>
+                                    <p className="text-xs text-slate-500 mb-1">Condición de Trabajo (movilidad / bonos)</p>
                                     <p className="text-sm font-semibold text-slate-700">
-                                        {worker.workConditionAmount ? `S/ ${worker.workConditionAmount.toFixed(2)}` : 'No registrado'}
+                                        {worker.workConditionAmount != null ? `S/ ${worker.workConditionAmount.toFixed(2)}` : 'No registrado'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">Bono de movilidad</p>
+                                    <p className="text-sm font-semibold text-slate-700">
+                                        {worker.mobilityBonus != null ? `S/ ${Number(worker.mobilityBonus).toFixed(2)}` : 'No registrado'}
                                     </p>
                                 </div>
                             </div>
@@ -6810,34 +7029,66 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           // --- ROSTER VIEW (GRID) ---
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
              {/* Roster Controls */}
-             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
-                <div className="flex items-center space-x-2">
-                    <button onClick={() => changeRosterDate(-7)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600"><ChevronLeft size={18}/></button>
+             <div className="flex flex-wrap justify-between items-center gap-3 p-4 border-b border-slate-200 bg-slate-50">
+                <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => changeRosterDate(-7 * rosterWeekCount)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600"><ChevronLeft size={18}/></button>
                     <div className="flex items-center space-x-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
                         <Calendar size={14} className="text-slate-500"/>
                         <span className="text-sm font-bold text-slate-700">
-                             {getRosterDates()[0].toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })} 
-                             {' - '} 
-                             {getRosterDates()[6].toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' })}
+                             {rosterDates[0]?.toLocaleDateString('es-PE', { month: 'short', day: 'numeric' })}
+                             {' - '}
+                             {rosterDates[rosterDates.length - 1]?.toLocaleDateString('es-PE', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
                     </div>
-                    <button onClick={() => changeRosterDate(7)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600"><ChevronRight size={18}/></button>
+                    <button onClick={() => changeRosterDate(7 * rosterWeekCount)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600"><ChevronRight size={18}/></button>
+                    <div className="bg-slate-200/70 rounded-lg p-0.5 flex ml-1">
+                        {([1, 2, 4] as RosterWeekCount[]).map((weeks) => (
+                            <button
+                                key={weeks}
+                                type="button"
+                                onClick={() => setRosterWeekCount(weeks)}
+                                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${
+                                    rosterWeekCount === weeks ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                {weeks} sem
+                            </button>
+                        ))}
+                    </div>
                 </div>
                 
-                <div className="flex items-center space-x-4">
+                <div className="flex flex-wrap items-center gap-2">
                     {rosterHasUnsavedChanges && (
-                        <div className="flex items-center space-x-2 text-amber-600 text-xs font-medium">
+                        <div className="flex items-center space-x-2 text-amber-600 text-xs font-medium mr-1">
                             <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
                             <span>Cambios sin guardar</span>
                         </div>
                     )}
+                    <button
+                        type="button"
+                        onClick={handleExportRosterPng}
+                        disabled={isExportingRoster || personnel.length === 0}
+                        className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+                        title="Descargar la programación visible como imagen PNG"
+                    >
+                        <ImageIcon size={14} className="mr-1.5"/> {isExportingRoster ? 'Generando...' : 'PNG'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleExportRosterPdf}
+                        disabled={isExportingRoster || personnel.length === 0}
+                        className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+                        title="Descargar la programación visible como PDF"
+                    >
+                        <FileText size={14} className="mr-1.5"/> PDF
+                    </button>
                     {canEditPersonnel ? (
                         <>
-                    <div className="text-xs text-slate-400 font-medium">Click en turno para cambiar</div>
+                    <div className="text-xs text-slate-400 font-medium hidden lg:block">Click en turno para cambiar</div>
                     <button 
                         onClick={handleReplicateWeek}
                         className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
-                        title="Copiar estos turnos a la próxima semana"
+                        title="Copiar la primera semana visible a la semana siguiente"
                     >
                         <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
                     </button>
@@ -6869,42 +7120,68 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              </div>
              
              {/* Roster Grid */}
+             <div ref={rosterExportRef} className="bg-white">
+                 <div className="px-4 py-3 border-b border-slate-100">
+                     <h4 className="text-sm font-bold text-slate-800">{unit.name} — Programación de turnos</h4>
+                     <p className="text-xs text-slate-500 mt-0.5">
+                         {rosterDates[0]?.toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' })}
+                         {' a '}
+                         {rosterDates[rosterDates.length - 1]?.toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                         {` · ${rosterWeekCount} semana${rosterWeekCount > 1 ? 's' : ''}`}
+                     </p>
+                 </div>
              <div className="overflow-x-auto">
                  <table className="min-w-full divide-y divide-slate-200">
                      <thead className="bg-white">
+                         {rosterWeekCount > 1 && (
+                             <tr>
+                                 <th className="sticky left-0 z-20 bg-white w-[220px] min-w-[220px] max-w-[220px] border-r border-slate-200" />
+                                 {rosterWeeks.map((weekDates, weekIdx) => (
+                                     <th
+                                         key={`week-h-${weekIdx}`}
+                                         colSpan={8}
+                                         className={`px-2 py-1.5 text-center text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r-2 border-slate-300 ${weekIdx % 2 === 0 ? 'bg-slate-50' : 'bg-white'}`}
+                                     >
+                                         Semana {weekIdx + 1} · {weekDates[0].toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })} – {weekDates[6].toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
+                                     </th>
+                                 ))}
+                             </tr>
+                         )}
                          <tr>
-                             <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-white z-10 w-48 border-r border-slate-100">Colaborador</th>
-                             {getRosterDates().map((date, i) => (
-                                 <th key={i} className={`px-2 py-3 text-center text-xs font-bold uppercase tracking-wider min-w-[80px] ${date.toDateString() === new Date().toDateString() ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>
-                                     <div className="flex flex-col">
-                                         <span>{date.toLocaleDateString('es-ES', { weekday: 'short' })}</span>
-                                         <span className="text-xs opacity-70">{date.getDate()}</span>
-                                     </div>
-                                 </th>
+                             <th className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-white z-20 w-[220px] min-w-[220px] max-w-[220px] border-r border-slate-200">Colaborador</th>
+                             {rosterWeeks.map((weekDates, weekIdx) => (
+                                 <React.Fragment key={`week-days-${weekIdx}`}>
+                                     {weekDates.map((date, i) => (
+                                         <th key={`${weekIdx}-${i}`} className={`px-1.5 py-2 text-center text-xs font-bold uppercase tracking-wider min-w-[72px] ${date.toDateString() === new Date().toDateString() ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>
+                                             <div className="flex flex-col">
+                                                 <span>{date.toLocaleDateString('es-PE', { weekday: 'short' })}</span>
+                                                 <span className="text-xs opacity-70 font-semibold">{date.getDate()}</span>
+                                             </div>
+                                         </th>
+                                     ))}
+                                     <th className="px-2 py-2 text-center text-[10px] font-bold text-slate-500 uppercase tracking-wider min-w-[64px] border-r-2 border-slate-300 bg-slate-50">Hrs</th>
+                                 </React.Fragment>
                              ))}
-                             <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Horas</th>
                          </tr>
                      </thead>
                      <tbody className="bg-white divide-y divide-slate-100">
-                         {personnel.map(worker => {
-                             // Calculate total hours in view
-                             const dates = getRosterDates();
-                             const totalHours = dates.reduce((acc, d) => {
-                                 const dateStr = d.toISOString().split('T')[0];
-                                 const shift = worker.workSchedule?.find(s => s.date === dateStr);
-                                 return acc + (shift?.hours || 0);
-                             }, 0);
-
-                             return (
-                                 <tr key={worker.id} className="hover:bg-slate-50/50">
-                                     <td className="px-4 py-3 whitespace-nowrap sticky left-0 bg-white z-10 border-r border-slate-100">
-                                         <div className="flex items-center">
+                         {personnel.length === 0 && (
+                             <tr>
+                                 <td colSpan={1 + rosterWeekCount * 8} className="px-4 py-8 text-center text-sm text-slate-400 italic">
+                                     No hay colaboradores activos para programar turnos.
+                                 </td>
+                             </tr>
+                         )}
+                         {personnel.map(worker => (
+                                 <tr key={worker.id} className="hover:bg-slate-50/50 group">
+                                     <td className="px-3 py-2 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 w-[220px] min-w-[220px] max-w-[220px]">
+                                         <div className="flex items-center gap-2 min-w-0">
                                             {worker.image ? (
                                                 <SafeImage
                                                     src={worker.image}
                                                     alt={worker.name}
                                                     bucket="unit-images"
-                                                    className="w-16 h-16 rounded-full object-cover mr-4 shrink-0 bg-slate-200 cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition"
+                                                    className="w-8 h-8 rounded-full object-cover shrink-0 bg-slate-200 cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition"
                                                     onClick={() => {
                                                         closeAllModalsExcept('image');
                                                         setImageModalUrl(worker.image!);
@@ -6912,53 +7189,98 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                     }}
                                                     title="Click para ver foto en tamaño completo"
                                                     fallback={
-                                                        <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 mr-4 shrink-0">
+                                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 shrink-0">
                                                             {getWorkerInitial(worker.name)}
                                                         </div>
                                                     }
                                                 />
                                             ) : (
-                                                <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 mr-4 shrink-0">
+                                                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 shrink-0">
                                                     {getWorkerInitial(worker.name)}
                                                 </div>
                                             )}
-                                             <div>
-                                                 <p className="text-sm font-medium text-slate-900 break-words max-w-[180px]" title={worker.name}>{worker.name}</p>
-                                                 <p className="text-[10px] text-slate-400">{worker.assignedShift || 'N/A'}</p>
+                                             <div className="min-w-0 flex-1 overflow-hidden">
+                                                 <p className="text-sm font-medium text-slate-900 truncate" title={worker.name}>{worker.name}</p>
+                                                 <p className="text-[10px] text-slate-400 truncate">{worker.assignedShift || 'N/A'}</p>
                                              </div>
                                          </div>
                                      </td>
-                                     {getRosterDates().map((date, i) => {
-                                         const dateStr = date.toISOString().split('T')[0];
-                                         const shift = worker.workSchedule?.find(s => s.date === dateStr);
-                                         const type = shift?.type || 'OFF';
-                                         
+                                     {rosterWeeks.map((weekDates, weekIdx) => {
+                                         const weekHours = weekDates.reduce((acc, d) => {
+                                             const dateStr = toLocalDateStr(d);
+                                             const shift = worker.workSchedule?.find(s => s.date === dateStr);
+                                             return acc + (shift?.hours || 0);
+                                         }, 0);
                                          return (
-                                             <td key={i} className="px-2 py-3 text-center relative group">
-                                                 {canEditPersonnel ? (
-                                                 <button 
-                                                     onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
-                                                     className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
-                                                 >
-                                                         {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
-                                                 </button>
-                                                 ) : (
-                                                     <div className={`w-full py-1.5 rounded text-xs font-bold ${getShiftColor(type)} opacity-75`}>
-                                                         {type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type}
-                                                     </div>
-                                                 )}
-                                             </td>
+                                             <React.Fragment key={`${worker.id}-w-${weekIdx}`}>
+                                                 {weekDates.map((date, i) => {
+                                                     const dateStr = toLocalDateStr(date);
+                                                     const shift = worker.workSchedule?.find(s => s.date === dateStr);
+                                                     const type = shift?.type || 'OFF';
+                                                     return (
+                                                         <td key={`${worker.id}-${dateStr}`} className="px-1.5 py-2 text-center">
+                                                             {canEditPersonnel ? (
+                                                             <button 
+                                                                 onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
+                                                                 className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
+                                                             >
+                                                                     {rosterShiftShortLabel(type)}
+                                                             </button>
+                                                             ) : (
+                                                                 <div className={`w-full py-1.5 rounded text-xs font-bold ${getShiftColor(type)} opacity-75`}>
+                                                                     {rosterShiftShortLabel(type)}
+                                                                 </div>
+                                                             )}
+                                                         </td>
+                                                     );
+                                                 })}
+                                                 <td className="px-2 py-2 text-center whitespace-nowrap border-r-2 border-slate-300 bg-slate-50/80">
+                                                     <span className="text-sm font-bold text-slate-700">{weekHours}</span>
+                                                     <span className="text-xs text-slate-400 ml-0.5">h</span>
+                                                 </td>
+                                             </React.Fragment>
                                          );
                                      })}
-                                     <td className="px-4 py-3 text-center whitespace-nowrap">
-                                         <span className="text-sm font-bold text-slate-700">{totalHours}</span>
-                                         <span className="text-xs text-slate-400 ml-1">h</span>
-                                     </td>
                                  </tr>
-                             );
-                         })}
+                         ))}
                      </tbody>
+                     <tfoot className="bg-slate-50 border-t-2 border-slate-300">
+                         <tr>
+                             <td className="px-3 py-2 sticky left-0 z-10 bg-slate-50 border-r border-slate-200 w-[220px] min-w-[220px] max-w-[220px]">
+                                 <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Programados</p>
+                                 <p className="text-[10px] text-slate-400">Dia / Tarde / Noche</p>
+                             </td>
+                             {rosterWeeks.map((weekDates, weekIdx) => {
+                                 const summary = rosterWeekSummaries[weekIdx];
+                                 return (
+                                     <React.Fragment key={`tot-w-${weekIdx}`}>
+                                         {weekDates.map((date) => {
+                                             const dateStr = toLocalDateStr(date);
+                                             const totals = rosterDayTotals.find((t) => t.dateStr === dateStr);
+                                             return (
+                                                 <td key={`tot-${dateStr}`} className="px-1.5 py-2 text-center">
+                                                     <div className="text-sm font-bold text-slate-800">{totals?.programmed ?? 0}</div>
+                                                     <div className="text-[9px] text-slate-500 leading-tight mt-0.5">
+                                                         <span className="text-blue-600 font-semibold">{totals?.day ?? 0}D</span>
+                                                         {' '}
+                                                         <span className="text-amber-600 font-semibold">{totals?.afternoon ?? 0}T</span>
+                                                         {' '}
+                                                         <span className="text-indigo-600 font-semibold">{totals?.night ?? 0}N</span>
+                                                     </div>
+                                                 </td>
+                                             );
+                                         })}
+                                         <td className="px-2 py-2 text-center border-r-2 border-slate-300 bg-slate-100">
+                                             <div className="text-sm font-bold text-slate-800">{summary?.programmedWorkers ?? 0}</div>
+                                             <div className="text-[9px] text-slate-500 leading-tight">trab. / {summary?.programmedShifts ?? 0} turnos</div>
+                                         </td>
+                                     </React.Fragment>
+                                 );
+                             })}
+                         </tr>
+                     </tfoot>
                  </table>
+             </div>
              </div>
           </div>
       )}
@@ -8538,7 +8860,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
 
                 <div className="border-t border-slate-200 pt-4">
-                  <h4 className="text-sm font-semibold text-slate-700 mb-3">Información Salarial</h4>
+                  <h4 className="text-sm font-semibold text-slate-700 mb-1">Información Salarial</h4>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Salario bruto, condición de trabajo (movilidad u otros montos adicionales) y bono de movilidad.
+                  </p>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Salario Bruto Mensual</label>
@@ -8553,7 +8878,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (Monto)</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (movilidad / bonos)</label>
                       <input 
                         type="number" 
                         step="0.01" 
@@ -9255,10 +9580,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               
                               {/* Información Salarial */}
                               <div className="border-t border-slate-200 pt-4 mt-4">
-                                  <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center">
+                                  <h4 className="text-sm font-semibold text-slate-700 mb-1 flex items-center">
                                       <DollarSign size={14} className="mr-1.5" />
                                       Información Salarial
                                   </h4>
+                                  <p className="text-xs text-slate-500 mb-3">
+                                      Salario bruto, condición de trabajo (movilidad u otros montos adicionales) y bono de movilidad.
+                                  </p>
                                   <div className="grid grid-cols-2 gap-4">
                                       <div>
                                           <label className="block text-sm font-medium text-slate-700 mb-1">Salario Bruto Mensual</label>
@@ -9273,7 +9601,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           />
                                       </div>
                                       <div>
-                                          <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (Monto)</label>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (movilidad / bonos)</label>
                                           <input 
                                               type="number" 
                                               step="0.01" 
