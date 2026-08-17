@@ -219,11 +219,10 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Datos del colaborador',
-        body: 'Al expandir un trabajador en Personal verá Datos del colaborador. Ahí el usuario de OpsFlow puede registrar la jornada: 8 horas o 12 horas. El valor se guarda en el colaborador y queda disponible para edición posterior.',
+        body: 'En Personal, la jornada (8 horas o 12 horas) se ve en la fila de cada colaborador, junto al turno. Se registra al crear o editar si aún está vacía; una vez ingresada no se puede cambiar.',
         steps: [
-          'Abra la unidad → Personal y expanda la fila del trabajador.',
-          'En Jornada elija 8 horas o 12 horas.',
-          'El cambio se guarda de inmediato si tiene permiso de edición de personal.',
+          'Alta o Editar: si la jornada está vacía, elija 8 horas o 12 horas y guarde.',
+          'Después de guardarla aparece en la fila y queda bloqueada, igual que el teléfono.',
         ],
       },
       {
