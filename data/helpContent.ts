@@ -205,11 +205,11 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Información Salarial',
-        body: 'Al expandir un colaborador en Personal verá el bloque Información Salarial: salario bruto mensual, condición de trabajo (movilidad) y bono. Son conceptos distintos: la movilidad va solo en condición de trabajo; el bono no es de movilidad. Los conceptos variables del mes se gestionan en la pestaña Variables.',
+        body: 'Al expandir un colaborador en Personal verá el bloque Información Salarial: salario bruto mensual, condición de trabajo (movilidad), bono y si corresponde asignación familiar (sí/no). Son conceptos distintos: la movilidad va solo en condición de trabajo; el bono no es de movilidad. Los conceptos variables del mes se gestionan en la pestaña Variables.',
         steps: [
           'Abra la unidad → Personal y expanda la fila del trabajador.',
-          'Revise salario bruto, condición de trabajo (movilidad) y bono.',
-          'Si tiene permiso, use Editar para cambiar esos montos, o Registrar Incremento para dejar historial de aumentos.',
+          'Revise salario bruto, condición de trabajo (movilidad), bono y asignación familiar.',
+          'Si tiene permiso, use Editar para cambiar esos datos, o Registrar Incremento para dejar historial de aumentos.',
           'Los conceptos variables (comisiones, bonos del mes) se cargan en la pestaña Variables.',
         ],
         tips: [
