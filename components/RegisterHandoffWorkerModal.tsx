@@ -471,7 +471,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Jornada (8 o 12 horas){isPrefilled('jornadaType') && <PrefillBadge source="OpsFlow" />}
+                Jornada (4, 8 o 12 horas){isPrefilled('jornadaType') && <PrefillBadge source="OpsFlow" />}
               </label>
               <select
                 value={form.jornadaType ?? ''}

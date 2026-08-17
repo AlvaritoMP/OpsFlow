@@ -13,7 +13,7 @@ export const WORK_DAY_OPTIONS = [
 
 export const SHIFT_OPTIONS = ['Diurno', 'Tarde', 'Nocturno'] as const;
 
-export const JORNADA_OPTIONS = ['8 horas', '12 horas'] as const;
+export const JORNADA_OPTIONS = ['4 horas', '8 horas', '12 horas'] as const;
 
 export function jornadaOptionList(current?: string | null): string[] {
   const options: string[] = [...JORNADA_OPTIONS];
@@ -141,7 +141,7 @@ export const OpsflowIntakeForm: React.FC<OpsflowIntakeFormProps> = ({
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-slate-600">Jornada (8 o 12 horas)</span>
+          <span className="mb-1.5 block text-xs font-medium text-slate-600">Jornada (4, 8 o 12 horas)</span>
           <select
             disabled={disabled}
             value={value.jornadaType ?? ''}

@@ -3348,6 +3348,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Condición Trabajo (S/)',
         'Bono (S/)',
         'Asignación familiar',
+        'Régimen laboral',
         'En Capacitación',
         'Archivado',
         'Cantidad Capacitaciones',
@@ -3379,6 +3380,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Bono (S/)': worker.mobilityBonus != null ? `S/ ${Number(worker.mobilityBonus).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
         'Asignación familiar':
           worker.familyAllowance === true ? 'Sí corresponde' : worker.familyAllowance === false ? 'No corresponde' : '',
+        'Régimen laboral': worker.laborRegime || '',
         'En Capacitación': worker.inTraining ? 'Sí' : 'No',
         'Archivado': worker.archived ? 'Sí' : 'No',
         'Cantidad Capacitaciones': worker.trainings?.length || 0,
@@ -6970,7 +6972,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 {canEditPersonnel && <button onClick={() => handleOpenSalaryIncrementModal(worker)} className="text-xs text-green-600 hover:underline flex items-center"><TrendingUp size={12} className="mr-1"/> Registrar Incremento</button>}
                             </div>
                             <p className="text-xs text-slate-500 mb-4">
-                                Incluye salario bruto, condición de trabajo (movilidad), bono y si corresponde asignación familiar. La movilidad va solo en condición de trabajo; el bono es un monto aparte.
+                                Incluye salario bruto, condición de trabajo (movilidad), bono, asignación familiar y régimen laboral. La movilidad va solo en condición de trabajo; el bono es un monto aparte.
                             </p>
                             <div className="grid grid-cols-2 gap-4 mb-4">
                                 <div>
@@ -6999,6 +7001,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           : worker.familyAllowance === false
                                             ? 'No corresponde'
                                             : 'No registrado'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">Régimen laboral</p>
+                                    <p className="text-sm font-semibold text-slate-700">
+                                        {worker.laborRegime?.trim() || 'No registrado'}
                                     </p>
                                 </div>
                             </div>
@@ -8934,7 +8942,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div className="border-t border-slate-200 pt-4">
                   <h4 className="text-sm font-semibold text-slate-700 mb-1">Información Salarial</h4>
                   <p className="text-xs text-slate-500 mb-3">
-                    Salario bruto, condición de trabajo (movilidad), bono y asignación familiar. No mezclar: la movilidad no es el bono.
+                    Salario bruto, condición de trabajo (movilidad), bono, asignación familiar y régimen laboral. No mezclar: la movilidad no es el bono.
                   </p>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -8979,7 +8987,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Jornada (8 o 12 horas)</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Jornada (4, 8 o 12 horas)</label>
                       <select
                         className="w-full border border-slate-300 rounded-lg p-2 outline-none"
                         value={newWorkerForm.jornadaType || ''}
@@ -9657,7 +9665,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       Información Salarial
                                   </h4>
                                   <p className="text-xs text-slate-500 mb-3">
-                                      Salario bruto, condición de trabajo (movilidad), bono y asignación familiar. No mezclar: la movilidad no es el bono.
+                                      Salario bruto, condición de trabajo (movilidad), bono, asignación familiar y régimen laboral. No mezclar: la movilidad no es el bono.
                                   </p>
                                   <div className="grid grid-cols-2 gap-4">
                                       <div>
@@ -9705,7 +9713,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           />
                                       </div>
                                       <div>
-                                          <label className="block text-sm font-medium text-slate-700 mb-1">Jornada (8 o 12 horas)</label>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Jornada (4, 8 o 12 horas)</label>
                                           {(() => {
                                             const savedJornada = unit.resources.find(r => r.id === editingResource.id)?.jornadaType?.trim();
                                             if (savedJornada) {

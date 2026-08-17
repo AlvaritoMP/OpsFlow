@@ -205,10 +205,10 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Información Salarial',
-        body: 'Al expandir un colaborador en Personal verá el bloque Información Salarial: salario bruto mensual, condición de trabajo (movilidad), bono y si corresponde asignación familiar (sí/no). Son conceptos distintos: la movilidad va solo en condición de trabajo; el bono no es de movilidad. Los conceptos variables del mes se gestionan en la pestaña Variables.',
+        body: 'Al expandir un colaborador en Personal verá el bloque Información Salarial: salario bruto mensual, condición de trabajo (movilidad), bono, asignación familiar (sí/no) y régimen laboral (General, Pyme o Mype). Son conceptos distintos: la movilidad va solo en condición de trabajo; el bono no es de movilidad. Los conceptos variables del mes se gestionan en la pestaña Variables.',
         steps: [
           'Abra la unidad → Personal y expanda la fila del trabajador.',
-          'Revise salario bruto, condición de trabajo (movilidad), bono y asignación familiar.',
+          'Revise salario bruto, condición de trabajo (movilidad), bono, asignación familiar y régimen laboral.',
           'Si tiene permiso, use Editar para cambiar esos datos, o Registrar Incremento para dejar historial de aumentos.',
           'Los conceptos variables (comisiones, bonos del mes) se cargan en la pestaña Variables.',
         ],
@@ -219,9 +219,9 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Datos del colaborador',
-        body: 'En Personal, la jornada (8 horas o 12 horas) se ve en la fila de cada colaborador, junto al turno. Se registra al crear o editar si aún está vacía; una vez ingresada no se puede cambiar.',
+        body: 'En Personal, la jornada (4, 8 o 12 horas) se ve en la fila de cada colaborador, junto al turno. Se registra al crear o editar si aún está vacía; una vez ingresada no se puede cambiar.',
         steps: [
-          'Alta o Editar: si la jornada está vacía, elija 8 horas o 12 horas y guarde.',
+          'Alta o Editar: si la jornada está vacía, elija 4, 8 o 12 horas y guarde.',
           'Después de guardarla aparece en la fila y queda bloqueada, igual que el teléfono.',
         ],
       },
@@ -447,14 +447,14 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Condiciones OpsFlow (salario y horario)',
-        body: 'Antes de registrar en unidad, el equipo interno define salario mensual, bono de movilidad, asignación familiar (sí/no), jornada (8 horas o 12 horas), régimen (General, Pyme, Mype), días de trabajo, hora de entrada/salida y turno (Diurno, Tarde o Nocturno).',
+        body: 'Antes de registrar en unidad, el equipo interno define salario mensual, bono de movilidad, asignación familiar (sí/no), jornada (4, 8 o 12 horas), régimen (General, Pyme, Mype), días de trabajo, hora de entrada/salida y turno (Diurno, Tarde o Nocturno).',
         steps: [
           'Complete la sección Condiciones OpsFlow en la ficha del candidato (puede hacerlo antes o después de aprobar).',
           'Pulse Guardar condiciones.',
           'Al Registrar en unidad, esos datos precargan Personal. Lo que no venga en el paquete queda en blanco para completar después en la unidad.',
         ],
         tips: [
-          'No se puede registrar en unidad si faltan salario, bono de movilidad, asignación familiar, jornada (8 o 12 horas), régimen, días, horario o turno. El bono puede ser 0 si no aplica.',
+          'No se puede registrar en unidad si faltan salario, bono de movilidad, asignación familiar, jornada (4, 8 o 12 horas), régimen, días, horario o turno. El bono puede ser 0 si no aplica.',
         ],
       },
       {
