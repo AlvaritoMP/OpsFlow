@@ -184,7 +184,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Si tiene permiso de edición, haga clic en un turno para ciclarlo (Día → Tarde → Noche → OFF) y pulse Guardar planificación.',
         ],
         tips: [
-          'Los nombres largos se recortan en la columna Colaborador; pase el cursor para ver el nombre completo.',
+          'Los nombres largos se muestran completos en varias líneas dentro de la columna Colaborador, también al descargar PNG o PDF.',
           'Copiar a sem. siguiente replica solo la primera semana visible hacia la semana siguiente. Confirme con Guardar planificación.',
         ],
       },
@@ -205,16 +205,16 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Información Salarial',
-        body: 'Al expandir un colaborador en Personal verá el bloque Información Salarial: salario bruto mensual, condición de trabajo (movilidad u otros montos adicionales) y bono de movilidad. Los bonos o conceptos variables del mes se gestionan en la pestaña Variables.',
+        body: 'Al expandir un colaborador en Personal verá el bloque Información Salarial: salario bruto mensual, condición de trabajo (movilidad) y bono. Son conceptos distintos: la movilidad va solo en condición de trabajo; el bono no es de movilidad. Los conceptos variables del mes se gestionan en la pestaña Variables.',
         steps: [
           'Abra la unidad → Personal y expanda la fila del trabajador.',
-          'Revise salario bruto, condición de trabajo (movilidad) y bono de movilidad.',
+          'Revise salario bruto, condición de trabajo (movilidad) y bono.',
           'Si tiene permiso, use Editar para cambiar esos montos, o Registrar Incremento para dejar historial de aumentos.',
           'Los conceptos variables (comisiones, bonos del mes) se cargan en la pestaña Variables.',
         ],
         tips: [
-          'El bono de movilidad puede ser 0 si no aplica.',
-          'Si el colaborador llegó desde Presentaciones ATS, salario y bono de movilidad se precargan desde las condiciones OpsFlow.',
+          'Condición de trabajo = movilidad. El bono es un monto adicional aparte; no lo registre como movilidad.',
+          'El bono puede ser 0 si no aplica.',
         ],
       },
       {

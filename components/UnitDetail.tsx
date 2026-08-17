@@ -3123,27 +3123,58 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       });
     };
 
-    node.querySelectorAll<HTMLElement>('*').forEach((el) => {
-      const computed = window.getComputedStyle(el);
-      const clips =
-        computed.overflow === 'hidden' ||
-        computed.overflow === 'auto' ||
-        computed.overflow === 'scroll' ||
-        computed.overflowX === 'hidden' ||
-        computed.overflowX === 'auto' ||
-        computed.overflowX === 'scroll' ||
-        el.classList.contains('overflow-hidden') ||
-        el.classList.contains('overflow-x-auto') ||
-        el.classList.contains('overflow-y-auto') ||
-        el.classList.contains('overflow-auto');
-      if (!clips) return;
-      pushRestore(el, ['overflow', 'overflowX', 'overflowY', 'maxHeight', 'height']);
+    const nameColPx = '260px';
+
+    // Solo expandir el scroll horizontal para capturar la tabla completa.
+    // No quitar overflow de las celdas de nombre: eso hace que se superpongan a los turnos.
+    node.querySelectorAll<HTMLElement>('.roster-scroll').forEach((el) => {
+      pushRestore(el, ['overflow', 'overflowX', 'overflowY']);
       el.style.overflow = 'visible';
       el.style.overflowX = 'visible';
       el.style.overflowY = 'visible';
-      el.style.maxHeight = 'none';
-      el.style.height = 'auto';
     });
+
+    // sticky + html-to-image pinta la columna de nombres encima de las de turnos
+    node.querySelectorAll<HTMLElement>('.roster-name-col').forEach((el) => {
+      pushRestore(el, ['position', 'left', 'zIndex', 'maxWidth', 'width', 'minWidth', 'overflow', 'overflowX', 'whiteSpace']);
+      el.style.position = 'static';
+      el.style.left = 'auto';
+      el.style.zIndex = 'auto';
+      el.style.maxWidth = nameColPx;
+      el.style.width = nameColPx;
+      el.style.minWidth = nameColPx;
+      el.style.overflow = 'hidden';
+      el.style.overflowX = 'hidden';
+      el.style.whiteSpace = 'normal';
+      el.querySelectorAll<HTMLElement>('*').forEach((child) => {
+        pushRestore(child, ['maxWidth', 'overflow', 'overflowX']);
+        child.style.maxWidth = '100%';
+        if (child.classList.contains('roster-worker-name')) return;
+        child.style.overflow = 'hidden';
+        child.style.overflowX = 'hidden';
+      });
+    });
+
+    node.querySelectorAll<HTMLElement>('.roster-worker-name').forEach((el) => {
+      pushRestore(el, ['whiteSpace', 'overflow', 'textOverflow', 'wordBreak', 'overflowWrap', 'maxWidth', 'width']);
+      el.style.whiteSpace = 'normal';
+      el.style.overflow = 'visible';
+      el.style.textOverflow = 'clip';
+      el.style.wordBreak = 'break-word';
+      el.style.overflowWrap = 'anywhere';
+      el.style.maxWidth = '100%';
+      el.style.width = '100%';
+    });
+
+    const table = node.querySelector('table');
+    if (table instanceof HTMLElement) {
+      const weekCols = rosterWeekCount * 8;
+      const tableWidth = 260 + weekCols * 76;
+      pushRestore(table, ['tableLayout', 'width', 'minWidth']);
+      table.style.tableLayout = 'fixed';
+      table.style.width = `${tableWidth}px`;
+      table.style.minWidth = `${tableWidth}px`;
+    }
 
     pushRestore(node, ['overflow', 'height', 'maxHeight', 'paddingBottom']);
     node.style.overflow = 'visible';
@@ -3314,7 +3345,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Cumplimiento (%)',
         'Salario Mensual (S/)',
         'Condición Trabajo (S/)',
-        'Bono Movilidad (S/)',
+        'Bono (S/)',
         'En Capacitación',
         'Archivado',
         'Cantidad Capacitaciones',
@@ -3342,7 +3373,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Cumplimiento (%)': worker.compliancePercentage || 0,
         'Salario Mensual (S/)': worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
         'Condición Trabajo (S/)': worker.workConditionAmount != null ? `S/ ${worker.workConditionAmount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
-        'Bono Movilidad (S/)': worker.mobilityBonus != null ? `S/ ${Number(worker.mobilityBonus).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
+        'Bono (S/)': worker.mobilityBonus != null ? `S/ ${Number(worker.mobilityBonus).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
         'En Capacitación': worker.inTraining ? 'Sí' : 'No',
         'Archivado': worker.archived ? 'Sí' : 'No',
         'Cantidad Capacitaciones': worker.trainings?.length || 0,
@@ -6906,7 +6937,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                               <p className="text-xs text-slate-600 mt-1">
                                                 {contract.monthlySalary !== undefined ? `Salario: S/ ${Number(contract.monthlySalary).toFixed(2)}` : 'Salario: -'}
                                                 {' • '}
-                                                {contract.workConditionAmount !== undefined ? `Condición (movilidad/bonos): S/ ${Number(contract.workConditionAmount).toFixed(2)}` : 'Condición: -'}
+                                                {contract.workConditionAmount !== undefined ? `Condición (movilidad): S/ ${Number(contract.workConditionAmount).toFixed(2)}` : 'Condición: -'}
                                               </p>
                                             )}
                                         </div>
@@ -6922,7 +6953,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 {canEditPersonnel && <button onClick={() => handleOpenSalaryIncrementModal(worker)} className="text-xs text-green-600 hover:underline flex items-center"><TrendingUp size={12} className="mr-1"/> Registrar Incremento</button>}
                             </div>
                             <p className="text-xs text-slate-500 mb-4">
-                                Incluye salario bruto, condición de trabajo (movilidad u otros montos adicionales) y bono de movilidad. Los bonos variables del mes se cargan en la pestaña Variables.
+                                Incluye salario bruto, condición de trabajo (movilidad) y bono. La movilidad va solo en condición de trabajo; el bono es un monto aparte.
                             </p>
                             <div className="grid grid-cols-2 gap-4 mb-4">
                                 <div>
@@ -6932,13 +6963,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-xs text-slate-500 mb-1">Condición de Trabajo (movilidad / bonos)</p>
+                                    <p className="text-xs text-slate-500 mb-1">Condición de Trabajo (movilidad)</p>
                                     <p className="text-sm font-semibold text-slate-700">
                                         {worker.workConditionAmount != null ? `S/ ${worker.workConditionAmount.toFixed(2)}` : 'No registrado'}
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-xs text-slate-500 mb-1">Bono de movilidad</p>
+                                    <p className="text-xs text-slate-500 mb-1">Bono</p>
                                     <p className="text-sm font-semibold text-slate-700">
                                         {worker.mobilityBonus != null ? `S/ ${Number(worker.mobilityBonus).toFixed(2)}` : 'No registrado'}
                                     </p>
@@ -7130,12 +7161,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          {` · ${rosterWeekCount} semana${rosterWeekCount > 1 ? 's' : ''}`}
                      </p>
                  </div>
-             <div className="overflow-x-auto">
-                 <table className="min-w-full divide-y divide-slate-200">
+             <div className="roster-scroll overflow-x-auto">
+                 <table
+                     className="divide-y divide-slate-200 table-fixed"
+                     style={{ minWidth: 260 + rosterWeekCount * 8 * 76, width: 260 + rosterWeekCount * 8 * 76 }}
+                 >
+                     <colgroup>
+                         <col style={{ width: 260 }} />
+                         {rosterWeeks.map((weekDates, weekIdx) => (
+                             <React.Fragment key={`cols-${weekIdx}`}>
+                                 {weekDates.map((_, i) => (
+                                     <col key={`col-${weekIdx}-${i}`} style={{ width: 76 }} />
+                                 ))}
+                                 <col key={`col-hrs-${weekIdx}`} style={{ width: 76 }} />
+                             </React.Fragment>
+                         ))}
+                     </colgroup>
                      <thead className="bg-white">
                          {rosterWeekCount > 1 && (
                              <tr>
-                                 <th className="sticky left-0 z-20 bg-white w-[220px] min-w-[220px] max-w-[220px] border-r border-slate-200" />
+                                 <th className="roster-name-col sticky left-0 z-20 bg-white w-[260px] min-w-[260px] max-w-[260px] border-r border-slate-200" />
                                  {rosterWeeks.map((weekDates, weekIdx) => (
                                      <th
                                          key={`week-h-${weekIdx}`}
@@ -7148,7 +7193,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              </tr>
                          )}
                          <tr>
-                             <th className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-white z-20 w-[220px] min-w-[220px] max-w-[220px] border-r border-slate-200">Colaborador</th>
+                             <th className="roster-name-col px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-white z-20 w-[260px] min-w-[260px] max-w-[260px] border-r border-slate-200">Colaborador</th>
                              {rosterWeeks.map((weekDates, weekIdx) => (
                                  <React.Fragment key={`week-days-${weekIdx}`}>
                                      {weekDates.map((date, i) => (
@@ -7174,8 +7219,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          )}
                          {personnel.map(worker => (
                                  <tr key={worker.id} className="hover:bg-slate-50/50 group">
-                                     <td className="px-3 py-2 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 w-[220px] min-w-[220px] max-w-[220px]">
-                                         <div className="flex items-center gap-2 min-w-0">
+                                     <td className="roster-name-col px-3 py-2 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 w-[260px] min-w-[260px] max-w-[260px] overflow-hidden align-middle whitespace-normal">
+                                         <div className="flex items-start gap-2 min-w-0 max-w-full overflow-hidden">
                                             {worker.image ? (
                                                 <SafeImage
                                                     src={worker.image}
@@ -7200,8 +7245,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 </div>
                                             )}
                                              <div className="min-w-0 flex-1 overflow-hidden">
-                                                 <p className="text-sm font-medium text-slate-900 truncate" title={worker.name}>{worker.name}</p>
-                                                 <p className="text-[10px] text-slate-400 truncate">{worker.assignedShift || 'N/A'}</p>
+                                                 <p className="roster-worker-name text-sm font-medium text-slate-900 leading-snug break-words [overflow-wrap:anywhere]">{worker.name}</p>
+                                                 <p className="text-[10px] text-slate-400 leading-tight break-words [overflow-wrap:anywhere]">{worker.assignedShift || 'N/A'}</p>
                                              </div>
                                          </div>
                                      </td>
@@ -7246,7 +7291,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      </tbody>
                      <tfoot className="bg-slate-50 border-t-2 border-slate-300">
                          <tr>
-                             <td className="px-3 py-2 sticky left-0 z-10 bg-slate-50 border-r border-slate-200 w-[220px] min-w-[220px] max-w-[220px]">
+                             <td className="roster-name-col px-3 py-2 sticky left-0 z-10 bg-slate-50 border-r border-slate-200 w-[260px] min-w-[260px] max-w-[260px] overflow-hidden">
                                  <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Programados</p>
                                  <p className="text-[10px] text-slate-400">Dia / Tarde / Noche</p>
                              </td>
@@ -8862,7 +8907,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div className="border-t border-slate-200 pt-4">
                   <h4 className="text-sm font-semibold text-slate-700 mb-1">Información Salarial</h4>
                   <p className="text-xs text-slate-500 mb-3">
-                    Salario bruto, condición de trabajo (movilidad u otros montos adicionales) y bono de movilidad.
+                    Salario bruto, condición de trabajo (movilidad) y bono. No mezclar: la movilidad no es el bono.
                   </p>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -8878,7 +8923,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (movilidad / bonos)</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (movilidad)</label>
                       <input 
                         type="number" 
                         step="0.01" 
@@ -8890,7 +8935,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Bono de movilidad</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Bono</label>
                       <input
                         type="number"
                         step="0.01"
@@ -9585,7 +9630,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                       Información Salarial
                                   </h4>
                                   <p className="text-xs text-slate-500 mb-3">
-                                      Salario bruto, condición de trabajo (movilidad u otros montos adicionales) y bono de movilidad.
+                                      Salario bruto, condición de trabajo (movilidad) y bono. No mezclar: la movilidad no es el bono.
                                   </p>
                                   <div className="grid grid-cols-2 gap-4">
                                       <div>
@@ -9601,7 +9646,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           />
                                       </div>
                                       <div>
-                                          <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (movilidad / bonos)</label>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Condición de Trabajo (movilidad)</label>
                                           <input 
                                               type="number" 
                                               step="0.01" 
@@ -9613,7 +9658,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                           />
                                       </div>
                                       <div>
-                                          <label className="block text-sm font-medium text-slate-700 mb-1">Bono de movilidad</label>
+                                          <label className="block text-sm font-medium text-slate-700 mb-1">Bono</label>
                                           <input
                                               type="number"
                                               step="0.01"
@@ -11044,7 +11089,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Condición de Trabajo (opcional)
+                    Condición de Trabajo (movilidad, opcional)
                   </label>
                   <input
                     type="number"
