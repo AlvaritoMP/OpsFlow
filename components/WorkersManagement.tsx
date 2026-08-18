@@ -2,8 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw, FileDown } from 'lucide-react';
 import { Unit, Resource, ResourceType, Client } from '../types';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
+import { formatDateDisplay } from '../utils/dateFormat';
 import { downloadOpaloPersonnelFicha } from '../utils/generateOpaloPersonnelFichaPdf';
 import { SafeImage } from './SafeImage';
+import { DateInput } from './DateInput';
 
 interface WorkersManagementProps {
   units: Unit[];
@@ -17,14 +19,51 @@ interface WorkerWithUnit extends Resource {
   clientName: string;
 }
 
+type SortBy = 'name' | 'ingreso-desc' | 'ingreso-asc';
+type DatePreset = '7d' | '30d' | 'month' | null;
+
+const toIsoLocal = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const getWorkerIngresoDate = (worker: Pick<Resource, 'startDate' | 'endDate' | 'contractHistory'>): string | undefined => {
+  return getLaborRelationshipDisplayDates(worker, worker.contractHistory).start?.slice(0, 10);
+};
+
 export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, clients, onUpdateUnit }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'activo' | 'cesado' | 'archivado'>('all');
   const [unitFilter, setUnitFilter] = useState<string>('all');
   const [clientFilter, setClientFilter] = useState<string>('all');
+  const [ingresoFrom, setIngresoFrom] = useState('');
+  const [ingresoTo, setIngresoTo] = useState('');
+  const [sortBy, setSortBy] = useState<SortBy>('name');
+  const [datePreset, setDatePreset] = useState<DatePreset>(null);
   const [selectedWorker, setSelectedWorker] = useState<WorkerWithUnit | null>(null);
   const [downloadingFichaId, setDownloadingFichaId] = useState<string | null>(null);
   const getWorkerInitial = (name?: string) => (name?.trim().charAt(0) || '?').toUpperCase();
+
+  const applyRecentPreset = (preset: Exclude<DatePreset, null>) => {
+    const today = new Date();
+    const to = toIsoLocal(today);
+    let from: string;
+    if (preset === 'month') {
+      from = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+    } else {
+      const days = preset === '7d' ? 7 : 30;
+      const start = new Date(today);
+      start.setDate(start.getDate() - (days - 1));
+      from = toIsoLocal(start);
+    }
+    setIngresoFrom(from);
+    setIngresoTo(to);
+    setStatusFilter('activo');
+    setSortBy('ingreso-desc');
+    setDatePreset(preset);
+  };
 
   // Obtener todos los trabajadores de todas las unidades
   const allWorkers = useMemo(() => {
@@ -86,8 +125,31 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
       );
     }
 
-    return filtered.sort((a, b) => a.name.localeCompare(b.name));
-  }, [allWorkers, statusFilter, unitFilter, clientFilter, searchQuery]);
+    // Filtro por fecha de ingreso
+    if (ingresoFrom || ingresoTo) {
+      filtered = filtered.filter(w => {
+        const ingreso = getWorkerIngresoDate(w);
+        if (!ingreso) return false;
+        if (ingresoFrom && ingreso < ingresoFrom) return false;
+        if (ingresoTo && ingreso > ingresoTo) return false;
+        return true;
+      });
+    }
+
+    return filtered.sort((a, b) => {
+      if (sortBy === 'name') {
+        return a.name.localeCompare(b.name, 'es');
+      }
+      const aDate = getWorkerIngresoDate(a) || '';
+      const bDate = getWorkerIngresoDate(b) || '';
+      if (!aDate && !bDate) return a.name.localeCompare(b.name, 'es');
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      const cmp = aDate.localeCompare(bDate);
+      if (cmp !== 0) return sortBy === 'ingreso-desc' ? -cmp : cmp;
+      return a.name.localeCompare(b.name, 'es');
+    });
+  }, [allWorkers, statusFilter, unitFilter, clientFilter, searchQuery, ingresoFrom, ingresoTo, sortBy]);
 
   // Obtener lista única de unidades y clientes para los filtros
   const uniqueUnits = useMemo(() => {
@@ -125,8 +187,8 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
       ...(function () {
         const rel = getLaborRelationshipDisplayDates(worker, worker.contractHistory);
         return {
-          'Fecha Inicio': rel.start ? new Date(rel.start).toLocaleDateString('es-ES') : '-',
-          'Fecha Fin': rel.end ? new Date(rel.end).toLocaleDateString('es-ES') : '-',
+          'Fecha Ingreso': rel.start ? formatDateDisplay(rel.start) : '-',
+          'Fecha Fin': rel.end ? formatDateDisplay(rel.end) : '-',
         };
       })(),
       'Nombre': worker.name,
@@ -296,14 +358,94 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
           </div>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Ingreso desde</label>
+            <DateInput
+              value={ingresoFrom}
+              onChange={(v) => {
+                setIngresoFrom(v);
+                setDatePreset(null);
+              }}
+              max={ingresoTo || undefined}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Ingreso hasta</label>
+            <DateInput
+              value={ingresoTo}
+              onChange={(v) => {
+                setIngresoTo(v);
+                setDatePreset(null);
+              }}
+              min={ingresoFrom || undefined}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Ordenar por</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortBy)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="name">Nombre A-Z</option>
+              <option value="ingreso-desc">Ingreso más reciente</option>
+              <option value="ingreso-asc">Ingreso más antiguo</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-slate-600 mr-1">Activados recientes:</span>
+          <button
+            type="button"
+            onClick={() => applyRecentPreset('7d')}
+            className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+              datePreset === '7d'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            Últimos 7 días
+          </button>
+          <button
+            type="button"
+            onClick={() => applyRecentPreset('30d')}
+            className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+              datePreset === '30d'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            Últimos 30 días
+          </button>
+          <button
+            type="button"
+            onClick={() => applyRecentPreset('month')}
+            className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+              datePreset === 'month'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            Este mes
+          </button>
+        </div>
+
         {/* Botón limpiar filtros */}
-        {(searchQuery || statusFilter !== 'all' || unitFilter !== 'all' || clientFilter !== 'all') && (
+        {(searchQuery || statusFilter !== 'all' || unitFilter !== 'all' || clientFilter !== 'all' || ingresoFrom || ingresoTo || sortBy !== 'name') && (
           <button
             onClick={() => {
               setSearchQuery('');
               setStatusFilter('all');
               setUnitFilter('all');
               setClientFilter('all');
+              setIngresoFrom('');
+              setIngresoTo('');
+              setSortBy('name');
+              setDatePreset(null);
             }}
             className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
           >
@@ -319,6 +461,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-slate-700">
               {filteredWorkers.length} trabajador{filteredWorkers.length !== 1 ? 'es' : ''} encontrado{filteredWorkers.length !== 1 ? 's' : ''}
+              {sortBy === 'ingreso-desc' ? ' · más recientes primero' : sortBy === 'ingreso-asc' ? ' · más antiguos primero' : ''}
             </span>
           </div>
         </div>
@@ -334,6 +477,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Correo</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Unidad</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Cliente</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Ingreso</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Estado</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Acciones</th>
               </tr>
@@ -341,7 +485,7 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
             <tbody className="divide-y divide-slate-200">
               {filteredWorkers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                     No se encontraron trabajadores con los filtros aplicados.
                   </td>
                 </tr>
@@ -376,6 +520,9 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                     <td className="px-4 py-3 text-sm text-slate-600 break-all">{worker.email || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.unitName}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{worker.clientName}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                      {formatDateDisplay(getWorkerIngresoDate(worker)) || '-'}
+                    </td>
                     <td className="px-4 py-3">
                       {getStatusBadge(worker)}
                     </td>
@@ -482,19 +629,13 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                 <div>
                   <label className="text-sm font-medium text-slate-700">Fecha de Inicio</label>
                   <div className="text-sm text-slate-900">
-                    {(() => {
-                      const rel = getLaborRelationshipDisplayDates(selectedWorker, selectedWorker.contractHistory);
-                      return rel.start ? new Date(rel.start).toLocaleDateString('es-ES') : '-';
-                    })()}
+                    {formatDateDisplay(getLaborRelationshipDisplayDates(selectedWorker, selectedWorker.contractHistory).start) || '-'}
                   </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700">Fecha de Fin</label>
                   <div className="text-sm text-slate-900">
-                    {(() => {
-                      const rel = getLaborRelationshipDisplayDates(selectedWorker, selectedWorker.contractHistory);
-                      return rel.end ? new Date(rel.end).toLocaleDateString('es-ES') : '-';
-                    })()}
+                    {formatDateDisplay(getLaborRelationshipDisplayDates(selectedWorker, selectedWorker.contractHistory).end) || '-'}
                   </div>
                 </div>
                 <div>
