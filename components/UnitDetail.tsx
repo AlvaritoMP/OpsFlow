@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation, User } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree } from 'lucide-react';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2 } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
@@ -560,6 +560,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     standardAssetId: '' as string | undefined
   });
   const [generateConstancy, setGenerateConstancy] = useState(true); // Por defecto generar constancia
+  const [generatingGeneralConstancyWorkerId, setGeneratingGeneralConstancyWorkerId] = useState<string | null>(null);
   const [standardAssets, setStandardAssets] = useState<Array<{ id: string; name: string; type: string; defaultSerialNumberPrefix?: string }>>([]);
   const [useStandardAsset, setUseStandardAsset] = useState(true); // Por defecto usar catálogo
   const [showEditAssignedAssetModal, setShowEditAssignedAssetModal] = useState(false);
@@ -2742,6 +2743,77 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         message: 'Error al generar el PDF. Por favor, intente nuevamente.' 
       });
       setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const handleEmitGeneralAssetConstancy = async (worker: Resource) => {
+    const assets = worker.assignedAssets || [];
+    if (assets.length === 0) {
+      setNotification({
+        type: 'error',
+        message: 'El trabajador no tiene EPP ni activos asignados para emitir un cargo general.',
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return;
+    }
+
+    if (!worker.dni) {
+      setNotification({
+        type: 'error',
+        message: 'El trabajador no tiene DNI registrado. No se puede emitir el cargo general.',
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return;
+    }
+
+    if (generatingGeneralConstancyWorkerId) return;
+
+    try {
+      setGeneratingGeneralConstancyWorkerId(worker.id);
+      const { constancyService } = await import('../services/constancyService');
+      const { pdfConstancyService } = await import('../services/pdfConstancyService');
+      const { authService } = await import('../services/authService');
+      const currentUser = await authService.getCurrentUser();
+
+      const constancy = await constancyService.generateAssetConstancy(
+        worker.id,
+        worker.name,
+        worker.dni,
+        unit.id,
+        unit.name,
+        assets,
+        currentUser?.name || currentUser?.email || 'Sistema'
+      );
+
+      pdfConstancyService.downloadPDF(
+        {
+          code: constancy.code,
+          workerName: worker.name,
+          workerDni: worker.dni,
+          unitName: unit.name,
+          date: constancy.date,
+          items: constancy.items,
+          constancyType: 'ASSET',
+        },
+        `constancia-general-${constancy.code}-${worker.name.replace(/\s+/g, '-')}.pdf`
+      );
+
+      setNotification({
+        type: 'success',
+        message: `Cargo general emitido (${constancy.code}) con ${assets.length} ítem(s).`,
+      });
+      setTimeout(() => setNotification(null), 4000);
+    } catch (error) {
+      console.error('Error al emitir cargo general de dotación:', error);
+      setNotification({
+        type: 'error',
+        message: error instanceof Error
+          ? `Error al emitir el cargo general: ${error.message}`
+          : 'Error al emitir el cargo general. Por favor, intente nuevamente.',
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setGeneratingGeneralConstancyWorkerId(null);
     }
   };
 
@@ -6836,9 +6908,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
                         {/* Assigned Assets */}
                         <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                            <div className="flex justify-between items-center mb-3">
+                            <div className="flex justify-between items-center mb-3 gap-2">
                                 <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center"><Briefcase size={14} className="mr-1.5"/> Dotación (EPP / Activos)</h5>
-                                {canEditPersonnel && <button onClick={() => handleAddSingleAsset(worker.id)} className="text-xs text-orange-600 hover:underline flex items-center"><Plus size={12} className="mr-1"/> Asignar</button>}
+                                <div className="flex items-center gap-3 shrink-0">
+                                    {(worker.assignedAssets || []).length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleEmitGeneralAssetConstancy(worker)}
+                                            disabled={generatingGeneralConstancyWorkerId === worker.id}
+                                            className="text-xs text-blue-600 hover:underline flex items-center disabled:opacity-50 disabled:no-underline"
+                                            title="Emitir un solo cargo con todos los EPP y activos asignados"
+                                        >
+                                            {generatingGeneralConstancyWorkerId === worker.id ? (
+                                                <Loader2 size={12} className="mr-1 animate-spin" />
+                                            ) : (
+                                                <FileText size={12} className="mr-1" />
+                                            )}
+                                            Cargo general
+                                        </button>
+                                    )}
+                                    {canEditPersonnel && (
+                                        <button onClick={() => handleAddSingleAsset(worker.id)} className="text-xs text-orange-600 hover:underline flex items-center">
+                                            <Plus size={12} className="mr-1"/> Asignar
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                             <div className="space-y-2">
                                 {(worker.assignedAssets || []).length > 0 ? worker.assignedAssets?.map(a => {
