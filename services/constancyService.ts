@@ -1,6 +1,24 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { DeliveryConstancy, ConstancyItem, AssignedAsset, Resource } from '../types';
 
+function toDateOnly(value?: string | null): string | undefined {
+  if (!value?.trim()) return undefined;
+  const iso = value.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : undefined;
+}
+
+function todayIsoLocal(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function resolveAssetDeliveryDate(asset: AssignedAsset): string | undefined {
+  return toDateOnly(asset.dateAssigned || (asset as { date_assigned?: string }).date_assigned);
+}
+
 // ============================================
 // SERVICIO DE CONSTANCIAS DE ENTREGA
 // ============================================
@@ -72,16 +90,24 @@ export const constancyService = {
 
       const code = await this.generateConstancyCode();
       console.log(`🔢 Código generado: ${code}`);
-      
-      const date = new Date().toISOString().split('T')[0];
 
-      const items: ConstancyItem[] = assets.map(asset => ({
-        name: asset.name,
-        type: asset.type,
-        serialNumber: asset.serialNumber,
-        quantity: 1,
-        condition: 'Buen estado',
-      }));
+      const items: ConstancyItem[] = assets.map(asset => {
+        const dateAssigned = resolveAssetDeliveryDate(asset);
+        return {
+          name: asset.name,
+          type: asset.type,
+          serialNumber: asset.serialNumber,
+          quantity: 1,
+          condition: 'Buen estado',
+          dateAssigned,
+        };
+      });
+
+      const deliveryDates = items
+        .map(item => item.dateAssigned)
+        .filter((value): value is string => Boolean(value))
+        .sort();
+      const date = deliveryDates[0] || todayIsoLocal();
 
       console.log(`📦 Items de constancia:`, items);
 
@@ -152,7 +178,7 @@ export const constancyService = {
   ): Promise<DeliveryConstancy> {
     try {
       const code = await this.generateConstancyCode();
-      const date = new Date().toISOString().split('T')[0];
+      const date = todayIsoLocal();
 
       const items: ConstancyItem[] = [{
         name: equipment.name,

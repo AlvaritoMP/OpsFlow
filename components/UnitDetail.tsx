@@ -2720,14 +2720,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         return;
       }
 
+      const assetDeliveryDate = (asset.dateAssigned || (asset as { date_assigned?: string }).date_assigned || '').slice(0, 10);
+      const itemsWithDates = (constancy.items || []).map(item => ({
+        ...item,
+        dateAssigned: item.dateAssigned || assetDeliveryDate || undefined,
+      }));
+
       // Generar y descargar PDF
       pdfConstancyService.downloadPDF({
         code: constancy.code,
         workerName: worker.name,
         workerDni: worker.dni,
         unitName: unit.name,
-        date: constancy.date,
-        items: constancy.items,
+        date: assetDeliveryDate || constancy.date,
+        items: itemsWithDates,
         constancyType: 'ASSET',
       }, `constancia-${constancy.code}-${worker.name.replace(/\s+/g, '-')}.pdf`);
 

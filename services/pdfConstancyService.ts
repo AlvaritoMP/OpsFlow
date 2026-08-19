@@ -1,6 +1,8 @@
 // Servicio para generar PDFs de constancias
 // Nota: Requiere jsPDF instalado (npm install jspdf)
 
+import { formatDateDisplay } from '../utils/dateFormat';
+
 export interface PDFConstancyData {
   code: string;
   workerName: string;
@@ -13,6 +15,7 @@ export interface PDFConstancyData {
     serialNumber?: string;
     quantity?: number;
     condition?: string;
+    dateAssigned?: string;
   }>;
   constancyType: 'ASSET' | 'EQUIPMENT';
 }
@@ -75,9 +78,19 @@ export const pdfConstancyService = {
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
+    const itemDates = [...new Set(
+      data.items
+        .map(item => (item.dateAssigned || data.date || '').slice(0, 10))
+        .filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value))
+    )].sort();
+    const headerDateLabel = itemDates.length === 0
+      ? this.formatDate(data.date)
+      : itemDates.length === 1
+        ? this.formatDate(itemDates[0])
+        : `${this.formatDate(itemDates[0])} - ${this.formatDate(itemDates[itemDates.length - 1])}`;
     const infoLines = [
       `Código de Constancia: ${data.code}`,
-      `Fecha de Entrega: ${this.formatDate(data.date)}`,
+      `${itemDates.length > 1 ? 'Fechas de Entrega' : 'Fecha de Entrega'}: ${headerDateLabel}`,
       `Unidad: ${data.unitName}`,
       `Trabajador: ${data.workerName}`,
       `DNI: ${data.workerDni}`,
@@ -99,9 +112,14 @@ export const pdfConstancyService = {
     yPos += 8;
 
     // Tabla de items
-    const tableStartY = yPos;
-    const colWidths = [80, 40, 30, 30];
-    const colX = [margin, margin + colWidths[0], margin + colWidths[0] + colWidths[1], margin + colWidths[0] + colWidths[1] + colWidths[2]];
+    const colWidths = [58, 28, 32, 18, 44];
+    const colX = [
+      margin,
+      margin + colWidths[0],
+      margin + colWidths[0] + colWidths[1],
+      margin + colWidths[0] + colWidths[1] + colWidths[2],
+      margin + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3],
+    ];
 
     // Encabezado de tabla
     doc.setFillColor(240, 240, 240);
@@ -111,8 +129,9 @@ export const pdfConstancyService = {
     doc.setTextColor(...darkGray);
     doc.text('Descripción', colX[0] + 2, yPos);
     doc.text('Tipo', colX[1] + 2, yPos);
-    doc.text('Cantidad', colX[2] + 2, yPos);
-    doc.text('Estado', colX[3] + 2, yPos);
+    doc.text('F. Entrega', colX[2] + 2, yPos);
+    doc.text('Cant.', colX[3] + 2, yPos);
+    doc.text('Estado', colX[4] + 2, yPos);
     yPos += 8;
 
     // Filas de items
@@ -137,8 +156,9 @@ export const pdfConstancyService = {
       doc.text(description, colX[0] + 2, yPos, { maxWidth: colWidths[0] - 4 });
       
       doc.text(item.type, colX[1] + 2, yPos);
-      doc.text((item.quantity || 1).toString(), colX[2] + 2, yPos);
-      doc.text(item.condition || 'Buen estado', colX[3] + 2, yPos);
+      doc.text(this.formatDate(item.dateAssigned || data.date) || '—', colX[2] + 2, yPos);
+      doc.text((item.quantity || 1).toString(), colX[3] + 2, yPos);
+      doc.text(item.condition || 'Buen estado', colX[4] + 2, yPos);
 
       yPos += 7;
     });
@@ -234,8 +254,15 @@ export const pdfConstancyService = {
     const footerY = pageHeight - 15;
     doc.setFontSize(7);
     doc.setTextColor(...lightGray);
+    const generatedToday = (() => {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    })();
     doc.text(
-      `Constancia generada el ${this.formatDate(new Date().toISOString().split('T')[0])} - ${data.code}`,
+      `Constancia generada el ${this.formatDate(generatedToday)} - ${data.code}`,
       pageWidth / 2,
       footerY,
       { align: 'center' }
@@ -260,13 +287,10 @@ export const pdfConstancyService = {
     });
   },
 
-  // Formatear fecha
+  // Formatear fecha (yyyy-MM-dd → dd/mm/yyyy, sin desfase UTC)
   formatDate(dateString: string): string {
-    const date = new Date(dateString);
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
+    if (!dateString?.trim()) return '';
+    return formatDateDisplay(dateString.trim().slice(0, 10)) || dateString;
   },
 };
 

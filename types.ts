@@ -189,6 +189,7 @@ export interface ConstancyItem {
   serialNumber?: string;
   quantity?: number;
   condition?: string; // Estado del item al momento de entrega
+  dateAssigned?: string; // Fecha de entrega del ítem (yyyy-MM-dd), la que colocó el usuario
 }
 
 export interface MaintenanceRecord {
