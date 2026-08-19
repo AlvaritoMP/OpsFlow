@@ -83,14 +83,15 @@ export const pdfConstancyService = {
         .map(item => (item.dateAssigned || data.date || '').slice(0, 10))
         .filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value))
     )].sort();
+    const hasDistinctDates = itemDates.length > 1;
     const headerDateLabel = itemDates.length === 0
       ? this.formatDate(data.date)
-      : itemDates.length === 1
-        ? this.formatDate(itemDates[0])
-        : `${this.formatDate(itemDates[0])} - ${this.formatDate(itemDates[itemDates.length - 1])}`;
+      : this.formatDate(itemDates[0]);
     const infoLines = [
       `Código de Constancia: ${data.code}`,
-      `${itemDates.length > 1 ? 'Fechas de Entrega' : 'Fecha de Entrega'}: ${headerDateLabel}`,
+      hasDistinctDates
+        ? 'Fecha de Entrega: se indica de forma específica en cada ítem'
+        : `Fecha de Entrega: ${headerDateLabel}`,
       `Unidad: ${data.unitName}`,
       `Trabajador: ${data.workerName}`,
       `DNI: ${data.workerDni}`,
@@ -111,57 +112,104 @@ export const pdfConstancyService = {
     doc.text('ITEMS ENTREGADOS', margin, yPos);
     yPos += 8;
 
-    // Tabla de items
-    const colWidths = [58, 28, 32, 18, 44];
-    const colX = [
-      margin,
-      margin + colWidths[0],
-      margin + colWidths[0] + colWidths[1],
-      margin + colWidths[0] + colWidths[1] + colWidths[2],
-      margin + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3],
-    ];
+    const contentWidth = pageWidth - 2 * margin;
 
-    // Encabezado de tabla
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, yPos - 5, pageWidth - 2 * margin, 8, 'F');
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...darkGray);
-    doc.text('Descripción', colX[0] + 2, yPos);
-    doc.text('Tipo', colX[1] + 2, yPos);
-    doc.text('F. Entrega', colX[2] + 2, yPos);
-    doc.text('Cant.', colX[3] + 2, yPos);
-    doc.text('Estado', colX[4] + 2, yPos);
-    yPos += 8;
-
-    // Filas de items
-    doc.setFont('helvetica', 'normal');
-    data.items.forEach((item, index) => {
-      if (yPos > pageHeight - 60) {
-        doc.addPage();
-        yPos = margin + 20;
-      }
-
-      const bgColor = index % 2 === 0 ? [255, 255, 255] : [250, 250, 250];
-      doc.setFillColor(...bgColor);
-      doc.rect(margin, yPos - 4, pageWidth - 2 * margin, 6, 'F');
-
+    if (hasDistinctDates) {
+      doc.setFont('helvetica', 'italic');
       doc.setFontSize(8);
       doc.setTextColor(...darkGray);
-      
-      // Descripción (con número de serie si existe)
-      const description = item.serialNumber 
-        ? `${item.name}\nSN: ${item.serialNumber}`
-        : item.name;
-      doc.text(description, colX[0] + 2, yPos, { maxWidth: colWidths[0] - 4 });
-      
-      doc.text(item.type, colX[1] + 2, yPos);
-      doc.text(this.formatDate(item.dateAssigned || data.date) || '—', colX[2] + 2, yPos);
-      doc.text((item.quantity || 1).toString(), colX[3] + 2, yPos);
-      doc.text(item.condition || 'Buen estado', colX[4] + 2, yPos);
+      doc.text('Cada ítem se entregó en la fecha que se indica a continuación:', margin, yPos);
+      yPos += 8;
 
-      yPos += 7;
-    });
+      data.items.forEach((item, index) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        const deliveryDate = this.formatDate(item.dateAssigned || data.date) || '—';
+        const nameLines = doc.splitTextToSize(`${index + 1}. ${item.name}`, contentWidth - 8);
+        const extraName = Math.max(0, nameLines.length - 1) * 4;
+        const rowHeight = 20 + extraName + (item.serialNumber ? 4 : 0);
+
+        if (yPos + rowHeight > pageHeight - 50) {
+          doc.addPage();
+          yPos = margin;
+        }
+
+        const bgColor = index % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+        doc.setFillColor(...bgColor);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(margin, yPos - 4, contentWidth, rowHeight, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(...darkGray);
+        doc.text(nameLines, margin + 3, yPos + 2);
+
+        const metaY = yPos + 8 + extraName;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        const metaParts = [
+          `Tipo: ${item.type}`,
+          `Cantidad: ${item.quantity || 1}`,
+          `Estado: ${item.condition || 'Buen estado'}`,
+        ];
+        if (item.serialNumber) metaParts.push(`SN: ${item.serialNumber}`);
+        doc.text(metaParts.join('   •   '), margin + 7, metaY, { maxWidth: contentWidth - 12 });
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(41, 128, 185);
+        doc.text(`Se entregó el ${deliveryDate}`, margin + 7, metaY + 6);
+
+        yPos += rowHeight + 3;
+      });
+    } else {
+      const colWidths = [58, 28, 32, 18, 44];
+      const colX = [
+        margin,
+        margin + colWidths[0],
+        margin + colWidths[0] + colWidths[1],
+        margin + colWidths[0] + colWidths[1] + colWidths[2],
+        margin + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3],
+      ];
+
+      doc.setFillColor(240, 240, 240);
+      doc.rect(margin, yPos - 5, contentWidth, 8, 'F');
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...darkGray);
+      doc.text('Descripción', colX[0] + 2, yPos);
+      doc.text('Tipo', colX[1] + 2, yPos);
+      doc.text('F. Entrega', colX[2] + 2, yPos);
+      doc.text('Cant.', colX[3] + 2, yPos);
+      doc.text('Estado', colX[4] + 2, yPos);
+      yPos += 8;
+
+      doc.setFont('helvetica', 'normal');
+      data.items.forEach((item, index) => {
+        if (yPos > pageHeight - 60) {
+          doc.addPage();
+          yPos = margin + 20;
+        }
+
+        const bgColor = index % 2 === 0 ? [255, 255, 255] : [250, 250, 250];
+        doc.setFillColor(...bgColor);
+        doc.rect(margin, yPos - 4, contentWidth, 6, 'F');
+
+        doc.setFontSize(8);
+        doc.setTextColor(...darkGray);
+
+        const description = item.serialNumber
+          ? `${item.name}\nSN: ${item.serialNumber}`
+          : item.name;
+        doc.text(description, colX[0] + 2, yPos, { maxWidth: colWidths[0] - 4 });
+
+        doc.text(item.type, colX[1] + 2, yPos);
+        doc.text(this.formatDate(item.dateAssigned || data.date) || '—', colX[2] + 2, yPos);
+        doc.text((item.quantity || 1).toString(), colX[3] + 2, yPos);
+        doc.text(item.condition || 'Buen estado', colX[4] + 2, yPos);
+
+        yPos += 7;
+      });
+    }
 
     yPos += 10;
 
@@ -187,7 +235,9 @@ export const pdfConstancyService = {
       ? [
           'Yo, ' + data.workerName + ', con DNI ' + data.workerDni + ', declaro bajo juramento que:',
           '',
-          '1. He recibido los items detallados en esta constancia en BUEN ESTADO.',
+          hasDistinctDates
+            ? '1. He recibido cada uno de los items detallados, en la fecha de entrega indicada para cada ítem, en BUEN ESTADO.'
+            : '1. He recibido los items detallados en esta constancia en BUEN ESTADO.',
           '2. Me comprometo a devolver los items entregados en el MEJOR ESTADO POSIBLE.',
           '3. Acepto que en caso de no devolver los items entregados o devolverlos en mal estado,',
           '   se me descontará el costo de reposición mediante descuento por planilla.',
