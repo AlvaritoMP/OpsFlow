@@ -41,6 +41,7 @@ export type AppFeature =
   | 'RETENES'
   | 'VACATIONS'
   | 'ASSETS_CATALOG'
+  | 'INVENTORY'
   | 'DOCUMENTS'
   | 'ARCHIVE'
   | 'SETTINGS'
@@ -1350,6 +1351,133 @@ export interface VacationBalanceSummary {
   weeklyRestDay: number;
   weeklyRestDayLabel: string;
 }
+
+// --- Módulo de Inventario (Appinventario → OpsFlow) ---
+export interface InvWarehouse {
+  id: string;
+  name: string;
+  location: string;
+}
+
+export interface InvProduct {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  price: number;
+  lowStockThreshold: number;
+  description: string;
+  images: string[];
+}
+
+export interface InvStockItem {
+  productId: string;
+  warehouseId: string;
+  quantity: number;
+}
+
+export type InvLogType = 'ENTRADA' | 'SALIDA' | 'AJUSTE' | 'CREACIÓN';
+
+export interface InvLogEntry {
+  id: string;
+  timestamp: string;
+  productName: string;
+  sku: string;
+  warehouseName: string;
+  type: InvLogType;
+  quantityChange: number;
+  newQuantityInWarehouse: number;
+  details: string;
+  user: string;
+  transactionId?: string;
+}
+
+export interface InvWarehouseAccess {
+  userId: string;
+  warehouseId: string;
+}
+
+export interface InvColorSettings {
+  inStock: string;
+  lowStock: string;
+  outOfStock: string;
+}
+
+export interface InvAppSettings {
+  colors: InvColorSettings;
+  alerts: { defaultLowStockThreshold: number };
+  purchaseOrderSettings: { prefix: string; nextNumber: number };
+}
+
+export type InvCompanyInfoDetails = { label: string; value: string }[];
+
+export interface InvCompany {
+  id: string;
+  profileName: string;
+  details: InvCompanyInfoDetails;
+}
+
+export type InvPurchaseOrderStatus = 'BORRADOR' | 'EMITIDA' | 'RECIBIDA' | 'CANCELADA';
+
+export interface InvSupplier {
+  id: string;
+  name: string;
+  ruc: string;
+  address: string;
+  contactPerson: string;
+  contactEmail: string;
+  contactPhone: string;
+}
+
+export interface InvPurchaseOrderItem {
+  productId: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+  price: number;
+}
+
+export interface InvPurchaseOrder {
+  id: string;
+  orderNumber: string;
+  supplierId: string;
+  issuingCompanyId: string;
+  destinationWarehouseId: string;
+  issueDate: string;
+  deliveryDate: string;
+  status: InvPurchaseOrderStatus;
+  items: InvPurchaseOrderItem[];
+  solicitante: string;
+  total: number;
+}
+
+export interface InvScheduledPurchaseItem {
+  productId: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+}
+
+export interface InvScheduledPurchase {
+  id: string;
+  date: string;
+  title: string;
+  supplierId?: string;
+  notes: string;
+  items: InvScheduledPurchaseItem[];
+  createdBy: string;
+}
+
+export type InventorySectionView =
+  | 'dashboard'
+  | 'products'
+  | 'warehouses'
+  | 'log'
+  | 'access'
+  | 'settings'
+  | 'suppliers'
+  | 'purchaseOrders'
+  | 'purchaseCalendar';
 
 export interface VacationCalendarEvent {
   date: string;

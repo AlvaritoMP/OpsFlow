@@ -8,6 +8,8 @@ export * from './requestsService';
 export * from './zonesService';
 export * from './managementStaffService';
 export * from './inventoryService';
+export * from './stockInventoryService';
+export * from './sunatGreService';
 export * from './geminiService';
 export * from './permissionService';
 export * from './clientsService';

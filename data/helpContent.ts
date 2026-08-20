@@ -17,7 +17,8 @@ export type AppHelpView =
   | 'workers-management'
   | 'ats-reception'
   | 'ats-presentations'
-  | 'hr-opalosis';
+  | 'hr-opalosis'
+  | 'inventory';
 
 export interface HelpSection {
   heading: string;
@@ -47,6 +48,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'Use el menú lateral izquierdo para cambiar de módulo. En móvil, abra el menú con el ícono de tres líneas. La opción Ayuda (ícono ?) está siempre disponible y se adapta a la pantalla en la que se encuentre.',
         tips: [
           'Los módulos visibles dependen de su rol y permisos.',
+          'Inventario agrupa productos, almacenes, compras y movimientos en una sola sección.',
           'Puede cerrar sesión desde el menú del usuario al pie de la barra lateral.',
         ],
       },
@@ -65,7 +67,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Revisar el Dashboard o el Centro de Control para el estado general.',
           'Entrar a una Unidad para personal, asistencia, bitácora o requerimientos.',
-          'Gestionar Retenes, Vacaciones o Supervisión Nocturna según la necesidad del día.',
+          'Gestionar Retenes, Vacaciones, Supervisión Nocturna o Inventario según la necesidad del día.',
           'En Presentaciones ATS: revisar ficha, aprobar o rechazar candidatos a entrevista.',
           'Solo si el aprobado iniciará labores: registrar en unidad (fecha de ingreso) y luego Envío Opalosis.',
         ],
@@ -593,6 +595,35 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Filtre por fecha, usuario o tipo de evento si la vista lo permite.',
           'Use esta bitácora para investigar cambios o accesos.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'inventory',
+    title: 'Inventario',
+    navLabel: 'Inventario',
+    summary:
+      'Módulo de stock, almacenes, proveedores y órdenes de compra integrado desde Appinventario. Usa la misma sesión de OpsFlow.',
+    sections: [
+      {
+        heading: 'Qué incluye',
+        body: 'Resumen de stock, catálogo de productos con SKU, ajustes y transferencias entre almacenes, registro de movimientos, proveedores, órdenes de compra, calendario de compras y documentos (constancia, guía de despacho y guía de remisión simulada).',
+      },
+      {
+        heading: 'Cómo usarlo',
+        body: 'El módulo vive dentro de OpsFlow: no hay login aparte. Los cambios se guardan en Supabase.',
+        steps: [
+          'Abra Inventario en el menú lateral.',
+          'Cree almacenes y productos (SKU, precio, umbral de stock bajo).',
+          'Ajuste o transfiera stock; cada movimiento queda en el registro.',
+          'Cree proveedores y órdenes de compra; al recibir una OC emitida el stock se incrementa.',
+          'En Ajustes configure la empresa emisora, el prefijo de OC y los colores de alerta.',
+        ],
+        tips: [
+          'ADMIN y SUPER_ADMIN ven todos los almacenes. Al resto se les puede restringir en Accesos.',
+          'Antes de usar el módulo, ejecute migrations/MIGRATION_INVENTORY.sql en Supabase.',
+          'La emisión GRE a SUNAT es una simulación; no envía documentos reales.',
         ],
       },
     ],
