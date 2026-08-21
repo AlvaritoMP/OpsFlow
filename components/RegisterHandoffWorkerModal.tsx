@@ -22,6 +22,7 @@ import {
   resolveHandoffDisplayName,
 } from '../utils/handoffNameParts';
 import { jornadaOptionList } from './OpsflowIntakeForm';
+import { getUnitRequiredPositionOptions } from '../utils/unitPositionOptions';
 
 interface RegisterHandoffWorkerModalProps {
   item: InboundHandoffItem;
