@@ -1730,6 +1730,13 @@ const App: React.FC = () => {
         <InventoryManagement
           currentUser={currentUser}
           users={users}
+          units={operationalUnits.map((unit) => ({
+            id: unit.id,
+            name: unit.name,
+            workers: (unit.resources || [])
+              .filter((resource) => resource.type === ResourceType.PERSONNEL && resource.archived !== true && resource.personnelStatus !== 'archivado')
+              .map((resource) => ({ id: resource.id, name: resource.name, dni: resource.dni })),
+          }))}
           canEdit={checkPermission(currentUser.role, 'INVENTORY', 'edit')}
         />
       );

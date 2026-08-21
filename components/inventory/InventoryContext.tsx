@@ -13,6 +13,8 @@ import type {
   InvSupplier,
   InvWarehouse,
   InvWarehouseAccess,
+  InvUnitOption,
+  InvConsumptionReason,
   User,
 } from '../../types';
 
@@ -48,6 +50,14 @@ interface InventoryActions {
   updateProduct: (product: InvProduct) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
   addWarehouse: (warehouse: Omit<InvWarehouse, 'id'>) => Promise<void>;
+  updateWarehouse: (warehouse: InvWarehouse) => Promise<void>;
+  consumeStock: (payload: {
+    warehouseId: string;
+    items: { productId: string; quantity: number }[];
+    reason: InvConsumptionReason;
+    recipient?: string;
+    details: string;
+  }) => Promise<void>;
   adjustStock: (payload: {
     productId: string;
     warehouseId: string;
@@ -85,6 +95,7 @@ interface InventoryActions {
 interface InventoryContextValue extends InventoryState {
   currentUser: User;
   opsflowUsers: User[];
+  units: InvUnitOption[];
   canEdit: boolean;
   isAdmin: boolean;
   permittedWarehouses: InvWarehouse[];
@@ -97,8 +108,9 @@ export const InventoryProvider: React.FC<{
   children: React.ReactNode;
   currentUser: User;
   opsflowUsers: User[];
+  units: InvUnitOption[];
   canEdit: boolean;
-}> = ({ children, currentUser, opsflowUsers, canEdit }) => {
+}> = ({ children, currentUser, opsflowUsers, units, canEdit }) => {
   const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
   const [state, setState] = useState<InventoryState>({
     products: [],
@@ -166,6 +178,31 @@ export const InventoryProvider: React.FC<{
     addWarehouse: async (warehouse) => {
       requireEdit();
       await stockInventoryService.createWarehouse(warehouse);
+      await reload();
+    },
+    updateWarehouse: async (warehouse) => {
+      requireEdit();
+      await stockInventoryService.updateWarehouse(warehouse);
+      await reload();
+    },
+    consumeStock: async (payload) => {
+      requireEdit();
+      const warehouse = state.warehouses.find((w) => w.id === payload.warehouseId);
+      if (!warehouse) throw new Error('Almacén no encontrado');
+      const items = payload.items
+        .map((item) => ({
+          product: state.products.find((p) => p.id === item.productId)!,
+          quantity: item.quantity,
+        }))
+        .filter((item) => item.product && item.quantity > 0);
+      await stockInventoryService.consumeStock({
+        items,
+        warehouse,
+        reason: payload.reason,
+        recipient: payload.recipient,
+        details: payload.details,
+        userName: currentUser.name,
+      });
       await reload();
     },
     adjustStock: async (payload) => {
@@ -297,6 +334,7 @@ export const InventoryProvider: React.FC<{
     ...state,
     currentUser,
     opsflowUsers,
+    units,
     canEdit,
     isAdmin,
     permittedWarehouses,

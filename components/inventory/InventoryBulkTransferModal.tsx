@@ -35,14 +35,32 @@ export const InventoryBulkTransferModal = ({ onClose }: { onClose: () => void })
             <label className="block text-sm font-medium text-slate-600 mb-1">Origen</label>
             <select value={fromWarehouseId} onChange={(e) => { setFromWarehouseId(e.target.value); setItems([]); }} className="w-full border border-slate-300 rounded-lg px-3 py-2">
               <option value="">Seleccione...</option>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {warehouses.filter((w) => w.kind !== 'UNIT').length > 0 && (
+                <optgroup label="Centrales">
+                  {warehouses.filter((w) => w.kind !== 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </optgroup>
+              )}
+              {warehouses.filter((w) => w.kind === 'UNIT').length > 0 && (
+                <optgroup label="Unidades">
+                  {warehouses.filter((w) => w.kind === 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </optgroup>
+              )}
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Destino</label>
             <select value={toWarehouseId} onChange={(e) => setToWarehouseId(e.target.value)} disabled={!fromWarehouseId} className="w-full border border-slate-300 rounded-lg px-3 py-2">
               <option value="">Seleccione...</option>
-              {warehouses.filter((w) => w.id !== fromWarehouseId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind !== 'UNIT').length > 0 && (
+                <optgroup label="Centrales">
+                  {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind !== 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </optgroup>
+              )}
+              {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind === 'UNIT').length > 0 && (
+                <optgroup label="Unidades">
+                  {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind === 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </optgroup>
+              )}
             </select>
           </div>
         </div>

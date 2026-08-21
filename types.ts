@@ -1353,11 +1353,31 @@ export interface VacationBalanceSummary {
 }
 
 // --- Módulo de Inventario (Appinventario → OpsFlow) ---
+export type InvWarehouseKind = 'CENTRAL' | 'UNIT';
+
 export interface InvWarehouse {
   id: string;
   name: string;
   location: string;
+  kind: InvWarehouseKind;
+  unitId?: string;
+  unitName?: string;
 }
+
+export interface InvUnitOption {
+  id: string;
+  name: string;
+  workers: { id: string; name: string; dni?: string }[];
+}
+
+export type InvConsumptionReason = 'ENTREGA_PERSONAL' | 'USO_INTERNO' | 'MERMA' | 'BAJA';
+
+export const INV_CONSUMPTION_REASON_LABELS: Record<InvConsumptionReason, string> = {
+  ENTREGA_PERSONAL: 'Entrega a personal',
+  USO_INTERNO: 'Uso interno / consumo en servicio',
+  MERMA: 'Merma / pérdida',
+  BAJA: 'Baja / descarte',
+};
 
 export interface InvProduct {
   id: string;
@@ -1376,7 +1396,7 @@ export interface InvStockItem {
   quantity: number;
 }
 
-export type InvLogType = 'ENTRADA' | 'SALIDA' | 'AJUSTE' | 'CREACIÓN';
+export type InvLogType = 'ENTRADA' | 'SALIDA' | 'AJUSTE' | 'CREACIÓN' | 'CONSUMO' | 'ENTREGA';
 
 export interface InvLogEntry {
   id: string;
@@ -1390,6 +1410,8 @@ export interface InvLogEntry {
   details: string;
   user: string;
   transactionId?: string;
+  recipient?: string;
+  consumptionReason?: InvConsumptionReason;
 }
 
 export interface InvWarehouseAccess {
@@ -1472,6 +1494,7 @@ export type InventorySectionView =
   | 'dashboard'
   | 'products'
   | 'warehouses'
+  | 'consumption'
   | 'log'
   | 'access'
   | 'settings'

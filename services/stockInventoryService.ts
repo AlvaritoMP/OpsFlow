@@ -13,6 +13,8 @@ import type {
   InvSupplier,
   InvWarehouse,
   InvWarehouseAccess,
+  InvWarehouseKind,
+  InvConsumptionReason,
 } from '../types';
 
 const db = (table: string) => supabase.from(table as never);
@@ -47,6 +49,9 @@ const mapWarehouse = (row: Record<string, unknown>): InvWarehouse => ({
   id: String(row.id),
   name: String(row.name ?? ''),
   location: String(row.location ?? ''),
+  kind: ((row.kind as InvWarehouseKind) === 'UNIT' ? 'UNIT' : 'CENTRAL'),
+  unitId: row.unit_id ? String(row.unit_id) : undefined,
+  unitName: row.unit_name ? String(row.unit_name) : undefined,
 });
 
 const mapLog = (row: Record<string, unknown>): InvLogEntry => ({
@@ -61,6 +66,8 @@ const mapLog = (row: Record<string, unknown>): InvLogEntry => ({
   details: String(row.details ?? ''),
   user: String(row.user_name ?? ''),
   transactionId: row.transaction_id ? String(row.transaction_id) : undefined,
+  recipient: row.recipient ? String(row.recipient) : undefined,
+  consumptionReason: row.consumption_reason ? (row.consumption_reason as InvConsumptionReason) : undefined,
 });
 
 const mapCompany = (row: Record<string, unknown>): InvCompany => ({
@@ -115,6 +122,8 @@ async function insertLog(entry: Omit<InvLogEntry, 'id'>): Promise<void> {
     details: entry.details,
     user_name: entry.user,
     transaction_id: entry.transactionId ?? null,
+    recipient: entry.recipient ?? null,
+    consumption_reason: entry.consumptionReason ?? null,
   });
   if (error) throw error;
 }
@@ -281,11 +290,75 @@ export const stockInventoryService = {
 
   async createWarehouse(warehouse: Omit<InvWarehouse, 'id'>): Promise<InvWarehouse> {
     const { data, error } = await db('inv_warehouses')
-      .insert({ name: warehouse.name, location: warehouse.location })
+      .insert({
+        name: warehouse.name,
+        location: warehouse.location,
+        kind: warehouse.kind || 'CENTRAL',
+        unit_id: warehouse.unitId || null,
+        unit_name: warehouse.unitName || null,
+      })
       .select('*')
       .single();
     if (error) throw error;
     return mapWarehouse(data as Record<string, unknown>);
+  },
+
+  async updateWarehouse(warehouse: InvWarehouse): Promise<void> {
+    const { error } = await db('inv_warehouses')
+      .update({
+        name: warehouse.name,
+        location: warehouse.location,
+        kind: warehouse.kind,
+        unit_id: warehouse.unitId || null,
+        unit_name: warehouse.unitName || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', warehouse.id);
+    if (error) throw error;
+  },
+
+  async consumeStock(params: {
+    items: { product: InvProduct; quantity: number }[];
+    warehouse: InvWarehouse;
+    reason: InvConsumptionReason;
+    recipient?: string;
+    details: string;
+    userName: string;
+  }): Promise<void> {
+    if (params.items.length === 0) throw new Error('Agregue al menos un producto');
+    const transactionId = params.items.length > 1 ? crypto.randomUUID() : undefined;
+    const timestamp = new Date().toISOString();
+    const logType: InvLogType = params.reason === 'ENTREGA_PERSONAL' ? 'ENTREGA' : 'CONSUMO';
+    const reasonLabel =
+      params.reason === 'ENTREGA_PERSONAL' ? 'Entrega a personal'
+      : params.reason === 'USO_INTERNO' ? 'Uso interno'
+      : params.reason === 'MERMA' ? 'Merma'
+      : 'Baja';
+
+    for (const item of params.items) {
+      if (item.quantity <= 0) continue;
+      const current = await getStockQuantity(item.product.id, params.warehouse.id);
+      if (current < item.quantity) {
+        throw new Error(`Stock insuficiente de ${item.product.name} en ${params.warehouse.name} (disponible: ${current})`);
+      }
+      const next = current - item.quantity;
+      await upsertStock(item.product.id, params.warehouse.id, next);
+      const recipientPart = params.recipient ? ` Destinatario: ${params.recipient}.` : '';
+      await insertLog({
+        timestamp,
+        productName: item.product.name,
+        sku: item.product.sku,
+        warehouseName: params.warehouse.name,
+        type: logType,
+        quantityChange: -item.quantity,
+        newQuantityInWarehouse: next,
+        details: `${reasonLabel} desde ${params.warehouse.name}.${recipientPart} ${params.details}`.trim(),
+        user: params.userName,
+        transactionId,
+        recipient: params.recipient,
+        consumptionReason: params.reason,
+      });
+    }
   },
 
   async adjustStock(params: {

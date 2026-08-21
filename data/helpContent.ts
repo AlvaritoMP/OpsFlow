@@ -608,21 +608,22 @@ export const HELP_TOPICS: HelpTopic[] = [
     sections: [
       {
         heading: 'Qué incluye',
-        body: 'Resumen de stock, catálogo de productos con SKU, ajustes y transferencias entre almacenes, registro de movimientos, proveedores, órdenes de compra, calendario de compras y documentos (constancia, guía de despacho y guía de remisión simulada).',
+        body: 'Resumen de stock, catálogo de productos, almacenes centrales y de unidad, consumo/entregas, transferencias, proveedores, órdenes de compra y documentos.',
       },
       {
         heading: 'Cómo usarlo',
         body: 'El módulo vive dentro de OpsFlow: no hay login aparte. Los cambios se guardan en Supabase.',
         steps: [
           'Abra Inventario en el menú lateral.',
-          'Cree almacenes y productos (SKU, precio, umbral de stock bajo).',
-          'Ajuste o transfiera stock; cada movimiento queda en el registro.',
+          'Cree un almacén central y almacenes de unidad (o use el botón para crearlos masivamente).',
+          'Reciba o ajuste stock en el central; transfiera a la unidad cuando el material salga a campo.',
+          'Cuando se entregue un uniforme o se consuma un insumo, use Consumo / entregas para descargarlo del almacén de unidad.',
           'Cree proveedores y órdenes de compra; al recibir una OC emitida el stock se incrementa.',
           'En Ajustes configure la empresa emisora, el prefijo de OC y los colores de alerta.',
         ],
         tips: [
           'ADMIN y SUPER_ADMIN ven todos los almacenes. Al resto se les puede restringir en Accesos.',
-          'Antes de usar el módulo, ejecute migrations/MIGRATION_INVENTORY.sql en Supabase.',
+          'Ejecute migrations/MIGRATION_INVENTORY.sql y luego MIGRATION_INVENTORY_CONSUMPTION.sql en Supabase.',
           'La emisión GRE a SUNAT es una simulación; no envía documentos reales.',
         ],
       },

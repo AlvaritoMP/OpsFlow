@@ -4,10 +4,10 @@ import { useInventory } from './InventoryContext';
 import { InvButton, InvCard, InvInput, InvModal, InvSelect, InvTextarea, exportToCsv } from './InventoryUi';
 import { InventoryBulkTransferModal } from './InventoryBulkTransferModal';
 import { InventoryMovementDocumentModal } from './InventoryMovementDocumentModal';
-import type { InvLogEntry, InvLogType, InvProduct, InvWarehouse, User } from '../../types';
+import { INV_CONSUMPTION_REASON_LABELS, type InvConsumptionReason, type InvLogEntry, type InvLogType, type InvProduct, type InvWarehouse, type User } from '../../types';
 
 export const InventoryDashboardView = ({ onGenerateSuggestedPO }: { onGenerateSuggestedPO: (products: InvProduct[]) => void }) => {
-  const { products, inventory, warehouses, isAdmin } = useInventory();
+  const { products, inventory, warehouses, logs, isAdmin } = useInventory();
   const productTotals = useMemo(
     () =>
       products.map((p) => ({
@@ -18,6 +18,14 @@ export const InventoryDashboardView = ({ onGenerateSuggestedPO }: { onGenerateSu
   );
   const lowStockItems = productTotals.filter((p) => p.totalQuantity > 0 && p.totalQuantity <= p.lowStockThreshold);
   const outOfStockItems = productTotals.filter((p) => p.totalQuantity === 0);
+  const consumedThisMonth = useMemo(() => {
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    return logs
+      .filter((l) => (l.type === 'CONSUMO' || l.type === 'ENTREGA') && new Date(l.timestamp) >= start)
+      .reduce((sum, l) => sum + Math.abs(l.quantityChange), 0);
+  }, [logs]);
   const stockByWarehouse = warehouses.map((w) => ({
     ...w,
     total: inventory.filter((i) => i.warehouseId === w.id).reduce((sum, i) => sum + i.quantity, 0),
@@ -55,12 +63,13 @@ export const InventoryDashboardView = ({ onGenerateSuggestedPO }: { onGenerateSu
           </InvButton>
         )}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: 'Productos', value: products.length, icon: <Package size={20} />, tone: 'text-blue-600 bg-blue-50' },
           { label: 'Almacenes', value: warehouses.length, icon: <WarehouseIcon size={20} />, tone: 'text-emerald-600 bg-emerald-50' },
           { label: 'Stock bajo', value: lowStockItems.length, icon: <AlertTriangle size={20} />, tone: 'text-amber-600 bg-amber-50' },
           { label: 'Agotados', value: outOfStockItems.length, icon: <XCircle size={20} />, tone: 'text-red-600 bg-red-50' },
+          { label: 'Descargados este mes', value: consumedThisMonth, icon: <XCircle size={20} />, tone: 'text-orange-600 bg-orange-50' },
         ].map((card) => (
           <InvCard key={card.label} className="flex items-center gap-4">
             <div className={`p-3 rounded-lg ${card.tone}`}>{card.icon}</div>
@@ -79,7 +88,7 @@ export const InventoryDashboardView = ({ onGenerateSuggestedPO }: { onGenerateSu
               <li key={w.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg">
                 <div>
                   <p className="font-medium text-slate-800">{w.name}</p>
-                  <p className="text-xs text-slate-500">{w.location}</p>
+                  <p className="text-xs text-slate-500">{w.kind === 'UNIT' ? `Unidad${w.unitName ? `: ${w.unitName}` : ''}` : 'Central'} · {w.location}</p>
                 </div>
                 <span className="font-bold text-slate-800">{w.total.toLocaleString()}</span>
               </li>
@@ -202,7 +211,7 @@ const ProductFormModal = ({
 
 export const InventoryProductsView = () => {
   const { products, inventory, settings, permittedWarehouses, canEdit, actions } = useInventory();
-  const [modal, setModal] = useState<'add' | 'edit' | 'detail' | 'adjust' | 'transfer' | 'bulk-transfer' | null>(null);
+  const [modal, setModal] = useState<'add' | 'edit' | 'detail' | 'adjust' | 'transfer' | 'bulk-transfer' | 'consume' | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<InvProduct | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState({ category: '', stockStatus: '' });
@@ -374,6 +383,7 @@ export const InventoryProductsView = () => {
                           <InvButton title="Editar" onClick={() => { setSelectedProduct(p); setModal('edit'); }} className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2"><SlidersHorizontal size={14} /></InvButton>
                           <InvButton title="Ajustar stock" onClick={() => { setSelectedProduct(p); setModal('adjust'); }} className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2"><RefreshCw size={14} /></InvButton>
                           <InvButton title="Transferir" onClick={() => { setSelectedProduct(p); setModal('transfer'); }} className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2"><ArrowLeftRight size={14} /></InvButton>
+                          <InvButton title="Descargar / entregar" onClick={() => { setSelectedProduct(p); setModal('consume'); }} className="bg-orange-50 hover:bg-orange-100 text-orange-700 p-2">↓</InvButton>
                         </div>
                       </td>
                     )}
@@ -395,6 +405,9 @@ export const InventoryProductsView = () => {
         <StockTransferModal product={selectedProduct} warehouses={permittedWarehouses} onClose={() => setModal(null)} />
       )}
       {modal === 'bulk-transfer' && <InventoryBulkTransferModal onClose={() => setModal(null)} />}
+      {modal === 'consume' && selectedProduct && (
+        <StockConsumeModal product={selectedProduct} warehouses={permittedWarehouses} onClose={() => { setModal(null); setSelectedProduct(null); }} />
+      )}
     </div>
   );
 };
@@ -477,12 +490,30 @@ const StockTransferModal = ({ product, warehouses, onClose }: { product: InvProd
       <form className="space-y-3" onSubmit={async (e) => { e.preventDefault(); await actions.transferStock({ productId: product.id, fromWarehouseId, toWarehouseId, quantity, details }); onClose(); }}>
         <InvSelect label="Origen" value={fromWarehouseId} onChange={(e) => setFromWarehouseId(e.target.value)} required>
           <option value="">Seleccione...</option>
-          {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          {warehouses.filter((w) => w.kind !== 'UNIT').length > 0 && (
+            <optgroup label="Centrales">
+              {warehouses.filter((w) => w.kind !== 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </optgroup>
+          )}
+          {warehouses.filter((w) => w.kind === 'UNIT').length > 0 && (
+            <optgroup label="Unidades">
+              {warehouses.filter((w) => w.kind === 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </optgroup>
+          )}
         </InvSelect>
         {fromWarehouseId && <p className="text-xs text-slate-500">Disponible: <strong>{maxQuantity}</strong></p>}
         <InvSelect label="Destino" value={toWarehouseId} onChange={(e) => setToWarehouseId(e.target.value)} required disabled={!fromWarehouseId}>
           <option value="">Seleccione...</option>
-          {warehouses.filter((w) => w.id !== fromWarehouseId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind !== 'UNIT').length > 0 && (
+            <optgroup label="Centrales">
+              {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind !== 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </optgroup>
+          )}
+          {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind === 'UNIT').length > 0 && (
+            <optgroup label="Unidades">
+              {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind === 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </optgroup>
+          )}
         </InvSelect>
         <InvInput label="Cantidad" type="number" min={1} max={maxQuantity} value={quantity} onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value, 10) || 1)))} />
         <InvTextarea label="Detalle" rows={2} value={details} onChange={(e) => setDetails(e.target.value)} />
@@ -492,23 +523,143 @@ const StockTransferModal = ({ product, warehouses, onClose }: { product: InvProd
   );
 };
 
+const StockConsumeModal = ({ product, warehouses, onClose }: { product: InvProduct; warehouses: InvWarehouse[]; onClose: () => void }) => {
+  const { inventory, units, actions } = useInventory();
+  const [warehouseId, setWarehouseId] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [reason, setReason] = useState<InvConsumptionReason>('ENTREGA_PERSONAL');
+  const [recipient, setRecipient] = useState('');
+  const [details, setDetails] = useState('');
+  const maxQuantity = inventory.find((i) => i.productId === product.id && i.warehouseId === warehouseId)?.quantity || 0;
+  const selectedWarehouse = warehouses.find((w) => w.id === warehouseId);
+  const workers = units.find((u) => u.id === selectedWarehouse?.unitId)?.workers || [];
+
+  return (
+    <InvModal isOpen onClose={onClose} title={`Descargar: ${product.name}`}>
+      <form className="space-y-3" onSubmit={async (e) => {
+        e.preventDefault();
+        if (reason === 'ENTREGA_PERSONAL' && !recipient.trim()) {
+          alert('Indique a quién se entrega.');
+          return;
+        }
+        await actions.consumeStock({
+          warehouseId,
+          items: [{ productId: product.id, quantity }],
+          reason,
+          recipient: recipient.trim() || undefined,
+          details,
+        });
+        onClose();
+      }}>
+        <p className="text-sm text-slate-500">Esta acción saca el producto del inventario (entrega, consumo, merma o baja). No es un traslado.</p>
+        <InvSelect label="Almacén desde el que se descarga" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
+          <option value="">Seleccione...</option>
+          {warehouses.filter((w) => w.kind === 'UNIT').length > 0 && (
+            <optgroup label="Unidades">
+              {warehouses.filter((w) => w.kind === 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </optgroup>
+          )}
+          {warehouses.filter((w) => w.kind !== 'UNIT').length > 0 && (
+            <optgroup label="Centrales">
+              {warehouses.filter((w) => w.kind !== 'UNIT').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </optgroup>
+          )}
+        </InvSelect>
+        {warehouseId && <p className="text-xs text-slate-500">Disponible: <strong>{maxQuantity}</strong></p>}
+        <InvSelect label="Motivo" value={reason} onChange={(e) => setReason(e.target.value as InvConsumptionReason)}>
+          {(Object.keys(INV_CONSUMPTION_REASON_LABELS) as InvConsumptionReason[]).map((key) => (
+            <option key={key} value={key}>{INV_CONSUMPTION_REASON_LABELS[key]}</option>
+          ))}
+        </InvSelect>
+        {reason === 'ENTREGA_PERSONAL' && (
+          <>
+            <InvInput label="Entregado a" value={recipient} onChange={(e) => setRecipient(e.target.value)} list="inv-product-workers" required />
+            {workers.length > 0 && (
+              <datalist id="inv-product-workers">
+                {workers.map((w) => <option key={w.id} value={w.name} />)}
+              </datalist>
+            )}
+          </>
+        )}
+        <InvInput label="Cantidad" type="number" min={1} max={maxQuantity} value={quantity} onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value, 10) || 1)))} />
+        <InvTextarea label="Observaciones" rows={2} value={details} onChange={(e) => setDetails(e.target.value)} />
+        <div className="flex justify-end gap-2">
+          <InvButton onClick={onClose} className="bg-slate-100 text-slate-700">Cancelar</InvButton>
+          <InvButton type="submit" disabled={!warehouseId || quantity > maxQuantity || maxQuantity <= 0} className="bg-orange-600 hover:bg-orange-700 text-white">Descargar</InvButton>
+        </div>
+      </form>
+    </InvModal>
+  );
+};
+
 export const InventoryWarehousesView = () => {
-  const { warehouses, canEdit, actions } = useInventory();
+  const { warehouses, units, canEdit, actions } = useInventory();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
+  const [kind, setKind] = useState<'CENTRAL' | 'UNIT'>('CENTRAL');
+  const [unitId, setUnitId] = useState('');
+  const [creatingMissing, setCreatingMissing] = useState(false);
+
+  const unitsWithoutWarehouse = units.filter((u) => !warehouses.some((w) => w.kind === 'UNIT' && w.unitId === u.id));
+
+  const createMissingUnitWarehouses = async () => {
+    setCreatingMissing(true);
+    try {
+      for (const unit of unitsWithoutWarehouse) {
+        await actions.addWarehouse({
+          name: `Unidad: ${unit.name}`,
+          location: unit.name,
+          kind: 'UNIT',
+          unitId: unit.id,
+          unitName: unit.name,
+        });
+      }
+    } finally {
+      setCreatingMissing(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <div><h1 className="text-2xl font-bold text-slate-800">Almacenes</h1><p className="text-slate-500 text-sm">Ubicaciones de stock</p></div>
-        {canEdit && <InvButton onClick={() => setOpen(true)}><Plus size={16} /> Añadir almacén</InvButton>}
+      <div className="flex flex-col md:flex-row justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Almacenes</h1>
+          <p className="text-slate-500 text-sm">Central para stock propio; de unidad para stock ya enviado a campo, listo para entregar o consumir.</p>
+        </div>
+        {canEdit && (
+          <div className="flex flex-wrap gap-2">
+            {unitsWithoutWarehouse.length > 0 && (
+              <InvButton className="bg-slate-700 hover:bg-slate-800 text-white" onClick={() => void createMissingUnitWarehouses()} disabled={creatingMissing}>
+                Crear almacenes de {unitsWithoutWarehouse.length} unidad{unitsWithoutWarehouse.length === 1 ? '' : 'es'}
+              </InvButton>
+            )}
+            <InvButton onClick={() => setOpen(true)}><Plus size={16} /> Añadir almacén</InvButton>
+          </div>
+        )}
       </div>
       <InvCard>
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 text-slate-500"><tr><th className="p-3">Nombre</th><th className="p-3">Ubicación</th></tr></thead>
+          <thead className="border-b border-slate-200 text-slate-500">
+            <tr>
+              <th className="p-3">Nombre</th>
+              <th className="p-3">Tipo</th>
+              <th className="p-3">Unidad OpsFlow</th>
+              <th className="p-3">Ubicación</th>
+            </tr>
+          </thead>
           <tbody>
             {warehouses.map((w) => (
-              <tr key={w.id} className="border-b border-slate-100"><td className="p-3 font-semibold">{w.name}</td><td className="p-3 text-slate-600">{w.location}</td></tr>
+              <tr key={w.id} className="border-b border-slate-100">
+                <td className="p-3 font-semibold">{w.name}</td>
+                <td className="p-3">
+                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${w.kind === 'UNIT' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
+                    {w.kind === 'UNIT' ? 'Unidad (virtual)' : 'Central'}
+                  </span>
+                </td>
+                <td className="p-3 text-slate-600">{w.kind === 'UNIT' ? (w.unitName || '—') : '—'}</td>
+                <td className="p-3 text-slate-600">{w.location}</td>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -516,10 +667,44 @@ export const InventoryWarehousesView = () => {
       </InvCard>
       {open && (
         <InvModal isOpen onClose={() => setOpen(false)} title="Nuevo almacén">
-          <form className="space-y-3" onSubmit={async (e) => { e.preventDefault(); await actions.addWarehouse({ name, location }); setOpen(false); setName(''); setLocation(''); }}>
+          <form className="space-y-3" onSubmit={async (e) => {
+            e.preventDefault();
+            const unit = units.find((u) => u.id === unitId);
+            await actions.addWarehouse({
+              name,
+              location: location || (unit ? unit.name : ''),
+              kind,
+              unitId: kind === 'UNIT' ? unitId || undefined : undefined,
+              unitName: kind === 'UNIT' ? unit?.name : undefined,
+            });
+            setOpen(false);
+            setName('');
+            setLocation('');
+            setKind('CENTRAL');
+            setUnitId('');
+          }}>
+            <InvSelect label="Tipo" value={kind} onChange={(e) => setKind(e.target.value as 'CENTRAL' | 'UNIT')}>
+              <option value="CENTRAL">Almacén central</option>
+              <option value="UNIT">Almacén de unidad (virtual)</option>
+            </InvSelect>
+            {kind === 'UNIT' && (
+              <InvSelect label="Unidad OpsFlow" value={unitId} onChange={(e) => {
+                const next = e.target.value;
+                setUnitId(next);
+                const unit = units.find((u) => u.id === next);
+                if (unit && !name) setName(`Unidad: ${unit.name}`);
+                if (unit && !location) setLocation(unit.name);
+              }} required>
+                <option value="">Seleccione la unidad...</option>
+                {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </InvSelect>
+            )}
             <InvInput label="Nombre" value={name} onChange={(e) => setName(e.target.value)} required />
-            <InvInput label="Ubicación" value={location} onChange={(e) => setLocation(e.target.value)} required />
-            <div className="flex justify-end gap-2"><InvButton onClick={() => setOpen(false)} className="bg-slate-100 text-slate-700">Cancelar</InvButton><InvButton type="submit">Guardar</InvButton></div>
+            <InvInput label="Ubicación" value={location} onChange={(e) => setLocation(e.target.value)} required={kind === 'CENTRAL'} />
+            <div className="flex justify-end gap-2">
+              <InvButton onClick={() => setOpen(false)} className="bg-slate-100 text-slate-700">Cancelar</InvButton>
+              <InvButton type="submit">Guardar</InvButton>
+            </div>
           </form>
         </InvModal>
       )}
@@ -563,19 +748,31 @@ export const InventoryLogView = () => {
                   txn.forEach((l) => rendered.add(l.id));
                   const fromW = txn.find((l) => l.type === 'SALIDA')?.warehouseName || 'N/A';
                   const toW = txn.find((l) => l.type === 'ENTRADA')?.warehouseName || 'N/A';
+                  const isDischarge = txn.some((l) => l.type === 'CONSUMO' || l.type === 'ENTREGA');
                   return (
                     <React.Fragment key={log.transactionId}>
                       <tr className="bg-slate-50 font-semibold border-b border-slate-200">
                         <td className="p-3 whitespace-nowrap">{new Date(txn[0].timestamp).toLocaleString()}</td>
-                        <td className="p-3" colSpan={3}>Transferencia múltiple <span className="block text-xs font-normal text-slate-500">{fromW} → {toW}</span></td>
-                        <td className="p-3 text-center" colSpan={2}>{txn.length / 2} productos</td>
+                        <td className="p-3" colSpan={3}>
+                          {isDischarge ? 'Descarga múltiple' : 'Transferencia múltiple'}
+                          <span className="block text-xs font-normal text-slate-500">
+                            {isDischarge
+                              ? `${txn[0].type} · ${txn[0].warehouseName}${txn[0].recipient ? ` · A: ${txn[0].recipient}` : ''}`
+                              : `${fromW} → ${toW}`}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center" colSpan={2}>{isDischarge ? txn.length : txn.length / 2} productos</td>
                         <td className="p-3 font-normal">{txn[0].details}</td>
                         <td className="p-3">{txn[0].user}</td>
                         <td className="p-3">
                           <div className="flex gap-1">
                             <InvButton className="p-1.5 bg-slate-200 text-slate-700" onClick={() => setDocumentToView({ logEntries: txn, type: 'CONSTANCIA' })}>C</InvButton>
-                            <InvButton className="p-1.5 bg-teal-600 text-white" onClick={() => setDocumentToView({ logEntries: txn, type: 'GUIA_DESPACHO' })}>D</InvButton>
-                            <InvButton className="p-1.5 bg-violet-600 text-white" onClick={() => setDocumentToView({ logEntries: txn, type: 'GUIA_REMISION' })}>G</InvButton>
+                            {!isDischarge && (
+                              <>
+                                <InvButton className="p-1.5 bg-teal-600 text-white" onClick={() => setDocumentToView({ logEntries: txn, type: 'GUIA_DESPACHO' })}>D</InvButton>
+                                <InvButton className="p-1.5 bg-violet-600 text-white" onClick={() => setDocumentToView({ logEntries: txn, type: 'GUIA_REMISION' })}>G</InvButton>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -588,10 +785,17 @@ export const InventoryLogView = () => {
                     <td className="p-3 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
                     <td className="p-3"><p className="font-medium">{log.productName}</p><p className="text-xs font-mono text-slate-500">{log.sku}</p></td>
                     <td className="p-3">{log.warehouseName}</td>
-                    <td className="p-3"><span className={`px-2 py-0.5 text-xs rounded-full ${log.type === 'SALIDA' ? 'bg-red-50 text-red-700' : log.type === 'ENTRADA' || log.type === 'CREACIÓN' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>{log.type}</span></td>
+                    <td className="p-3"><span className={`px-2 py-0.5 text-xs rounded-full ${
+                      log.type === 'SALIDA' || log.type === 'CONSUMO' || log.type === 'ENTREGA' ? 'bg-red-50 text-red-700'
+                      : log.type === 'ENTRADA' || log.type === 'CREACIÓN' ? 'bg-green-50 text-green-700'
+                      : 'bg-blue-50 text-blue-700'
+                    }`}>{log.type}</span></td>
                     <td className={`p-3 text-center font-bold ${log.quantityChange > 0 ? 'text-green-600' : log.quantityChange < 0 ? 'text-red-600' : ''}`}>{log.quantityChange > 0 ? `+${log.quantityChange}` : log.quantityChange || '—'}</td>
                     <td className="p-3 text-center font-bold">{log.newQuantityInWarehouse}</td>
-                    <td className="p-3 text-slate-500 italic">{log.details}</td>
+                    <td className="p-3 text-slate-500 italic">
+                      {log.details}
+                      {log.recipient ? <span className="block text-slate-700 not-italic">A: {log.recipient}</span> : null}
+                    </td>
                     <td className="p-3">{log.user}</td>
                     <td className="p-3">
                       <div className="flex gap-1">

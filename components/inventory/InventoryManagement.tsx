@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Boxes, CalendarDays, ClipboardList, LayoutDashboard, Package, Settings, Truck, Users, Warehouse,
+  Boxes, CalendarDays, ClipboardList, LayoutDashboard, MinusCircle, Package, Settings, Truck, Users, Warehouse,
 } from 'lucide-react';
 import { InventoryProvider, useInventory } from './InventoryContext';
 import {
@@ -13,16 +13,18 @@ import {
 import { InventorySuppliersView } from './InventoryBulkTransferModal';
 import { InventoryPurchaseCalendarView, InventoryPurchaseOrdersView } from './InventoryPurchasing';
 import { InventorySettingsView } from './InventorySettingsView';
-import type { InventorySectionView, InvProduct, User } from '../../types';
+import { InventoryConsumptionView } from './InventoryConsumptionView';
+import type { InventorySectionView, InvProduct, InvUnitOption, User } from '../../types';
 
 interface InventoryManagementProps {
   currentUser: User;
   users: User[];
+  units: InvUnitOption[];
   canEdit: boolean;
 }
 
-export const InventoryManagement: React.FC<InventoryManagementProps> = ({ currentUser, users, canEdit }) => (
-  <InventoryProvider currentUser={currentUser} opsflowUsers={users} canEdit={canEdit}>
+export const InventoryManagement: React.FC<InventoryManagementProps> = ({ currentUser, users, units, canEdit }) => (
+  <InventoryProvider currentUser={currentUser} opsflowUsers={users} units={units} canEdit={canEdit}>
     <InventoryShell />
   </InventoryProvider>
 );
@@ -39,6 +41,7 @@ const InventoryShell = () => {
     { id: 'purchaseOrders' as const, label: 'Órdenes de compra', icon: ClipboardList, show: canEdit },
     { id: 'purchaseCalendar' as const, label: 'Calendario', icon: CalendarDays, show: canEdit },
     { id: 'warehouses' as const, label: 'Almacenes', icon: Warehouse, show: true },
+    { id: 'consumption' as const, label: 'Consumo / entregas', icon: MinusCircle, show: canEdit },
     { id: 'log' as const, label: 'Movimientos', icon: Boxes, show: true },
     { id: 'access' as const, label: 'Accesos', icon: Users, show: isAdmin },
     { id: 'settings' as const, label: 'Ajustes', icon: Settings, show: isAdmin || canEdit },
@@ -65,6 +68,8 @@ const InventoryShell = () => {
         return <InventoryPurchaseCalendarView />;
       case 'warehouses':
         return <InventoryWarehousesView />;
+      case 'consumption':
+        return <InventoryConsumptionView />;
       case 'log':
         return <InventoryLogView />;
       case 'access':
@@ -106,7 +111,7 @@ const InventoryShell = () => {
           {loading && <p className="text-slate-500">Cargando inventario...</p>}
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-amber-50 text-amber-800 text-sm">
-              {error}. Ejecute la migración <code>migrations/MIGRATION_INVENTORY.sql</code> en Supabase si las tablas aún no existen.
+              {error}. Ejecute en Supabase <code>migrations/MIGRATION_INVENTORY.sql</code> y luego <code>migrations/MIGRATION_INVENTORY_CONSUMPTION.sql</code> si las tablas aún no existen.
             </div>
           )}
           {!loading && render()}
