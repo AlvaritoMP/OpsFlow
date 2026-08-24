@@ -3,7 +3,10 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-api-version, x-region, prefer, accept',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
 };
 
 const MAX_COMPLEMENTARY_BYTES = 100_000;
@@ -136,17 +139,39 @@ function remainingOpens(openCount: number, maxOpens: number, canEdit: boolean): 
   return Math.max(0, maxOpens - openCount);
 }
 
+function digitsOnly(value: unknown): string {
+  return asTrimmedString(value).replace(/\D/g, '');
+}
+
+function complementaryNeedsHydration(complementary: JsonRecord): boolean {
+  const keys = Object.keys(complementary).filter((key) => asTrimmedString(complementary[key]));
+  if (keys.length === 0) return true;
+  return keys.every(
+    (key) => key === 'tipoDocumento' || key === 'nroDocumento' || key === 'submittedAt',
+  );
+}
+
 async function findExistingSnapshot(
   admin: SupabaseClient,
   dni: string,
 ): Promise<{ complementary: JsonRecord; snapshot: JsonRecord; resource?: JsonRecord }> {
-  const { data: resourceRows } = await admin
+  const { data: exactRows } = await admin
     .from('resources')
     .select('id, name, dni, phone, email, birth_date, inbound_source_data')
     .eq('dni', dni)
     .eq('type', 'Personal')
     .limit(1);
-  const resource = resourceRows?.[0];
+  let resource = exactRows?.[0];
+
+  if (!resource) {
+    const { data: looseRows } = await admin
+      .from('resources')
+      .select('id, name, dni, phone, email, birth_date, inbound_source_data')
+      .eq('type', 'Personal')
+      .ilike('dni', `%${dni}%`)
+      .limit(20);
+    resource = (looseRows ?? []).find((row) => digitsOnly(row.dni) === dni);
+  }
 
   if (resource) {
     const inbound = asRecord(resource.inbound_source_data);
@@ -246,14 +271,24 @@ async function syncComplementary(
   const now = new Date().toISOString();
   const status = complementaryStatus(complementary);
 
-  const { data: resources } = await admin
+  const { data: exactResources } = await admin
     .from('resources')
     .select('id, dni, phone, email, birth_date, inbound_source_data')
     .eq('dni', dni)
     .eq('type', 'Personal');
+  let matchedResources = exactResources ?? [];
+  if (matchedResources.length === 0) {
+    const { data: looseResources } = await admin
+      .from('resources')
+      .select('id, dni, phone, email, birth_date, inbound_source_data')
+      .eq('type', 'Personal')
+      .ilike('dni', `%${dni}%`)
+      .limit(20);
+    matchedResources = (looseResources ?? []).filter((row) => digitsOnly(row.dni) === dni);
+  }
 
   const resourceIds: string[] = [];
-  for (const resource of resources ?? []) {
+  for (const resource of matchedResources) {
     resourceIds.push(resource.id as string);
     const inbound = asRecord(resource.inbound_source_data);
     const snapshot = asRecord(inbound.workerSnapshot);
@@ -484,7 +519,7 @@ serve(async (req) => {
       }
 
       let complementary = asRecord(ficha.complementary);
-      if (Object.keys(complementary).length === 0) {
+      if (complementaryNeedsHydration(complementary)) {
         const found = await findExistingSnapshot(admin, dni);
         complementary = {
           ...found.complementary,

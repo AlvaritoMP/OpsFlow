@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
 import type { WorkerSnapshotComplementary } from '../types';
 
 export const PUBLIC_COMPLEMENTARY_FICHA_PATH = '/ficha';
@@ -57,38 +57,169 @@ function normalizeDni(value: string): string {
   return value.replace(/\D/g, '').slice(0, 8);
 }
 
+function payloadFromUnknown(data: unknown): PublicComplementaryFichaPayload {
+  if (!data || typeof data !== 'object') {
+    throw new Error('No se recibió respuesta del servicio de ficha');
+  }
+  const record = data as Record<string, unknown>;
+  if (typeof record.error === 'string' && record.error.trim()) {
+    throw new Error(record.error);
+  }
+  if (typeof record.dni !== 'string') {
+    throw new Error('No se recibió respuesta del servicio de ficha');
+  }
+  return {
+    dni: record.dni,
+    complementary: (record.complementary && typeof record.complementary === 'object'
+      ? record.complementary
+      : {}) as WorkerSnapshotComplementary,
+    openCount: Number(record.openCount) || 0,
+    maxOpens: Number(record.maxOpens) || PUBLIC_COMPLEMENTARY_FICHA_MAX_OPENS,
+    remainingOpens: Number(record.remainingOpens) || 0,
+    canEdit: Boolean(record.canEdit),
+    locked: Boolean(record.locked),
+    sessionToken: typeof record.sessionToken === 'string' ? record.sessionToken : null,
+  };
+}
+
+function isMissingRpc(status: number, bodyText: string): boolean {
+  if (status === 404) return true;
+  return /could not find the function|schema cache|does not exist|42883/i.test(bodyText);
+}
+
+async function invokeViaRpc(
+  action: 'open' | 'save',
+  dni: string,
+  extra?: Record<string, unknown>,
+): Promise<PublicComplementaryFichaPayload> {
+  const fn =
+    action === 'open' ? 'open_public_complementary_ficha' : 'save_public_complementary_ficha';
+  const args =
+    action === 'open'
+      ? { p_dni: dni, p_session_token: extra?.sessionToken ?? null }
+      : {
+          p_dni: dni,
+          p_session_token: extra?.sessionToken ?? null,
+          p_complementary: extra?.complementary ?? {},
+        };
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(args),
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    const err = new Error(text || `HTTP ${response.status}`);
+    (err as Error & { status?: number; missingRpc?: boolean }).status = response.status;
+    (err as Error & { missingRpc?: boolean }).missingRpc = isMissingRpc(response.status, text);
+    throw err;
+  }
+
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('No se recibió respuesta del servicio de ficha');
+    }
+  }
+  return payloadFromUnknown(data);
+}
+
+async function invokeViaEdgeFunction(
+  action: 'open' | 'save',
+  dni: string,
+  extra?: Record<string, unknown>,
+): Promise<PublicComplementaryFichaPayload> {
+  const { data, error } = await supabase.functions.invoke('public-complementary-ficha', {
+    headers: {
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      apikey: SUPABASE_ANON_KEY,
+    },
+    body: {
+      action,
+      dni,
+      sessionToken: extra?.sessionToken,
+      complementary: extra?.complementary,
+    },
+  });
+
+  if (data) {
+    return payloadFromUnknown(data);
+  }
+  if (error) {
+    const message = error.message || 'No se pudo contactar el servicio de ficha';
+    if (/Failed to send a request to the Edge Function|FunctionsFetchError|Failed to fetch/i.test(message)) {
+      throw new Error(
+        'No se pudo abrir la ficha. Revisa tu conexión e intenta de nuevo.',
+      );
+    }
+    throw new Error(message);
+  }
+  throw new Error('No se recibió respuesta del servicio de ficha');
+}
+
+function isNetworkish(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /Failed to fetch|NetworkError|FunctionsFetchError|Failed to send a request to the Edge Function|ERR_FAILED|Load failed/i.test(
+    error.message,
+  );
+}
+
+function friendlyFichaError(error: unknown, fallback: string): Error {
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    if (
+      message &&
+      !isNetworkish(error) &&
+      !/HTTP \d+/.test(message) &&
+      !message.startsWith('{') &&
+      !message.startsWith('<')
+    ) {
+      return error;
+    }
+  }
+  return new Error(fallback);
+}
+
 async function invokePublicFicha(
   action: 'open' | 'save',
   dni: string,
   extra?: Record<string, unknown>,
 ): Promise<PublicComplementaryFichaPayload> {
   const normalized = normalizeDni(dni);
-  const { data, error } = await supabase.functions.invoke('public-complementary-ficha', {
-    body: {
-      action,
-      dni: normalized,
-      sessionToken: readPublicFichaSessionToken(normalized),
-      ...extra,
-    },
-  });
+  const sessionToken = readPublicFichaSessionToken(normalized);
+  const payloadExtra = { sessionToken, ...extra };
+  const fallback =
+    action === 'save'
+      ? 'No se pudo guardar la ficha. Revisa tu conexión e intenta de nuevo.'
+      : 'No se pudo abrir la ficha. Revisa tu conexión e intenta de nuevo.';
 
-  const bodyError =
-    data && typeof data === 'object' && 'error' in data
-      ? String((data as { error: unknown }).error)
-      : '';
-  if (bodyError) {
-    throw new Error(bodyError);
+  try {
+    const payload = await invokeViaRpc(action, normalized, payloadExtra);
+    writePublicFichaSessionToken(normalized, payload.sessionToken);
+    return payload;
+  } catch (rpcError) {
+    const shouldFallback =
+      Boolean((rpcError as { missingRpc?: boolean }).missingRpc) || isNetworkish(rpcError);
+    if (!shouldFallback) {
+      throw friendlyFichaError(rpcError, fallback);
+    }
+    try {
+      const payload = await invokeViaEdgeFunction(action, normalized, payloadExtra);
+      writePublicFichaSessionToken(normalized, payload.sessionToken);
+      return payload;
+    } catch (edgeError) {
+      throw friendlyFichaError(edgeError, fallback);
+    }
   }
-  if (error) {
-    throw new Error(error.message || 'No se pudo contactar el servicio de ficha');
-  }
-  if (!data) {
-    throw new Error('No se recibió respuesta del servicio de ficha');
-  }
-
-  const payload = data as PublicComplementaryFichaPayload;
-  writePublicFichaSessionToken(normalized, payload.sessionToken);
-  return payload;
 }
 
 export const publicComplementaryFichaService = {
