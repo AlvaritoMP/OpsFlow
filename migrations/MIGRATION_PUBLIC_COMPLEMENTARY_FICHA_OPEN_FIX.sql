@@ -1,5 +1,5 @@
 -- FIX: /ficha debe abrir para Personal ya creado en unidades (sin ATS y sin Opalosis).
--- Corrige: column reference "dni" is ambiguous (variable plpgsql vs columna).
+-- Corrige: column reference "dni" is ambiguous, y restaura cupos si la ficha nunca se guardó.
 -- Re-ejecutar este archivo completo en SQL Editor de Supabase OpsFlow.
 
 CREATE OR REPLACE FUNCTION public.try_open_public_complementary_ficha(p_dni text)
@@ -223,6 +223,13 @@ BEGIN
     END IF;
   END IF;
 
+  -- Los intentos fallidos (nunca se guardó) no deben bloquear la ficha.
+  UPDATE public.public_complementary_fichas
+  SET open_count = 0, last_opened_at = NULL
+  WHERE dni = v_dni
+    AND last_saved_at IS NULL
+    AND open_count >= max_opens;
+
   opened := public.try_open_public_complementary_ficha(v_dni);
   IF opened IS NOT NULL AND opened.id IS NOT NULL THEN
     can_edit := true;
@@ -348,5 +355,10 @@ GRANT EXECUTE ON FUNCTION public.sync_public_complementary_ficha(text, jsonb) TO
 GRANT EXECUTE ON FUNCTION public.public_ficha_fill(jsonb, text, text) TO postgres, service_role;
 GRANT EXECUTE ON FUNCTION public.public_ficha_status(jsonb) TO postgres, service_role;
 GRANT EXECUTE ON FUNCTION public.public_ficha_payload(public.public_complementary_fichas, boolean, text) TO postgres, service_role;
+
+-- Restaurar cupos quemados en pruebas (ficha nunca guardada, p. ej. DNI 46896659).
+UPDATE public.public_complementary_fichas
+SET open_count = 0, last_opened_at = NULL
+WHERE last_saved_at IS NULL;
 
 NOTIFY pgrst, 'reload schema';
