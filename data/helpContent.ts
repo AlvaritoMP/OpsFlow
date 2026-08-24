@@ -604,27 +604,108 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: 'Inventario',
     navLabel: 'Inventario',
     summary:
-      'Módulo de stock, almacenes, proveedores y órdenes de compra integrado desde Appinventario. Usa la misma sesión de OpsFlow.',
+      'Control de productos, almacenes (central y de unidad), compras, traslados y descarga por entrega o consumo. Usa la misma sesión de OpsFlow; no hay login aparte.',
     sections: [
       {
-        heading: 'Qué incluye',
-        body: 'Resumen de stock, catálogo de productos, almacenes centrales y de unidad, consumo/entregas, transferencias, proveedores, órdenes de compra y documentos.',
+        heading: 'Para qué sirve',
+        body: 'Lleva el stock físico de uniformes, consumibles y otros ítems. El modelo operativo es: comprar o ingresar al almacén central, trasladar a almacenes virtuales de unidad cuando el material sale a campo, y descargar cuando se entrega al personal o se consume. Un traslado no es una descarga: el stock sigue existiendo, solo cambia de almacén.',
       },
       {
-        heading: 'Cómo usarlo',
-        body: 'El módulo vive dentro de OpsFlow: no hay login aparte. Los cambios se guardan en Supabase.',
+        heading: 'Flujo operativo recomendado',
+        body: 'Siga este orden para uniformes e insumos que viajan a unidades. Si entrega o consume en sede, puede descargar directo del central (queda menos trazabilidad de unidad).',
         steps: [
-          'Abra Inventario en el menú lateral.',
-          'Cree un almacén central y almacenes de unidad (o use el botón para crearlos masivamente).',
-          'Reciba o ajuste stock en el central; transfiera a la unidad cuando el material salga a campo.',
-          'Cuando se entregue un uniforme o se consuma un insumo, use Consumo / entregas para descargarlo del almacén de unidad.',
-          'Cree proveedores y órdenes de compra; al recibir una OC emitida el stock se incrementa.',
-          'En Ajustes configure la empresa emisora, el prefijo de OC y los colores de alerta.',
+          'Almacenes: un central (depósito propio) y un almacén de unidad por sede. Use el botón masivo si faltan almacenes de unidades.',
+          'Productos: cree el catálogo (nombre, SKU, categoría, precio, umbral de stock bajo).',
+          'Ingreso: reciba una orden de compra o use Ajustar stock → Entrada en el almacén central.',
+          'Traslado a campo: Transferir (o Transferencia múltiple) desde el central hacia el almacén de la unidad.',
+          'Descarga: en Consumo / entregas (o el botón naranja ↓ del producto) saque el ítem del almacén de unidad: entrega a personal, uso interno, merma o baja.',
         ],
         tips: [
-          'ADMIN y SUPER_ADMIN ven todos los almacenes. Al resto se les puede restringir en Accesos.',
-          'Ejecute migrations/MIGRATION_INVENTORY.sql y luego MIGRATION_INVENTORY_CONSUMPTION.sql en Supabase.',
-          'La emisión GRE a SUNAT es una simulación; no envía documentos reales.',
+          'Mientras el ítem está en el almacén de unidad, sigue contando como stock. Solo deja de existir al descargarlo.',
+          'Descargar del central es válido (entrega en oficina, merma en depósito). No crea movimiento en ninguna unidad.',
+        ],
+      },
+      {
+        heading: 'Resumen (dashboard)',
+        body: 'Muestra totales de productos, almacenes, stock bajo, agotados y cantidades descargadas en el mes (entregas y consumos). El listado de stock por almacén indica si es Central o de Unidad.',
+        steps: [
+          'Revise alertas de stock bajo o agotado.',
+          'Si tiene permiso, genere una OC sugerida a partir de los productos en alerta.',
+        ],
+      },
+      {
+        heading: 'Productos',
+        body: 'Catálogo con SKU, categoría, precio y umbral. El stock total suma todos los almacenes. Cada fila tiene acciones de edición, ajuste, traslado y descarga.',
+        steps: [
+          'Añadir: alta individual. También puede importar CSV (nombre, sku, categoría, precio, umbral, descripción).',
+          'Ajustar stock: corrección o ingreso/salida genérica. Use cantidad positiva o negativa según el tipo (Entrada, Salida o Ajuste). No reemplaza a Consumo / entregas.',
+          'Transferir: mueve cantidad de un almacén a otro (el stock no desaparece).',
+          'Transferencia múltiple: varios productos en un solo envío central → unidad (o entre almacenes).',
+          'Descargar / entregar (↓): saca el producto del inventario con motivo y, si es entrega, destinatario.',
+        ],
+        tips: [
+          'El umbral de stock bajo alimenta las alertas del resumen y la OC sugerida.',
+          'Ajuste sirve para correcciones de conteo. Entrega de uniforme o consumo de insumo va en Consumo / entregas.',
+        ],
+      },
+      {
+        heading: 'Almacenes',
+        body: 'Hay dos tipos. Central: depósito propio. Unidad (virtual): stock ya enviado a una sede de OpsFlow, listo para entregar o consumir. El almacén de unidad se vincula a una unidad para sugerir trabajadores al entregar.',
+        steps: [
+          'Añadir almacén: elija tipo Central o Unidad (virtual). En Unidad, seleccione la unidad OpsFlow; el nombre se propone como «Unidad: …».',
+          'Crear almacenes de N unidades: genera de una vez los que aún no existen.',
+        ],
+        tips: [
+          'Los almacenes creados antes de la migración de consumo quedan como Central. Cree (o recree) los de unidad y transfiera el stock de campo.',
+          'Un almacén de unidad no es un depósito físico aparte: es una ubicación lógica del mismo inventario.',
+        ],
+      },
+      {
+        heading: 'Consumo / entregas (descarga)',
+        body: 'Es la salida definitiva. El stock baja en el almacén elegido y queda un movimiento ENTREGA o CONSUMO con motivo, cantidad y destinatario. No es un traslado.',
+        steps: [
+          'Elija el almacén de origen (de unidad si el material ya está en campo; central si ocurre en sede).',
+          'Motivo: Entrega a personal, Uso interno / consumo en servicio, Merma / pérdida o Baja / descarte.',
+          'Si es entrega a personal, indique el destinatario. En almacén de unidad se sugieren los trabajadores de esa sede; en central hay que escribir el nombre.',
+          'Agregue uno o más productos con stock en ese almacén y la cantidad a descargar.',
+          'Confirme Descargar stock. El ítem deja de existir en inventario.',
+        ],
+        tips: [
+          'No use Salida en Ajustar stock para entregas: pierde destinatario y motivo de consumo.',
+          'Si no hay stock en el almacén de unidad, transfiéra primero desde el central.',
+        ],
+      },
+      {
+        heading: 'Proveedores, órdenes de compra y calendario',
+        body: 'Las compras ingresan stock al almacén de destino de la OC. El calendario agenda compras futuras; no mueve stock por sí solo.',
+        steps: [
+          'Proveedores: RUC, contacto y datos fiscales para las OC.',
+          'Órdenes de compra: borrador → Emitida → Recibida (el stock sube en el almacén destino) o Cancelada.',
+          'Al crear la OC elija empresa emisora, proveedor, almacén destino (normalmente el central) y líneas de producto.',
+          'Calendario: programe títulos, fechas, proveedor e ítems previstos.',
+        ],
+        tips: [
+          'Solo al marcar una OC emitida como Recibida se incrementa el inventario.',
+          'El prefijo y correlativo de OC se configuran en Ajustes.',
+        ],
+      },
+      {
+        heading: 'Movimientos y documentos',
+        body: 'Bitácora de entradas, salidas, ajustes, creaciones, transferencias, entregas y consumos. Las transferencias múltiples y descargas múltiples se agrupan. Desde cada fila puede generar constancia (C); en traslados también guía de despacho (D) y guía de remisión simulada (G).',
+        tips: [
+          'ENTREGA y CONSUMO restan stock. ENTRADA y recepción de OC lo suman. Una transferencia es SALIDA en origen y ENTRADA en destino.',
+          'La guía de remisión (GRE) es una simulación: no se envía a SUNAT.',
+        ],
+      },
+      {
+        heading: 'Accesos, ajustes y permisos',
+        body: 'ADMIN y SUPER_ADMIN ven todos los almacenes. Al resto se les puede asignar almacenes concretos en Accesos; si no tienen ninguno asignado, ven todos. CLIENT no usa este módulo. La edición (altas, traslados, descargas, OC) requiere permiso de edición de Inventario.',
+        steps: [
+          'Accesos: asigne almacenes a usuarios operativos (solo administradores).',
+          'Ajustes: empresa emisora de documentos, prefijo de OC, umbral por defecto y colores de alerta (en stock / bajo / agotado).',
+        ],
+        tips: [
+          'Si las tablas aún no existen, ejecute en Supabase MIGRATION_INVENTORY.sql y después MIGRATION_INVENTORY_CONSUMPTION.sql.',
         ],
       },
     ],
