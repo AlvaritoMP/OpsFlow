@@ -1,6 +1,7 @@
--- Landing /ficha sin depender de la Edge Function (evita "Failed to send a request to the Edge Function").
--- RPCs SECURITY DEFINER para anon: abrir/guardar ficha por DNI, hidratar desde Personal de unidad
--- (incluidos referidos/altas directas que no vinieron del ATS) y sincronizar cola Opalosis.
+-- Landing /ficha sin depender de la Edge Function.
+-- IMPORTANTE: después de este archivo, ejecutar también
+--   MIGRATION_PUBLIC_COMPLEMENTARY_FICHA_OPEN_FIX.sql
+-- Ese fix abre la ficha para Personal ya creado en unidades (sin ATS y sin Opalosis).
 -- Ejecutar en SQL Editor de Supabase OpsFlow.
 
 CREATE TABLE IF NOT EXISTS public.public_complementary_fichas (
@@ -51,6 +52,9 @@ CREATE TRIGGER trg_public_complementary_fichas_updated_at
 CREATE OR REPLACE FUNCTION public.try_open_public_complementary_ficha(p_dni text)
 RETURNS public.public_complementary_fichas
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
 AS $$
 DECLARE
   rec public.public_complementary_fichas;
@@ -76,7 +80,7 @@ REVOKE ALL ON TABLE public.public_complementary_ficha_sessions FROM PUBLIC, anon
 REVOKE ALL ON FUNCTION public.try_open_public_complementary_ficha(text) FROM PUBLIC, anon, authenticated;
 GRANT ALL ON TABLE public.public_complementary_fichas TO service_role;
 GRANT ALL ON TABLE public.public_complementary_ficha_sessions TO service_role;
-GRANT ALL ON FUNCTION public.try_open_public_complementary_ficha(text) TO service_role;
+GRANT ALL ON FUNCTION public.try_open_public_complementary_ficha(text) TO postgres, service_role;
 
 -- ---------------------------------------------------------------------------
 -- Helpers (no exponer a anon)
