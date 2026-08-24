@@ -356,9 +356,8 @@ GRANT EXECUTE ON FUNCTION public.public_ficha_fill(jsonb, text, text) TO postgre
 GRANT EXECUTE ON FUNCTION public.public_ficha_status(jsonb) TO postgres, service_role;
 GRANT EXECUTE ON FUNCTION public.public_ficha_payload(public.public_complementary_fichas, boolean, text) TO postgres, service_role;
 
--- Restaurar cupos quemados en pruebas (ficha nunca guardada, p. ej. DNI 46896659).
+-- Restaurar cupos quemados en pruebas (incluye DNI 46896659 aunque last_saved_at tenga valor).
 UPDATE public.public_complementary_fichas
-SET open_count = 0, last_opened_at = NULL
-WHERE last_saved_at IS NULL;
+SET open_count = 0, last_opened_at = NULL;
 
 NOTIFY pgrst, 'reload schema';
