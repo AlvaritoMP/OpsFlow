@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, ClipboardList, Loader2, Lock, Save, User } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ClipboardList, Loader2, Save, User } from 'lucide-react';
 import { ComplementaryFichaForm } from './ComplementaryFichaForm';
 import {
   publicComplementaryFichaService,
@@ -61,7 +61,7 @@ export const ComplementaryFichaLanding: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!session?.canEdit || saving) return;
+    if (!session || saving) return;
     setSaving(true);
     setError(null);
     setSavedMsg(null);
@@ -92,11 +92,8 @@ export const ComplementaryFichaLanding: React.FC = () => {
 
   const attemptsLabel = useMemo(() => {
     if (!session) return '';
-    if (session.locked) {
-      return 'Ya usaste las 3 aperturas de esta ficha. La información quedó bloqueada.';
-    }
     if (session.openCount >= session.maxOpens) {
-      return `Esta es tu última apertura (${session.openCount} de ${session.maxOpens}). Al salir ya no podrás editar.`;
+      return `Apertura ${session.openCount} de ${session.maxOpens}. Puedes seguir editando y guardar.`;
     }
     return `Apertura ${session.openCount} de ${session.maxOpens}. Te quedan ${session.remainingOpens} después de esta.`;
   }, [session]);
@@ -207,22 +204,14 @@ export const ComplementaryFichaLanding: React.FC = () => {
                   <span>{savedMsg}</span>
                 </div>
               )}
-              {session.locked && (
-                <div className="flex items-start rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                  <Lock size={16} className="mr-2 mt-0.5 shrink-0" />
-                  <span>La ficha está en solo lectura. Si hay un error, contacta a operaciones.</span>
-                </div>
-              )}
-
               <ComplementaryFichaForm
                 value={draft}
-                disabled={!session.canEdit}
+                disabled={false}
                 onChange={handleDraftChange}
               />
             </div>
 
-            {session.canEdit && (
-              <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 md:px-6">
+            <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 md:px-6">
                 <button
                   type="button"
                   onClick={() => void handleSave()}
@@ -242,7 +231,6 @@ export const ComplementaryFichaLanding: React.FC = () => {
                   )}
                 </button>
               </div>
-            )}
           </div>
         )}
 

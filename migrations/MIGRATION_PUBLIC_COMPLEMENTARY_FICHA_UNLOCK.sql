@@ -1,9 +1,33 @@
--- Desbloquea /ficha: los 3 intentos de prueba dejaron open_count en el tope.
--- Ejecutar completo en SQL Editor de Supabase OpsFlow.
+-- Quita el candado de /ficha. try_open ya no deja de devolver fila al 3er intento.
+-- Ejecutar COMPLETO en SQL Editor de Supabase OpsFlow.
 
--- 1) Quitar el candado de TODAS las fichas públicas (incluye 46896659).
 UPDATE public.public_complementary_fichas
 SET open_count = 0, last_opened_at = NULL;
+
+CREATE OR REPLACE FUNCTION public.try_open_public_complementary_ficha(p_dni text)
+RETURNS public.public_complementary_fichas
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  rec public.public_complementary_fichas;
+BEGIN
+  INSERT INTO public.public_complementary_fichas (dni, open_count, last_opened_at)
+  VALUES (p_dni, 1, now())
+  ON CONFLICT (dni) DO UPDATE
+    SET
+      open_count = public.public_complementary_fichas.open_count + 1,
+      last_opened_at = now()
+  RETURNING * INTO rec;
+
+  RETURN rec;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.try_open_public_complementary_ficha(text) FROM PUBLIC, anon, authenticated;
+GRANT ALL ON FUNCTION public.try_open_public_complementary_ficha(text) TO postgres, service_role;
 
 CREATE OR REPLACE FUNCTION public.open_public_complementary_ficha(
   p_dni text,
@@ -19,11 +43,8 @@ DECLARE
   v_dni text := regexp_replace(coalesce(p_dni, ''), '[^0-9]', '', 'g');
   ficha public.public_complementary_fichas;
   session_row public.public_complementary_ficha_sessions;
-  opened public.public_complementary_fichas;
-  can_edit boolean := false;
   token text;
   comp jsonb;
-  ficha_status text;
 BEGIN
   IF length(v_dni) <> 8 THEN
     RETURN jsonb_build_object('error', 'Ingresa un DNI válido de 8 dígitos');
@@ -45,37 +66,21 @@ BEGIN
     END IF;
   END IF;
 
-  opened := public.try_open_public_complementary_ficha(v_dni);
-
-  -- Si ya no hay cupos, reabrir cuando la ficha aún no está completa.
-  IF opened IS NULL OR opened.id IS NULL THEN
+  ficha := public.try_open_public_complementary_ficha(v_dni);
+  IF ficha IS NULL THEN
     SELECT * INTO ficha
     FROM public.public_complementary_fichas f
     WHERE f.dni = v_dni;
-
-    IF FOUND THEN
-      ficha_status := public.public_ficha_status(coalesce(ficha.complementary, '{}'::jsonb));
-      IF ficha.last_saved_at IS NULL OR ficha_status IN ('missing', 'incomplete') THEN
-        UPDATE public.public_complementary_fichas f
-        SET open_count = 0, last_opened_at = NULL
-        WHERE f.dni = v_dni;
-
-        opened := public.try_open_public_complementary_ficha(v_dni);
-      END IF;
-    END IF;
   END IF;
 
-  IF opened IS NOT NULL AND opened.id IS NOT NULL THEN
-    can_edit := true;
-    ficha := opened;
-  ELSE
-    can_edit := false;
-    SELECT * INTO ficha
-    FROM public.public_complementary_fichas f
-    WHERE f.dni = v_dni;
-    IF NOT FOUND THEN
-      RETURN jsonb_build_object('error', 'No se pudo abrir la ficha');
-    END IF;
+  IF ficha IS NULL THEN
+    INSERT INTO public.public_complementary_fichas (dni, open_count, last_opened_at)
+    VALUES (v_dni, 1, now())
+    RETURNING * INTO ficha;
+  END IF;
+
+  IF ficha IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se pudo abrir la ficha');
   END IF;
 
   comp := coalesce(ficha.complementary, '{}'::jsonb);
@@ -96,14 +101,12 @@ BEGIN
     ficha.complementary := comp;
   END IF;
 
-  token := NULL;
-  IF can_edit THEN
-    token := gen_random_uuid()::text;
-    INSERT INTO public.public_complementary_ficha_sessions (ficha_id, session_token, expires_at)
-    VALUES (ficha.id, token, now() + interval '12 hours');
-  END IF;
+  token := gen_random_uuid()::text;
+  INSERT INTO public.public_complementary_ficha_sessions (ficha_id, session_token, expires_at)
+  VALUES (ficha.id, token, now() + interval '12 hours');
 
-  RETURN public.public_ficha_payload(ficha, can_edit, token);
+  -- Siempre editable. El contador de aperturas es informativo, no un candado.
+  RETURN public.public_ficha_payload(ficha, true, token);
 EXCEPTION
   WHEN OTHERS THEN
     RAISE WARNING 'open_public_complementary_ficha: %', SQLERRM;
@@ -111,6 +114,7 @@ EXCEPTION
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.open_public_complementary_ficha(text, text) TO anon, authenticated, service_role, postgres;
+GRANT EXECUTE ON FUNCTION public.open_public_complementary_ficha(text, text)
+  TO anon, authenticated, service_role, postgres;
 
 NOTIFY pgrst, 'reload schema';

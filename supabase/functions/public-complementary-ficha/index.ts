@@ -504,7 +504,6 @@ serve(async (req) => {
 
       let ficha = (Array.isArray(opened) ? opened[0] : opened) as FichaRow | null;
       if (ficha && !ficha.id) ficha = null;
-      const canEdit = Boolean(ficha?.id);
 
       if (!ficha) {
         const { data: lockedRow, error: lockedError } = await admin
@@ -534,10 +533,10 @@ serve(async (req) => {
         complementary = { ...complementary, tipoDocumento: 'DNI', nroDocumento: dni };
       }
 
-      const sessionToken = canEdit ? await createSession(admin, ficha.id) : null;
+      const sessionToken = await createSession(admin, ficha.id);
 
       return jsonResponse(
-        payloadFromFicha({ ...ficha, complementary }, canEdit, sessionToken),
+        payloadFromFicha({ ...ficha, complementary }, true, sessionToken),
         200,
       );
     }

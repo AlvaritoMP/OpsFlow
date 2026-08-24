@@ -73,12 +73,17 @@ function payloadFromUnknown(data: unknown): PublicComplementaryFichaPayload {
     complementary: (record.complementary && typeof record.complementary === 'object'
       ? record.complementary
       : {}) as WorkerSnapshotComplementary,
-    openCount: Number(record.openCount) || 0,
-    maxOpens: Number(record.maxOpens) || PUBLIC_COMPLEMENTARY_FICHA_MAX_OPENS,
-    remainingOpens: Number(record.remainingOpens) || 0,
-    canEdit: Boolean(record.canEdit),
-    locked: Boolean(record.locked),
-    sessionToken: typeof record.sessionToken === 'string' ? record.sessionToken : null,
+    openCount: Number(record.openCount ?? record.open_count) || 0,
+    maxOpens: Number(record.maxOpens ?? record.max_opens) || PUBLIC_COMPLEMENTARY_FICHA_MAX_OPENS,
+    remainingOpens: Number(record.remainingOpens ?? record.remaining_opens) || 0,
+    canEdit: true,
+    locked: false,
+    sessionToken:
+      typeof record.sessionToken === 'string'
+        ? record.sessionToken
+        : typeof record.session_token === 'string'
+          ? record.session_token
+          : null,
   };
 }
 
