@@ -57,6 +57,32 @@ function labelForSourceKey(
   return key;
 }
 
+const MAX_OUTBOUND_FIELD_CHARS = 2000;
+
+function summarizeHeavyValue(key: string, value: unknown): unknown {
+  if (typeof value === 'string') {
+    if (value.startsWith('data:')) {
+      const semi = value.indexOf(';');
+      const mime = semi > 5 ? value.slice(5, semi) : 'binario';
+      return `[omitido: ${key} archivo embebido ${mime} ~${Math.round(value.length / 1024)}KB]`;
+    }
+    if (value.length > MAX_OUTBOUND_FIELD_CHARS) {
+      return `[omitido: ${key} texto ~${Math.round(value.length / 1024)}KB]`;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, i) => summarizeHeavyValue(`${key}[${i}]`, item));
+  }
+  if (value && typeof value === 'object') {
+    const json = JSON.stringify(value);
+    if (json.length > MAX_OUTBOUND_FIELD_CHARS) {
+      return `[omitido: ${key} objeto ~${Math.round(json.length / 1024)}KB]`;
+    }
+  }
+  return value;
+}
+
 function pushInventoryItem(
   items: HrWorkerFieldInventoryItem[],
   source: HrWorkerFieldInventoryItem['source'],
@@ -66,11 +92,12 @@ function pushInventoryItem(
   note?: string,
 ) {
   if (value === null || value === undefined) return;
-  if (typeof value === 'string' && !value.trim()) return;
-  if (Array.isArray(value) && value.length === 0) return;
+  const safe = summarizeHeavyValue(key, value);
+  if (typeof safe === 'string' && !safe.trim()) return;
+  if (Array.isArray(safe) && safe.length === 0) return;
 
   const normalized =
-    typeof value === 'object' ? JSON.stringify(value) : (value as string | number | boolean);
+    typeof safe === 'object' ? JSON.stringify(safe) : (safe as string | number | boolean);
 
   items.push({
     source,
@@ -300,7 +327,9 @@ export function buildOpalosisPayloadBundle(
         sourceProcessId: snapshot.ats.sourceProcessId,
         workerName: snapshot.ats.workerName,
         identity: snapshot.ats.identity ?? {},
-        fields: snapshot.ats.fields ?? {},
+        fields: Object.fromEntries(
+          Object.entries(snapshot.ats.fields ?? {}).map(([k, v]) => [k, summarizeHeavyValue(k, v)]),
+        ),
         meta: snapshot.ats.meta ?? {},
       },
       opsflow: snapshot.opsflow,
@@ -409,7 +438,8 @@ export function buildCamposDetalle(
 
   const push = (campo: string, valor: unknown) => {
     if (valor === null || valor === undefined) return;
-    const value = typeof valor === 'object' ? JSON.stringify(valor) : String(valor);
+    const safe = summarizeHeavyValue(campo, valor);
+    const value = typeof safe === 'object' ? JSON.stringify(safe) : String(safe);
     if (!value.trim()) return;
     const key = campo.trim();
     if (!key || seen.has(key)) return;

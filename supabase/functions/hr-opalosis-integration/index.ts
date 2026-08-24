@@ -164,6 +164,59 @@ function pickNumber(...values: unknown[]): number | null {
   return null;
 }
 
+/** Opalosis (IIS) responde HTTP 500 si CamposDetalle/PayloadJson traen binarios (PDF base64). */
+const MAX_OUTBOUND_FIELD_CHARS = 2000;
+
+function summarizeHeavyValue(key: string, value: unknown): unknown {
+  if (typeof value === 'string') {
+    if (value.startsWith('data:')) {
+      const semi = value.indexOf(';');
+      const mime = semi > 5 ? value.slice(5, semi) : 'binario';
+      return `[omitido: ${key} archivo embebido ${mime} ~${Math.round(value.length / 1024)}KB]`;
+    }
+    if (value.length > MAX_OUTBOUND_FIELD_CHARS) {
+      return `[omitido: ${key} texto ~${Math.round(value.length / 1024)}KB]`;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, i) => summarizeHeavyValue(`${key}[${i}]`, item));
+  }
+  if (value && typeof value === 'object') {
+    const json = JSON.stringify(value);
+    if (json.length > MAX_OUTBOUND_FIELD_CHARS) {
+      return `[omitido: ${key} objeto ~${Math.round(json.length / 1024)}KB]`;
+    }
+  }
+  return value;
+}
+
+function sanitizeFieldsMap(fields: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    out[key] = summarizeHeavyValue(key, value);
+  }
+  return out;
+}
+
+function sanitizeWorkerSnapshot(
+  snapshot: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!snapshot) return null;
+  const ats = { ...((snapshot.ats ?? {}) as Record<string, unknown>) };
+  if (ats.fields && typeof ats.fields === 'object' && !Array.isArray(ats.fields)) {
+    ats.fields = sanitizeFieldsMap(ats.fields as Record<string, unknown>);
+  }
+  return { ...snapshot, ats };
+}
+
+function snippetFromOpalosisBody(data: unknown): string {
+  const raw = typeof data === 'string' ? data : JSON.stringify(data ?? '');
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  if (!cleaned || cleaned.startsWith('data:')) return '';
+  return cleaned.slice(0, 220);
+}
+
 const ATS_LABELS: Record<string, string> = {
   fullName: 'Nombre completo',
   dni: 'DNI',
@@ -207,13 +260,14 @@ function pushField(
   note?: string,
 ) {
   if (value === null || value === undefined) return;
-  if (typeof value === 'string' && !value.trim()) return;
-  if (Array.isArray(value) && value.length === 0) return;
+  const safe = summarizeHeavyValue(key, value);
+  if (typeof safe === 'string' && !safe.trim()) return;
+  if (Array.isArray(safe) && safe.length === 0) return;
   items.push({
     source,
     key,
     label,
-    value: typeof value === 'object' ? JSON.stringify(value) : value,
+    value: typeof safe === 'object' ? JSON.stringify(safe) : safe,
     note: note ?? null,
     classificationRequired: true,
   });
@@ -383,7 +437,8 @@ function buildCamposDetalle(
 
   const push = (campoRaw: string, value: unknown) => {
     if (value === null || value === undefined) return;
-    const v = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const safe = summarizeHeavyValue(campoRaw, value);
+    const v = typeof safe === 'object' ? JSON.stringify(safe) : String(safe);
     if (!v.trim()) return;
     const campo = campoRaw.trim();
     if (!campo || seen.has(campo)) return;
@@ -410,6 +465,7 @@ function buildRegistroPayload(
   hrFields: Record<string, unknown>,
   workerSnapshot?: Record<string, unknown> | null,
 ): Record<string, unknown> {
+  workerSnapshot = sanitizeWorkerSnapshot(workerSnapshot ?? null);
   const isLegacy = hrFields.apellido_paterno !== undefined && hrFields.apellidoPaterno === undefined;
 
   const documento = pickString(hrFields.documento, hrFields.Documento);
@@ -429,8 +485,9 @@ function buildRegistroPayload(
 
   const existingPayload = pickString(hrFields.payloadJson);
   const payloadJson =
-    existingPayload ||
-    buildPayloadJsonFromSnapshot(workerSnapshot ?? null, hrFields, refOps);
+    existingPayload && !existingPayload.includes('data:')
+      ? existingPayload
+      : buildPayloadJsonFromSnapshot(workerSnapshot ?? null, hrFields, refOps);
 
   return {
     TipoDocumentoId: tipoDocumentoId,
@@ -695,7 +752,10 @@ async function registerWorkerInOpalosis(
         ok: false,
         businessRejected: false,
         itemStatus: 'rechazado',
-        mensaje: `Error técnico HTTP ${result.status}`,
+        mensaje: (() => {
+          const snippet = snippetFromOpalosisBody(result.data);
+          return `Error técnico HTTP ${result.status}${snippet ? `: ${snippet}` : ''}`;
+        })(),
         response: responseData,
       };
     }
@@ -973,11 +1033,15 @@ serve(async (req) => {
       }
 
       if (packageStatus === 'error') {
+        const detail = registrationResults
+          .map((r) => `${r.workerName} (${r.documento}): ${r.mensaje}`)
+          .join(' | ');
+        // HTTP 200: el cliente de Supabase traga el body en 502 y muestra solo "non-2xx".
         return jsonResponse({
-          error: 'Ningún trabajador pudo registrarse en Opalosis',
+          error: `Ningún trabajador pudo registrarse en Opalosis. ${detail}`,
           package: insertedPackage,
           details: opalosisResponse,
-        }, 502);
+        }, 200);
       }
 
       const { data: finalPackage } = await supabaseAdmin

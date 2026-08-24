@@ -23,6 +23,47 @@ import type {
 } from '../types';
 import { ResourceType } from '../types';
 
+function errorMessageFromFunctionPayload(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const body = data as {
+    error?: unknown;
+    details?: { results?: Array<{ workerName?: string; mensaje?: string }> };
+  };
+  if (body.error == null) return null;
+  const main = typeof body.error === 'string' ? body.error : JSON.stringify(body.error);
+  const extra = (body.details?.results ?? [])
+    .filter((r) => r.mensaje)
+    .map((r) => `${r.workerName ?? 'trabajador'}: ${r.mensaje}`)
+    .join(' | ');
+  return extra && !main.includes(extra) ? `${main} (${extra})` : main;
+}
+
+async function readFunctionsInvokeError(
+  error: { message?: string; context?: unknown } | null,
+  data: unknown,
+  fallback: string,
+): Promise<string> {
+  const fromBody = errorMessageFromFunctionPayload(data);
+  if (fromBody) return fromBody;
+
+  const context = error?.context as Response | undefined;
+  if (context && typeof context.json === 'function') {
+    try {
+      const payload = await context.clone().json();
+      const fromCtx = errorMessageFromFunctionPayload(payload);
+      if (fromCtx) return fromCtx;
+    } catch {
+      try {
+        const text = await context.clone().text();
+        if (text.trim()) return text.trim().slice(0, 600);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return error?.message || fallback;
+}
+
 const SYNC_RESOURCE_SELECT =
   'id, name, dni, unit_id, puesto, localidad, phone, email, birth_date, start_date, end_date, assigned_shift, monthly_salary, personnel_status, external_id, inbound_source_data, type, jornada_type, labor_regime, mobility_bonus, family_allowance, work_days, entry_time, exit_time';
 
@@ -877,11 +918,8 @@ export const hrOutboundIngresoService = {
       },
     });
 
-    if (error) {
-      throw new Error(error.message || 'Error al enviar paquete a Opalosis');
-    }
-    if (data?.error) {
-      throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+    if (error || data?.error) {
+      throw new Error(await readFunctionsInvokeError(error, data, 'Error al enviar paquete a Opalosis'));
     }
 
     return {
@@ -896,8 +934,9 @@ export const hrOutboundIngresoService = {
       body: { action: 'check-package-status', packageId },
     });
 
-    if (error) throw new Error(error.message);
-    if (data?.error) throw new Error(data.error);
+    if (error || data?.error) {
+      throw new Error(await readFunctionsInvokeError(error, data, 'Error al consultar estado'));
+    }
     return data as Record<string, unknown>;
   },
 
@@ -909,8 +948,9 @@ export const hrOutboundIngresoService = {
       },
     });
 
-    if (error) throw new Error(error.message);
-    if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+    if (error || data?.error) {
+      throw new Error(await readFunctionsInvokeError(error, data, 'Error en prueba de registro'));
+    }
     return data as Record<string, unknown>;
   },
 
@@ -930,8 +970,9 @@ export const hrOutboundIngresoService = {
       },
     });
 
-    if (error) throw new Error(error.message);
-    if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+    if (error || data?.error) {
+      throw new Error(await readFunctionsInvokeError(error, data, 'Error al cargar catálogo Opalosis'));
+    }
 
     return {
       items: (data.items ?? []) as OpalosisCatalogItem[],
@@ -944,8 +985,9 @@ export const hrOutboundIngresoService = {
       body: { action: 'fetch-unidades' },
     });
 
-    if (error) throw new Error(error.message);
-    if (data?.error) throw new Error(data.error);
+    if (error || data?.error) {
+      throw new Error(await readFunctionsInvokeError(error, data, 'Error al cargar unidades Opalosis'));
+    }
 
     return {
       units: (data.units ?? []) as HrUnitCacheEntry[],
