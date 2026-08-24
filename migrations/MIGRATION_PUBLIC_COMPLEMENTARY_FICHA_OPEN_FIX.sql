@@ -1,6 +1,6 @@
 -- FIX: /ficha debe abrir para Personal ya creado en unidades (sin ATS y sin Opalosis).
--- El error "No se pudo abrir la ficha" venía de una excepción tragada (RLS en try_open
--- y/o barrido de presentaciones ATS). Ejecutar en SQL Editor de Supabase OpsFlow.
+-- Corrige: column reference "dni" is ambiguous (variable plpgsql vs columna).
+-- Re-ejecutar este archivo completo en SQL Editor de Supabase OpsFlow.
 
 CREATE OR REPLACE FUNCTION public.try_open_public_complementary_ficha(p_dni text)
 RETURNS public.public_complementary_fichas
@@ -195,7 +195,7 @@ SET search_path = public
 SET row_security = off
 AS $$
 DECLARE
-  dni text := regexp_replace(coalesce(p_dni, ''), '[^0-9]', '', 'g');
+  v_dni text := regexp_replace(coalesce(p_dni, ''), '[^0-9]', '', 'g');
   ficha public.public_complementary_fichas;
   session_row public.public_complementary_ficha_sessions;
   opened public.public_complementary_fichas;
@@ -203,7 +203,7 @@ DECLARE
   token text;
   comp jsonb;
 BEGIN
-  IF length(dni) <> 8 THEN
+  IF length(v_dni) <> 8 THEN
     RETURN jsonb_build_object('error', 'Ingresa un DNI válido de 8 dígitos');
   END IF;
 
@@ -214,7 +214,7 @@ BEGIN
     JOIN public.public_complementary_fichas f ON f.id = s.ficha_id
     WHERE s.session_token = btrim(p_session_token)
       AND s.expires_at > now()
-      AND f.dni = dni
+      AND f.dni = v_dni
     LIMIT 1;
 
     IF FOUND THEN
@@ -223,15 +223,15 @@ BEGIN
     END IF;
   END IF;
 
-  opened := public.try_open_public_complementary_ficha(dni);
+  opened := public.try_open_public_complementary_ficha(v_dni);
   IF opened IS NOT NULL AND opened.id IS NOT NULL THEN
     can_edit := true;
     ficha := opened;
   ELSE
     can_edit := false;
     SELECT * INTO ficha
-    FROM public.public_complementary_fichas
-    WHERE public.public_complementary_fichas.dni = dni;
+    FROM public.public_complementary_fichas f
+    WHERE f.dni = v_dni;
     IF NOT FOUND THEN
       RETURN jsonb_build_object('error', 'No se pudo abrir la ficha');
     END IF;
@@ -241,17 +241,17 @@ BEGIN
   IF comp = '{}'::jsonb
      OR (comp - 'tipoDocumento' - 'nroDocumento' - 'submittedAt') = '{}'::jsonb THEN
     BEGIN
-      comp := public.hydrate_public_complementary_ficha(dni, comp);
+      comp := public.hydrate_public_complementary_ficha(v_dni, comp);
     EXCEPTION
       WHEN OTHERS THEN
-        comp := jsonb_build_object('tipoDocumento', 'DNI', 'nroDocumento', dni);
+        comp := jsonb_build_object('tipoDocumento', 'DNI', 'nroDocumento', v_dni);
     END;
     UPDATE public.public_complementary_fichas
     SET complementary = comp
     WHERE id = ficha.id;
     ficha.complementary := comp;
   ELSE
-    comp := comp || jsonb_build_object('tipoDocumento', 'DNI', 'nroDocumento', dni);
+    comp := comp || jsonb_build_object('tipoDocumento', 'DNI', 'nroDocumento', v_dni);
     ficha.complementary := comp;
   END IF;
 
@@ -282,11 +282,11 @@ SET search_path = public
 SET row_security = off
 AS $$
 DECLARE
-  dni text := regexp_replace(coalesce(p_dni, ''), '[^0-9]', '', 'g');
+  v_dni text := regexp_replace(coalesce(p_dni, ''), '[^0-9]', '', 'g');
   ficha public.public_complementary_fichas;
   comp jsonb := coalesce(p_complementary, '{}'::jsonb);
 BEGIN
-  IF length(dni) <> 8 THEN
+  IF length(v_dni) <> 8 THEN
     RETURN jsonb_build_object('error', 'Ingresa un DNI válido de 8 dígitos');
   END IF;
 
@@ -300,7 +300,7 @@ BEGIN
   JOIN public.public_complementary_fichas f ON f.id = s.ficha_id
   WHERE s.session_token = btrim(p_session_token)
     AND s.expires_at > now()
-    AND f.dni = dni
+    AND f.dni = v_dni
   LIMIT 1;
 
   IF NOT FOUND THEN
@@ -313,7 +313,7 @@ BEGIN
 
   comp := comp || jsonb_build_object(
     'tipoDocumento', 'DNI',
-    'nroDocumento', dni,
+    'nroDocumento', v_dni,
     'submittedAt', to_char(timezone('utc', now()), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
   );
 
@@ -325,7 +325,7 @@ BEGIN
   RETURNING * INTO ficha;
 
   BEGIN
-    PERFORM public.sync_public_complementary_ficha(dni, comp);
+    PERFORM public.sync_public_complementary_ficha(v_dni, comp);
   EXCEPTION
     WHEN OTHERS THEN
       RAISE WARNING 'sync_public_complementary_ficha: %', SQLERRM;
