@@ -241,6 +241,60 @@ const isProgrammedWorkShift = (type?: string) =>
 const rosterShiftShortLabel = (type: string) =>
   type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type === 'Vacation' ? 'Vac' : type;
 
+type RosterShiftGroupKey = 'day' | 'afternoon' | 'night' | 'other' | 'none';
+
+const getRosterShiftGroup = (assignedShift?: string): { key: RosterShiftGroupKey; label: string; order: number } => {
+  const shift = (assignedShift || '').trim().toLowerCase();
+  if (!shift) return { key: 'none', label: 'Sin turno', order: 4 };
+  if (shift.includes('diurno') || shift === 'day' || shift.includes('mañana') || shift.includes('manana')) {
+    return { key: 'day', label: 'Diurno', order: 0 };
+  }
+  if (shift.includes('tarde') || shift === 'afternoon') {
+    return { key: 'afternoon', label: 'Tarde', order: 1 };
+  }
+  if (shift.includes('nocturno') || shift === 'night' || shift.includes('noche')) {
+    return { key: 'night', label: 'Nocturno', order: 2 };
+  }
+  return { key: 'other', label: assignedShift!.trim(), order: 3 };
+};
+
+const rosterShiftGroupRowClass: Record<RosterShiftGroupKey, string> = {
+  day: 'bg-blue-50 text-blue-800',
+  afternoon: 'bg-amber-50 text-amber-900',
+  night: 'bg-indigo-50 text-indigo-800',
+  other: 'bg-slate-100 text-slate-700',
+  none: 'bg-slate-50 text-slate-500',
+};
+
+const rosterShiftGroupsMatch = (
+  a: { key: RosterShiftGroupKey; label: string },
+  b: { key: RosterShiftGroupKey; label: string }
+) => a.key === b.key && (a.key !== 'other' || a.label === b.label);
+
+const workerCountLabel = (n: number) => `${n} trabajador${n === 1 ? '' : 'es'}`;
+
+const countRosterShiftsForDate = (workers: Resource[], dateStr: string) => {
+  const counts = { programmed: 0, day: 0, afternoon: 0, night: 0, off: 0, vacation: 0 };
+  for (const worker of workers) {
+    const type = worker.workSchedule?.find((s) => s.date === dateStr)?.type || 'OFF';
+    if (type === 'Day') {
+      counts.day += 1;
+      counts.programmed += 1;
+    } else if (type === 'Afternoon') {
+      counts.afternoon += 1;
+      counts.programmed += 1;
+    } else if (type === 'Night') {
+      counts.night += 1;
+      counts.programmed += 1;
+    } else if (type === 'Vacation') {
+      counts.vacation += 1;
+    } else {
+      counts.off += 1;
+    }
+  }
+  return counts;
+};
+
 type RosterWeekCount = 1 | 2 | 4;
 
 type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'jornada' | 'compliance' | 'salary' | 'zones' | 'localidad' | 'phone';
@@ -514,6 +568,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [rosterHasUnsavedChanges, setRosterHasUnsavedChanges] = useState(false);
   const [isSavingRoster, setIsSavingRoster] = useState(false);
   const [isExportingRoster, setIsExportingRoster] = useState(false);
+  const [rosterGroupByShift, setRosterGroupByShift] = useState(false);
   const [isSavingUnit, setIsSavingUnit] = useState(false);
   const [dirtyRosterShifts, setDirtyRosterShifts] = useState<Set<string>>(new Set());
   const rosterExportRef = useRef<HTMLDivElement>(null);
@@ -4242,6 +4297,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     });
   }, [resourcesForRoster, showArchivedPersonnel, showCesadoPersonnel]);
 
+  const rosterPersonnel = useMemo(() => {
+    if (!rosterGroupByShift) return personnel;
+    return [...personnel].sort((a, b) => {
+      const groupA = getRosterShiftGroup(a.assignedShift);
+      const groupB = getRosterShiftGroup(b.assignedShift);
+      if (groupA.order !== groupB.order) return groupA.order - groupB.order;
+      if (groupA.key === 'other') {
+        const labelCmp = groupA.label.localeCompare(groupB.label, 'es-PE', { sensitivity: 'base' });
+        if (labelCmp !== 0) return labelCmp;
+      }
+      return (a.name || '').localeCompare(b.name || '', 'es-PE', { sensitivity: 'base' });
+    });
+  }, [personnel, rosterGroupByShift]);
+
   const rosterDayTotals = useMemo(() => {
     return rosterDates.map((date) => {
       const dateStr = toLocalDateStr(date);
@@ -7221,6 +7290,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             </button>
                         ))}
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => setRosterGroupByShift((current) => !current)}
+                        className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm ml-1 ${
+                            rosterGroupByShift
+                                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                        }`}
+                        title="Agrupa a los colaboradores por turno (Diurno, Tarde, Nocturno). No cambia el orden de la vista Lista."
+                    >
+                        <Layers size={14} className="mr-1.5"/>
+                        {rosterGroupByShift ? 'Agrupado por turno' : 'Agrupar por turno'}
+                    </button>
                 </div>
                 
                 <div className="flex flex-wrap items-center gap-2">
@@ -7345,15 +7427,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                          </tr>
                      </thead>
                      <tbody className="bg-white divide-y divide-slate-100">
-                         {personnel.length === 0 && (
+                         {rosterPersonnel.length === 0 && (
                              <tr>
                                  <td colSpan={1 + rosterWeekCount * 8} className="px-4 py-8 text-center text-sm text-slate-400 italic">
                                      No hay colaboradores activos para programar turnos.
                                  </td>
                              </tr>
                          )}
-                         {personnel.map(worker => (
-                                 <tr key={worker.id} className="hover:bg-slate-50/50 group">
+                         {rosterPersonnel.map((worker, index) => {
+                             const shiftGroup = getRosterShiftGroup(worker.assignedShift);
+                             const prevGroup = index > 0 ? getRosterShiftGroup(rosterPersonnel[index - 1].assignedShift) : null;
+                             const nextGroup = index < rosterPersonnel.length - 1 ? getRosterShiftGroup(rosterPersonnel[index + 1].assignedShift) : null;
+                             const showGroupHeader = rosterGroupByShift && (!prevGroup || !rosterShiftGroupsMatch(prevGroup, shiftGroup));
+                             const showGroupSubtotal = rosterGroupByShift && (!nextGroup || !rosterShiftGroupsMatch(nextGroup, shiftGroup));
+                             let groupWorkers: Resource[] = [];
+                             if (showGroupHeader || showGroupSubtotal) {
+                                 let start = index;
+                                 while (start > 0 && rosterShiftGroupsMatch(getRosterShiftGroup(rosterPersonnel[start - 1].assignedShift), shiftGroup)) {
+                                     start -= 1;
+                                 }
+                                 let end = index;
+                                 while (end < rosterPersonnel.length - 1 && rosterShiftGroupsMatch(getRosterShiftGroup(rosterPersonnel[end + 1].assignedShift), shiftGroup)) {
+                                     end += 1;
+                                 }
+                                 groupWorkers = rosterPersonnel.slice(start, end + 1);
+                             }
+                             const groupCount = groupWorkers.length;
+                             return (
+                             <React.Fragment key={worker.id}>
+                                 {showGroupHeader && (
+                                     <tr>
+                                         <td className={`roster-name-col sticky left-0 z-10 px-3 py-1.5 border-r border-slate-200 w-[260px] min-w-[260px] max-w-[260px] ${rosterShiftGroupRowClass[shiftGroup.key]}`}>
+                                             <p className="text-[10px] font-bold uppercase tracking-wider leading-tight">{shiftGroup.label}</p>
+                                             <p className="text-[10px] font-semibold leading-tight mt-0.5">{workerCountLabel(groupCount)}</p>
+                                         </td>
+                                         <td colSpan={rosterWeekCount * 8} className={`py-1.5 ${rosterShiftGroupRowClass[shiftGroup.key]}`} />
+                                     </tr>
+                                 )}
+                                 <tr className="hover:bg-slate-50/50 group">
                                      <td className="roster-name-col px-3 py-2 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 w-[260px] min-w-[260px] max-w-[260px] overflow-hidden align-middle whitespace-normal">
                                          <div className="flex items-start gap-2 min-w-0 max-w-full overflow-hidden">
                                             {worker.image ? (
@@ -7422,7 +7533,50 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                          );
                                      })}
                                  </tr>
-                         ))}
+                                 {showGroupSubtotal && (
+                                     <tr>
+                                         <td className={`roster-name-col sticky left-0 z-10 px-3 py-2 border-t border-slate-200 border-r border-slate-200 w-[260px] min-w-[260px] max-w-[260px] ${rosterShiftGroupRowClass[shiftGroup.key]}`}>
+                                             <p className="text-[10px] font-bold uppercase tracking-wider leading-tight">Subtotal {shiftGroup.label}</p>
+                                             <p className="text-sm font-bold leading-tight mt-0.5">{workerCountLabel(groupCount)}</p>
+                                         </td>
+                                         {rosterWeeks.map((weekDates, weekIdx) => {
+                                             const weekHours = groupWorkers.reduce((acc, groupWorker) => (
+                                                 acc + weekDates.reduce((weekAcc, date) => {
+                                                     const dateStr = toLocalDateStr(date);
+                                                     const shift = groupWorker.workSchedule?.find((s) => s.date === dateStr);
+                                                     return weekAcc + (shift?.hours || 0);
+                                                 }, 0)
+                                             ), 0);
+                                             return (
+                                                 <React.Fragment key={`${shiftGroup.key}-sub-${weekIdx}`}>
+                                                     {weekDates.map((date) => {
+                                                         const dateStr = toLocalDateStr(date);
+                                                         const totals = countRosterShiftsForDate(groupWorkers, dateStr);
+                                                         return (
+                                                             <td key={`${shiftGroup.key}-sub-${dateStr}`} className={`px-1.5 py-2 text-center border-t border-slate-200 ${rosterShiftGroupRowClass[shiftGroup.key]}`}>
+                                                                 <div className="text-sm font-bold">{totals.programmed}</div>
+                                                                 <div className="text-[9px] leading-tight mt-0.5 opacity-80">
+                                                                     <span className="text-blue-600 font-semibold">{totals.day}D</span>
+                                                                     {' '}
+                                                                     <span className="text-amber-600 font-semibold">{totals.afternoon}T</span>
+                                                                     {' '}
+                                                                     <span className="text-indigo-600 font-semibold">{totals.night}N</span>
+                                                                 </div>
+                                                             </td>
+                                                         );
+                                                     })}
+                                                     <td className={`px-2 py-2 text-center whitespace-nowrap border-t border-slate-200 border-r-2 border-slate-300 ${rosterShiftGroupRowClass[shiftGroup.key]}`}>
+                                                         <span className="text-sm font-bold">{weekHours}</span>
+                                                         <span className="text-xs opacity-70 ml-0.5">h</span>
+                                                     </td>
+                                                 </React.Fragment>
+                                             );
+                                         })}
+                                     </tr>
+                                 )}
+                             </React.Fragment>
+                             );
+                         })}
                      </tbody>
                      <tfoot className="bg-slate-50 border-t-2 border-slate-300">
                          <tr>
