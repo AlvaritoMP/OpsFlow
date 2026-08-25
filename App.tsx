@@ -1173,16 +1173,30 @@ const App: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (confirm('¿Eliminar usuario?')) {
-      try {
-        setUserOperationLoading({ type: 'delete', userId });
-        await deleteUser(userId);
-      } catch (error) {
-        console.error('Error al eliminar usuario:', error);
-        alert('Error al eliminar el usuario. Por favor, intente nuevamente.');
-      } finally {
-        setUserOperationLoading({ type: null });
+    const target = users.find(u => u.id === userId);
+    if (currentUser?.id === userId) {
+      alert('No puedes eliminar tu propio usuario mientras tienes la sesión activa.');
+      return;
+    }
+    if (target?.role === 'SUPER_ADMIN' && !users.some(u => u.role === 'SUPER_ADMIN' && u.id !== userId)) {
+      if (!confirm('Este es el último Super Administrador. Si lo eliminas, no quedará ningún usuario con ese rol. ¿Continuar?')) {
+        return;
       }
+    }
+
+    const userName = target?.name || 'este usuario';
+    if (!confirm(`¿Eliminar a ${userName}?\n\nSe quitará su acceso a OpsFlow. Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      setUserOperationLoading({ type: 'delete', userId });
+      await deleteUser(userId);
+    } catch (error: any) {
+      console.error('Error al eliminar usuario:', error);
+      alert(error?.message || 'Error al eliminar el usuario. Por favor, intente nuevamente.');
+    } finally {
+      setUserOperationLoading({ type: null });
     }
   };
 
@@ -2470,13 +2484,18 @@ const App: React.FC = () => {
                                      <Eye size={16}/>
                                    </button>
                                  )}
-                                 <button 
-                                   onClick={() => handleDeleteUser(u.id)} 
-                                   disabled={isProcessing}
-                                   className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" 
-                                   title="Eliminar usuario">
-                                   <Trash2 size={16}/>
-                                 </button>
+                                 {(() => {
+                                   const isSelf = currentUser?.id === u.id;
+                                   return (
+                                     <button 
+                                       onClick={() => handleDeleteUser(u.id)} 
+                                       disabled={isProcessing || isSelf}
+                                       className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                       title={isSelf ? 'No puedes eliminar tu propio usuario' : 'Eliminar usuario'}>
+                                       <Trash2 size={16}/>
+                                     </button>
+                                   );
+                                 })()}
                               </td>
                             )}
                          </tr>
