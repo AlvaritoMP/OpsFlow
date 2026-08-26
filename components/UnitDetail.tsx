@@ -28,6 +28,7 @@ import {
 import { isUnitOperational } from '../utils/unitStatus';
 import { formatDateDisplay } from '../utils/dateFormat';
 import { DateInput } from './DateInput';
+import { pauseUnitsBackgroundRefresh, resumeUnitsBackgroundRefresh } from '../hooks/unitsRefreshLock';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -572,6 +573,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [isSavingUnit, setIsSavingUnit] = useState(false);
   const [dirtyRosterShifts, setDirtyRosterShifts] = useState<Set<string>>(new Set());
   const rosterExportRef = useRef<HTMLDivElement>(null);
+  const localResourcesRef = useRef(localResources);
+  const dirtyRosterShiftsRef = useRef(dirtyRosterShifts);
+  const rosterHasUnsavedChangesRef = useRef(rosterHasUnsavedChanges);
+  const isSavingRosterRef = useRef(isSavingRoster);
+  const unitRef = useRef(unit);
+  localResourcesRef.current = localResources;
+  dirtyRosterShiftsRef.current = dirtyRosterShifts;
+  rosterHasUnsavedChangesRef.current = rosterHasUnsavedChanges;
+  isSavingRosterRef.current = isSavingRoster;
+  unitRef.current = unit;
 
   const rosterDates = useMemo(() => {
     const dates: Date[] = [];
@@ -593,12 +604,84 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     return weeks;
   }, [rosterDates, rosterWeekCount]);
   
-  // Sincronizar localResources cuando unit.resources cambia desde el padre
+  // Sincronizar localResources cuando unit.resources cambia desde el padre,
+  // pero nunca pisar una planificación que el usuario aún no guardó.
   useEffect(() => {
+    if (
+      isSavingRosterRef.current ||
+      rosterHasUnsavedChangesRef.current ||
+      dirtyRosterShiftsRef.current.size > 0
+    ) {
+      return;
+    }
     setLocalResources(unit.resources);
-    setRosterHasUnsavedChanges(false); // Resetear cuando se carga nueva data
-    setDirtyRosterShifts(new Set());
   }, [unit.resources]);
+
+  useEffect(() => {
+    if (!rosterHasUnsavedChanges && !isSavingRoster) return;
+    pauseUnitsBackgroundRefresh();
+    return () => resumeUnitsBackgroundRefresh();
+  }, [rosterHasUnsavedChanges, isSavingRoster]);
+
+  useEffect(() => {
+    if (!rosterHasUnsavedChanges) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [rosterHasUnsavedChanges]);
+
+  // Al entrar a la unidad (o al abrir el roster), recargar turnos desde BD.
+  // Evita mostrar un roster en memoria desactualizado al salir y volver.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadShiftsFromDb = async () => {
+      if (
+        isSavingRosterRef.current ||
+        rosterHasUnsavedChangesRef.current ||
+        dirtyRosterShiftsRef.current.size > 0
+      ) {
+        return;
+      }
+
+      const currentUnit = unitRef.current;
+      const ids = (localResourcesRef.current.length > 0 ? localResourcesRef.current : currentUnit.resources)
+        .filter((r) => r.type === ResourceType.PERSONNEL)
+        .map((r) => r.id);
+      if (ids.length === 0) return;
+
+      try {
+        const { resourcesService } = await import('../services/resourcesService');
+        const shiftsById = await resourcesService.getDailyShiftsByResourceIds(ids);
+        if (cancelled) return;
+        if (
+          isSavingRosterRef.current ||
+          rosterHasUnsavedChangesRef.current ||
+          dirtyRosterShiftsRef.current.size > 0
+        ) {
+          return;
+        }
+
+        const base = localResourcesRef.current.length > 0 ? localResourcesRef.current : currentUnit.resources;
+        const next = base.map((r) => {
+          if (r.type !== ResourceType.PERSONNEL) return r;
+          return { ...r, workSchedule: shiftsById.get(r.id) || [] };
+        });
+        setLocalResources(next);
+        replaceUnitInState?.({ ...currentUnit, resources: next });
+      } catch (error) {
+        console.warn('No se pudieron recargar los turnos del roster:', error);
+      }
+    };
+
+    void loadShiftsFromDb();
+    return () => {
+      cancelled = true;
+    };
+  }, [unit.id, personnelViewMode]);
 
   // Mass Training State
   const [showMassTrainingModal, setShowMassTrainingModal] = useState(false);
@@ -3132,17 +3215,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // Función para guardar toda la planificación de rostering
   const handleSaveRoster = async () => {
-     if (!onUpdate || isSavingRoster) return;
-     
+     if (isSavingRoster) return;
+
      setIsSavingRoster(true);
      try {
          const { resourcesService } = await import('../services/resourcesService');
-         
+         const resourcesSnapshot = localResourcesRef.current;
+         const dirtyKeys = dirtyRosterShiftsRef.current;
+
          const changedShiftsByResource = new Map<string, { resource: Resource; shifts: DailyShift[] }>();
 
-         dirtyRosterShifts.forEach(key => {
-             const [resourceId, date] = key.split('|');
-             const resource = localResources.find(r => r.id === resourceId);
+         dirtyKeys.forEach(key => {
+             const separator = key.indexOf('|');
+             if (separator < 0) return;
+             const resourceId = key.slice(0, separator);
+             const date = key.slice(separator + 1);
+             const resource = resourcesSnapshot.find(r => r.id === resourceId);
              const shift = resource?.workSchedule?.find(s => s.date === date);
 
              if (!resource || !shift) return;
@@ -3155,36 +3243,49 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          if (changedShiftsByResource.size === 0) {
              setRosterHasUnsavedChanges(false);
              setDirtyRosterShifts(new Set());
+             rosterHasUnsavedChangesRef.current = false;
+             dirtyRosterShiftsRef.current = new Set();
              setIsSavingRoster(false);
              return;
          }
 
-         for (const { resource, shifts } of changedShiftsByResource.values()) {
-             try {
-                 await resourcesService.upsertDailyShiftsForResource(resource.id, shifts);
-             } catch (error) {
-                 console.error(`❌ Error al guardar turnos para ${resource.name}:`, error);
-                 throw error;
-             }
+         await resourcesService.upsertDailyShiftsBatch(
+             Array.from(changedShiftsByResource.values()).map(({ resource, shifts }) => ({
+                 resourceId: resource.id,
+                 shifts,
+             }))
+         );
+
+         const changedIds = Array.from(changedShiftsByResource.keys());
+         let nextResources = resourcesSnapshot;
+         try {
+             const shiftsById = await resourcesService.getDailyShiftsByResourceIds(changedIds);
+             nextResources = resourcesSnapshot.map((r) => {
+                 const fromDb = shiftsById.get(r.id);
+                 if (!fromDb) return r;
+                 return { ...r, workSchedule: fromDb };
+             });
+         } catch (reloadError) {
+             console.warn('Turnos guardados, pero no se pudieron recargar para confirmar:', reloadError);
          }
-         
-         // Actualizar la unidad en el estado padre para sincronizar
-         const updatedResources = localResources.map(r => {
-             if (r.type === ResourceType.PERSONNEL) {
-                 return r; // Ya tiene workSchedule actualizado
-             }
-             return r;
-         });
-         
-     onUpdate({ ...unit, resources: updatedResources });
-         
+
+         setLocalResources(nextResources);
+         localResourcesRef.current = nextResources;
+         replaceUnitInState?.({ ...unitRef.current, resources: nextResources });
+
          setRosterHasUnsavedChanges(false);
          setDirtyRosterShifts(new Set());
+         rosterHasUnsavedChangesRef.current = false;
+         dirtyRosterShiftsRef.current = new Set();
          setNotification({ type: 'success', message: 'Planificación guardada correctamente' });
          setTimeout(() => setNotification(null), 3000);
-     } catch (error) {
+     } catch (error: any) {
          console.error('❌ Error al guardar planificación:', error);
-         setNotification({ type: 'error', message: 'Error al guardar la planificación. Por favor, intente nuevamente.' });
+         const detail = error?.message ? ` ${error.message}` : '';
+         setNotification({
+             type: 'error',
+             message: `Error al guardar la planificación.${detail} Por favor, intente nuevamente.`,
+         });
          setTimeout(() => setNotification(null), 5000);
      } finally {
          setIsSavingRoster(false);

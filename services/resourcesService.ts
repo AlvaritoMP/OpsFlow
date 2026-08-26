@@ -622,14 +622,17 @@ export const resourcesService = {
 
   async getDailyShifts(resourceId: string): Promise<DailyShift[]> {
     try {
-      const { data, error } = await supabase
-        .from('daily_shifts')
-        .select('*')
-        .eq('resource_id', resourceId)
-        .order('date', { ascending: true });
-      
-      if (error) throw error;
-      return mapShiftsFromDB(data || []);
+      const data = await fetchAllPaged(async (from, to) => {
+        const { data: page, error } = await supabase
+          .from('daily_shifts')
+          .select('*')
+          .eq('resource_id', resourceId)
+          .order('date', { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        return page || [];
+      });
+      return mapShiftsFromDB(data);
     } catch (error: any) {
       if (error?.name === 'NetworkError' || error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_FAILED')) {
         console.warn(`⚠️ Error de red al obtener turnos para ${resourceId}`);
@@ -640,11 +643,35 @@ export const resourcesService = {
     }
   },
 
+  async getDailyShiftsByResourceIds(resourceIds: string[]): Promise<Map<string, DailyShift[]>> {
+    const shiftsById = new Map<string, DailyShift[]>();
+    if (resourceIds.length === 0) return shiftsById;
+
+    const shiftRows = await fetchInChunks(resourceIds, 80, async (ids) =>
+      fetchAllPaged(async (from, to) => {
+        const { data, error } = await supabase
+          .from('daily_shifts')
+          .select('*')
+          .in('resource_id', ids)
+          .order('resource_id', { ascending: true })
+          .order('date', { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        return data || [];
+      })
+    );
+
+    for (const [id, rows] of groupByResourceId(shiftRows as Array<{ resource_id?: string }>)) {
+      shiftsById.set(id, mapShiftsFromDB(rows));
+    }
+    return shiftsById;
+  },
+
   async createDailyShifts(resourceId: string, shifts: DailyShift[]): Promise<void> {
     const { error } = await supabase.from('daily_shifts').insert(
       shifts.map(s => ({
         resource_id: resourceId,
-        date: s.date,
+        date: normalizeShiftDate(s.date),
         type: s.type,
         hours: s.hours,
       }))
@@ -654,63 +681,52 @@ export const resourcesService = {
   },
 
   async upsertDailyShiftsForResource(resourceId: string, shifts: DailyShift[]): Promise<void> {
-    if (shifts.length === 0) return;
-
-    const uniqueShifts = [...new Map(shifts.map(shift => [shift.date, shift])).values()];
-    const dates = uniqueShifts.map(shift => shift.date);
-
-    const { error: deleteError } = await supabase
-      .from('daily_shifts')
-      .delete()
-      .eq('resource_id', resourceId)
-      .in('date', dates);
-
-    if (deleteError) {
-      console.error('❌ Error al eliminar turnos existentes:', deleteError);
-      throw deleteError;
-    }
-
-    const { error: insertError } = await supabase.from('daily_shifts').insert(
-      uniqueShifts.map(shift => ({
-        resource_id: resourceId,
-        date: shift.date,
-        type: shift.type,
-        hours: shift.hours,
-      }))
-    );
-
-    if (insertError) {
-      console.error('❌ Error al insertar turnos:', insertError);
-      throw insertError;
-    }
+    await this.upsertDailyShiftsBatch([{ resourceId, shifts }]);
   },
 
-  // Actualizar un solo turno (comportamiento tipo upsert sin depender de índices únicos)
+  async upsertDailyShiftsBatch(
+    entries: Array<{ resourceId: string; shifts: DailyShift[] }>
+  ): Promise<void> {
+    const rows = entries.flatMap(({ resourceId, shifts }) => flattenShiftsForWrite(resourceId, shifts));
+    if (rows.length === 0) return;
+
+    if (dailyShiftWriteMode === 'rpc') {
+      const { error: rpcError } = await (supabase as any).rpc('upsert_daily_shifts', { p_shifts: rows });
+      if (!rpcError) return;
+      if (!isMissingRpc(rpcError)) {
+        console.error('❌ Error al guardar turnos (RPC):', rpcError);
+        throw rpcError;
+      }
+      dailyShiftWriteMode = 'upsert';
+    }
+
+    if (dailyShiftWriteMode === 'upsert') {
+      try {
+        const upserted = await upsertDailyShiftRows(rows);
+        if (upserted) return;
+        dailyShiftWriteMode = 'replace';
+      } catch (error) {
+        console.error('❌ Error al guardar turnos (upsert):', error);
+        throw error;
+      }
+    }
+
+    await mapWithConcurrency(
+      entries.filter((entry) => entry.shifts.length > 0),
+      SHIFT_WRITE_CONCURRENCY,
+      async ({ resourceId, shifts }) => {
+        try {
+          await replaceDailyShiftsForResource(resourceId, shifts);
+        } catch (error) {
+          console.error(`❌ Error al guardar turnos para recurso ${resourceId}:`, error);
+          throw error;
+        }
+      }
+    );
+  },
+
   async upsertDailyShift(resourceId: string, shift: DailyShift): Promise<void> {
-    // 1) Eliminar cualquier turno existente para ese recurso y fecha
-    const { error: deleteError } = await supabase
-      .from('daily_shifts')
-      .delete()
-      .eq('resource_id', resourceId)
-      .eq('date', shift.date);
-
-    if (deleteError) {
-      console.error('❌ Error al eliminar turno existente:', deleteError);
-      throw deleteError;
-    }
-
-    // 2) Insertar el nuevo turno
-    const { error: insertError } = await supabase.from('daily_shifts').insert({
-      resource_id: resourceId,
-      date: shift.date,
-      type: shift.type,
-      hours: shift.hours,
-    });
-
-    if (insertError) {
-      console.error('❌ Error al insertar turno:', insertError);
-      throw insertError;
-    }
+    await this.upsertDailyShiftsBatch([{ resourceId, shifts: [shift] }]);
   },
 
   async getMaintenanceRecords(resourceId: string): Promise<MaintenanceRecord[]> {
@@ -986,9 +1002,14 @@ function mapAssetsFromDB(rows: any[]): AssignedAsset[] {
   }));
 }
 
+function normalizeShiftDate(value: any): string {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+
 function mapShiftsFromDB(rows: any[]): DailyShift[] {
   return rows.map(s => ({
-    date: s.date,
+    date: normalizeShiftDate(s.date),
     type: s.type as any,
     hours: Number(s.hours),
   }));
@@ -1038,6 +1059,93 @@ async function fetchInChunks<T>(
     results.push(...rows);
   }
   return results;
+}
+
+const POSTGREST_PAGE_SIZE = 1000;
+const SHIFT_UPSERT_BATCH = 500;
+const SHIFT_WRITE_CONCURRENCY = 6;
+
+async function fetchAllPaged<T>(
+  fetcher: (from: number, to: number) => Promise<T[]>
+): Promise<T[]> {
+  const results: T[] = [];
+  let from = 0;
+  while (true) {
+    const page = await fetcher(from, from + POSTGREST_PAGE_SIZE - 1);
+    results.push(...page);
+    if (page.length < POSTGREST_PAGE_SIZE) break;
+    from += POSTGREST_PAGE_SIZE;
+  }
+  return results;
+}
+
+type DailyShiftRow = {
+  resource_id: string;
+  date: string;
+  type: string;
+  hours: number;
+};
+
+function flattenShiftsForWrite(resourceId: string, shifts: DailyShift[]): DailyShiftRow[] {
+  const uniqueShifts = [...new Map(shifts.map((shift) => [shift.date, shift])).values()];
+  return uniqueShifts.map((shift) => ({
+    resource_id: resourceId,
+    date: normalizeShiftDate(shift.date),
+    type: shift.type,
+    hours: Number(shift.hours || 0),
+  }));
+}
+
+function isMissingRpc(error: any): boolean {
+  const msg = `${error?.message || ''}`.toLowerCase();
+  return error?.code === 'PGRST202' || msg.includes('could not find the function') || msg.includes('schema cache');
+}
+
+function isMissingOnConflictConstraint(error: any): boolean {
+  const msg = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase();
+  return (
+    error?.code === '42P10' ||
+    msg.includes('on conflict') ||
+    msg.includes('no unique or exclusion constraint')
+  );
+}
+
+let dailyShiftWriteMode: 'rpc' | 'upsert' | 'replace' = 'rpc';
+
+async function insertDailyShiftRows(rows: DailyShiftRow[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += SHIFT_UPSERT_BATCH) {
+    const chunk = rows.slice(i, i + SHIFT_UPSERT_BATCH);
+    const { error } = await supabase.from('daily_shifts').insert(chunk);
+    if (error) throw error;
+  }
+}
+
+async function upsertDailyShiftRows(rows: DailyShiftRow[]): Promise<boolean> {
+  for (let i = 0; i < rows.length; i += SHIFT_UPSERT_BATCH) {
+    const chunk = rows.slice(i, i + SHIFT_UPSERT_BATCH);
+    const { error } = await supabase.from('daily_shifts').upsert(chunk, {
+      onConflict: 'resource_id,date',
+    });
+    if (error) {
+      if (isMissingOnConflictConstraint(error)) return false;
+      throw error;
+    }
+  }
+  return true;
+}
+
+async function replaceDailyShiftsForResource(resourceId: string, shifts: DailyShift[]): Promise<void> {
+  const rows = flattenShiftsForWrite(resourceId, shifts);
+  if (rows.length === 0) return;
+
+  const { error: deleteError } = await supabase
+    .from('daily_shifts')
+    .delete()
+    .eq('resource_id', resourceId)
+    .in('date', rows.map((row) => row.date));
+
+  if (deleteError) throw deleteError;
+  await insertDailyShiftRows(rows);
 }
 
 type RelatedDataMaps = {
@@ -1104,15 +1212,19 @@ async function loadRelatedDataBatched(
       })
     ),
     safeFetch('turnos', () =>
-      fetchInChunks(resourceIds, CHUNK, async (ids) => {
-        const { data, error } = await supabase
-          .from('daily_shifts')
-          .select('*')
-          .in('resource_id', ids)
-          .order('date', { ascending: true });
-        if (error) throw error;
-        return data || [];
-      })
+      fetchInChunks(resourceIds, CHUNK, async (ids) =>
+        fetchAllPaged(async (from, to) => {
+          const { data, error } = await supabase
+            .from('daily_shifts')
+            .select('*')
+            .in('resource_id', ids)
+            .order('resource_id', { ascending: true })
+            .order('date', { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        })
+      )
     ),
     safeFetch('mantenimiento', () =>
       fetchInChunks(resourceIds, CHUNK, async (ids) => {

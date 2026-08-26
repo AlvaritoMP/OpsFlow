@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { unitsService } from '../services/unitsService';
 import { Unit, User } from '../types';
+import { isUnitsBackgroundRefreshPaused } from './unitsRefreshLock';
 
 export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) => {
   const [units, setUnits] = useState<Unit[]>([]);
@@ -9,6 +10,9 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
 
   const loadUnits = async (options?: { silent?: boolean }) => {
     const silent = options?.silent === true;
+    if (silent && isUnitsBackgroundRefreshPaused()) {
+      return;
+    }
     try {
       if (!silent) {
         setLoading(true);
@@ -138,6 +142,10 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
       if (process.env.NODE_ENV === 'development') {
         console.log(`✅ useUnits: ${data.length} unidades cargadas`);
       }
+      // Un refresh iniciado antes de pausar no debe pisar ediciones en curso.
+      if (silent && isUnitsBackgroundRefreshPaused()) {
+        return;
+      }
       setUnits(data);
     } catch (err: any) {
       console.error('❌ useUnits: Error al cargar unidades:', err);
@@ -175,10 +183,10 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
-      if (pendingUpdatesRef.current > 0) return;
+      if (pendingUpdatesRef.current > 0 || isUnitsBackgroundRefreshPaused()) return;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
-        if (pendingUpdatesRef.current > 0) return;
+        if (pendingUpdatesRef.current > 0 || isUnitsBackgroundRefreshPaused()) return;
         void loadUnitsRef.current({ silent: true });
       }, 500);
     };
