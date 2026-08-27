@@ -29,6 +29,16 @@ import { isUnitOperational } from '../utils/unitStatus';
 import { formatDateDisplay } from '../utils/dateFormat';
 import { DateInput } from './DateInput';
 import { pauseUnitsBackgroundRefresh, resumeUnitsBackgroundRefresh } from '../hooks/unitsRefreshLock';
+import { RosterHourCoverageGrid } from './RosterHourCoverageGrid';
+import {
+  addHoursToTime,
+  buildShiftForType,
+  durationHours,
+  formatShiftTimeRange,
+  isRosterWorkShift,
+  normalizeShiftTime,
+  resolveShiftWindow,
+} from '../utils/rosterHours';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -572,6 +582,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [rosterGroupByShift, setRosterGroupByShift] = useState(false);
   const [isSavingUnit, setIsSavingUnit] = useState(false);
   const [dirtyRosterShifts, setDirtyRosterShifts] = useState<Set<string>>(new Set());
+  const [rosterSelectedDate, setRosterSelectedDate] = useState(() => toLocalDateStr(new Date()));
+  const [rosterTimeEditor, setRosterTimeEditor] = useState<{
+    resourceId: string;
+    workerName: string;
+    date: string;
+    type: ShiftType;
+    startTime: string;
+    endTime: string;
+  } | null>(null);
   const rosterExportRef = useRef<HTMLDivElement>(null);
   const localResourcesRef = useRef(localResources);
   const dirtyRosterShiftsRef = useRef(dirtyRosterShifts);
@@ -603,6 +622,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
     return weeks;
   }, [rosterDates, rosterWeekCount]);
+
+  useEffect(() => {
+    if (rosterDates.length === 0) return;
+    const inRange = rosterDates.some((date) => toLocalDateStr(date) === rosterSelectedDate);
+    if (!inRange) setRosterSelectedDate(toLocalDateStr(rosterDates[0]));
+  }, [rosterDates, rosterSelectedDate]);
   
   // Sincronizar localResources cuando unit.resources cambia desde el padre,
   // pero nunca pisar una planificación que el usuario aún no guardó.
@@ -3158,59 +3183,111 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
-     // No permitir cambios si el usuario no tiene permiso de edición
      if (!canEditPersonnel) return;
-     
-     // Cycle: Day -> Afternoon -> Night -> OFF -> Day
-     // Leer el tipo actual desde el estado local para asegurar que tenemos el valor más reciente
-     let actualCurrentType: ShiftType = currentType;
-     let nextType: ShiftType = 'Day';
-     let hours = 8;
-     
+
+     setRosterSelectedDate(date);
+
      setLocalResources(prevResources => {
          const resource = prevResources.find(r => r.id === resourceId);
-         actualCurrentType = (resource?.workSchedule?.find(s => s.date === date)?.type as ShiftType) || currentType;
-         
-         if (actualCurrentType === 'Day') { 
-           nextType = 'Afternoon'; 
-           hours = 8; 
-         } else if (actualCurrentType === 'Afternoon') { 
-           nextType = 'Night'; 
-           hours = 8; 
-         } else if (actualCurrentType === 'Night') { 
-           nextType = 'OFF'; 
-           hours = 0; 
-         } else if (actualCurrentType === 'OFF') { 
-           nextType = 'Day'; 
-           hours = 8; 
-         } else { 
-           nextType = 'Day'; 
-           hours = 8; 
-         }
+         const actualCurrentType: ShiftType = (resource?.workSchedule?.find(s => s.date === date)?.type as ShiftType) || currentType;
 
-         // ACTUALIZACIÓN INSTANTÁNEA: Actualizar solo el estado local (SIN guardar en BD todavía)
+         let nextType: ShiftType = 'Day';
+         if (actualCurrentType === 'Day') nextType = 'Afternoon';
+         else if (actualCurrentType === 'Afternoon') nextType = 'Night';
+         else if (actualCurrentType === 'Night') nextType = 'OFF';
+         else if (actualCurrentType === 'OFF') nextType = 'Day';
+         else nextType = 'Day';
+
+         const nextShift = buildShiftForType(date, nextType, resource);
+
          return prevResources.map(r => {
          if (r.id === resourceId) {
              const schedule = r.workSchedule ? [...r.workSchedule] : [];
              const existingIdx = schedule.findIndex(s => s.date === date);
              if (existingIdx >= 0) {
-                 schedule[existingIdx] = { date, type: nextType, hours };
+                 schedule[existingIdx] = nextShift;
              } else {
-                 schedule.push({ date, type: nextType, hours });
+                 schedule.push(nextShift);
              }
              return { ...r, workSchedule: schedule };
          }
          return r;
      });
      });
-     
-     // Marcar que hay cambios sin guardar (NO guardar automáticamente)
+
      setDirtyRosterShifts(prev => {
        const next = new Set(prev);
        next.add(`${resourceId}|${date}`);
        return next;
      });
      setRosterHasUnsavedChanges(true);
+  };
+
+  const openRosterTimeEditor = (worker: Resource, date: string, type: ShiftType) => {
+    if (!canEditPersonnel || !isRosterWorkShift(type)) return;
+    setRosterSelectedDate(date);
+    const shift = worker.workSchedule?.find((s) => s.date === date);
+    const window = resolveShiftWindow(shift || { date, type, hours: 8 }, worker);
+    setRosterTimeEditor({
+      resourceId: worker.id,
+      workerName: worker.name,
+      date,
+      type,
+      startTime: window?.startTime || '06:00',
+      endTime: window?.endTime || '14:00',
+    });
+  };
+
+  const applyRosterTimePreset = (hours: 8 | 12) => {
+    setRosterTimeEditor((current) => {
+      if (!current) return current;
+      const startTime = current.startTime || '06:00';
+      return { ...current, endTime: addHoursToTime(startTime, hours) };
+    });
+  };
+
+  const handleSaveRosterTimes = () => {
+    if (!rosterTimeEditor) return;
+    const startTime = normalizeShiftTime(rosterTimeEditor.startTime);
+    const endTime = normalizeShiftTime(rosterTimeEditor.endTime);
+    if (!startTime || !endTime) {
+      setNotification({ type: 'error', message: 'Ingresa una hora de entrada y salida válidas.' });
+      setTimeout(() => setNotification(null), 4000);
+      return;
+    }
+    const hours = durationHours(startTime, endTime) || 8;
+    const { resourceId, date, type } = rosterTimeEditor;
+
+    setLocalResources((prev) =>
+      prev.map((r) => {
+        if (r.id !== resourceId) return r;
+        const schedule = r.workSchedule ? [...r.workSchedule] : [];
+        const existingIdx = schedule.findIndex((s) => s.date === date);
+        const nextShift: DailyShift = { date, type, hours, startTime, endTime };
+        if (existingIdx >= 0) schedule[existingIdx] = nextShift;
+        else schedule.push(nextShift);
+        return { ...r, workSchedule: schedule };
+      })
+    );
+    setDirtyRosterShifts((prev) => {
+      const next = new Set(prev);
+      next.add(`${resourceId}|${date}`);
+      return next;
+    });
+    setRosterHasUnsavedChanges(true);
+    setRosterTimeEditor(null);
+  };
+
+  const shiftCoverageDay = (offset: number) => {
+    const [y, m, d] = rosterSelectedDate.split('-').map(Number);
+    const next = new Date(y, m - 1, d + offset);
+    setRosterSelectedDate(toLocalDateStr(next));
+    const monday = getMonday(next);
+    const visibleMonday = toLocalDateStr(rosterStartDate);
+    const nextMonday = toLocalDateStr(monday);
+    if (nextMonday !== visibleMonday) {
+      setRosterStartDate(monday);
+    }
   };
 
   // Función para guardar toda la planificación de rostering
@@ -3318,7 +3395,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   schedule.push({
                       date: targetDateStr,
                       type: shift.type,
-                      hours: shift.hours
+                      hours: shift.hours,
+                      startTime: shift.startTime,
+                      endTime: shift.endTime,
                   });
                   newDirtyKeys.add(`${r.id}|${targetDateStr}`);
               }
@@ -7363,6 +7442,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       </div>
       ) : (
           // --- ROSTER VIEW (GRID) ---
+          <>
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
              {/* Roster Controls */}
              <div className="flex flex-wrap justify-between items-center gap-3 p-4 border-b border-slate-200 bg-slate-50">
@@ -7404,6 +7484,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         <Layers size={14} className="mr-1.5"/>
                         {rosterGroupByShift ? 'Agrupado por turno' : 'Agrupar por turno'}
                     </button>
+                    <div className="hidden md:flex items-center gap-1.5 text-[10px] font-bold ml-1">
+                        <span className="px-1.5 py-0.5 rounded bg-blue-500 text-white">Día</span>
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500 text-white">Tarde</span>
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white">Noche</span>
+                        <span className="text-slate-400 font-medium">El horario va en la celda</span>
+                    </div>
                 </div>
                 
                 <div className="flex flex-wrap items-center gap-2">
@@ -7433,7 +7519,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </button>
                     {canEditPersonnel ? (
                         <>
-                    <div className="text-xs text-slate-400 font-medium hidden lg:block">Click en turno para cambiar</div>
+                    <div className="text-xs text-slate-400 font-medium hidden lg:block">Clic en el color cambia la franja. Horario abre entrada/salida.</div>
                     <button 
                         onClick={handleReplicateWeek}
                         className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
@@ -7514,14 +7600,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              <th className="roster-name-col px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-white z-20 w-[260px] min-w-[260px] max-w-[260px] border-r border-slate-200">Colaborador</th>
                              {rosterWeeks.map((weekDates, weekIdx) => (
                                  <React.Fragment key={`week-days-${weekIdx}`}>
-                                     {weekDates.map((date, i) => (
-                                         <th key={`${weekIdx}-${i}`} className={`px-1.5 py-2 text-center text-xs font-bold uppercase tracking-wider min-w-[72px] ${date.toDateString() === new Date().toDateString() ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>
-                                             <div className="flex flex-col">
+                                     {weekDates.map((date, i) => {
+                                         const dateStr = toLocalDateStr(date);
+                                         const isSelectedDay = dateStr === rosterSelectedDate;
+                                         return (
+                                         <th key={`${weekIdx}-${i}`} className={`px-1.5 py-2 text-center text-xs font-bold uppercase tracking-wider min-w-[72px] ${isSelectedDay ? 'bg-blue-50 text-blue-700' : date.toDateString() === new Date().toDateString() ? 'bg-blue-50/50 text-blue-700' : 'text-slate-500'}`}>
+                                             <button
+                                                 type="button"
+                                                 onClick={() => setRosterSelectedDate(dateStr)}
+                                                 className="w-full flex flex-col items-center"
+                                                 title="Ver cobertura por hora de este día"
+                                             >
                                                  <span>{date.toLocaleDateString('es-PE', { weekday: 'short' })}</span>
                                                  <span className="text-xs opacity-70 font-semibold">{date.getDate()}</span>
-                                             </div>
+                                             </button>
                                          </th>
-                                     ))}
+                                         );
+                                     })}
                                      <th className="px-2 py-2 text-center text-[10px] font-bold text-slate-500 uppercase tracking-wider min-w-[64px] border-r-2 border-slate-300 bg-slate-50">Hrs</th>
                                  </React.Fragment>
                              ))}
@@ -7601,7 +7696,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                          const weekHours = weekDates.reduce((acc, d) => {
                                              const dateStr = toLocalDateStr(d);
                                              const shift = worker.workSchedule?.find(s => s.date === dateStr);
-                                             return acc + (shift?.hours || 0);
+                                             const window = resolveShiftWindow(shift, worker);
+                                             return acc + (window?.hours || shift?.hours || 0);
                                          }, 0);
                                          return (
                                              <React.Fragment key={`${worker.id}-w-${weekIdx}`}>
@@ -7609,18 +7705,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                      const dateStr = toLocalDateStr(date);
                                                      const shift = worker.workSchedule?.find(s => s.date === dateStr);
                                                      const type = shift?.type || 'OFF';
+                                                     const window = resolveShiftWindow(shift, worker);
+                                                     const isSelectedDay = dateStr === rosterSelectedDate;
                                                      return (
-                                                         <td key={`${worker.id}-${dateStr}`} className="px-1.5 py-2 text-center">
+                                                         <td key={`${worker.id}-${dateStr}`} className={`px-1 py-1.5 text-center ${isSelectedDay ? 'bg-blue-50/70' : ''}`}>
                                                              {canEditPersonnel ? (
+                                                             <div className="flex flex-col items-stretch gap-0.5">
                                                              <button 
                                                                  onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
-                                                                 className={`w-full py-1.5 rounded text-xs font-bold transition-all shadow-sm active:scale-95 ${getShiftColor(type)}`}
+                                                                 className={`w-full py-1 rounded text-[11px] font-bold transition-all shadow-sm active:scale-95 leading-tight ${getShiftColor(type)}`}
+                                                                 title="Cambiar franja (Día / Tarde / Noche / OFF)"
                                                              >
-                                                                     {rosterShiftShortLabel(type)}
+                                                                     <span className="block">{rosterShiftShortLabel(type)}</span>
+                                                                     {window && (
+                                                                         <>
+                                                                             <span className="block text-[9px] font-semibold opacity-95">{formatShiftTimeRange(window.startTime, window.endTime)}</span>
+                                                                             <span className="block text-[9px] font-medium opacity-80">{window.hours}h</span>
+                                                                         </>
+                                                                     )}
                                                              </button>
+                                                             {isRosterWorkShift(type) && (
+                                                                 <button
+                                                                     type="button"
+                                                                     onClick={() => openRosterTimeEditor(worker, dateStr, type)}
+                                                                     className="text-[9px] font-bold text-slate-500 hover:text-blue-700"
+                                                                 >
+                                                                     horario
+                                                                 </button>
+                                                             )}
+                                                             </div>
                                                              ) : (
-                                                                 <div className={`w-full py-1.5 rounded text-xs font-bold ${getShiftColor(type)} opacity-75`}>
-                                                                     {rosterShiftShortLabel(type)}
+                                                                 <div className={`w-full py-1 rounded text-[11px] font-bold leading-tight ${getShiftColor(type)} opacity-75`}>
+                                                                     <span className="block">{rosterShiftShortLabel(type)}</span>
+                                                                     {window && (
+                                                                         <>
+                                                                             <span className="block text-[9px] font-semibold">{formatShiftTimeRange(window.startTime, window.endTime)}</span>
+                                                                             <span className="block text-[9px]">{window.hours}h</span>
+                                                                         </>
+                                                                     )}
                                                                  </div>
                                                              )}
                                                          </td>
@@ -7654,7 +7776,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                          const dateStr = toLocalDateStr(date);
                                                          const totals = countRosterShiftsForDate(groupWorkers, dateStr);
                                                          return (
-                                                             <td key={`${shiftGroup.key}-sub-${dateStr}`} className={`px-1.5 py-2 text-center border-t border-slate-200 ${rosterShiftGroupRowClass[shiftGroup.key]}`}>
+                                                             <td key={`${shiftGroup.key}-sub-${dateStr}`} className={`px-1.5 py-2 text-center border-t border-slate-200 ${rosterShiftGroupRowClass[shiftGroup.key]} ${dateStr === rosterSelectedDate ? 'ring-1 ring-inset ring-blue-300' : ''}`}>
                                                                  <div className="text-sm font-bold">{totals.programmed}</div>
                                                                  <div className="text-[9px] leading-tight mt-0.5 opacity-80">
                                                                      <span className="text-blue-600 font-semibold">{totals.day}D</span>
@@ -7693,7 +7815,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                              const dateStr = toLocalDateStr(date);
                                              const totals = rosterDayTotals.find((t) => t.dateStr === dateStr);
                                              return (
-                                                 <td key={`tot-${dateStr}`} className="px-1.5 py-2 text-center">
+                                                 <td key={`tot-${dateStr}`} className={`px-1.5 py-2 text-center ${dateStr === rosterSelectedDate ? 'bg-blue-50' : ''}`}>
                                                      <div className="text-sm font-bold text-slate-800">{totals?.programmed ?? 0}</div>
                                                      <div className="text-[9px] text-slate-500 leading-tight mt-0.5">
                                                          <span className="text-blue-600 font-semibold">{totals?.day ?? 0}D</span>
@@ -7717,7 +7839,59 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  </table>
              </div>
              </div>
+             <RosterHourCoverageGrid
+                workers={rosterPersonnel}
+                dateStr={rosterSelectedDate}
+                dateLabel={(() => {
+                    const [y, m, d] = rosterSelectedDate.split('-').map(Number);
+                    const selected = new Date(y, (m || 1) - 1, d || 1);
+                    return selected.toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+                })()}
+                onPrevDay={() => shiftCoverageDay(-1)}
+                onNextDay={() => shiftCoverageDay(1)}
+             />
           </div>
+          {rosterTimeEditor && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setRosterTimeEditor(null)}>
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+                    <h4 className="text-sm font-bold text-slate-800">Horario del turno {rosterTimeEditor.type === 'Day' ? 'Día' : rosterTimeEditor.type === 'Afternoon' ? 'Tarde' : 'Noche'}</h4>
+                    <p className="text-xs text-slate-500 mt-1">{rosterTimeEditor.workerName} · {rosterTimeEditor.date}</p>
+                    <p className="text-[11px] text-slate-400 mt-1">El color sigue siendo la franja. Aquí solo se define entrada y salida.</p>
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                        <label className="text-xs font-bold text-slate-600">
+                            Entrada
+                            <input
+                                type="time"
+                                value={rosterTimeEditor.startTime}
+                                onChange={(e) => setRosterTimeEditor({ ...rosterTimeEditor, startTime: e.target.value })}
+                                className="mt-1 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                            />
+                        </label>
+                        <label className="text-xs font-bold text-slate-600">
+                            Salida
+                            <input
+                                type="time"
+                                value={rosterTimeEditor.endTime}
+                                onChange={(e) => setRosterTimeEditor({ ...rosterTimeEditor, endTime: e.target.value })}
+                                className="mt-1 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                            />
+                        </label>
+                    </div>
+                    <div className="flex items-center gap-2 mt-3">
+                        <button type="button" onClick={() => applyRosterTimePreset(8)} className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-300 hover:bg-slate-50">8h</button>
+                        <button type="button" onClick={() => applyRosterTimePreset(12)} className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-300 hover:bg-slate-50">12h</button>
+                        <span className="text-xs text-slate-500 ml-auto">
+                            Duración {durationHours(rosterTimeEditor.startTime, rosterTimeEditor.endTime) || 0}h
+                        </span>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-5">
+                        <button type="button" onClick={() => setRosterTimeEditor(null)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100">Cancelar</button>
+                        <button type="button" onClick={handleSaveRosterTimes} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700">Aplicar</button>
+                    </div>
+                </div>
+            </div>
+          )}
+          </>
       )}
 
     </div>

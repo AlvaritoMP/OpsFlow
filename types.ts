@@ -213,6 +213,10 @@ export interface DailyShift {
     date: string; // YYYY-MM-DD
     type: ShiftType;
     hours: number;
+    /** Hora de entrada HH:mm (dentro de la franja Día/Tarde/Noche) */
+    startTime?: string;
+    /** Hora de salida HH:mm; puede ser al día siguiente (turno que cruza medianoche) */
+    endTime?: string;
 }
 // -----------------------
 

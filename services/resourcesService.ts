@@ -1,5 +1,6 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { Resource, ResourceType, Training, AssignedAsset, DailyShift, MaintenanceRecord } from '../types';
+import { normalizeShiftTime } from '../utils/rosterHours';
 
 // ============================================
 // CRUD PARA RESOURCES
@@ -668,16 +669,17 @@ export const resourcesService = {
   },
 
   async createDailyShifts(resourceId: string, shifts: DailyShift[]): Promise<void> {
-    const { error } = await supabase.from('daily_shifts').insert(
-      shifts.map(s => ({
-        resource_id: resourceId,
-        date: normalizeShiftDate(s.date),
-        type: s.type,
-        hours: s.hours,
-      }))
-    );
-
-    if (error) throw error;
+    const rows = flattenShiftsForWrite(resourceId, shifts, !dailyShiftOmitTimes);
+    try {
+      await insertDailyShiftRows(rows);
+    } catch (error) {
+      if (!dailyShiftOmitTimes && isMissingTimeColumns(error)) {
+        dailyShiftOmitTimes = true;
+        await insertDailyShiftRows(stripTimes(rows));
+        return;
+      }
+      throw error;
+    }
   },
 
   async upsertDailyShiftsForResource(resourceId: string, shifts: DailyShift[]): Promise<void> {
@@ -687,10 +689,15 @@ export const resourcesService = {
   async upsertDailyShiftsBatch(
     entries: Array<{ resourceId: string; shifts: DailyShift[] }>
   ): Promise<void> {
-    const rows = entries.flatMap(({ resourceId, shifts }) => flattenShiftsForWrite(resourceId, shifts));
+    const rows = entries.flatMap(({ resourceId, shifts }) =>
+      flattenShiftsForWrite(resourceId, shifts, !dailyShiftOmitTimes)
+    );
     if (rows.length === 0) return;
 
-    if (dailyShiftWriteMode === 'rpc') {
+    const hasTimes = rows.some((row) => row.start_time || row.end_time);
+
+    // Un RPC antiguo ignora start_time/end_time; no usarlo si hay horario que persistir.
+    if (dailyShiftWriteMode === 'rpc' && !hasTimes) {
       const { error: rpcError } = await (supabase as any).rpc('upsert_daily_shifts', { p_shifts: rows });
       if (!rpcError) return;
       if (!isMissingRpc(rpcError)) {
@@ -698,16 +705,30 @@ export const resourcesService = {
         throw rpcError;
       }
       dailyShiftWriteMode = 'upsert';
+    } else if (hasTimes) {
+      dailyShiftWriteMode = dailyShiftWriteMode === 'rpc' ? 'upsert' : dailyShiftWriteMode;
     }
 
-    if (dailyShiftWriteMode === 'upsert') {
+    if (dailyShiftWriteMode !== 'replace') {
       try {
-        const upserted = await upsertDailyShiftRows(rows);
-        if (upserted) return;
+        const upserted = await upsertDailyShiftRows(dailyShiftOmitTimes ? stripTimes(rows) : rows);
+        if (upserted) {
+          dailyShiftWriteMode = 'upsert';
+          return;
+        }
         dailyShiftWriteMode = 'replace';
       } catch (error) {
-        console.error('❌ Error al guardar turnos (upsert):', error);
-        throw error;
+        if (!dailyShiftOmitTimes && isMissingTimeColumns(error)) {
+          dailyShiftOmitTimes = true;
+          await this.upsertDailyShiftsBatch(entries);
+          return;
+        }
+        if (isMissingOnConflictConstraint(error)) {
+          dailyShiftWriteMode = 'replace';
+        } else {
+          console.error('❌ Error al guardar turnos (upsert):', error);
+          throw error;
+        }
       }
     }
 
@@ -1012,6 +1033,8 @@ function mapShiftsFromDB(rows: any[]): DailyShift[] {
     date: normalizeShiftDate(s.date),
     type: s.type as any,
     hours: Number(s.hours),
+    startTime: normalizeShiftTime(s.start_time),
+    endTime: normalizeShiftTime(s.end_time),
   }));
 }
 
@@ -1084,16 +1107,36 @@ type DailyShiftRow = {
   date: string;
   type: string;
   hours: number;
+  start_time?: string | null;
+  end_time?: string | null;
 };
 
-function flattenShiftsForWrite(resourceId: string, shifts: DailyShift[]): DailyShiftRow[] {
+function flattenShiftsForWrite(resourceId: string, shifts: DailyShift[], includeTimes = true): DailyShiftRow[] {
   const uniqueShifts = [...new Map(shifts.map((shift) => [shift.date, shift])).values()];
-  return uniqueShifts.map((shift) => ({
-    resource_id: resourceId,
-    date: normalizeShiftDate(shift.date),
-    type: shift.type,
-    hours: Number(shift.hours || 0),
-  }));
+  return uniqueShifts.map((shift) => {
+    const row: DailyShiftRow = {
+      resource_id: resourceId,
+      date: normalizeShiftDate(shift.date),
+      type: shift.type,
+      hours: Number(shift.hours || 0),
+    };
+    if (includeTimes) {
+      const startTime = normalizeShiftTime(shift.startTime);
+      const endTime = normalizeShiftTime(shift.endTime);
+      row.start_time = startTime || null;
+      row.end_time = endTime || null;
+    }
+    return row;
+  });
+}
+
+function isMissingTimeColumns(error: any): boolean {
+  const msg = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  return (
+    error?.code === '42703' ||
+    error?.code === 'PGRST204' ||
+    ((msg.includes('start_time') || msg.includes('end_time')) && (msg.includes('column') || msg.includes('schema cache')))
+  );
 }
 
 function isMissingRpc(error: any): boolean {
@@ -1111,6 +1154,11 @@ function isMissingOnConflictConstraint(error: any): boolean {
 }
 
 let dailyShiftWriteMode: 'rpc' | 'upsert' | 'replace' = 'rpc';
+let dailyShiftOmitTimes = false;
+
+function stripTimes(rows: DailyShiftRow[]): DailyShiftRow[] {
+  return rows.map(({ start_time, end_time, ...row }) => row);
+}
 
 async function insertDailyShiftRows(rows: DailyShiftRow[]): Promise<void> {
   for (let i = 0; i < rows.length; i += SHIFT_UPSERT_BATCH) {
@@ -1135,7 +1183,7 @@ async function upsertDailyShiftRows(rows: DailyShiftRow[]): Promise<boolean> {
 }
 
 async function replaceDailyShiftsForResource(resourceId: string, shifts: DailyShift[]): Promise<void> {
-  const rows = flattenShiftsForWrite(resourceId, shifts);
+  const rows = flattenShiftsForWrite(resourceId, shifts, !dailyShiftOmitTimes);
   if (rows.length === 0) return;
 
   const { error: deleteError } = await supabase
@@ -1145,7 +1193,16 @@ async function replaceDailyShiftsForResource(resourceId: string, shifts: DailySh
     .in('date', rows.map((row) => row.date));
 
   if (deleteError) throw deleteError;
-  await insertDailyShiftRows(rows);
+  try {
+    await insertDailyShiftRows(rows);
+  } catch (error) {
+    if (!dailyShiftOmitTimes && isMissingTimeColumns(error)) {
+      dailyShiftOmitTimes = true;
+      await insertDailyShiftRows(stripTimes(rows));
+      return;
+    }
+    throw error;
+  }
 }
 
 type RelatedDataMaps = {
