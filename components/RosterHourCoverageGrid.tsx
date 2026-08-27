@@ -51,7 +51,7 @@ export const RosterHourCoverageGrid: React.FC<RosterHourCoverageGridProps> = ({
   );
 
   return (
-    <div className="border-t border-slate-200">
+    <div className="roster-hour-coverage border-t border-slate-200">
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-slate-50">
         <div>
           <p className="text-sm font-bold text-slate-800">Cobertura por hora</p>
@@ -70,11 +70,11 @@ export const RosterHourCoverageGrid: React.FC<RosterHourCoverageGridProps> = ({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="roster-scroll overflow-x-auto">
         <table className="w-full border-collapse" style={{ minWidth: 260 + 24 * 32 }}>
           <thead>
             <tr className="bg-white">
-              <th className="sticky left-0 z-10 bg-white px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 border-r border-slate-200 w-[260px]">
+              <th className="roster-name-col sticky left-0 z-10 bg-white px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 border-r border-slate-200 w-[260px]">
                 Colaborador
               </th>
               {ROSTER_HOURS.map((hour) => (
@@ -103,7 +103,7 @@ export const RosterHourCoverageGrid: React.FC<RosterHourCoverageGridProps> = ({
               const type = shift?.type || 'OFF';
               return (
                 <tr key={worker.id} className="border-t border-slate-100">
-                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 border-r border-slate-200 w-[260px] max-w-[260px]">
+                  <td className="roster-name-col sticky left-0 z-10 bg-white px-3 py-1.5 border-r border-slate-200 w-[260px] max-w-[260px]">
                     <p className="text-xs font-medium text-slate-800 truncate">{worker.name}</p>
                     <p className="text-[10px] text-slate-400 truncate">
                       {window ? `${formatShiftTimeRange(window.startTime, window.endTime)} · ${window.hours}h` : type === 'OFF' ? 'OFF' : type}
@@ -135,7 +135,7 @@ export const RosterHourCoverageGrid: React.FC<RosterHourCoverageGridProps> = ({
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-slate-300 bg-slate-50">
-              <td className="sticky left-0 z-10 bg-slate-50 px-3 py-2 border-r border-slate-200 text-xs font-bold uppercase tracking-wide text-slate-700">
+              <td className="roster-name-col sticky left-0 z-10 bg-slate-50 px-3 py-2 border-r border-slate-200 text-xs font-bold uppercase tracking-wide text-slate-700">
                 En turno
               </td>
               {counts.map((count, hour) => (

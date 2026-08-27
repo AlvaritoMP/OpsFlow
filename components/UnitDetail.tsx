@@ -3479,15 +3479,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       el.style.width = '100%';
     });
 
-    const table = node.querySelector('table');
-    if (table instanceof HTMLElement) {
-      const weekCols = rosterWeekCount * 8;
-      const tableWidth = 260 + weekCols * 76;
+    const weekTableWidth = 260 + rosterWeekCount * 8 * 76;
+    const coverageTableWidth = 260 + 24 * 32;
+    node.querySelectorAll('table').forEach((table) => {
+      if (!(table instanceof HTMLElement)) return;
+      const isCoverage = table.closest('.roster-hour-coverage');
+      const tableWidth = isCoverage ? coverageTableWidth : weekTableWidth;
       pushRestore(table, ['tableLayout', 'width', 'minWidth']);
       table.style.tableLayout = 'fixed';
       table.style.width = `${tableWidth}px`;
       table.style.minWidth = `${tableWidth}px`;
-    }
+    });
 
     pushRestore(node, ['overflow', 'height', 'maxHeight', 'paddingBottom']);
     node.style.overflow = 'visible';
@@ -7838,7 +7840,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      </tfoot>
                  </table>
              </div>
-             </div>
              <RosterHourCoverageGrid
                 workers={rosterPersonnel}
                 dateStr={rosterSelectedDate}
@@ -7850,6 +7851,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 onPrevDay={() => shiftCoverageDay(-1)}
                 onNextDay={() => shiftCoverageDay(1)}
              />
+             </div>
           </div>
           {rosterTimeEditor && (
             <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setRosterTimeEditor(null)}>
