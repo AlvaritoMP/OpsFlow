@@ -1,6 +1,6 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { Resource, ResourceType, Training, AssignedAsset, DailyShift, MaintenanceRecord } from '../types';
-import { normalizeShiftTime } from '../utils/rosterHours';
+import { normalizeShiftTime, isVacationWithCoverage } from '../utils/rosterHours';
 
 // ============================================
 // CRUD PARA RESOURCES
@@ -1029,13 +1029,20 @@ function normalizeShiftDate(value: any): string {
 }
 
 function mapShiftsFromDB(rows: any[]): DailyShift[] {
-  return rows.map(s => ({
-    date: normalizeShiftDate(s.date),
-    type: s.type as any,
-    hours: Number(s.hours),
-    startTime: normalizeShiftTime(s.start_time),
-    endTime: normalizeShiftTime(s.end_time),
-  }));
+  return rows.map(s => {
+    const startTime = normalizeShiftTime(s.start_time);
+    const endTime = normalizeShiftTime(s.end_time);
+    const hours = Number(s.hours);
+    const type = s.type as DailyShift['type'];
+    return {
+      date: normalizeShiftDate(s.date),
+      type,
+      hours,
+      startTime,
+      endTime,
+      hasCoverage: type === 'Vacation' ? hours > 0 : undefined,
+    };
+  });
 }
 
 function mapMaintenanceFromDB(rows: any[]): MaintenanceRecord[] {
@@ -1114,17 +1121,23 @@ type DailyShiftRow = {
 function flattenShiftsForWrite(resourceId: string, shifts: DailyShift[], includeTimes = true): DailyShiftRow[] {
   const uniqueShifts = [...new Map(shifts.map((shift) => [shift.date, shift])).values()];
   return uniqueShifts.map((shift) => {
+    const uncoveredVacation = shift.type === 'Vacation' && !isVacationWithCoverage(shift);
     const row: DailyShiftRow = {
       resource_id: resourceId,
       date: normalizeShiftDate(shift.date),
       type: shift.type,
-      hours: Number(shift.hours || 0),
+      hours: uncoveredVacation ? 0 : Number(shift.hours || 0),
     };
     if (includeTimes) {
-      const startTime = normalizeShiftTime(shift.startTime);
-      const endTime = normalizeShiftTime(shift.endTime);
-      row.start_time = startTime || null;
-      row.end_time = endTime || null;
+      if (uncoveredVacation) {
+        row.start_time = null;
+        row.end_time = null;
+      } else {
+        const startTime = normalizeShiftTime(shift.startTime);
+        const endTime = normalizeShiftTime(shift.endTime);
+        row.start_time = startTime || null;
+        row.end_time = endTime || null;
+      }
     }
     return row;
   });

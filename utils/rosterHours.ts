@@ -21,6 +21,22 @@ export function isRosterWorkShift(type?: string): type is 'Day' | 'Afternoon' | 
   return type === 'Day' || type === 'Afternoon' || type === 'Night';
 }
 
+export function workTypeFromAssignedShift(assignedShift?: string): 'Day' | 'Afternoon' | 'Night' {
+  const shift = (assignedShift || '').trim().toLowerCase();
+  if (shift.includes('tarde') || shift === 'afternoon') return 'Afternoon';
+  if (shift.includes('nocturno') || shift === 'night' || shift.includes('noche')) return 'Night';
+  return 'Day';
+}
+
+export function isVacationWithCoverage(
+  shift?: Pick<DailyShift, 'type' | 'hours' | 'startTime' | 'endTime' | 'hasCoverage'>
+): boolean {
+  if (shift?.type !== 'Vacation') return false;
+  if (shift.hasCoverage === false) return false;
+  if (shift.hasCoverage === true) return true;
+  return (Number(shift.hours) || 0) > 0;
+}
+
 export function normalizeShiftTime(value: unknown): string | undefined {
   if (value == null || value === '') return undefined;
   const raw = String(value).trim();
@@ -101,9 +117,23 @@ export function defaultWindowForShift(
 }
 
 export function resolveShiftWindow(
-  shift?: Pick<DailyShift, 'type' | 'hours' | 'startTime' | 'endTime'>,
-  worker?: Pick<Resource, 'entryTime' | 'exitTime'>
+  shift?: Pick<DailyShift, 'type' | 'hours' | 'startTime' | 'endTime' | 'hasCoverage'>,
+  worker?: Pick<Resource, 'entryTime' | 'exitTime' | 'assignedShift'>
 ): { startTime: string; endTime: string; hours: number } | null {
+  if (shift?.type === 'Vacation') {
+    if (!isVacationWithCoverage(shift)) return null;
+    const startTime = normalizeShiftTime(shift.startTime);
+    const endTime = normalizeShiftTime(shift.endTime);
+    if (startTime && endTime) {
+      return { startTime, endTime, hours: durationHours(startTime, endTime) || Number(shift.hours) || 8 };
+    }
+    const workerWindow = defaultWindowForShift(workTypeFromAssignedShift(worker?.assignedShift), 8, worker);
+    if (workerWindow.startTime && workerWindow.endTime) {
+      return { startTime: workerWindow.startTime, endTime: workerWindow.endTime, hours: workerWindow.hours };
+    }
+    return null;
+  }
+
   if (!isRosterWorkShift(shift?.type)) return null;
   const startTime = normalizeShiftTime(shift?.startTime);
   const endTime = normalizeShiftTime(shift?.endTime);
@@ -139,12 +169,52 @@ export function coveredHours(startTime: string, endTime: string): number[] {
   return ROSTER_HOURS.filter((hour) => shiftCoversHour(startTime, endTime, hour));
 }
 
+export function buildVacationShift(
+  date: string,
+  withCoverage: boolean,
+  worker?: Pick<Resource, 'entryTime' | 'exitTime' | 'assignedShift'>,
+  previous?: Pick<DailyShift, 'type' | 'hours' | 'startTime' | 'endTime'>
+): DailyShift {
+  if (!withCoverage) {
+    return { date, type: 'Vacation', hours: 0, hasCoverage: false };
+  }
+
+  const prevStart = normalizeShiftTime(previous?.startTime);
+  const prevEnd = normalizeShiftTime(previous?.endTime);
+  if (prevStart && prevEnd && (isRosterWorkShift(previous?.type) || previous?.type === 'Vacation')) {
+    return {
+      date,
+      type: 'Vacation',
+      hours: durationHours(prevStart, prevEnd) || Number(previous?.hours) || 8,
+      startTime: prevStart,
+      endTime: prevEnd,
+      hasCoverage: true,
+    };
+  }
+
+  const workType = isRosterWorkShift(previous?.type)
+    ? previous.type
+    : workTypeFromAssignedShift(worker?.assignedShift);
+  const window = defaultWindowForShift(workType, 8, worker);
+  return {
+    date,
+    type: 'Vacation',
+    hours: window.hours || 8,
+    startTime: window.startTime,
+    endTime: window.endTime,
+    hasCoverage: true,
+  };
+}
+
 export function buildShiftForType(
   date: string,
   type: ShiftType,
-  worker?: Pick<Resource, 'entryTime' | 'exitTime'>,
+  worker?: Pick<Resource, 'entryTime' | 'exitTime' | 'assignedShift'>,
   previous?: Pick<DailyShift, 'type' | 'hours' | 'startTime' | 'endTime'>
 ): DailyShift {
+  if (type === 'Vacation') {
+    return buildVacationShift(date, false, worker, previous);
+  }
   if (!isRosterWorkShift(type)) {
     return { date, type, hours: 0 };
   }

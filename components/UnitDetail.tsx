@@ -33,9 +33,11 @@ import { RosterHourCoverageGrid } from './RosterHourCoverageGrid';
 import {
   addHoursToTime,
   buildShiftForType,
+  buildVacationShift,
   durationHours,
   formatShiftTimeRange,
   isRosterWorkShift,
+  isVacationWithCoverage,
   normalizeShiftTime,
   resolveShiftWindow,
 } from '../utils/rosterHours';
@@ -252,24 +254,49 @@ const isProgrammedWorkShift = (type?: string) =>
 const rosterShiftShortLabel = (type: string) =>
   type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type === 'Vacation' ? 'Vac' : type;
 
-type RosterShiftGroupKey = 'day' | 'afternoon' | 'night' | 'other' | 'none';
+type RosterShiftGroupKey = 'supervision' | 'day' | 'afternoon' | 'night' | 'other' | 'none';
 
-const getRosterShiftGroup = (assignedShift?: string): { key: RosterShiftGroupKey; label: string; order: number } => {
-  const shift = (assignedShift || '').trim().toLowerCase();
-  if (!shift) return { key: 'none', label: 'Sin turno', order: 4 };
+const normalizePuestoKey = (value?: string) =>
+  (value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+/** Supervisor, similares (jefe de turno, coordinador) o superiores (gerente, director). */
+const isSupervisorOrHigherPuesto = (puesto?: string): boolean => {
+  const puestoKey = normalizePuestoKey(puesto);
+  if (!puestoKey) return false;
+  if (['auxiliar', 'asistente', 'ayudante', 'practicante'].some((word) => puestoKey.includes(word))) {
+    return false;
+  }
+  return ['supervisor', 'jefe', 'coordinador', 'gerente', 'superintendente', 'director'].some((word) =>
+    puestoKey.includes(word)
+  );
+};
+
+const getRosterShiftGroup = (
+  worker: Pick<Resource, 'assignedShift' | 'puesto'>
+): { key: RosterShiftGroupKey; label: string; order: number } => {
+  if (isSupervisorOrHigherPuesto(worker.puesto)) {
+    return { key: 'supervision', label: 'Supervisión', order: 0 };
+  }
+  const shift = (worker.assignedShift || '').trim().toLowerCase();
+  if (!shift) return { key: 'none', label: 'Sin turno', order: 5 };
   if (shift.includes('diurno') || shift === 'day' || shift.includes('mañana') || shift.includes('manana')) {
-    return { key: 'day', label: 'Diurno', order: 0 };
+    return { key: 'day', label: 'Diurno', order: 1 };
   }
   if (shift.includes('tarde') || shift === 'afternoon') {
-    return { key: 'afternoon', label: 'Tarde', order: 1 };
+    return { key: 'afternoon', label: 'Tarde', order: 2 };
   }
   if (shift.includes('nocturno') || shift === 'night' || shift.includes('noche')) {
-    return { key: 'night', label: 'Nocturno', order: 2 };
+    return { key: 'night', label: 'Nocturno', order: 3 };
   }
-  return { key: 'other', label: assignedShift!.trim(), order: 3 };
+  return { key: 'other', label: worker.assignedShift!.trim(), order: 4 };
 };
 
 const rosterShiftGroupRowClass: Record<RosterShiftGroupKey, string> = {
+  supervision: 'bg-violet-50 text-violet-800',
   day: 'bg-blue-50 text-blue-800',
   afternoon: 'bg-amber-50 text-amber-900',
   night: 'bg-indigo-50 text-indigo-800',
@@ -590,6 +617,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     type: ShiftType;
     startTime: string;
     endTime: string;
+  } | null>(null);
+  const [rosterVacationPicker, setRosterVacationPicker] = useState<{
+    resourceId: string;
+    workerName: string;
+    date: string;
+    currentHasCoverage?: boolean;
   } | null>(null);
   const rosterExportRef = useRef<HTMLDivElement>(null);
   const localResourcesRef = useRef(localResources);
@@ -3182,52 +3215,78 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setRosterStartDate(getMonday(newDate));
   };
 
+  const markRosterShiftDirty = (resourceId: string, date: string) => {
+    setDirtyRosterShifts((prev) => {
+      const next = new Set(prev);
+      next.add(`${resourceId}|${date}`);
+      return next;
+    });
+    setRosterHasUnsavedChanges(true);
+  };
+
+  const applyRosterShiftToWorker = (resourceId: string, date: string, nextShift: DailyShift) => {
+    setLocalResources((prevResources) =>
+      prevResources.map((r) => {
+        if (r.id !== resourceId) return r;
+        const schedule = r.workSchedule ? [...r.workSchedule] : [];
+        const existingIdx = schedule.findIndex((s) => s.date === date);
+        if (existingIdx >= 0) schedule[existingIdx] = nextShift;
+        else schedule.push(nextShift);
+        return { ...r, workSchedule: schedule };
+      })
+    );
+    markRosterShiftDirty(resourceId, date);
+  };
+
   const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
      if (!canEditPersonnel) return;
 
      setRosterSelectedDate(date);
 
-     setLocalResources(prevResources => {
-         const resource = prevResources.find(r => r.id === resourceId);
-         const existingShift = resource?.workSchedule?.find(s => s.date === date);
-         const actualCurrentType: ShiftType = (existingShift?.type as ShiftType) || currentType;
+     const resource = localResources.find(r => r.id === resourceId);
+     const existingShift = resource?.workSchedule?.find(s => s.date === date);
+     const actualCurrentType: ShiftType = (existingShift?.type as ShiftType) || currentType;
 
-         let nextType: ShiftType = 'Day';
-         if (actualCurrentType === 'Day') nextType = 'Afternoon';
-         else if (actualCurrentType === 'Afternoon') nextType = 'Night';
-         else if (actualCurrentType === 'Night') nextType = 'OFF';
-         else if (actualCurrentType === 'OFF') nextType = 'Day';
-         else nextType = 'Day';
+     let nextType: ShiftType = 'Day';
+     if (actualCurrentType === 'Day') nextType = 'Afternoon';
+     else if (actualCurrentType === 'Afternoon') nextType = 'Night';
+     else if (actualCurrentType === 'Night') nextType = 'OFF';
+     else if (actualCurrentType === 'OFF') nextType = 'Day';
+     else nextType = 'Day';
 
-         const nextShift = buildShiftForType(date, nextType, resource, existingShift);
+     applyRosterShiftToWorker(resourceId, date, buildShiftForType(date, nextType, resource, existingShift));
+  };
 
-         return prevResources.map(r => {
-         if (r.id === resourceId) {
-             const schedule = r.workSchedule ? [...r.workSchedule] : [];
-             const existingIdx = schedule.findIndex(s => s.date === date);
-             if (existingIdx >= 0) {
-                 schedule[existingIdx] = nextShift;
-             } else {
-                 schedule.push(nextShift);
-             }
-             return { ...r, workSchedule: schedule };
-         }
-         return r;
-     });
-     });
+  const openRosterVacationPicker = (worker: Resource, date: string) => {
+    if (!canEditPersonnel) return;
+    setRosterSelectedDate(date);
+    const shift = worker.workSchedule?.find((s) => s.date === date);
+    setRosterVacationPicker({
+      resourceId: worker.id,
+      workerName: worker.name,
+      date,
+      currentHasCoverage: shift?.type === 'Vacation' ? isVacationWithCoverage(shift) : undefined,
+    });
+  };
 
-     setDirtyRosterShifts(prev => {
-       const next = new Set(prev);
-       next.add(`${resourceId}|${date}`);
-       return next;
-     });
-     setRosterHasUnsavedChanges(true);
+  const applyRosterVacationCoverage = (withCoverage: boolean) => {
+    if (!rosterVacationPicker) return;
+    const worker = localResources.find((r) => r.id === rosterVacationPicker.resourceId);
+    const existingShift = worker?.workSchedule?.find((s) => s.date === rosterVacationPicker.date);
+    applyRosterShiftToWorker(
+      rosterVacationPicker.resourceId,
+      rosterVacationPicker.date,
+      buildVacationShift(rosterVacationPicker.date, withCoverage, worker, existingShift)
+    );
+    setRosterVacationPicker(null);
   };
 
   const openRosterTimeEditor = (worker: Resource, date: string, type: ShiftType) => {
-    if (!canEditPersonnel || !isRosterWorkShift(type)) return;
-    setRosterSelectedDate(date);
+    if (!canEditPersonnel) return;
     const shift = worker.workSchedule?.find((s) => s.date === date);
+    const canEditTimes = isRosterWorkShift(type) || isVacationWithCoverage(shift);
+    if (!canEditTimes) return;
+    setRosterSelectedDate(date);
     const window = resolveShiftWindow(shift || { date, type, hours: 8 }, worker);
     setRosterTimeEditor({
       resourceId: worker.id,
@@ -3258,24 +3317,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
     const hours = durationHours(startTime, endTime) || 8;
     const { resourceId, date, type } = rosterTimeEditor;
-
-    setLocalResources((prev) =>
-      prev.map((r) => {
-        if (r.id !== resourceId) return r;
-        const schedule = r.workSchedule ? [...r.workSchedule] : [];
-        const existingIdx = schedule.findIndex((s) => s.date === date);
-        const nextShift: DailyShift = { date, type, hours, startTime, endTime };
-        if (existingIdx >= 0) schedule[existingIdx] = nextShift;
-        else schedule.push(nextShift);
-        return { ...r, workSchedule: schedule };
-      })
-    );
-    setDirtyRosterShifts((prev) => {
-      const next = new Set(prev);
-      next.add(`${resourceId}|${date}`);
-      return next;
-    });
-    setRosterHasUnsavedChanges(true);
+    const nextShift: DailyShift = {
+      date,
+      type,
+      hours,
+      startTime,
+      endTime,
+      ...(type === 'Vacation' ? { hasCoverage: true } : {}),
+    };
+    applyRosterShiftToWorker(resourceId, date, nextShift);
     setRosterTimeEditor(null);
   };
 
@@ -3399,6 +3449,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       hours: shift.hours,
                       startTime: shift.startTime,
                       endTime: shift.endTime,
+                      hasCoverage: shift.hasCoverage,
                   });
                   newDirtyKeys.add(`${r.id}|${targetDateStr}`);
               }
@@ -3725,13 +3776,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const getShiftColor = (type: string) => {
+  const getShiftColor = (type: string, shift?: DailyShift) => {
       switch(type) {
           case 'Day': return 'bg-blue-500 text-white hover:bg-blue-600';
           case 'Afternoon': return 'bg-amber-500 text-white hover:bg-amber-600';
           case 'Night': return 'bg-indigo-600 text-white hover:bg-indigo-700';
           case 'OFF': return 'bg-slate-200 text-slate-500 hover:bg-slate-300';
-          case 'Vacation': return 'bg-orange-400 text-white hover:bg-orange-500';
+          case 'Vacation':
+            return isVacationWithCoverage(shift)
+              ? 'bg-orange-500 text-white hover:bg-orange-600'
+              : 'bg-orange-300 text-white hover:bg-orange-400';
           default: return 'bg-slate-100 text-slate-400 hover:bg-slate-200';
       }
   };
@@ -4483,8 +4537,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const rosterPersonnel = useMemo(() => {
     if (!rosterGroupByShift) return personnel;
     return [...personnel].sort((a, b) => {
-      const groupA = getRosterShiftGroup(a.assignedShift);
-      const groupB = getRosterShiftGroup(b.assignedShift);
+      const groupA = getRosterShiftGroup(a);
+      const groupB = getRosterShiftGroup(b);
       if (groupA.order !== groupB.order) return groupA.order - groupB.order;
       if (groupA.key === 'other') {
         const labelCmp = groupA.label.localeCompare(groupB.label, 'es-PE', { sensitivity: 'base' });
@@ -7482,7 +7536,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 ? 'bg-blue-600 text-white hover:bg-blue-700'
                                 : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
                         }`}
-                        title="Agrupa a los colaboradores por turno (Diurno, Tarde, Nocturno). No cambia el orden de la vista Lista."
+                        title="Agrupa primero Supervisión (supervisor y cargos similares o superiores) y luego Diurno, Tarde y Nocturno. No cambia el orden de la vista Lista."
                     >
                         <Layers size={14} className="mr-1.5"/>
                         {rosterGroupByShift ? 'Agrupado por turno' : 'Agrupar por turno'}
@@ -7491,7 +7545,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         <span className="px-1.5 py-0.5 rounded bg-blue-500 text-white">Día</span>
                         <span className="px-1.5 py-0.5 rounded bg-amber-500 text-white">Tarde</span>
                         <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white">Noche</span>
-                        <span className="text-slate-400 font-medium">El horario va en la celda</span>
+                        <span className="px-1.5 py-0.5 rounded bg-orange-500 text-white">Vac cob.</span>
+                        <span className="px-1.5 py-0.5 rounded bg-orange-300 text-white">Vac s/cob.</span>
+                        <span className="text-slate-400 font-medium">Vac. con cobertura muestra horas de reemplazo</span>
                     </div>
                 </div>
                 
@@ -7522,7 +7578,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </button>
                     {canEditPersonnel ? (
                         <>
-                    <div className="text-xs text-slate-400 font-medium hidden lg:block">Clic en el color cambia la franja. Horario abre entrada/salida.</div>
+                    <div className="text-xs text-slate-400 font-medium hidden lg:block">Clic en el color cambia la franja. Vac. elige cobertura. Horario abre entrada/salida.</div>
                     <button 
                         onClick={handleReplicateWeek}
                         className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
@@ -7634,19 +7690,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              </tr>
                          )}
                          {rosterPersonnel.map((worker, index) => {
-                             const shiftGroup = getRosterShiftGroup(worker.assignedShift);
-                             const prevGroup = index > 0 ? getRosterShiftGroup(rosterPersonnel[index - 1].assignedShift) : null;
-                             const nextGroup = index < rosterPersonnel.length - 1 ? getRosterShiftGroup(rosterPersonnel[index + 1].assignedShift) : null;
+                             const shiftGroup = getRosterShiftGroup(worker);
+                             const prevGroup = index > 0 ? getRosterShiftGroup(rosterPersonnel[index - 1]) : null;
+                             const nextGroup = index < rosterPersonnel.length - 1 ? getRosterShiftGroup(rosterPersonnel[index + 1]) : null;
                              const showGroupHeader = rosterGroupByShift && (!prevGroup || !rosterShiftGroupsMatch(prevGroup, shiftGroup));
                              const showGroupSubtotal = rosterGroupByShift && (!nextGroup || !rosterShiftGroupsMatch(nextGroup, shiftGroup));
                              let groupWorkers: Resource[] = [];
                              if (showGroupHeader || showGroupSubtotal) {
                                  let start = index;
-                                 while (start > 0 && rosterShiftGroupsMatch(getRosterShiftGroup(rosterPersonnel[start - 1].assignedShift), shiftGroup)) {
+                                 while (start > 0 && rosterShiftGroupsMatch(getRosterShiftGroup(rosterPersonnel[start - 1]), shiftGroup)) {
                                      start -= 1;
                                  }
                                  let end = index;
-                                 while (end < rosterPersonnel.length - 1 && rosterShiftGroupsMatch(getRosterShiftGroup(rosterPersonnel[end + 1].assignedShift), shiftGroup)) {
+                                 while (end < rosterPersonnel.length - 1 && rosterShiftGroupsMatch(getRosterShiftGroup(rosterPersonnel[end + 1]), shiftGroup)) {
                                      end += 1;
                                  }
                                  groupWorkers = rosterPersonnel.slice(start, end + 1);
@@ -7708,6 +7764,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                      const dateStr = toLocalDateStr(date);
                                                      const shift = worker.workSchedule?.find(s => s.date === dateStr);
                                                      const type = shift?.type || 'OFF';
+                                                     const vacationCovered = isVacationWithCoverage(shift);
                                                      const window = resolveShiftWindow(shift, worker);
                                                      const isSelectedDay = dateStr === rosterSelectedDate;
                                                      return (
@@ -7716,10 +7773,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                              <div className="flex flex-col items-stretch gap-0.5">
                                                              <button 
                                                                  onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
-                                                                 className={`w-full py-1 rounded text-[11px] font-bold transition-all shadow-sm active:scale-95 leading-tight ${getShiftColor(type)}`}
-                                                                 title="Cambiar franja (Día / Tarde / Noche / OFF)"
+                                                                 className={`w-full py-1 rounded text-[11px] font-bold transition-all shadow-sm active:scale-95 leading-tight ${getShiftColor(type, shift)}`}
+                                                                 title={type === 'Vacation'
+                                                                   ? (vacationCovered ? 'Vacaciones con cobertura (hay reemplazo)' : 'Vacaciones sin cobertura (sin reemplazo)')
+                                                                   : 'Cambiar franja (Día / Tarde / Noche / OFF)'}
                                                              >
                                                                      <span className="block">{rosterShiftShortLabel(type)}</span>
+                                                                     {type === 'Vacation' && (
+                                                                         <span className="block text-[9px] font-semibold opacity-95">
+                                                                             {vacationCovered ? 'Cob' : 'S/cob'}
+                                                                         </span>
+                                                                     )}
                                                                      {window && (
                                                                          <>
                                                                              <span className="block text-[9px] font-semibold opacity-95">{formatShiftTimeRange(window.startTime, window.endTime)}</span>
@@ -7727,7 +7791,28 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                                          </>
                                                                      )}
                                                              </button>
-                                                             {isRosterWorkShift(type) && (
+                                                             <div className="flex items-center justify-center gap-1">
+                                                             {type !== 'Vacation' && (
+                                                                 <button
+                                                                     type="button"
+                                                                     onClick={() => openRosterVacationPicker(worker, dateStr)}
+                                                                     className="text-[9px] font-bold text-orange-600 hover:text-orange-800"
+                                                                     title="Marcar vacaciones con o sin cobertura"
+                                                                 >
+                                                                     vac.
+                                                                 </button>
+                                                             )}
+                                                             {type === 'Vacation' && (
+                                                                 <button
+                                                                     type="button"
+                                                                     onClick={() => openRosterVacationPicker(worker, dateStr)}
+                                                                     className="text-[9px] font-bold text-orange-600 hover:text-orange-800"
+                                                                     title="Cambiar si las vacaciones tienen o no cobertura"
+                                                                 >
+                                                                     cobertura
+                                                                 </button>
+                                                             )}
+                                                             {(isRosterWorkShift(type) || vacationCovered) && (
                                                                  <button
                                                                      type="button"
                                                                      onClick={() => openRosterTimeEditor(worker, dateStr, type)}
@@ -7737,9 +7822,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                                  </button>
                                                              )}
                                                              </div>
+                                                             </div>
                                                              ) : (
-                                                                 <div className={`w-full py-1 rounded text-[11px] font-bold leading-tight ${getShiftColor(type)} opacity-75`}>
+                                                                 <div className={`w-full py-1 rounded text-[11px] font-bold leading-tight ${getShiftColor(type, shift)} opacity-75`}>
                                                                      <span className="block">{rosterShiftShortLabel(type)}</span>
+                                                                     {type === 'Vacation' && (
+                                                                         <span className="block text-[9px] font-semibold">
+                                                                             {vacationCovered ? 'Cob' : 'S/cob'}
+                                                                         </span>
+                                                                     )}
                                                                      {window && (
                                                                          <>
                                                                              <span className="block text-[9px] font-semibold">{formatShiftTimeRange(window.startTime, window.endTime)}</span>
@@ -7770,7 +7861,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                  acc + weekDates.reduce((weekAcc, date) => {
                                                      const dateStr = toLocalDateStr(date);
                                                      const shift = groupWorker.workSchedule?.find((s) => s.date === dateStr);
-                                                     return weekAcc + (shift?.hours || 0);
+                                                     const window = resolveShiftWindow(shift, groupWorker);
+                                                     return weekAcc + (window?.hours || 0);
                                                  }, 0)
                                              ), 0);
                                              return (
@@ -7854,12 +7946,54 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              />
              </div>
           </div>
+          {rosterVacationPicker && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setRosterVacationPicker(null)}>
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+                    <h4 className="text-sm font-bold text-slate-800">Vacaciones</h4>
+                    <p className="text-xs text-slate-500 mt-1">{rosterVacationPicker.workerName} · {rosterVacationPicker.date}</p>
+                    <p className="text-[11px] text-slate-500 mt-2">Indique si hay operador de reemplazo para este día.</p>
+                    <div className="grid grid-cols-1 gap-2 mt-4">
+                        <button
+                            type="button"
+                            onClick={() => applyRosterVacationCoverage(true)}
+                            className={`text-left rounded-xl border px-3 py-3 hover:border-orange-400 hover:bg-orange-50 ${
+                              rosterVacationPicker.currentHasCoverage === true ? 'border-orange-500 bg-orange-50' : 'border-slate-200'
+                            }`}
+                        >
+                            <p className="text-sm font-bold text-orange-700">Con cobertura</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">Hay reemplazo asignado. Las horas se muestran cubiertas como si el puesto estuviera operando.</p>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => applyRosterVacationCoverage(false)}
+                            className={`text-left rounded-xl border px-3 py-3 hover:border-slate-400 hover:bg-slate-50 ${
+                              rosterVacationPicker.currentHasCoverage === false ? 'border-slate-500 bg-slate-50' : 'border-slate-200'
+                            }`}
+                        >
+                            <p className="text-sm font-bold text-slate-700">Sin cobertura</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">No se envía reemplazo. Las horas del día quedan vacías.</p>
+                        </button>
+                    </div>
+                    <div className="flex justify-end mt-4">
+                        <button type="button" onClick={() => setRosterVacationPicker(null)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+          )}
           {rosterTimeEditor && (
             <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setRosterTimeEditor(null)}>
                 <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-                    <h4 className="text-sm font-bold text-slate-800">Horario del turno {rosterTimeEditor.type === 'Day' ? 'Día' : rosterTimeEditor.type === 'Afternoon' ? 'Tarde' : 'Noche'}</h4>
+                    <h4 className="text-sm font-bold text-slate-800">
+                      {rosterTimeEditor.type === 'Vacation'
+                        ? 'Horario del reemplazo'
+                        : `Horario del turno ${rosterTimeEditor.type === 'Day' ? 'Día' : rosterTimeEditor.type === 'Afternoon' ? 'Tarde' : 'Noche'}`}
+                    </h4>
                     <p className="text-xs text-slate-500 mt-1">{rosterTimeEditor.workerName} · {rosterTimeEditor.date}</p>
-                    <p className="text-[11px] text-slate-400 mt-1">El color sigue siendo la franja. Aquí solo se define entrada y salida.</p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      {rosterTimeEditor.type === 'Vacation'
+                        ? 'Vacaciones con cobertura: estas horas se muestran como cubiertas por el operador de reemplazo.'
+                        : 'El color sigue siendo la franja. Aquí solo se define entrada y salida.'}
+                    </p>
                     <div className="grid grid-cols-2 gap-3 mt-4">
                         <label className="text-xs font-bold text-slate-600">
                             Entrada

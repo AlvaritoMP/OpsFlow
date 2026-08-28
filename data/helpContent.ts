@@ -181,14 +181,15 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Abra la unidad → Personal → Turnos / Rostering.',
           'Elija 1, 2 o 4 semanas. Las flechas mueven el periodo completo.',
-          'Use Agrupar por turno para ordenar a los colaboradores en Diurno, Tarde y Nocturno. Cada grupo muestra un encabezado y un subtotal con la cantidad de trabajadores. El botón solo afecta esta vista; la Lista conserva su propio orden.',
+          'Use Agrupar por turno para ordenar primero Supervisión (supervisor, jefe de turno, coordinador y cargos superiores) y luego Diurno, Tarde y Nocturno. Cada grupo muestra un encabezado y un subtotal con la cantidad de trabajadores. El botón solo afecta esta vista; la Lista conserva su propio orden.',
           'Al pie de cada día aparece el total de programados (con desglose Día / Tarde / Noche). Al final de cada semana, el total de trabajadores con al menos un turno y la suma de turnos.',
           'Use PNG o PDF para descargar la programación visible (recomendado: 1 semana para compartir o imprimir).',
           'Si tiene permiso de edición, haga clic en un turno para ciclarlo (Día → Tarde → Noche → OFF) y pulse Guardar planificación.',
+          'Para vacaciones, use vac. en la celda y elija con cobertura (hay reemplazo: las horas se muestran cubiertas) o sin cobertura (no hay reemplazo: las horas quedan vacías).',
         ],
         tips: [
           'Los nombres largos se muestran completos en varias líneas dentro de la columna Colaborador, también al descargar PNG o PDF.',
-          'Agrupar por turno ordena Diurno → Tarde → Nocturno. Cada grupo tiene encabezado y subtotal de trabajadores. Pulse de nuevo para volver al orden de registro. No modifica la vista Lista.',
+          'Agrupar por turno deja Supervisión al inicio y después Diurno → Tarde → Nocturno. Cada grupo tiene encabezado y subtotal de trabajadores. Pulse de nuevo para volver al orden de registro. No modifica la vista Lista.',
           'Copiar a sem. siguiente replica solo la primera semana visible hacia la semana siguiente. Confirme con Guardar planificación.',
         ],
       },

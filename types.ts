@@ -217,6 +217,11 @@ export interface DailyShift {
     startTime?: string;
     /** Hora de salida HH:mm; puede ser al día siguiente (turno que cruza medianoche) */
     endTime?: string;
+    /**
+     * Vacaciones: true = hay operador de reemplazo (las horas se muestran cubiertas).
+     * false/omitido = sin reemplazo (horas vacías). Se persiste con hours + start/end.
+     */
+    hasCoverage?: boolean;
 }
 // -----------------------
 
