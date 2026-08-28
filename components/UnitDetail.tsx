@@ -618,10 +618,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     startTime: string;
     endTime: string;
   } | null>(null);
-  const [rosterVacationPicker, setRosterVacationPicker] = useState<{
+  const [rosterShiftPicker, setRosterShiftPicker] = useState<{
     resourceId: string;
     workerName: string;
     date: string;
+    currentType: ShiftType;
     currentHasCoverage?: boolean;
   } | null>(null);
   const rosterExportRef = useRef<HTMLDivElement>(null);
@@ -3238,47 +3239,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     markRosterShiftDirty(resourceId, date);
   };
 
-  const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
-     if (!canEditPersonnel) return;
-
-     setRosterSelectedDate(date);
-
-     const resource = localResources.find(r => r.id === resourceId);
-     const existingShift = resource?.workSchedule?.find(s => s.date === date);
-     const actualCurrentType: ShiftType = (existingShift?.type as ShiftType) || currentType;
-
-     let nextType: ShiftType = 'Day';
-     if (actualCurrentType === 'Day') nextType = 'Afternoon';
-     else if (actualCurrentType === 'Afternoon') nextType = 'Night';
-     else if (actualCurrentType === 'Night') nextType = 'OFF';
-     else if (actualCurrentType === 'OFF') nextType = 'Day';
-     else nextType = 'Day';
-
-     applyRosterShiftToWorker(resourceId, date, buildShiftForType(date, nextType, resource, existingShift));
-  };
-
-  const openRosterVacationPicker = (worker: Resource, date: string) => {
+  const openRosterShiftPicker = (worker: Resource, date: string) => {
     if (!canEditPersonnel) return;
     setRosterSelectedDate(date);
     const shift = worker.workSchedule?.find((s) => s.date === date);
-    setRosterVacationPicker({
+    const currentType: ShiftType = (shift?.type as ShiftType) || 'OFF';
+    setRosterShiftPicker({
       resourceId: worker.id,
       workerName: worker.name,
       date,
-      currentHasCoverage: shift?.type === 'Vacation' ? isVacationWithCoverage(shift) : undefined,
+      currentType,
+      currentHasCoverage: currentType === 'Vacation' ? isVacationWithCoverage(shift) : undefined,
     });
   };
 
-  const applyRosterVacationCoverage = (withCoverage: boolean) => {
-    if (!rosterVacationPicker) return;
-    const worker = localResources.find((r) => r.id === rosterVacationPicker.resourceId);
-    const existingShift = worker?.workSchedule?.find((s) => s.date === rosterVacationPicker.date);
-    applyRosterShiftToWorker(
-      rosterVacationPicker.resourceId,
-      rosterVacationPicker.date,
-      buildVacationShift(rosterVacationPicker.date, withCoverage, worker, existingShift)
-    );
-    setRosterVacationPicker(null);
+  const applyRosterShiftChoice = (type: ShiftType, withCoverage?: boolean) => {
+    if (!rosterShiftPicker) return;
+    const worker = localResources.find((r) => r.id === rosterShiftPicker.resourceId);
+    const existingShift = worker?.workSchedule?.find((s) => s.date === rosterShiftPicker.date);
+    const nextShift =
+      type === 'Vacation'
+        ? buildVacationShift(rosterShiftPicker.date, withCoverage === true, worker, existingShift)
+        : buildShiftForType(rosterShiftPicker.date, type, worker, existingShift);
+    applyRosterShiftToWorker(rosterShiftPicker.resourceId, rosterShiftPicker.date, nextShift);
+    setRosterShiftPicker(null);
   };
 
   const openRosterTimeEditor = (worker: Resource, date: string, type: ShiftType) => {
@@ -7578,7 +7562,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </button>
                     {canEditPersonnel ? (
                         <>
-                    <div className="text-xs text-slate-400 font-medium hidden lg:block">Clic en el color cambia la franja. Vac. elige cobertura. Horario abre entrada/salida.</div>
+                    <div className="text-xs text-slate-400 font-medium hidden lg:block">Clic en el color abre Día, Tarde, Noche, OFF y vacaciones. Horario abre entrada/salida.</div>
                     <button 
                         onClick={handleReplicateWeek}
                         className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
@@ -7772,11 +7756,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                              {canEditPersonnel ? (
                                                              <div className="flex flex-col items-stretch gap-0.5">
                                                              <button 
-                                                                 onClick={() => handleRosterShiftChange(worker.id, dateStr, type)}
+                                                                 onClick={() => openRosterShiftPicker(worker, dateStr)}
                                                                  className={`w-full py-1 rounded text-[11px] font-bold transition-all shadow-sm active:scale-95 leading-tight ${getShiftColor(type, shift)}`}
-                                                                 title={type === 'Vacation'
-                                                                   ? (vacationCovered ? 'Vacaciones con cobertura (hay reemplazo)' : 'Vacaciones sin cobertura (sin reemplazo)')
-                                                                   : 'Cambiar franja (Día / Tarde / Noche / OFF)'}
+                                                                 title="Elegir turno: Día, Tarde, Noche, OFF o vacaciones"
                                                              >
                                                                      <span className="block">{rosterShiftShortLabel(type)}</span>
                                                                      {type === 'Vacation' && (
@@ -7791,27 +7773,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                                          </>
                                                                      )}
                                                              </button>
-                                                             <div className="flex items-center justify-center gap-1">
-                                                             {type !== 'Vacation' && (
-                                                                 <button
-                                                                     type="button"
-                                                                     onClick={() => openRosterVacationPicker(worker, dateStr)}
-                                                                     className="text-[9px] font-bold text-orange-600 hover:text-orange-800"
-                                                                     title="Marcar vacaciones con o sin cobertura"
-                                                                 >
-                                                                     vac.
-                                                                 </button>
-                                                             )}
-                                                             {type === 'Vacation' && (
-                                                                 <button
-                                                                     type="button"
-                                                                     onClick={() => openRosterVacationPicker(worker, dateStr)}
-                                                                     className="text-[9px] font-bold text-orange-600 hover:text-orange-800"
-                                                                     title="Cambiar si las vacaciones tienen o no cobertura"
-                                                                 >
-                                                                     cobertura
-                                                                 </button>
-                                                             )}
                                                              {(isRosterWorkShift(type) || vacationCovered) && (
                                                                  <button
                                                                      type="button"
@@ -7821,7 +7782,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                                      horario
                                                                  </button>
                                                              )}
-                                                             </div>
                                                              </div>
                                                              ) : (
                                                                  <div className={`w-full py-1 rounded text-[11px] font-bold leading-tight ${getShiftColor(type, shift)} opacity-75`}>
@@ -7946,36 +7906,61 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              />
              </div>
           </div>
-          {rosterVacationPicker && (
-            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setRosterVacationPicker(null)}>
+          {rosterShiftPicker && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setRosterShiftPicker(null)}>
                 <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
-                    <h4 className="text-sm font-bold text-slate-800">Vacaciones</h4>
-                    <p className="text-xs text-slate-500 mt-1">{rosterVacationPicker.workerName} · {rosterVacationPicker.date}</p>
-                    <p className="text-[11px] text-slate-500 mt-2">Indique si hay operador de reemplazo para este día.</p>
-                    <div className="grid grid-cols-1 gap-2 mt-4">
+                    <h4 className="text-sm font-bold text-slate-800">Cambiar turno</h4>
+                    <p className="text-xs text-slate-500 mt-1">{rosterShiftPicker.workerName} · {rosterShiftPicker.date}</p>
+                    <div className="grid grid-cols-2 gap-2 mt-4">
+                        {([
+                          { type: 'Day' as const, label: 'Día', hint: 'Franja diurna' },
+                          { type: 'Afternoon' as const, label: 'Tarde', hint: 'Franja de tarde' },
+                          { type: 'Night' as const, label: 'Noche', hint: 'Franja nocturna' },
+                          { type: 'OFF' as const, label: 'OFF', hint: 'Descanso' },
+                        ]).map((option) => {
+                          const selected = rosterShiftPicker.currentType === option.type;
+                          return (
+                            <button
+                              key={option.type}
+                              type="button"
+                              onClick={() => applyRosterShiftChoice(option.type)}
+                              className={`text-left rounded-xl border px-3 py-2.5 ${getShiftColor(option.type)} ${selected ? 'ring-2 ring-offset-1 ring-slate-800' : ''}`}
+                            >
+                              <p className="text-sm font-bold">{option.label}</p>
+                              <p className="text-[10px] opacity-80">{option.hint}</p>
+                            </button>
+                          );
+                        })}
+                    </div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mt-4 mb-2">Vacaciones</p>
+                    <div className="grid grid-cols-1 gap-2">
                         <button
                             type="button"
-                            onClick={() => applyRosterVacationCoverage(true)}
+                            onClick={() => applyRosterShiftChoice('Vacation', true)}
                             className={`text-left rounded-xl border px-3 py-3 hover:border-orange-400 hover:bg-orange-50 ${
-                              rosterVacationPicker.currentHasCoverage === true ? 'border-orange-500 bg-orange-50' : 'border-slate-200'
+                              rosterShiftPicker.currentType === 'Vacation' && rosterShiftPicker.currentHasCoverage === true
+                                ? 'border-orange-500 bg-orange-50'
+                                : 'border-slate-200'
                             }`}
                         >
-                            <p className="text-sm font-bold text-orange-700">Con cobertura</p>
-                            <p className="text-[11px] text-slate-500 mt-0.5">Hay reemplazo asignado. Las horas se muestran cubiertas como si el puesto estuviera operando.</p>
+                            <p className="text-sm font-bold text-orange-700">Vacaciones con cobertura</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">Hay reemplazo asignado. Las horas se muestran cubiertas.</p>
                         </button>
                         <button
                             type="button"
-                            onClick={() => applyRosterVacationCoverage(false)}
+                            onClick={() => applyRosterShiftChoice('Vacation', false)}
                             className={`text-left rounded-xl border px-3 py-3 hover:border-slate-400 hover:bg-slate-50 ${
-                              rosterVacationPicker.currentHasCoverage === false ? 'border-slate-500 bg-slate-50' : 'border-slate-200'
+                              rosterShiftPicker.currentType === 'Vacation' && rosterShiftPicker.currentHasCoverage === false
+                                ? 'border-slate-500 bg-slate-50'
+                                : 'border-slate-200'
                             }`}
                         >
-                            <p className="text-sm font-bold text-slate-700">Sin cobertura</p>
+                            <p className="text-sm font-bold text-slate-700">Vacaciones sin cobertura</p>
                             <p className="text-[11px] text-slate-500 mt-0.5">No se envía reemplazo. Las horas del día quedan vacías.</p>
                         </button>
                     </div>
                     <div className="flex justify-end mt-4">
-                        <button type="button" onClick={() => setRosterVacationPicker(null)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100">Cancelar</button>
+                        <button type="button" onClick={() => setRosterShiftPicker(null)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100">Cancelar</button>
                     </div>
                 </div>
             </div>
