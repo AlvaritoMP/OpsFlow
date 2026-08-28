@@ -65,11 +65,18 @@ export function formatShiftTimeRange(startTime?: string, endTime?: string): stri
   return `${start}–${end}`;
 }
 
-function startFitsBand(startTime: string, type: 'Day' | 'Afternoon' | 'Night'): boolean {
-  const hour = Math.floor(minutesFromTime(startTime) / 60);
-  if (type === 'Day') return hour >= 5 && hour <= 11;
-  if (type === 'Afternoon') return hour >= 12 && hour <= 17;
-  return hour >= 18 || hour <= 4;
+export function isGenericBandWindow(
+  type: ShiftType | undefined,
+  startTime?: string,
+  endTime?: string
+): boolean {
+  if (!isRosterWorkShift(type)) return false;
+  const start = normalizeShiftTime(startTime);
+  const end = normalizeShiftTime(endTime);
+  if (!start || !end) return false;
+  return Object.values(DEFAULT_WINDOWS[type]).some(
+    (window) => window.startTime === start && window.endTime === end
+  );
 }
 
 export function defaultWindowForShift(
@@ -81,11 +88,11 @@ export function defaultWindowForShift(
 
   const workerStart = normalizeShiftTime(worker?.entryTime);
   const workerEnd = normalizeShiftTime(worker?.exitTime);
-  if (hours === 8 && workerStart && workerEnd && startFitsBand(workerStart, type)) {
+  if (workerStart && workerEnd) {
     return {
       startTime: workerStart,
       endTime: workerEnd,
-      hours: durationHours(workerStart, workerEnd) || 8,
+      hours: durationHours(workerStart, workerEnd) || hours,
     };
   }
 
@@ -100,13 +107,18 @@ export function resolveShiftWindow(
   if (!isRosterWorkShift(shift?.type)) return null;
   const startTime = normalizeShiftTime(shift?.startTime);
   const endTime = normalizeShiftTime(shift?.endTime);
-  if (startTime && endTime) {
+  const requestedHours = Number(shift?.hours) === 12 ? 12 : 8;
+  const workerWindow = defaultWindowForShift(shift.type, requestedHours, worker);
+  const storedIsGeneric = isGenericBandWindow(shift.type, startTime, endTime);
+  const hasWorkerHours = !!(normalizeShiftTime(worker?.entryTime) && normalizeShiftTime(worker?.exitTime));
+
+  if (startTime && endTime && !(storedIsGeneric && hasWorkerHours)) {
     return { startTime, endTime, hours: durationHours(startTime, endTime) || Number(shift?.hours) || 8 };
   }
-  const duration = Number(shift?.hours) === 12 ? 12 : 8;
-  const fallback = defaultWindowForShift(shift.type, duration, worker);
-  if (!fallback.startTime || !fallback.endTime) return null;
-  return { startTime: fallback.startTime, endTime: fallback.endTime, hours: fallback.hours };
+  if (workerWindow.startTime && workerWindow.endTime) {
+    return { startTime: workerWindow.startTime, endTime: workerWindow.endTime, hours: workerWindow.hours };
+  }
+  return null;
 }
 
 /** Hour H (0-23) is covered if the person is present during [H:00, H+1:00). */
@@ -130,11 +142,30 @@ export function coveredHours(startTime: string, endTime: string): number[] {
 export function buildShiftForType(
   date: string,
   type: ShiftType,
-  worker?: Pick<Resource, 'entryTime' | 'exitTime'>
+  worker?: Pick<Resource, 'entryTime' | 'exitTime'>,
+  previous?: Pick<DailyShift, 'type' | 'hours' | 'startTime' | 'endTime'>
 ): DailyShift {
   if (!isRosterWorkShift(type)) {
     return { date, type, hours: 0 };
   }
+
+  const prevStart = normalizeShiftTime(previous?.startTime);
+  const prevEnd = normalizeShiftTime(previous?.endTime);
+  const prevIsGeneric =
+    !!previous &&
+    isRosterWorkShift(previous.type) &&
+    isGenericBandWindow(previous.type, prevStart, prevEnd);
+
+  if (prevStart && prevEnd && isRosterWorkShift(previous?.type) && !prevIsGeneric) {
+    return {
+      date,
+      type,
+      hours: durationHours(prevStart, prevEnd) || Number(previous?.hours) || 8,
+      startTime: prevStart,
+      endTime: prevEnd,
+    };
+  }
+
   const window = defaultWindowForShift(type, 8, worker);
   return {
     date,

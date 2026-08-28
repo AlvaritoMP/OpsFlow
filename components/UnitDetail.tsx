@@ -3189,7 +3189,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
      setLocalResources(prevResources => {
          const resource = prevResources.find(r => r.id === resourceId);
-         const actualCurrentType: ShiftType = (resource?.workSchedule?.find(s => s.date === date)?.type as ShiftType) || currentType;
+         const existingShift = resource?.workSchedule?.find(s => s.date === date);
+         const actualCurrentType: ShiftType = (existingShift?.type as ShiftType) || currentType;
 
          let nextType: ShiftType = 'Day';
          if (actualCurrentType === 'Day') nextType = 'Afternoon';
@@ -3198,7 +3199,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          else if (actualCurrentType === 'OFF') nextType = 'Day';
          else nextType = 'Day';
 
-         const nextShift = buildShiftForType(date, nextType, resource);
+         const nextShift = buildShiftForType(date, nextType, resource, existingShift);
 
          return prevResources.map(r => {
          if (r.id === resourceId) {
