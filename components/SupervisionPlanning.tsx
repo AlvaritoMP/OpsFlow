@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   Calendar,
@@ -8,6 +9,7 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
+  MapPin,
   Plus,
   Save,
   Search,
@@ -31,12 +33,13 @@ import {
   categoryStyle,
   formatDateFull,
   formatDateYmd,
+  formatMonthLabel,
   formatTime,
   formatWeekRange,
-  frequencyLabel,
   isMissingTableError,
   isTheoreticallyExpected,
   mondayOf,
+  monthDates,
   parseYmd,
   weekDates,
 } from '../utils/supervisionPlanning';
@@ -48,7 +51,7 @@ interface SupervisionPlanningProps {
   canEdit: boolean;
 }
 
-type PlanningTab = 'assignments' | 'plan' | 'routes' | 'execution';
+type PlanningTab = 'assignments' | 'routes' | 'execution';
 
 function findLinkedStaff(user: User, staff: ManagementStaff[]): ManagementStaff | undefined {
   const email = user.email?.trim().toLowerCase();
@@ -96,6 +99,24 @@ const visitStatusClass: Record<SupervisionVisit['status'], string> = {
   cancelled: 'bg-slate-200 text-slate-500',
 };
 
+const ModalShell: React.FC<{ children: React.ReactNode; onClose: () => void }> = ({ children, onClose }) => {
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10000] bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
   units,
   currentUser,
@@ -128,21 +149,23 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
       ? linkedStaff?.id
       : undefined;
 
-  const [tab, setTab] = useState<PlanningTab>(canDesign ? 'plan' : 'execution');
+  const [tab, setTab] = useState<PlanningTab>(canDesign ? 'assignments' : 'execution');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [missingTable, setMissingTable] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
   const [assignments, setAssignments] = useState<SupervisionAssignment[]>([]);
   const [routes, setRoutes] = useState<Awaited<ReturnType<typeof supervisionPlanningService.getRoutes>>>([]);
   const [visits, setVisits] = useState<SupervisionVisit[]>([]);
 
+  const today = new Date();
+  const [calendarMonth, setCalendarMonth] = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [search, setSearch] = useState('');
   const [filterSupervisor, setFilterSupervisor] = useState(lockedSupervisorId || 'all');
   const [filterCategory, setFilterCategory] = useState<'all' | SupervisionAssignment['category']>('all');
-  const [planSupervisorId, setPlanSupervisorId] = useState(lockedSupervisorId || '');
 
   const [routeSupervisorId, setRouteSupervisorId] = useState('');
   const [routeDate, setRouteDate] = useState(formatDateYmd(new Date()));
@@ -165,24 +188,32 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
   const [checkInFile, setCheckInFile] = useState<File | null>(null);
   const [checkInPreview, setCheckInPreview] = useState<string | null>(null);
 
+  const monthDays = useMemo(
+    () => monthDates(calendarMonth.year, calendarMonth.month),
+    [calendarMonth]
+  );
+  const weekVisitDates = useMemo(() => weekDates(weekStart), [weekStart]);
+  const modalOpen = Boolean(checkInVisit || skipVisitId || showManualVisit);
+
   const hydratedAssignments = useMemo(
     () => assignments.map((a) => hydrateAssignment(a, units, activeStaff)),
     [assignments, units, activeStaff]
   );
-
   const hydratedVisits = useMemo(
     () => visits.map((v) => hydrateVisit(v, units, activeStaff, hydratedAssignments)),
     [visits, units, activeStaff, hydratedAssignments]
   );
 
-  const weekVisitDates = useMemo(() => weekDates(weekStart), [weekStart]);
-
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const from = formatDateYmd(weekStart);
-      const to = formatDateYmd(addDays(weekStart, 6));
+      const monthStart = formatDateYmd(new Date(calendarMonth.year, calendarMonth.month, 1));
+      const monthEnd = formatDateYmd(new Date(calendarMonth.year, calendarMonth.month + 1, 0));
+      const weekFrom = formatDateYmd(weekStart);
+      const weekTo = formatDateYmd(addDays(weekStart, 6));
+      const from = monthStart < weekFrom ? monthStart : weekFrom;
+      const to = monthEnd > weekTo ? monthEnd : weekTo;
       const [assignmentRows, routeRows, visitRows] = await Promise.all([
         supervisionPlanningService.getAssignments(),
         supervisionPlanningService.getRoutes(lockedSupervisorId),
@@ -194,11 +225,11 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
       setMissingTable(false);
     } catch (err) {
       if (isMissingTableError(err)) setMissingTable(true);
-      else setError(err instanceof Error ? err.message : 'No se pudo cargar la planificación');
+      else setError(err instanceof Error ? err.message : 'No se pudo cargar la supervisión');
     } finally {
       setLoading(false);
     }
-  }, [weekStart, lockedSupervisorId]);
+  }, [calendarMonth, weekStart, lockedSupervisorId]);
 
   useEffect(() => {
     loadAll();
@@ -208,17 +239,17 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
     if (lockedSupervisorId) {
       setFilterSupervisor(lockedSupervisorId);
       setRouteSupervisorId(lockedSupervisorId);
-      setPlanSupervisorId(lockedSupervisorId);
-    } else {
-      if (!routeSupervisorId && supervisors[0]) setRouteSupervisorId(supervisors[0].id);
-      if (!planSupervisorId && supervisors[0]) setPlanSupervisorId(supervisors[0].id);
+    } else if (!routeSupervisorId && supervisors[0]) {
+      setRouteSupervisorId(supervisors[0].id);
     }
-  }, [lockedSupervisorId, supervisors, routeSupervisorId, planSupervisorId]);
+  }, [lockedSupervisorId, supervisors, routeSupervisorId]);
 
   useEffect(() => {
     if (!weekVisitDates.includes(selectedDay)) setSelectedDay(weekVisitDates[0]);
-    if (!weekVisitDates.includes(routeDate)) setRouteDate(weekVisitDates[0]);
-  }, [weekStart, selectedDay, routeDate, weekVisitDates]);
+    if (!weekVisitDates.includes(routeDate) && monthDays.includes(routeDate) === false) {
+      setRouteDate(weekVisitDates[0]);
+    }
+  }, [weekStart, selectedDay, routeDate, weekVisitDates, monthDays]);
 
   const loadRouteDraft = useCallback(() => {
     if (!routeSupervisorId || !routeDate) {
@@ -292,25 +323,6 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
       .sort((a, b) => a.unit.name.localeCompare(b.unit.name, 'es'));
   }, [units, hydratedAssignments, search, filterSupervisor, filterCategory]);
 
-  const summary = useMemo(
-    () =>
-      supervisors
-        .map((supervisor) => {
-          const rows = hydratedAssignments.filter(
-            (a) => a.supervisorStaffId === supervisor.id && a.isActive
-          );
-          return {
-            supervisor,
-            units: rows.length,
-            alta: rows.filter((a) => a.category === 'ALTA').length,
-            media: rows.filter((a) => a.category === 'MEDIA').length,
-            baja: rows.filter((a) => a.category === 'BAJA').length,
-          };
-        })
-        .filter((s) => s.units > 0),
-    [supervisors, hydratedAssignments]
-  );
-
   const visitsForView = useMemo(() => {
     const list = lockedSupervisorId
       ? hydratedVisits.filter((v) => v.supervisorStaffId === lockedSupervisorId)
@@ -322,26 +334,70 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
 
   const dayExecutionVisits = visitsForView.filter((v) => v.visitDate === selectedDay);
 
-  const planAssignments = useMemo(
-    () =>
-      hydratedAssignments.filter(
-        (a) => a.isActive && a.supervisorStaffId && a.supervisorStaffId === planSupervisorId
-      ),
-    [hydratedAssignments, planSupervisorId]
-  );
+  const findPlanned = (unitId: string, dateStr: string, supervisorStaffId?: string) =>
+    hydratedVisits.find(
+      (v) =>
+        v.unitId === unitId &&
+        v.visitDate === dateStr &&
+        (!supervisorStaffId || v.supervisorStaffId === supervisorStaffId) &&
+        v.status !== 'cancelled'
+    );
 
-  const theoreticalCount = useMemo(
-    () =>
-      planAssignments.reduce(
-        (sum, a) => sum + weekVisitDates.filter((d) => isTheoreticallyExpected(a, parseYmd(d))).length,
-        0
-      ),
-    [planAssignments, weekVisitDates]
-  );
+  const togglePlannedDay = async (assignment: SupervisionAssignment | undefined, unit: Unit, dateStr: string) => {
+    if (!canDesign || !canEdit) return;
+    const supervisorId = assignment?.supervisorStaffId;
+    if (!supervisorId) {
+      setError('Asigne un supervisor a la unidad antes de programar el día.');
+      return;
+    }
+    const existing = findPlanned(unit.id, dateStr, supervisorId);
+    setSaving(true);
+    setError(null);
+    try {
+      if (existing) {
+        if (existing.status !== 'pending') {
+          setError('Esa visita ya tiene ejecución y no se puede quitar.');
+          return;
+        }
+        await supervisionPlanningService.deleteVisit(existing.id);
+        setVisits((prev) => prev.filter((v) => v.id !== existing.id));
+      } else {
+        const weekdayRoute = routes.find(
+          (r) => r.supervisorStaffId === supervisorId && r.weekday === isoFromYmd(dateStr)
+        );
+        const created = await supervisionPlanningService.createManualVisit({
+          unitId: unit.id,
+          supervisorStaffId: supervisorId,
+          coordinatorStaffId: assignment?.coordinatorStaffId,
+          visitDate: dateStr,
+          userId: currentUser.id,
+        });
+        const stopOrder = weekdayRoute?.stops.find((s) => s.unitId === unit.id)?.stopOrder;
+        const saved = stopOrder
+          ? await supervisionPlanningService.updateVisit(created.id, { stopOrder }, currentUser.id)
+          : created;
+        setVisits((prev) => [...prev, saved]);
+      }
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const plannedCount = hydratedVisits.filter(
-    (v) => v.supervisorStaffId === planSupervisorId && v.status !== 'cancelled'
-  ).length;
+  const suggestMonth = async () => {
+    if (!canDesign || !canEdit) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await supervisionPlanningService.generateMonth(calendarMonth.year, calendarMonth.month, currentUser.id);
+      await loadAll();
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const moveStop = (index: number, dir: -1 | 1) => {
     setDraftStops((prev) => {
@@ -381,71 +437,11 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
       const updated = await Promise.all(
         draftStops.map(async (stop, index) => {
           if (!stop.visitId) return null;
-          return supervisionPlanningService.updateVisit(
-            stop.visitId,
-            { stopOrder: index + 1 },
-            currentUser.id
-          );
+          return supervisionPlanningService.updateVisit(stop.visitId, { stopOrder: index + 1 }, currentUser.id);
         })
       );
       setVisits((prev) => prev.map((visit) => updated.find((u) => u?.id === visit.id) || visit));
       setRoutes(await supervisionPlanningService.getRoutes(lockedSupervisorId));
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const suggestFromTheoretical = async () => {
-    if (!canDesign || !canEdit) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await supervisionPlanningService.generateWeek(formatDateYmd(weekStart), currentUser.id);
-      await loadAll();
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const togglePlannedDay = async (assignment: SupervisionAssignment, dateStr: string) => {
-    if (!canDesign || !canEdit || !assignment.supervisorStaffId) return;
-    const existing = hydratedVisits.find(
-      (v) =>
-        v.unitId === assignment.unitId &&
-        v.visitDate === dateStr &&
-        v.supervisorStaffId === assignment.supervisorStaffId
-    );
-    setSaving(true);
-    setError(null);
-    try {
-      if (existing) {
-        if (existing.status !== 'pending') {
-          setError('Esa visita ya tiene ejecución y no se puede quitar de la planificación.');
-          return;
-        }
-        await supervisionPlanningService.deleteVisit(existing.id);
-        setVisits((prev) => prev.filter((v) => v.id !== existing.id));
-      } else {
-        const weekdayRoute = routes.find(
-          (r) => r.supervisorStaffId === assignment.supervisorStaffId && r.weekday === isoFromYmd(dateStr)
-        );
-        const created = await supervisionPlanningService.createManualVisit({
-          unitId: assignment.unitId,
-          supervisorStaffId: assignment.supervisorStaffId,
-          coordinatorStaffId: assignment.coordinatorStaffId,
-          visitDate: dateStr,
-          userId: currentUser.id,
-        });
-        const stopOrder = weekdayRoute?.stops.find((s) => s.unitId === assignment.unitId)?.stopOrder;
-        const saved = stopOrder
-          ? await supervisionPlanningService.updateVisit(created.id, { stopOrder }, currentUser.id)
-          : created;
-        setVisits((prev) => [...prev, saved]);
-      }
     } catch (err) {
       handleError(err);
     } finally {
@@ -544,79 +540,89 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
     }
   };
 
+  const shiftMonth = (delta: number) => {
+    setCalendarMonth((prev) => {
+      const d = new Date(prev.year, prev.month + delta, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
+  };
+
   const visibleTabs: Array<{ id: PlanningTab; label: string; hidden?: boolean }> = [
-    { id: 'assignments', label: 'Asignación teórica', hidden: !canDesign },
-    { id: 'plan', label: 'Planificación', hidden: !canDesign },
+    { id: 'assignments', label: 'Asignación', hidden: !canDesign },
     { id: 'routes', label: 'Rutas', hidden: !canDesign },
-    { id: 'execution', label: lockedSupervisorId ? 'Mi ejecución' : 'Ejecución' },
+    { id: 'execution', label: 'Ejecución' },
   ];
 
-  const weekNav = (
-    <div className="flex flex-wrap items-center gap-2">
+  const dayCell = (
+    unit: Unit,
+    assignment: SupervisionAssignment | undefined,
+    dateStr: string,
+    compact = false
+  ) => {
+    const theoretical = assignment ? isTheoreticallyExpected(assignment, parseYmd(dateStr)) : false;
+    const planned = assignment?.supervisorStaffId
+      ? findPlanned(unit.id, dateStr, assignment.supervisorStaffId)
+      : undefined;
+    const size = compact ? 'w-9 h-9' : 'w-8 h-8';
+    return (
       <button
-        onClick={() => setWeekStart(addDays(weekStart, -7))}
-        className="p-2 rounded-lg border border-slate-300 bg-white"
+        disabled={!canDesign || !canEdit || saving}
+        onClick={() => togglePlannedDay(assignment, unit, dateStr)}
+        className={`${size} rounded text-xs font-bold border ${
+          planned
+            ? planned.status === 'pending'
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-emerald-600 text-white border-emerald-600'
+            : theoretical
+              ? 'bg-white text-slate-400 border-dashed border-slate-400'
+              : 'bg-slate-50 text-slate-300 border-slate-200'
+        }`}
+        title={theoretical ? 'Día de supervisión (patrón)' : 'Programar visita real'}
       >
-        <ChevronLeft size={16} />
+        {planned ? 'X' : theoretical ? '·' : ''}
       </button>
-      <p className="text-sm font-medium text-slate-700 min-w-[180px] text-center capitalize">
-        {formatWeekRange(weekStart)}
-      </p>
-      <button
-        onClick={() => setWeekStart(addDays(weekStart, 7))}
-        className="p-2 rounded-lg border border-slate-300 bg-white"
-      >
-        <ChevronRight size={16} />
-      </button>
-      <button
-        onClick={() => setWeekStart(mondayOf(new Date()))}
-        className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-      >
-        Esta semana
-      </button>
-    </div>
-  );
+    );
+  };
+
+  const executionDone = dayExecutionVisits.filter((v) => v.status === 'completed').length;
+  const executionProgress = dayExecutionVisits.filter((v) => v.status === 'in_progress').length;
 
   if (missingTable) {
     return (
-      <div className="p-6">
-        <div className="max-w-2xl bg-amber-50 border border-amber-200 rounded-xl p-6">
+      <div className="p-4 md:p-6">
+        <div className="max-w-2xl bg-amber-50 border border-amber-200 rounded-xl p-5">
           <h2 className="text-lg font-semibold text-amber-900 flex items-center gap-2">
             <AlertTriangle size={18} /> Falta crear las tablas de supervisión
           </h2>
           <p className="text-sm text-amber-800 mt-2">
-            Ejecute en Supabase <code className="font-mono">database/migrations/create_supervision_planning.sql</code>
-            {' '}y, si ya lo corrió, también{' '}
-            <code className="font-mono">database/migrations/add_supervision_visit_evidence.sql</code>.
+            Ejecute en Supabase <code className="font-mono">create_supervision_planning.sql</code> y{' '}
+            <code className="font-mono">add_supervision_visit_evidence.sql</code>.
           </p>
         </div>
       </div>
     );
   }
 
-  const executionDone = dayExecutionVisits.filter((v) => v.status === 'completed').length;
-  const executionProgress = dayExecutionVisits.filter((v) => v.status === 'in_progress').length;
-
   return (
-    <div className="p-4 md:p-6 space-y-5">
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+    <div className="p-3 md:p-6 space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Supervisión de campo</h1>
+          <h1 className="text-xl md:text-2xl font-bold text-slate-800">Supervisión de campo</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Asignación teórica, programación real de la semana, rutas por calles y ejecución con evidencia.
+            Los días L–D son el patrón de la unidad. El calendario del mes es la programación real.
           </p>
         </div>
-        {canEdit && (tab === 'plan' || tab === 'execution') && (
+        {canEdit && tab === 'execution' && (
           <button
             onClick={() => {
               setManualVisit({
                 unitId: '',
-                supervisorStaffId: lockedSupervisorId || planSupervisorId || supervisors[0]?.id || '',
+                supervisorStaffId: lockedSupervisorId || routeSupervisorId || supervisors[0]?.id || '',
                 visitDate: selectedDay,
               });
               setShowManualVisit(true);
             }}
-            className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-1"
+            className="min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 flex items-center justify-center gap-1"
           >
             <Plus size={16} /> Visita extra
           </button>
@@ -625,7 +631,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
 
       {currentUser.role === 'OPERATIONS_SUPERVISOR' && !linkedStaff && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
-          Su usuario no está vinculado a un supervisor del equipo de gestión. Pida que el correo coincida con el registro de Personal de gestión.
+          Vincule el correo de su usuario con el personal de gestión para ver solo su ruta.
         </div>
       )}
 
@@ -638,31 +644,15 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
         </div>
       )}
 
-      {summary.length > 0 && tab === 'assignments' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {summary.map((item) => (
-            <div key={item.supervisor.id} className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="font-semibold text-slate-800">{item.supervisor.name}</p>
-              <p className="text-xs text-slate-500 mt-1">{item.units} unidades en el teórico</p>
-              <div className="flex gap-3 mt-3 text-xs">
-                <span className="text-rose-700">Alta {item.alta}</span>
-                <span className="text-amber-700">Media {item.media}</span>
-                <span className="text-slate-600">Baja {item.baja}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-1 bg-white border border-slate-200 rounded-lg p-1 w-fit">
+      <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1">
         {visibleTabs
           .filter((t) => !t.hidden)
           .map((item) => (
             <button
               key={item.id}
               onClick={() => setTab(item.id)}
-              className={`px-3 py-2 rounded-md text-sm font-medium ${
-                tab === item.id ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+              className={`flex-1 min-h-[44px] px-3 rounded-lg text-sm font-medium ${
+                tab === item.id ? 'bg-blue-600 text-white' : 'text-slate-600'
               }`}
             >
               {item.label}
@@ -671,26 +661,43 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
       </div>
 
       {loading ? (
-        <div className="text-sm text-slate-500 py-12 text-center">Cargando planificación…</div>
+        <div className="text-sm text-slate-500 py-12 text-center">Cargando…</div>
       ) : tab === 'assignments' ? (
         <div className="space-y-4">
-          <p className="text-sm text-slate-500">
-            Patrón teórico de supervisión (frecuencia y días habituales). La programación real de cada semana se arma en Planificación.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => shiftMonth(-1)} className="min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 bg-white flex items-center justify-center">
+              <ChevronLeft size={16} />
+            </button>
+            <p className="text-sm font-semibold text-slate-800 capitalize min-w-[140px] text-center">
+              {formatMonthLabel(calendarMonth.year, calendarMonth.month)}
+            </p>
+            <button onClick={() => shiftMonth(1)} className="min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 bg-white flex items-center justify-center">
+              <ChevronRight size={16} />
+            </button>
+            {canDesign && canEdit && (
+              <button
+                onClick={suggestMonth}
+                disabled={saving}
+                className="min-h-[44px] px-3 rounded-lg bg-slate-800 text-white text-sm disabled:opacity-50"
+              >
+                Sugerir mes según días de supervisión
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search size={16} className="absolute left-3 top-3 text-slate-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar unidad, cliente o supervisor"
-                className="w-full border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm"
+                placeholder="Buscar unidad"
+                className="w-full border border-slate-300 rounded-lg pl-9 pr-3 py-2.5 text-sm min-h-[44px]"
               />
             </div>
             <select
               value={filterSupervisor}
               onChange={(e) => setFilterSupervisor(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
             >
               <option value="all">Todos los supervisores</option>
               {supervisors.map((s) => (
@@ -702,7 +709,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value as typeof filterCategory)}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
             >
               <option value="all">Toda categoría</option>
               {SUPERVISION_CATEGORIES.map((c) => (
@@ -712,20 +719,186 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
               ))}
             </select>
           </div>
-          <div className="overflow-auto bg-white border border-slate-200 rounded-xl">
-            <table className="min-w-[1100px] w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
+
+          <p className="text-xs text-slate-500">
+            <span className="font-medium">Días de supervisión</span> (L–D): patrón de la unidad. El resto de columnas son
+            fechas reales del mes: <span className="text-blue-700 font-semibold">X</span> visita programada, punto
+            punteado = el patrón sugiere ese día.
+          </p>
+
+          {/* Móvil: tarjetas */}
+          <div className="space-y-3 lg:hidden">
+            {assignmentRows.map(({ unit, assignment }) => (
+              <div key={unit.id} className="bg-white border border-slate-200 rounded-xl p-3 space-y-3">
+                <div>
+                  <p className="font-semibold text-slate-800">{unit.name}</p>
+                  <p className="text-xs text-slate-500">{unit.address || unit.clientName}</p>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  <select
+                    disabled={!canDesign || !canEdit}
+                    value={assignment?.supervisorStaffId || ''}
+                    onChange={(e) =>
+                      saveAssignment({
+                        id: assignment?.id,
+                        unitId: unit.id,
+                        supervisorStaffId: e.target.value || null,
+                        coordinatorStaffId: assignment?.coordinatorStaffId || unit.coordinator?.id || null,
+                        category: assignment?.category || 'MEDIA',
+                        frequency: assignment?.frequency || 'SEMANAL',
+                        visitDays: assignment?.visitDays,
+                        restWeekday: assignment?.restWeekday,
+                      })
+                    }
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[44px]"
+                  >
+                    <option value="">Supervisor…</option>
+                    {supervisors.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      disabled={!canDesign || !canEdit}
+                      value={assignment?.category || 'MEDIA'}
+                      onChange={(e) =>
+                        saveAssignment({
+                          id: assignment?.id,
+                          unitId: unit.id,
+                          supervisorStaffId: assignment?.supervisorStaffId || null,
+                          coordinatorStaffId: assignment?.coordinatorStaffId || null,
+                          category: e.target.value as SupervisionAssignment['category'],
+                          frequency: assignment?.frequency || 'SEMANAL',
+                          visitDays: assignment?.visitDays,
+                          restWeekday: assignment?.restWeekday,
+                        })
+                      }
+                      className="border border-slate-200 rounded-lg px-2 py-2 text-sm min-h-[44px]"
+                    >
+                      {SUPERVISION_CATEGORIES.map((c) => (
+                        <option key={c.value} value={c.value}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      disabled={!canDesign || !canEdit}
+                      value={assignment?.frequency || 'SEMANAL'}
+                      onChange={(e) =>
+                        saveAssignment({
+                          id: assignment?.id,
+                          unitId: unit.id,
+                          supervisorStaffId: assignment?.supervisorStaffId || null,
+                          coordinatorStaffId: assignment?.coordinatorStaffId || null,
+                          category: assignment?.category || 'MEDIA',
+                          frequency: e.target.value as SupervisionAssignment['frequency'],
+                          visitDays: assignment?.visitDays,
+                          restWeekday: assignment?.restWeekday,
+                        })
+                      }
+                      className="border border-slate-200 rounded-lg px-2 py-2 text-sm min-h-[44px]"
+                    >
+                      {SUPERVISION_FREQUENCIES.map((f) => (
+                        <option key={f.value} value={f.value}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-2">Días de supervisión</p>
+                  <div className="flex gap-1">
+                    {WEEKDAYS.map((d) => {
+                      const checked = Boolean(assignment?.visitDays?.[d.key]);
+                      return (
+                        <button
+                          key={d.key}
+                          disabled={!canDesign || !canEdit}
+                          onClick={() =>
+                            saveAssignment({
+                              id: assignment?.id,
+                              unitId: unit.id,
+                              supervisorStaffId:
+                                assignment?.supervisorStaffId || unit.rovingSupervisor?.id || null,
+                              coordinatorStaffId:
+                                assignment?.coordinatorStaffId || unit.coordinator?.id || null,
+                              category: assignment?.category || 'MEDIA',
+                              frequency: assignment?.frequency || 'SEMANAL',
+                              visitDays: { ...(assignment?.visitDays || {}), [d.key]: !checked },
+                              restWeekday: assignment?.restWeekday,
+                            })
+                          }
+                          className={`flex-1 min-h-[40px] rounded-lg text-[11px] font-bold ${
+                            checked ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {d.short}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-2">Programación real del mes</p>
+                  <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
+                    {monthDays.map((dateStr) => (
+                      <div key={dateStr} className="flex flex-col items-center gap-1 shrink-0">
+                        <span className="text-[10px] text-slate-400">
+                          {WEEKDAYS[isoFromYmd(dateStr) - 1].short[0]}
+                        </span>
+                        <span className="text-[10px] text-slate-500">{parseYmd(dateStr).getDate()}</span>
+                        {dayCell(unit, assignment, dateStr, true)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Escritorio: tabla amplia */}
+          <div className="hidden lg:block overflow-auto bg-white border border-slate-200 rounded-xl max-h-[70vh]">
+            <table className="min-w-[1600px] w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600 sticky top-0 z-[2]">
                 <tr>
-                  <th className="text-left px-3 py-2 font-medium sticky left-0 bg-slate-50">Unidad</th>
-                  <th className="text-left px-3 py-2 font-medium">Supervisor</th>
-                  <th className="text-left px-3 py-2 font-medium">Coordinador</th>
-                  <th className="text-left px-3 py-2 font-medium">Categoría</th>
-                  <th className="text-left px-3 py-2 font-medium">Frecuencia</th>
+                  <th className="text-left px-3 py-2 font-medium sticky left-0 bg-slate-50 min-w-[180px]">Unidad</th>
+                  <th className="text-left px-2 py-2 font-medium min-w-[140px]">Supervisor</th>
+                  <th className="text-left px-2 py-2 font-medium min-w-[120px]">Coordinador</th>
+                  <th className="text-left px-2 py-2 font-medium">Cat.</th>
+                  <th className="text-left px-2 py-2 font-medium">Frec.</th>
+                  <th className="px-1 py-2 font-medium text-center text-xs" colSpan={7}>
+                    Días de supervisión
+                  </th>
+                  <th className="px-1 py-2 font-medium text-center text-xs" colSpan={monthDays.length}>
+                    Programación real · {formatMonthLabel(calendarMonth.year, calendarMonth.month)}
+                  </th>
+                </tr>
+                <tr>
+                  <th className="sticky left-0 bg-slate-50" />
+                  <th /><th /><th /><th />
                   {WEEKDAYS.map((d) => (
-                    <th key={d.key} className="px-1 py-2 font-medium text-center w-10">
+                    <th key={d.key} className="px-0.5 py-1 font-medium text-center w-8 text-[11px]">
                       {d.short}
                     </th>
                   ))}
+                  {monthDays.map((dateStr) => {
+                    const iso = isoFromYmd(dateStr);
+                    const weekend = iso >= 6;
+                    return (
+                      <th
+                        key={dateStr}
+                        className={`px-0.5 py-1 font-medium text-center w-8 text-[10px] ${
+                          weekend ? 'text-slate-400' : ''
+                        }`}
+                      >
+                        <div>{WEEKDAYS[iso - 1].short[0]}</div>
+                        <div>{parseYmd(dateStr).getDate()}</div>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -735,7 +908,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                       <p className="font-medium text-slate-800">{unit.name}</p>
                       <p className="text-xs text-slate-500">{unit.address || unit.clientName}</p>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1">
                       <select
                         disabled={!canDesign || !canEdit}
                         value={assignment?.supervisorStaffId || ''}
@@ -751,7 +924,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                             restWeekday: assignment?.restWeekday,
                           })
                         }
-                        className="w-full border border-slate-200 rounded px-2 py-1"
+                        className="w-full border border-slate-200 rounded px-1 py-1"
                       >
                         <option value="">Sin asignar</option>
                         {supervisors.map((s) => (
@@ -761,7 +934,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                         ))}
                       </select>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1">
                       <select
                         disabled={!canDesign || !canEdit}
                         value={assignment?.coordinatorStaffId || ''}
@@ -777,9 +950,9 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                             restWeekday: assignment?.restWeekday,
                           })
                         }
-                        className="w-full border border-slate-200 rounded px-2 py-1"
+                        className="w-full border border-slate-200 rounded px-1 py-1"
                       >
-                        <option value="">Sin asignar</option>
+                        <option value="">—</option>
                         {coordinators.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name}
@@ -787,7 +960,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                         ))}
                       </select>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-1 py-1">
                       <select
                         disabled={!canDesign || !canEdit}
                         value={assignment?.category || 'MEDIA'}
@@ -803,7 +976,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                             restWeekday: assignment?.restWeekday,
                           })
                         }
-                        className="w-full border border-slate-200 rounded px-2 py-1"
+                        className="border border-slate-200 rounded px-1 py-1"
                       >
                         {SUPERVISION_CATEGORIES.map((c) => (
                           <option key={c.value} value={c.value}>
@@ -812,7 +985,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                         ))}
                       </select>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-1 py-1">
                       <select
                         disabled={!canDesign || !canEdit}
                         value={assignment?.frequency || 'SEMANAL'}
@@ -828,7 +1001,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                             restWeekday: assignment?.restWeekday,
                           })
                         }
-                        className="w-full border border-slate-200 rounded px-2 py-1"
+                        className="border border-slate-200 rounded px-1 py-1 max-w-[120px]"
                       >
                         {SUPERVISION_FREQUENCIES.map((f) => (
                           <option key={f.value} value={f.value}>
@@ -840,7 +1013,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                     {WEEKDAYS.map((d) => {
                       const checked = Boolean(assignment?.visitDays?.[d.key]);
                       return (
-                        <td key={d.key} className="px-1 py-2 text-center">
+                        <td key={d.key} className="px-0.5 py-1 text-center">
                           <button
                             disabled={!canDesign || !canEdit}
                             onClick={() =>
@@ -857,8 +1030,8 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                                 restWeekday: assignment?.restWeekday,
                               })
                             }
-                            className={`w-8 h-8 rounded text-xs font-bold ${
-                              checked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'
+                            className={`w-7 h-8 rounded text-[11px] font-bold ${
+                              checked ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-400'
                             }`}
                           >
                             {checked ? 'X' : ''}
@@ -866,116 +1039,24 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                         </td>
                       );
                     })}
+                    {monthDays.map((dateStr) => (
+                      <td key={dateStr} className="px-0.5 py-1 text-center">
+                        {dayCell(unit, assignment, dateStr)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : tab === 'plan' ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {weekNav}
-            <select
-              value={planSupervisorId}
-              onChange={(e) => setPlanSupervisorId(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              disabled={Boolean(lockedSupervisorId)}
-            >
-              {supervisors.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            {canDesign && canEdit && (
-              <button
-                onClick={suggestFromTheoretical}
-                disabled={saving}
-                className="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm disabled:opacity-50"
-              >
-                Sugerir desde el teórico
-              </button>
-            )}
-          </div>
-          <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 text-sm text-slate-600">
-            Marque las visitas reales de la semana (como las fechas del Excel). <strong>T</strong> es lo que pide el teórico;
-            la <strong>X</strong> azul es lo programado. Esta semana: <strong>{plannedCount}</strong> programadas de{' '}
-            <strong>{theoreticalCount}</strong> teóricas.
-          </div>
-          <div className="overflow-auto bg-white border border-slate-200 rounded-xl">
-            <table className="min-w-[900px] w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="text-left px-3 py-2 font-medium sticky left-0 bg-slate-50">Unidad</th>
-                  <th className="text-left px-3 py-2 font-medium">Frecuencia</th>
-                  {weekVisitDates.map((dateStr, idx) => (
-                    <th key={dateStr} className="px-2 py-2 font-medium text-center">
-                      <div>{WEEKDAYS[idx].short}</div>
-                      <div className="text-xs font-normal text-slate-400">{parseYmd(dateStr).getDate()}</div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {planAssignments.map((assignment) => (
-                  <tr key={assignment.id} className="border-t border-slate-100">
-                    <td className="px-3 py-2 sticky left-0 bg-white">
-                      <p className="font-medium text-slate-800">{assignment.unitName}</p>
-                      <p className="text-xs text-slate-500">{assignment.unitAddress}</p>
-                    </td>
-                    <td className="px-3 py-2 text-xs text-slate-500">{frequencyLabel(assignment.frequency)}</td>
-                    {weekVisitDates.map((dateStr) => {
-                      const theoretical = isTheoreticallyExpected(assignment, parseYmd(dateStr));
-                      const planned = hydratedVisits.find(
-                        (v) =>
-                          v.unitId === assignment.unitId &&
-                          v.visitDate === dateStr &&
-                          v.supervisorStaffId === assignment.supervisorStaffId &&
-                          v.status !== 'cancelled'
-                      );
-                      return (
-                        <td key={dateStr} className="px-2 py-2 text-center">
-                          <button
-                            disabled={!canDesign || !canEdit || saving}
-                            onClick={() => togglePlannedDay(assignment, dateStr)}
-                            className={`w-9 h-9 rounded text-xs font-bold border ${
-                              planned
-                                ? planned.status === 'pending'
-                                  ? 'bg-blue-600 text-white border-blue-600'
-                                  : 'bg-emerald-600 text-white border-emerald-600'
-                                : theoretical
-                                  ? 'bg-white text-slate-400 border-dashed border-slate-400'
-                                  : 'bg-slate-50 text-slate-300 border-slate-200'
-                            }`}
-                            title={theoretical ? 'El teórico sugiere este día' : 'Fuera del patrón teórico'}
-                          >
-                            {planned ? 'X' : theoretical ? 'T' : ''}
-                          </button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                {!planAssignments.length && (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
-                      Asigne unidades a este supervisor en Asignación teórica.
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
         </div>
       ) : tab === 'routes' ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2 items-center">
-            {weekNav}
+          <div className="flex flex-wrap gap-2">
             <select
               value={routeSupervisorId}
               onChange={(e) => setRouteSupervisorId(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="flex-1 min-w-[160px] border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
               disabled={Boolean(lockedSupervisorId)}
             >
               {supervisors.map((s) => (
@@ -987,26 +1068,26 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
             <select
               value={routeDate}
               onChange={(e) => setRouteDate(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
             >
-              {weekVisitDates.map((d, idx) => (
+              {monthDays.map((d) => (
                 <option key={d} value={d}>
-                  {WEEKDAYS[idx].label} {parseYmd(d).getDate()}
+                  {WEEKDAYS[isoFromYmd(d) - 1].short} {parseYmd(d).getDate()}
                 </option>
               ))}
             </select>
           </div>
           <p className="text-sm text-slate-500">
-            El orden y el mapa usan las visitas planificadas de ese día, no el patrón teórico. El trazado sigue calles.
-            {draftDistance != null ? ` Distancia entre paradas: ${draftDistance} km.` : ''}
+            Ruta del día programado (no del patrón L–D). El mapa sigue calles.
+            {draftDistance != null ? ` ${draftDistance} km entre paradas.` : ''}
           </p>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+          <div className="flex flex-col lg:grid lg:grid-cols-2 gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 order-2 lg:order-1">
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={optimizeDraft}
                   disabled={!draftStops.length}
-                  className="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm flex items-center gap-1 disabled:opacity-50"
+                  className="min-h-[44px] px-3 rounded-lg bg-slate-800 text-white text-sm flex items-center gap-1 disabled:opacity-50"
                 >
                   <Sparkles size={16} /> Ruta más eficiente
                 </button>
@@ -1014,31 +1095,28 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                   <button
                     onClick={saveDraftRoute}
                     disabled={saving || !draftStops.length}
-                    className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm flex items-center gap-1 disabled:opacity-50"
+                    className="min-h-[44px] px-3 rounded-lg bg-blue-600 text-white text-sm flex items-center gap-1 disabled:opacity-50"
                   >
                     <Save size={16} /> Guardar orden
                   </button>
                 )}
               </div>
-              <ol className="space-y-2 max-h-[420px] overflow-auto">
+              <ol className="space-y-2">
                 {draftStops.map((stop, index) => (
                   <li key={stop.unitId} className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2">
-                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
+                    <span className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
                       {index + 1}
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-slate-800 truncate">{stop.unitName}</p>
-                      <p className="text-xs text-slate-500">
-                        {stop.latitude != null ? 'Con ubicación' : 'Sin coordenadas'}
-                      </p>
                     </div>
                     {canDesign && canEdit && (
                       <div className="flex flex-col">
-                        <button onClick={() => moveStop(index, -1)} className="text-slate-400 hover:text-slate-700">
-                          <ChevronUp size={14} />
+                        <button onClick={() => moveStop(index, -1)} className="p-1 text-slate-400">
+                          <ChevronUp size={16} />
                         </button>
-                        <button onClick={() => moveStop(index, 1)} className="text-slate-400 hover:text-slate-700">
-                          <ChevronDown size={14} />
+                        <button onClick={() => moveStop(index, 1)} className="p-1 text-slate-400">
+                          <ChevronDown size={16} />
                         </button>
                       </div>
                     )}
@@ -1046,199 +1124,217 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
                 ))}
                 {!draftStops.length && (
                   <li className="text-sm text-slate-500 py-6 text-center">
-                    No hay visitas planificadas este día. Ármelas en Planificación.
+                    No hay visitas programadas este día. Márquelas en Asignación.
                   </li>
                 )}
               </ol>
             </div>
-            <SupervisionRouteMap
-              stops={draftStops.map((s, i) => ({
-                id: s.unitId,
-                name: s.unitName,
-                latitude: s.latitude,
-                longitude: s.longitude,
-                order: i + 1,
-              }))}
-            />
+            {!modalOpen && (
+              <div className="order-1 lg:order-2">
+                <SupervisionRouteMap
+                  heightClass="h-64 md:h-[420px]"
+                  stops={draftStops.map((s, i) => ({
+                    id: s.unitId,
+                    name: s.unitName,
+                    latitude: s.latitude,
+                    longitude: s.longitude,
+                    order: i + 1,
+                  }))}
+                />
+              </div>
+            )}
           </div>
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {weekNav}
-            {canDesign && !lockedSupervisorId && (
-              <select
-                value={filterSupervisor}
-                onChange={(e) => setFilterSupervisor(e.target.value)}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="all">Todos los supervisores</option>
-                {supervisors.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setWeekStart(addDays(weekStart, -7))}
+              className="min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 bg-white flex items-center justify-center"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <p className="flex-1 text-sm font-medium text-slate-700 text-center capitalize">
+              {formatWeekRange(weekStart)}
+            </p>
+            <button
+              onClick={() => setWeekStart(addDays(weekStart, 7))}
+              className="min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 bg-white flex items-center justify-center"
+            >
+              <ChevronRight size={18} />
+            </button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Planificadas hoy</p>
-              <p className="text-2xl font-bold text-slate-800">{dayExecutionVisits.length}</p>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">En ruta</p>
-              <p className="text-2xl font-bold text-blue-700">{executionProgress}</p>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Completadas</p>
-              <p className="text-2xl font-bold text-emerald-700">{executionDone}</p>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Avance</p>
-              <p className="text-2xl font-bold text-slate-800">
-                {dayExecutionVisits.length ? Math.round((executionDone / dayExecutionVisits.length) * 100) : 0}%
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
+          {canDesign && !lockedSupervisorId && (
+            <select
+              value={filterSupervisor}
+              onChange={(e) => setFilterSupervisor(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
+            >
+              <option value="all">Todos los supervisores</option>
+              {supervisors.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="flex gap-2 overflow-x-auto pb-1 snap-x">
             {weekVisitDates.map((dateStr, idx) => {
               const dayVisits = visitsForView.filter((v) => v.visitDate === dateStr);
               const done = dayVisits.filter((v) => v.status === 'completed').length;
+              const selected = selectedDay === dateStr;
               return (
                 <button
                   key={dateStr}
                   onClick={() => setSelectedDay(dateStr)}
-                  className={`text-left rounded-xl border p-3 ${
-                    selectedDay === dateStr ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'
+                  className={`snap-start shrink-0 min-w-[4.5rem] rounded-xl border p-3 text-left ${
+                    selected ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'
                   }`}
                 >
-                  <p className="text-xs font-semibold text-slate-500 uppercase">{WEEKDAYS[idx].short}</p>
-                  <p className="text-sm font-bold text-slate-800">{parseYmd(dateStr).getDate()}</p>
-                  <p className="text-xs text-slate-500 mt-2">{dayVisits.length} planificadas</p>
-                  {dayVisits.length > 0 && <p className="text-xs text-emerald-700">{done} hechas</p>}
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase">{WEEKDAYS[idx].short}</p>
+                  <p className="text-lg font-bold text-slate-800">{parseYmd(dateStr).getDate()}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">{dayVisits.length} vis.</p>
+                  {dayVisits.length > 0 && <p className="text-[11px] text-emerald-700">{done} ok</p>}
                 </button>
               );
             })}
           </div>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <h3 className="font-semibold text-slate-800 capitalize flex items-center gap-2">
-                <Calendar size={16} /> {formatDateFull(selectedDay)}
-              </h3>
-              <div className="mt-4 space-y-2">
-                {dayExecutionVisits.map((visit) => {
-                  const cat = categoryStyle(visit.category);
-                  return (
-                    <div key={visit.id} className="border border-slate-200 rounded-lg p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium text-slate-800">{visit.unitName}</p>
-                          <p className="text-xs text-slate-500">
-                            {visit.supervisorName} · {visit.unitAddress}
-                          </p>
-                        </div>
-                        <span className={`text-[11px] px-2 py-0.5 rounded-full ${visitStatusClass[visit.status]}`}>
-                          {visitStatusLabel[visit.status]}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-2 mt-2 items-center">
-                        <span className={`text-[11px] px-2 py-0.5 rounded-full ${cat.badge}`}>{cat.label}</span>
-                        {visit.stopOrder ? (
-                          <span className="text-xs text-slate-500">Parada {visit.stopOrder}</span>
-                        ) : null}
-                        {visit.checkInAt && (
-                          <span className="text-xs text-slate-500 flex items-center gap-1">
-                            <Clock size={12} /> {formatTime(visit.checkInAt)}
-                          </span>
-                        )}
-                      </div>
-                      {!!visit.evidenceUrls?.length && (
-                        <div className="flex gap-2 mt-2">
-                          {visit.evidenceUrls.map((url) => (
-                            <a key={url} href={url} target="_blank" rel="noreferrer">
-                              <img
-                                src={url}
-                                alt="Evidencia"
-                                className="w-14 h-14 object-cover rounded border border-slate-200"
-                              />
-                            </a>
-                          ))}
-                        </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <p className="text-[11px] text-slate-500">Hoy</p>
+              <p className="text-xl font-bold text-slate-800">{dayExecutionVisits.length}</p>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <p className="text-[11px] text-slate-500">En ruta</p>
+              <p className="text-xl font-bold text-blue-700">{executionProgress}</p>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <p className="text-[11px] text-slate-500">Hechas</p>
+              <p className="text-xl font-bold text-emerald-700">{executionDone}</p>
+            </div>
+          </div>
+          <h3 className="font-semibold text-slate-800 capitalize flex items-center gap-2">
+            <Calendar size={16} /> {formatDateFull(selectedDay)}
+          </h3>
+          <div className="space-y-3">
+            {dayExecutionVisits.map((visit) => {
+              const cat = categoryStyle(visit.category);
+              return (
+                <div key={visit.id} className="bg-white border border-slate-200 rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-800">{visit.unitName}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {visit.supervisorName}
+                        {visit.unitAddress ? ` · ${visit.unitAddress}` : ''}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 text-[11px] px-2 py-1 rounded-full ${visitStatusClass[visit.status]}`}>
+                      {visitStatusLabel[visit.status]}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full ${cat.badge}`}>{cat.label}</span>
+                    {visit.stopOrder ? <span className="text-xs text-slate-500">Parada {visit.stopOrder}</span> : null}
+                    {visit.checkInAt && (
+                      <span className="text-xs text-slate-500 flex items-center gap-1">
+                        <Clock size={12} /> {formatTime(visit.checkInAt)}
+                      </span>
+                    )}
+                  </div>
+                  {!!visit.evidenceUrls?.length && (
+                    <div className="flex gap-2 mt-2">
+                      {visit.evidenceUrls.map((url) => (
+                        <a key={url} href={url} target="_blank" rel="noreferrer">
+                          <img src={url} alt="Evidencia" className="w-16 h-16 object-cover rounded-lg border" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {canActOnVisit(visit) && (
+                    <div className="flex flex-col sm:flex-row gap-2 mt-3">
+                      {visit.status === 'pending' && (
+                        <button
+                          onClick={() => {
+                            setCheckInVisit(visit);
+                            setCheckInFile(null);
+                            setCheckInPreview(null);
+                          }}
+                          className="min-h-[48px] px-4 rounded-xl bg-blue-600 text-white text-sm font-medium flex items-center justify-center gap-2"
+                        >
+                          <Camera size={16} /> Registrar llegada
+                        </button>
                       )}
-                      {canActOnVisit(visit) && (
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          {visit.status === 'pending' && (
-                            <button
-                              onClick={() => {
-                                setCheckInVisit(visit);
-                                setCheckInFile(null);
-                                setCheckInPreview(null);
-                              }}
-                              className="px-2 py-1 text-xs rounded bg-blue-600 text-white flex items-center gap-1"
-                            >
-                              <Camera size={12} /> Registrar llegada
-                            </button>
-                          )}
-                          {visit.status === 'in_progress' && (
-                            <button
-                              onClick={() => checkOut(visit)}
-                              className="px-2 py-1 text-xs rounded bg-emerald-600 text-white"
-                            >
-                              Registrar salida
-                            </button>
-                          )}
-                          {(visit.status === 'pending' || visit.status === 'in_progress') && (
-                            <button
-                              onClick={() => {
-                                setSkipVisitId(visit.id);
-                                setSkipReason('');
-                              }}
-                              className="px-2 py-1 text-xs rounded border border-slate-300"
-                            >
-                              Omitir
-                            </button>
-                          )}
-                        </div>
+                      {visit.status === 'in_progress' && (
+                        <button
+                          onClick={() => checkOut(visit)}
+                          className="min-h-[48px] px-4 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+                        >
+                          Registrar salida
+                        </button>
+                      )}
+                      {(visit.status === 'pending' || visit.status === 'in_progress') && (
+                        <button
+                          onClick={() => {
+                            setSkipVisitId(visit.id);
+                            setSkipReason('');
+                          }}
+                          className="min-h-[48px] px-4 rounded-xl border border-slate-300 text-sm"
+                        >
+                          Omitir
+                        </button>
                       )}
                     </div>
-                  );
-                })}
-                {!dayExecutionVisits.length && (
-                  <p className="text-sm text-slate-500 py-6 text-center">
-                    No hay visitas planificadas este día. El coordinador las marca en Planificación.
-                  </p>
-                )}
-              </div>
-            </div>
-            <SupervisionRouteMap
-              stops={dayExecutionVisits.map((v, i) => ({
-                id: v.id,
-                name: v.unitName || v.unitId,
-                address: v.unitAddress,
-                latitude: v.latitude,
-                longitude: v.longitude,
-                order: v.stopOrder || i + 1,
-                status: v.status,
-              }))}
-            />
+                  )}
+                </div>
+              );
+            })}
+            {!dayExecutionVisits.length && (
+              <p className="text-sm text-slate-500 py-8 text-center">
+                No hay visitas programadas este día. El coordinador las marca en Asignación.
+              </p>
+            )}
           </div>
+          {!modalOpen && (
+            <>
+              <button
+                onClick={() => setShowMap((v) => !v)}
+                className="w-full md:hidden min-h-[44px] rounded-xl border border-slate-300 bg-white text-sm flex items-center justify-center gap-2"
+              >
+                <MapPin size={16} /> {showMap ? 'Ocultar mapa' : 'Ver ruta en mapa'}
+              </button>
+              <div className={`${showMap ? 'block' : 'hidden'} md:block`}>
+                <SupervisionRouteMap
+                  heightClass="h-64 md:h-[380px]"
+                  stops={dayExecutionVisits.map((v, i) => ({
+                    id: v.id,
+                    name: v.unitName || v.unitId,
+                    address: v.unitAddress,
+                    latitude: v.latitude,
+                    longitude: v.longitude,
+                    order: v.stopOrder || i + 1,
+                    status: v.status,
+                  }))}
+                />
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {showManualVisit && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-md p-5 space-y-3">
-            <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-slate-800">Visita extra</h3>
-              <button onClick={() => setShowManualVisit(false)}>
-                <X size={16} />
-              </button>
-            </div>
+        <ModalShell onClose={() => setShowManualVisit(false)}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold text-slate-800">Visita extra</h3>
+            <button onClick={() => setShowManualVisit(false)} className="p-2">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="space-y-3">
             <select
               value={manualVisit.supervisorStaffId}
               onChange={(e) => setManualVisit((p) => ({ ...p, supervisorStaffId: e.target.value }))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
               disabled={Boolean(lockedSupervisorId)}
             >
               {supervisors.map((s) => (
@@ -1250,7 +1346,7 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
             <select
               value={manualVisit.unitId}
               onChange={(e) => setManualVisit((p) => ({ ...p, unitId: e.target.value }))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
             >
               <option value="">Seleccione unidad</option>
               {units.map((u) => (
@@ -1262,107 +1358,90 @@ export const SupervisionPlanning: React.FC<SupervisionPlanningProps> = ({
             <DateInput
               value={manualVisit.visitDate}
               onChange={(value) => setManualVisit((p) => ({ ...p, visitDate: value }))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
             />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowManualVisit(false)} className="px-3 py-2 text-sm">
-                Cancelar
-              </button>
-              <button
-                onClick={createManual}
-                disabled={saving}
-                className="px-3 py-2 text-sm rounded-lg bg-blue-600 text-white"
-              >
-                Guardar
-              </button>
-            </div>
+            <button
+              onClick={createManual}
+              disabled={saving}
+              className="w-full min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-medium"
+            >
+              Guardar
+            </button>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {skipVisitId && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-md p-5 space-y-3">
-            <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-slate-800">Omitir visita</h3>
-              <button onClick={() => setSkipVisitId(null)}>
-                <X size={16} />
-              </button>
-            </div>
-            <textarea
-              value={skipReason}
-              onChange={(e) => setSkipReason(e.target.value)}
-              placeholder="Motivo"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[90px]"
-            />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setSkipVisitId(null)} className="px-3 py-2 text-sm">
-                Cancelar
-              </button>
-              <button onClick={confirmSkip} className="px-3 py-2 text-sm rounded-lg bg-amber-600 text-white">
-                Confirmar
-              </button>
-            </div>
+        <ModalShell onClose={() => setSkipVisitId(null)}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold text-slate-800">Omitir visita</h3>
+            <button onClick={() => setSkipVisitId(null)} className="p-2">
+              <X size={18} />
+            </button>
           </div>
-        </div>
+          <textarea
+            value={skipReason}
+            onChange={(e) => setSkipReason(e.target.value)}
+            placeholder="Motivo"
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm min-h-[90px]"
+          />
+          <button onClick={confirmSkip} className="w-full mt-3 min-h-[48px] rounded-xl bg-amber-600 text-white text-sm font-medium">
+            Confirmar
+          </button>
+        </ModalShell>
       )}
 
       {checkInVisit && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-md p-5 space-y-3">
-            <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-slate-800">Registrar llegada</h3>
-              <button
-                onClick={() => {
-                  setCheckInVisit(null);
-                  setCheckInFile(null);
-                  setCheckInPreview(null);
-                }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <p className="text-sm text-slate-600">{checkInVisit.unitName}</p>
-            <p className="text-xs text-slate-500">Adjunte una foto de evidencia (obligatoria).</p>
-            <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-lg p-4 cursor-pointer hover:bg-slate-50">
-              <Camera size={20} className="text-slate-400 mb-1" />
-              <span className="text-sm text-slate-600">{checkInFile ? checkInFile.name : 'Tomar o elegir foto'}</span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] || null;
-                  setCheckInFile(file);
-                  setCheckInPreview(file ? URL.createObjectURL(file) : null);
-                }}
-              />
-            </label>
-            {checkInPreview && (
-              <img src={checkInPreview} alt="Vista previa" className="w-full h-40 object-cover rounded-lg" />
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  setCheckInVisit(null);
-                  setCheckInFile(null);
-                  setCheckInPreview(null);
-                }}
-                className="px-3 py-2 text-sm"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={submitCheckIn}
-                disabled={saving || !checkInFile}
-                className="px-3 py-2 text-sm rounded-lg bg-blue-600 text-white disabled:opacity-50"
-              >
-                Confirmar llegada
-              </button>
-            </div>
+        <ModalShell
+          onClose={() => {
+            setCheckInVisit(null);
+            setCheckInFile(null);
+            setCheckInPreview(null);
+          }}
+        >
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold text-slate-800">Registrar llegada</h3>
+            <button
+              onClick={() => {
+                setCheckInVisit(null);
+                setCheckInFile(null);
+                setCheckInPreview(null);
+              }}
+              className="p-2"
+            >
+              <X size={18} />
+            </button>
           </div>
-        </div>
+          <p className="text-sm text-slate-700 mb-1">{checkInVisit.unitName}</p>
+          <p className="text-xs text-slate-500 mb-3">La foto de evidencia es obligatoria.</p>
+          <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-xl p-6 min-h-[120px] cursor-pointer">
+            <Camera size={22} className="text-slate-400 mb-1" />
+            <span className="text-sm text-slate-600 text-center">
+              {checkInFile ? checkInFile.name : 'Tomar o elegir foto'}
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setCheckInFile(file);
+                setCheckInPreview(file ? URL.createObjectURL(file) : null);
+              }}
+            />
+          </label>
+          {checkInPreview && (
+            <img src={checkInPreview} alt="Vista previa" className="w-full h-44 object-cover rounded-xl mt-3" />
+          )}
+          <button
+            onClick={submitCheckIn}
+            disabled={saving || !checkInFile}
+            className="w-full mt-4 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-50"
+          >
+            Confirmar llegada
+          </button>
+        </ModalShell>
       )}
     </div>
   );

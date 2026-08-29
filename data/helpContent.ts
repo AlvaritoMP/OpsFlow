@@ -552,30 +552,15 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: 'Supervisión de campo',
     navLabel: 'Supervisión',
     summary:
-      'Asignación teórica de unidades, programación real de cada semana, rutas por calles y ejecución con evidencia.',
+      'Asignación de unidades, patrón de días de supervisión, programación real del mes y ejecución con evidencia.',
     sections: [
       {
-        heading: 'Qué resuelve',
-        body: 'Separa el patrón teórico (frecuencia y días habituales) de la programación real del mes, como en el Excel. La ejecución sigue solo lo planificado esa semana.',
+        heading: 'Asignación',
+        body: 'Un solo cuadro: supervisor, categoría, frecuencia y días de supervisión (L–D, el patrón de la unidad). A la derecha, cada fecha real del mes para programar las visitas. La T o el punto punteado indica lo que pide el patrón; la X es la visita realmente programada.',
       },
       {
-        heading: 'Coordinadores',
-        body: 'El coordinador define el teórico, arma la semana real, ordena rutas y sigue la ejecución.',
-        steps: [
-          'Asignación teórica: supervisor, categoría, frecuencia y días habituales.',
-          'Planificación: semana a semana marque las visitas reales (X). La T indica lo que pide el teórico. Use “Sugerir desde el teórico” como punto de partida.',
-          'Rutas: elija supervisor y fecha planificada. El mapa sigue calles; “Ruta más eficiente” sugiere el orden.',
-          'Ejecución: avance del día, mapa y evidencias. El supervisor registra llegada con foto.',
-        ],
-        tips: [
-          'Las unidades necesitan latitud y longitud para ver el callejero.',
-          'No se puede quitar de la planificación una visita que ya tiene check-in.',
-          'Vincule el correo del usuario supervisor con el personal de gestión.',
-        ],
-      },
-      {
-        heading: 'Supervisores',
-        body: 'El supervisor ve en Ejecución las visitas planificadas de su semana, el mapa por calles y registra llegada con foto de evidencia.',
+        heading: 'Rutas y ejecución',
+        body: 'Rutas ordena las visitas ya programadas de un día y las traza por calles. Ejecución es la vista de campo: el supervisor registra llegada con foto. En celular, Ejecución usa tarjetas y botones grandes; el mapa se abre al pedirlo.',
       },
     ],
   },

@@ -102,13 +102,19 @@ export const SupervisionRouteMap: React.FC<SupervisionRouteMapProps> = ({
   const line = roadPath && roadPath.length > 1 ? roadPath : positions;
 
   return (
-    <div className={`relative w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 ${heightClass}`}>
+    <div className={`relative z-0 isolate w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 ${heightClass}`}>
       {located.length === 0 ? (
-        <div className="absolute inset-0 z-[400] flex items-center justify-center bg-slate-50 text-sm text-slate-500 px-6 text-center">
+        <div className="absolute inset-0 z-[1] flex items-center justify-center bg-slate-50 text-sm text-slate-500 px-6 text-center">
           Estas unidades no tienen coordenadas. Cargue latitud y longitud en la ficha de la unidad para ver la ruta en el mapa.
         </div>
       ) : null}
-      <MapContainer center={defaultCenter} zoom={11} scrollWheelZoom className="h-full w-full">
+      <MapContainer
+        center={defaultCenter}
+        zoom={11}
+        scrollWheelZoom
+        className="h-full w-full"
+        style={{ zIndex: 0 }}
+      >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -143,7 +149,7 @@ export const SupervisionRouteMap: React.FC<SupervisionRouteMapProps> = ({
         ))}
       </MapContainer>
       {located.length > 1 && (
-        <div className="absolute bottom-3 left-3 z-[400] bg-white/95 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600">
+        <div className="absolute bottom-3 left-3 z-[1] bg-white/95 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600">
           {roadMeta
             ? `Ruta por calles · ${roadMeta.distanceKm} km · ${roadMeta.durationMin} min`
             : roadFailed

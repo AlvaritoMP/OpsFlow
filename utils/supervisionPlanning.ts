@@ -92,6 +92,15 @@ export function weekDates(weekStart: Date): string[] {
   return Array.from({ length: 7 }, (_, i) => formatDateYmd(addDays(weekStart, i)));
 }
 
+export function monthDates(year: number, monthIndex: number): string[] {
+  const last = new Date(year, monthIndex + 1, 0).getDate();
+  return Array.from({ length: last }, (_, i) => formatDateYmd(new Date(year, monthIndex, i + 1)));
+}
+
+export function formatMonthLabel(year: number, monthIndex: number): string {
+  return new Date(year, monthIndex, 1).toLocaleDateString('es-PE', { month: 'long', year: 'numeric' });
+}
+
 export function isoWeekNumber(date: Date): number {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;

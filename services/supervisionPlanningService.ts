@@ -12,6 +12,8 @@ import {
 } from '../types';
 import {
   EMPTY_VISIT_DAYS,
+  addDays,
+  formatDateYmd,
   frequencyAppliesToDate,
   isoWeekdayFromDate,
   mondayOf,
@@ -341,6 +343,18 @@ export const supervisionPlanningService = {
       .select('id');
     if (error) handleSupabaseError(error);
     return (data || []).length;
+  },
+
+  async generateMonth(year: number, monthIndex: number, userId?: string): Promise<number> {
+    const first = new Date(year, monthIndex, 1);
+    const last = new Date(year, monthIndex + 1, 0);
+    let cursor = mondayOf(first);
+    let total = 0;
+    while (cursor <= last) {
+      total += await this.generateWeek(formatDateYmd(cursor), userId);
+      cursor = addDays(cursor, 7);
+    }
+    return total;
   },
 
   async createManualVisit(input: {
