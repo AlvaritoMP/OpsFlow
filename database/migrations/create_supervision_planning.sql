@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS public.supervision_visits (
   check_out_lng NUMERIC(10, 7),
   notes TEXT,
   skip_reason TEXT,
+  evidence_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,

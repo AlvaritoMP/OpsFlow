@@ -139,6 +139,7 @@ function mapVisit(row: any): SupervisionVisit {
     checkOutLng: row.check_out_lng != null ? Number(row.check_out_lng) : undefined,
     notes: row.notes || undefined,
     skipReason: row.skip_reason || undefined,
+    evidenceUrls: Array.isArray(row.evidence_urls) ? row.evidence_urls.filter(Boolean) : [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -383,6 +384,7 @@ export const supervisionPlanningService = {
       notes: string | null;
       skipReason: string | null;
       stopOrder: number | null;
+      evidenceUrls: string[];
     }>,
     userId?: string
   ): Promise<SupervisionVisit> {
@@ -397,6 +399,7 @@ export const supervisionPlanningService = {
     if (patch.notes !== undefined) payload.notes = patch.notes;
     if (patch.skipReason !== undefined) payload.skip_reason = patch.skipReason;
     if (patch.stopOrder !== undefined) payload.stop_order = patch.stopOrder;
+    if (patch.evidenceUrls !== undefined) payload.evidence_urls = patch.evidenceUrls;
 
     const { data, error } = await db().from(VISITS).update(payload).eq('id', id).select('*').single();
     if (error) handleSupabaseError(error);

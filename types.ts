@@ -848,6 +848,7 @@ export interface SupervisionVisit {
   checkOutLng?: number;
   notes?: string;
   skipReason?: string;
+  evidenceUrls?: string[];
   createdAt: string;
   updatedAt: string;
 }

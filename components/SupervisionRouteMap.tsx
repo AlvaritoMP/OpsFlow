@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { fetchDrivingPath } from '../utils/drivingRoute';
 
 export interface SupervisionMapStop {
   id: string;
@@ -54,7 +55,7 @@ const FitStops: React.FC<{ positions: [number, number][] }> = ({ positions }) =>
       map.setView(positions[0], 14);
       return;
     }
-    map.fitBounds(L.latLngBounds(positions), { padding: [36, 36], maxZoom: 14 });
+    map.fitBounds(L.latLngBounds(positions), { padding: [36, 36], maxZoom: 15 });
   }, [map, positions]);
   return null;
 };
@@ -68,9 +69,37 @@ export const SupervisionRouteMap: React.FC<SupervisionRouteMapProps> = ({
       ...stop,
       order: stop.order ?? index + 1,
     }))
-    .filter((s) => typeof s.latitude === 'number' && typeof s.longitude === 'number');
+    .filter((s) => typeof s.latitude === 'number' && typeof s.longitude === 'number')
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
 
   const positions = located.map((s) => [s.latitude!, s.longitude!] as [number, number]);
+  const [roadPath, setRoadPath] = useState<[number, number][] | null>(null);
+  const [roadMeta, setRoadMeta] = useState<{ distanceKm: number; durationMin: number } | null>(null);
+  const [roadFailed, setRoadFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRoadPath(null);
+    setRoadMeta(null);
+    setRoadFailed(false);
+    if (located.length < 2) return;
+    fetchDrivingPath(
+      located.map((s) => ({ latitude: s.latitude!, longitude: s.longitude! }))
+    ).then((result) => {
+      if (cancelled) return;
+      if (!result) {
+        setRoadFailed(true);
+        return;
+      }
+      setRoadPath(result.path);
+      setRoadMeta({ distanceKm: result.distanceKm, durationMin: result.durationMin });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [located.map((s) => `${s.id}:${s.latitude},${s.longitude}`).join('|')]);
+
+  const line = roadPath && roadPath.length > 1 ? roadPath : positions;
 
   return (
     <div className={`relative w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 ${heightClass}`}>
@@ -84,9 +113,17 @@ export const SupervisionRouteMap: React.FC<SupervisionRouteMapProps> = ({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitStops positions={positions} />
-        {positions.length > 1 && (
-          <Polyline positions={positions} pathOptions={{ color: '#2563eb', weight: 4, opacity: 0.85 }} />
+        <FitStops positions={line.length ? line : positions} />
+        {line.length > 1 && (
+          <Polyline
+            positions={line}
+            pathOptions={{
+              color: roadPath ? '#1d4ed8' : '#94a3b8',
+              weight: roadPath ? 5 : 3,
+              opacity: 0.9,
+              dashArray: roadPath ? undefined : '6 8',
+            }}
+          />
         )}
         {located.map((stop) => (
           <Marker
@@ -105,6 +142,15 @@ export const SupervisionRouteMap: React.FC<SupervisionRouteMapProps> = ({
           </Marker>
         ))}
       </MapContainer>
+      {located.length > 1 && (
+        <div className="absolute bottom-3 left-3 z-[400] bg-white/95 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600">
+          {roadMeta
+            ? `Ruta por calles · ${roadMeta.distanceKm} km · ${roadMeta.durationMin} min`
+            : roadFailed
+              ? 'No se pudo calcular el callejero; se muestra línea directa'
+              : 'Calculando recorrido por calles…'}
+        </div>
+      )}
     </div>
   );
 };

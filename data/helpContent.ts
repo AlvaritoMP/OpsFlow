@@ -552,30 +552,30 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: 'Supervisión de campo',
     navLabel: 'Supervisión',
     summary:
-      'Asignación de unidades a supervisores, diseño de rutas semanales, cronograma gráfico y monitoreo de ejecución.',
+      'Asignación teórica de unidades, programación real de cada semana, rutas por calles y ejecución con evidencia.',
     sections: [
       {
         heading: 'Qué resuelve',
-        body: 'Sustituye el Excel de distribución de unidades: cada unidad tiene supervisor, coordinador, categoría (alta/media/baja), frecuencia de visita y días de la semana. Con eso se arman rutas y se genera el cronograma de la semana.',
+        body: 'Separa el patrón teórico (frecuencia y días habituales) de la programación real del mes, como en el Excel. La ejecución sigue solo lo planificado esa semana.',
       },
       {
         heading: 'Coordinadores',
-        body: 'El coordinador diseña la operación y sigue el avance del día.',
+        body: 'El coordinador define el teórico, arma la semana real, ordena rutas y sigue la ejecución.',
         steps: [
-          'Asignación: indique supervisor, coordinador, categoría, frecuencia y marque los días de visita (como la X del Excel).',
-          'Rutas: elija supervisor y día, reordene paradas o pulse “Ruta más eficiente” (recorrido más corto según coordenadas) y guarde.',
-          'Cronograma: genere las visitas de la semana. Semanal y permanente cada semana; quincenal en semanas pares; mensual en la primera ocurrencia del día.',
-          'Monitoreo: vea pendientes, en ruta y completadas, con el mapa del día.',
+          'Asignación teórica: supervisor, categoría, frecuencia y días habituales.',
+          'Planificación: semana a semana marque las visitas reales (X). La T indica lo que pide el teórico. Use “Sugerir desde el teórico” como punto de partida.',
+          'Rutas: elija supervisor y fecha planificada. El mapa sigue calles; “Ruta más eficiente” sugiere el orden.',
+          'Ejecución: avance del día, mapa y evidencias. El supervisor registra llegada con foto.',
         ],
         tips: [
-          'Las unidades necesitan latitud y longitud para optimizar y dibujar la ruta.',
-          'Una visita extra sirve para frecuencias “previa coordinación” o “cuando se requiera”.',
-          'Vincule el correo del usuario supervisor con el personal de gestión para que vea solo su plan.',
+          'Las unidades necesitan latitud y longitud para ver el callejero.',
+          'No se puede quitar de la planificación una visita que ya tiene check-in.',
+          'Vincule el correo del usuario supervisor con el personal de gestión.',
         ],
       },
       {
         heading: 'Supervisores',
-        body: 'El supervisor entra a Supervisión y ve su semana en el calendario, el mapa del día y puede registrar llegada y salida en cada unidad.',
+        body: 'El supervisor ve en Ejecución las visitas planificadas de su semana, el mapa por calles y registra llegada con foto de evidencia.',
       },
     ],
   },

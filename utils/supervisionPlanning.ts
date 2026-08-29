@@ -145,6 +145,23 @@ export function visitDaysForIso(days: SupervisionVisitDays, iso: number): boolea
   return Boolean(days[weekdayKeyFromIso(iso)]);
 }
 
+export function isTheoreticallyExpected(
+  assignment: {
+    isActive: boolean;
+    supervisorStaffId?: string;
+    visitDays: SupervisionVisitDays;
+    restWeekday: number;
+    frequency: SupervisionFrequency;
+  },
+  date: Date
+): boolean {
+  if (!assignment.isActive || !assignment.supervisorStaffId) return false;
+  const iso = isoWeekdayFromDate(date);
+  if (iso === assignment.restWeekday) return false;
+  if (!visitDaysForIso(assignment.visitDays, iso)) return false;
+  return frequencyAppliesToDate(assignment.frequency, date);
+}
+
 export function formatWeekRange(weekStart: Date): string {
   const end = addDays(weekStart, 6);
   const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
