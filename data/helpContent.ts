@@ -11,6 +11,7 @@ export type AppHelpView =
   | 'assets-catalog'
   | 'retenes'
   | 'night-supervision'
+  | 'supervision-planning'
   | 'headcount'
   | 'vacations'
   | 'archive'
@@ -67,7 +68,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Revisar el Dashboard o el Centro de Control para el estado general.',
           'Entrar a una Unidad para personal, asistencia, bitácora o requerimientos.',
-          'Gestionar Retenes, Vacaciones, Supervisión Nocturna o Inventario según la necesidad del día.',
+          'Gestionar Retenes, Vacaciones, Supervisión de campo, Supervisión Nocturna o Inventario según la necesidad del día.',
           'En Presentaciones ATS: revisar ficha, aprobar o rechazar candidatos a entrevista.',
           'Solo si el aprobado iniciará labores: registrar en unidad (fecha de ingreso) y luego Envío Opalosis.',
         ],
@@ -543,6 +544,38 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Registre hallazgos, visitas o incidencias.',
           'Guarde y revise el historial de supervisiones previas.',
         ],
+      },
+    ],
+  },
+  {
+    id: 'supervision-planning',
+    title: 'Supervisión de campo',
+    navLabel: 'Supervisión',
+    summary:
+      'Asignación de unidades a supervisores, diseño de rutas semanales, cronograma gráfico y monitoreo de ejecución.',
+    sections: [
+      {
+        heading: 'Qué resuelve',
+        body: 'Sustituye el Excel de distribución de unidades: cada unidad tiene supervisor, coordinador, categoría (alta/media/baja), frecuencia de visita y días de la semana. Con eso se arman rutas y se genera el cronograma de la semana.',
+      },
+      {
+        heading: 'Coordinadores',
+        body: 'El coordinador diseña la operación y sigue el avance del día.',
+        steps: [
+          'Asignación: indique supervisor, coordinador, categoría, frecuencia y marque los días de visita (como la X del Excel).',
+          'Rutas: elija supervisor y día, reordene paradas o pulse “Ruta más eficiente” (recorrido más corto según coordenadas) y guarde.',
+          'Cronograma: genere las visitas de la semana. Semanal y permanente cada semana; quincenal en semanas pares; mensual en la primera ocurrencia del día.',
+          'Monitoreo: vea pendientes, en ruta y completadas, con el mapa del día.',
+        ],
+        tips: [
+          'Las unidades necesitan latitud y longitud para optimizar y dibujar la ruta.',
+          'Una visita extra sirve para frecuencias “previa coordinación” o “cuando se requiera”.',
+          'Vincule el correo del usuario supervisor con el personal de gestión para que vea solo su plan.',
+        ],
+      },
+      {
+        heading: 'Supervisores',
+        body: 'El supervisor entra a Supervisión y ve su semana en el calendario, el mapa del día y puede registrar llegada y salida en cada unidad.',
       },
     ],
   },

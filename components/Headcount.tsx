@@ -795,7 +795,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
             onClick={() => void copyReportImage()}
             disabled={capturingImage || tableRows.length === 0}
             className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            title="Genera una imagen del reporte y la copia al portapapeles para pegar en chats"
+            title="Copia el PNG en alta resolución. En WhatsApp pégalo o adjúntalo como documento/archivo, no como foto."
           >
             {imageActionFeedback === 'copied' ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
             {capturingImage ? 'Generando…' : imageActionFeedback === 'copied' ? 'Copiado' : 'Copiar imagen'}
@@ -805,7 +805,7 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
             onClick={() => void downloadReportImage()}
             disabled={capturingImage || tableRows.length === 0}
             className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            title="Descargar el reporte completo como PNG"
+            title="Descargar PNG en alta resolución. En WhatsApp envíalo como documento (clip / archivo), no como foto, para que el zoom conserve la calidad."
           >
             {imageActionFeedback === 'downloaded' ? <Check size={16} className="text-green-600" /> : <Download size={16} />}
             {imageActionFeedback === 'downloaded' ? 'Descargado' : 'Descargar PNG'}

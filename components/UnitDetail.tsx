@@ -3551,10 +3551,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     return () => restored.forEach((fn) => fn());
   };
 
-  const captureRosterImage = async (): Promise<string> => {
+  const captureRosterCanvas = async (): Promise<HTMLCanvasElement> => {
     const node = rosterExportRef.current;
     if (!node) throw new Error('No se encontró la programación para exportar');
-    const { toPng } = await import('html-to-image');
+    const { toCanvas } = await import('html-to-image');
     const restore = prepareRosterNodeForCapture(node);
     try {
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
@@ -3574,9 +3574,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         },
       };
       try {
-        return await toPng(node, options);
+        return await toCanvas(node, options);
       } catch {
-        return await toPng(node, {
+        return await toCanvas(node, {
           ...options,
           filter: (element: HTMLElement) => {
             if (!(element instanceof HTMLElement)) return true;
@@ -3600,16 +3600,22 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     if (isExportingRoster) return;
     setIsExportingRoster(true);
     try {
-      const dataUrl = await captureRosterImage();
+      const canvas = await captureRosterCanvas();
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/png');
+      });
+      if (!blob) throw new Error('No se pudo generar el PNG');
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.download = `${rosterExportBasename()}.png`;
-      link.href = dataUrl;
+      link.href = url;
       link.click();
+      URL.revokeObjectURL(url);
       setNotification({ type: 'success', message: 'Programación descargada en PNG' });
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       console.error('Error exportando roster PNG:', error);
-      setNotification({ type: 'error', message: 'No se pudo generar el PNG de la programación.' });
+      setNotification({ type: 'error', message: 'No se pudo generar la imagen de la programación.' });
       setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsExportingRoster(false);
@@ -3620,13 +3626,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     if (isExportingRoster) return;
     setIsExportingRoster(true);
     try {
-      const dataUrl = await captureRosterImage();
+      const canvas = await captureRosterCanvas();
+      const dataUrl = canvas.toDataURL('image/png');
       const { jsPDF } = await import('jspdf');
-      const img = new Image();
-      img.src = dataUrl;
-      await img.decode();
-      const pxWidth = img.naturalWidth || img.width;
-      const pxHeight = img.naturalHeight || img.height;
+      const pxWidth = canvas.width;
+      const pxHeight = canvas.height;
       const pdf = new jsPDF({
         orientation: pxWidth >= pxHeight ? 'landscape' : 'portrait',
         unit: 'px',
@@ -7563,7 +7567,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         onClick={handleExportRosterPng}
                         disabled={isExportingRoster || personnel.length === 0}
                         className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
-                        title="Descargar la programación visible como imagen PNG"
+                        title="Descargar PNG en alta resolución. En WhatsApp envíalo como documento (clip / archivo), no como foto, para que el zoom conserve la calidad."
                     >
                         <ImageIcon size={14} className="mr-1.5"/> {isExportingRoster ? 'Generando...' : 'PNG'}
                     </button>

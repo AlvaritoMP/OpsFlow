@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes, Route } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UnitDetail } from './components/UnitDetail';
 import { ControlCenter } from './components/ControlCenter';
@@ -10,6 +10,7 @@ import { OperationsDashboard } from './components/OperationsDashboard';
 import { StandardAssetsCatalog } from './components/StandardAssetsCatalog';
 import { Retenes } from './components/Retenes';
 import { NightSupervision } from './components/NightSupervision';
+import { SupervisionPlanning } from './components/SupervisionPlanning';
 import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position, UnitClass } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
@@ -56,7 +57,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(!isPublicFichaLanding);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory'>('dashboard');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
   
@@ -1733,6 +1734,17 @@ const App: React.FC = () => {
 
     if (currentView === 'night-supervision') {
       return <NightSupervision units={operationalUnits} currentUser={currentUser} managementStaff={managementStaff} />;
+    }
+
+    if (currentView === 'supervision-planning') {
+      return (
+        <SupervisionPlanning
+          units={operationalUnits}
+          currentUser={currentUser}
+          managementStaff={managementStaff}
+          canEdit={checkPermission(currentUser.role, 'SUPERVISION_PLANNING', 'edit')}
+        />
+      );
     }
 
     if (currentView === 'retenes') {
@@ -3578,6 +3590,16 @@ const App: React.FC = () => {
                   >
                     <ArchiveIcon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Archivo</span>
+                  </button>
+              )}
+
+              {checkPermission(currentUser.role, 'SUPERVISION_PLANNING', 'view') && (
+                  <button
+                    onClick={() => { setCurrentView('supervision-planning'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'supervision-planning' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Route size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Supervisión</span>
                   </button>
               )}
 

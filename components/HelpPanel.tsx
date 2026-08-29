@@ -19,13 +19,16 @@ export type HelpPanelView =
   | 'assets-catalog'
   | 'retenes'
   | 'night-supervision'
+  | 'supervision-planning'
   | 'headcount'
   | 'vacations'
   | 'archive'
   | 'workers-management'
   | 'ats-reception'
   | 'ats-presentations'
-  | 'hr-opalosis';
+  | 'hr-opalosis'
+  | 'inventory'
+  | 'supervision-planning';
 
 interface HelpPanelProps {
   open: boolean;

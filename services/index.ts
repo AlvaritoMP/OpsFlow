@@ -21,6 +21,7 @@ export * from './excelService';
 export * from './nightSupervisionService';
 export * from './nightSupervisionPdfService';
 export * from './nightSupervisionHistoricalService';
+export * from './supervisionPlanningService';
 export * from './vacationService';
 export * from './vacationPdfService';
 export * from './vacationAuthService';

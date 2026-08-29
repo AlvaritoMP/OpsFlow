@@ -38,6 +38,7 @@ export type AppFeature =
   | 'HEADCOUNT'
   | 'POSITIONS_MANAGEMENT'
   | 'NIGHT_SUPERVISION'
+  | 'SUPERVISION_PLANNING'
   | 'RETENES'
   | 'VACATIONS'
   | 'ASSETS_CATALOG'
@@ -750,6 +751,105 @@ export interface NightSupervisionReport {
   calls: NightSupervisionCall[];
   camera_reviews: NightSupervisionCameraReview[];
   alerts: NightSupervisionAlert[];
+}
+
+// ============================================
+// SUPERVISIÓN DE CAMPO (rutas y cronograma)
+// ============================================
+
+export type SupervisionCategory = 'ALTA' | 'MEDIA' | 'BAJA';
+
+export type SupervisionFrequency =
+  | 'SEMANAL'
+  | 'QUINCENAL'
+  | 'MENSUAL'
+  | 'PERMANENTE'
+  | 'PREVIA_COORDINACION'
+  | 'CUANDO_SE_REQUIERA'
+  | 'SEGUN_RUTA'
+  | 'POR_CONFIRMAR'
+  | 'NINGUNO';
+
+export type SupervisionVisitStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'cancelled';
+
+export type SupervisionWeekdayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export type SupervisionVisitDays = Record<SupervisionWeekdayKey, boolean>;
+
+export interface SupervisionAssignment {
+  id: string;
+  unitId: string;
+  unitName?: string;
+  unitAddress?: string;
+  unitClientName?: string;
+  supervisorStaffId?: string;
+  supervisorName?: string;
+  coordinatorStaffId?: string;
+  coordinatorName?: string;
+  category: SupervisionCategory;
+  frequency: SupervisionFrequency;
+  visitDays: SupervisionVisitDays;
+  restWeekday: number; // 1=lunes ... 7=domingo
+  notes?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupervisionRouteStop {
+  id: string;
+  routeId: string;
+  unitId: string;
+  unitName?: string;
+  unitAddress?: string;
+  latitude?: number;
+  longitude?: number;
+  stopOrder: number;
+}
+
+export interface SupervisionRoute {
+  id: string;
+  supervisorStaffId: string;
+  supervisorName?: string;
+  weekday: number; // 1=lunes ... 7=domingo
+  name: string;
+  isOptimized: boolean;
+  estimatedDistanceKm?: number;
+  stops: SupervisionRouteStop[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupervisionVisit {
+  id: string;
+  assignmentId?: string;
+  routeId?: string;
+  unitId: string;
+  unitName?: string;
+  unitAddress?: string;
+  unitClientName?: string;
+  latitude?: number;
+  longitude?: number;
+  supervisorStaffId: string;
+  supervisorName?: string;
+  coordinatorStaffId?: string;
+  coordinatorName?: string;
+  visitDate: string; // YYYY-MM-DD
+  weekday: number;
+  stopOrder?: number;
+  plannedStart?: string;
+  status: SupervisionVisitStatus;
+  category?: SupervisionCategory;
+  checkInAt?: string;
+  checkOutAt?: string;
+  checkInLat?: number;
+  checkInLng?: number;
+  checkOutLat?: number;
+  checkOutLng?: number;
+  notes?: string;
+  skipReason?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // --- INBOUND WORKER HANDOFF (Opalo ATS → OpsFlow) ---
