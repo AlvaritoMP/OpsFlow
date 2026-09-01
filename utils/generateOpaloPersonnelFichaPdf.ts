@@ -8,6 +8,7 @@ import type {
   WorkerSnapshotAntecedenteSalud,
 } from '../types';
 import { hydrateComplementaryFromSnapshot } from './complementaryHydrate';
+import { inferDocumentType } from './documentNumber';
 import { extractHandoffNameParts } from './handoffNameParts';
 
 type FichaContext = {
@@ -113,7 +114,7 @@ function resolveFicha(worker: Resource, ctx: FichaContext = {}): WorkerSnapshotC
   fill('apellidoPaterno', fromSnapshot.apellidoPaterno, fromName.apellidoPaterno);
   fill('apellidoMaterno', fromSnapshot.apellidoMaterno, fromName.apellidoMaterno);
   fill('nroDocumento', worker.dni);
-  fill('tipoDocumento', worker.dni ? 'DNI' : '');
+  fill('tipoDocumento', worker.dni ? inferDocumentType(worker.dni) : '');
   fill('telefono', worker.phone);
   fill('email', worker.email);
   fill('fechaNacimiento', worker.birthDate);

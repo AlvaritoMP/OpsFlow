@@ -434,20 +434,20 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'Si el ATS envió poca ficha, OpsFlow completa lo posible desde identidad y campos del proceso; el resto se edita aquí.',
-          'También puede enviar al trabajador el link público /ficha para que complete la ficha con su DNI (hasta 3 aperturas, sin login).',
+          'También puede enviar al trabajador el link público /ficha para que complete la ficha con su DNI o pasaporte (hasta 3 aperturas, sin login).',
         ],
       },
       {
         heading: 'Landing público de ficha (sin login)',
-        body: 'Cualquier persona puede abrir https://<tu-dominio>/ficha, ingresar su DNI y completar la ficha complementaria. No requiere cuenta en OpsFlow.',
+        body: 'Cualquier persona puede abrir https://<tu-dominio>/ficha, ingresar su DNI, CE o pasaporte y completar la ficha complementaria. No requiere cuenta en OpsFlow.',
         steps: [
           'Copie el link con el botón “Link ficha pública” en esta bandeja y envíelo al trabajador.',
-          'El trabajador ingresa su DNI de 8 dígitos y completa el formulario.',
-          'Cada DNI puede abrir la ficha hasta 3 veces. Al agotar las aperturas, la ficha queda bloqueada (solo lectura).',
+          'El trabajador ingresa su DNI, CE o pasaporte (puede incluir letras) y completa el formulario.',
+          'Cada documento puede abrir la ficha hasta 3 veces. Al agotar las aperturas, la ficha queda bloqueada (solo lectura).',
           'Lo guardado se replica en la presentación ATS y, si ya es colaborador, en su ficha de personal.',
         ],
         tips: [
-          'Una recarga o un nuevo ingreso de DNI cuenta como otra apertura. La sesión actual (unas 12 horas) no consume un cupo extra al guardar.',
+          'Una recarga o un nuevo ingreso de documento cuenta como otra apertura. La sesión actual (unas 12 horas) no consume un cupo extra al guardar.',
         ],
       },
       {

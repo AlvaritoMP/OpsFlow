@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, ClipboardList, Loader2, Save } from 'lucide-rea
 import type { Resource, ResourceInboundSourceData, WorkerSnapshotComplementary } from '../types';
 import { resourcesService } from '../services/resourcesService';
 import { hydrateComplementaryFromSnapshot } from '../utils/complementaryHydrate';
+import { inferDocumentType } from '../utils/documentNumber';
 import { ComplementaryFichaForm } from './ComplementaryFichaForm';
 
 interface WorkerComplementaryPanelProps {
@@ -15,7 +16,16 @@ function resolveComplementary(worker: Resource): WorkerSnapshotComplementary {
   const inbound = worker.inboundSourceData;
   const snapshot = inbound?.workerSnapshot;
   const stored = snapshot?.complementary ?? null;
-  return hydrateComplementaryFromSnapshot(snapshot, stored);
+  const complementary = hydrateComplementaryFromSnapshot(snapshot, stored);
+  if (!String(complementary.nroDocumento || '').trim() && worker.dni) {
+    complementary.nroDocumento = worker.dni;
+  }
+  if (!String(complementary.tipoDocumento || '').trim() && (complementary.nroDocumento || worker.dni)) {
+    complementary.tipoDocumento = inferDocumentType(
+      String(complementary.nroDocumento || worker.dni),
+    );
+  }
+  return complementary;
 }
 
 function buildUpdatedInbound(

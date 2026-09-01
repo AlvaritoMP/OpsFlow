@@ -614,6 +614,7 @@ export const hrOutboundIngresoService = {
     const variants = new Set<string>();
     for (const dni of normalized) {
       variants.add(dni);
+      variants.add(dni.toUpperCase());
       const stripped = dni.replace(/^0+/, '') || '0';
       variants.add(stripped);
       if (/^\d+$/.test(dni) && dni.length < 8) {

@@ -251,7 +251,7 @@ export interface Resource {
   inboundSourceData?: ResourceInboundSourceData;
   
   // Personnel-specific fields (only for type = PERSONNEL)
-  dni?: string; // Documento Nacional de Identidad
+  dni?: string; // DNI, CE o pasaporte (puede incluir letras)
   /** Lugar de residencia o localidad de referencia del trabajador (ej. distrito, ciudad) */
   localidad?: string;
   /** Teléfono de contacto del trabajador */

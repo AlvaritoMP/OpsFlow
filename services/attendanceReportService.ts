@@ -5,6 +5,7 @@ import {
   deriveRowFields,
   guessReportDateFromFilename,
 } from './attendanceReportExcelParser';
+import { documentNumbersMatch } from '../utils/documentNumber';
 
 export interface AttendanceReportImportDTO {
   id: string;
@@ -132,7 +133,7 @@ function matchResourceIdForRow(unit: Unit, normalizedDni: string): string | null
   const r = unit.resources.find(
     (res) =>
       res.type === ResourceType.PERSONNEL &&
-      (res.dni || '').replace(/\D/g, '') === normalizedDni
+      documentNumbersMatch(res.dni, normalizedDni)
   );
   return r?.id || null;
 }
@@ -298,18 +299,32 @@ export const attendanceReportService = {
       guessReportDateFromFilename(file.name) ||
       new Date().toISOString().slice(0, 10);
 
-    const { data: imp, error: e1 } = await supabase
+    const header = {
+      unit_id: unit.id,
+      report_date: reportDate,
+      source_filename: file.name.slice(0, 240),
+      sheet_used: parsed.sheetName,
+      uploaded_by: uploadedByUserId,
+      column_mapping: parsed.columnMapping,
+    };
+
+    let { data: imp, error: e1 } = await supabase
       .from('attendance_report_imports')
-      .insert({
-        unit_id: unit.id,
-        report_date: reportDate,
-        source_filename: file.name.slice(0, 240),
-        sheet_used: parsed.sheetName,
-        uploaded_by: uploadedByUserId,
-        column_mapping: parsed.columnMapping,
-      })
+      .insert(header)
       .select('id')
       .single();
+
+    // La FK de uploaded_by puede apuntar a auth.users; en OpsFlow el login usa
+    // public.users, así que el ID del operador a menudo no existe ahí.
+    if (e1 && uploadedByUserId && String(e1.message || '').includes('uploaded_by_fkey')) {
+      const retry = await supabase
+        .from('attendance_report_imports')
+        .insert({ ...header, uploaded_by: null })
+        .select('id')
+        .single();
+      imp = retry.data;
+      e1 = retry.error;
+    }
 
     if (e1) {
       handleSupabaseError(e1);

@@ -1,5 +1,9 @@
 import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
 import type { WorkerSnapshotComplementary } from '../types';
+import {
+  isValidPublicFichaDocument,
+  normalizeDocumentNumber,
+} from '../utils/documentNumber';
 
 export const PUBLIC_COMPLEMENTARY_FICHA_PATH = '/ficha';
 export const PUBLIC_COMPLEMENTARY_FICHA_MAX_OPENS = 3;
@@ -54,7 +58,7 @@ export function getPublicComplementaryFichaUrl(): string {
 }
 
 function normalizeDni(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 8);
+  return normalizeDocumentNumber(value);
 }
 
 function payloadFromUnknown(data: unknown): PublicComplementaryFichaPayload {
@@ -200,6 +204,9 @@ async function invokePublicFicha(
   extra?: Record<string, unknown>,
 ): Promise<PublicComplementaryFichaPayload> {
   const normalized = normalizeDni(dni);
+  if (!isValidPublicFichaDocument(normalized)) {
+    throw new Error('Ingresa un documento válido (DNI, CE o pasaporte)');
+  }
   const sessionToken = readPublicFichaSessionToken(normalized);
   const payloadExtra = { sessionToken, ...extra };
   const fallback =
@@ -229,6 +236,7 @@ async function invokePublicFicha(
 
 export const publicComplementaryFichaService = {
   normalizeDni,
+  isValidDocument: isValidPublicFichaDocument,
 
   async open(dni: string): Promise<PublicComplementaryFichaPayload> {
     return invokePublicFicha('open', dni);

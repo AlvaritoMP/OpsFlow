@@ -5,11 +5,12 @@ import {
   publicComplementaryFichaService,
   type PublicComplementaryFichaPayload,
 } from '../services/publicComplementaryFichaService';
+import { inferDocumentType } from '../utils/documentNumber';
 import type { WorkerSnapshotComplementary } from '../types';
 
 function emptyComplementary(dni: string): WorkerSnapshotComplementary {
   return {
-    tipoDocumento: 'DNI',
+    tipoDocumento: inferDocumentType(dni),
     nroDocumento: dni,
   };
 }
@@ -25,13 +26,14 @@ export const ComplementaryFichaLanding: React.FC = () => {
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   const dni = publicComplementaryFichaService.normalizeDni(dniInput);
-  const dniValid = dni.length === 8;
+  const dniValid = publicComplementaryFichaService.isValidDocument(dni);
 
   const handleDraftChange = (next: WorkerSnapshotComplementary) => {
+    const lockedDoc = session?.dni ?? dni;
     setDraft({
       ...next,
-      tipoDocumento: 'DNI',
-      nroDocumento: session?.dni ?? dni,
+      nroDocumento: lockedDoc,
+      tipoDocumento: next.tipoDocumento || inferDocumentType(lockedDoc),
     });
     setDirty(true);
     setSavedMsg(null);
@@ -49,8 +51,9 @@ export const ComplementaryFichaLanding: React.FC = () => {
       setDraft({
         ...emptyComplementary(payload.dni),
         ...payload.complementary,
-        tipoDocumento: 'DNI',
         nroDocumento: payload.dni,
+        tipoDocumento:
+          payload.complementary?.tipoDocumento || inferDocumentType(payload.dni),
       });
       setDirty(false);
     } catch (err) {
@@ -70,8 +73,9 @@ export const ComplementaryFichaLanding: React.FC = () => {
       setSession(payload);
       setDraft({
         ...payload.complementary,
-        tipoDocumento: 'DNI',
         nroDocumento: payload.dni,
+        tipoDocumento:
+          payload.complementary?.tipoDocumento || inferDocumentType(payload.dni),
       });
       setDirty(false);
       setSavedMsg('Ficha guardada correctamente');
@@ -115,7 +119,7 @@ export const ComplementaryFichaLanding: React.FC = () => {
           <div className="rounded-2xl bg-white p-6 shadow-2xl md:p-8">
             <h2 className="mb-2 flex items-center text-xl font-bold text-slate-800 md:text-2xl">
               <User className="mr-2" size={20} />
-              Ingresa tu DNI
+              Ingresa tu documento
             </h2>
             <p className="mb-5 text-sm text-slate-500">
               Puedes abrir esta ficha hasta 3 veces. Cuando se acaben las oportunidades, ya no se
@@ -131,16 +135,21 @@ export const ComplementaryFichaLanding: React.FC = () => {
 
             <form onSubmit={handleOpen} className="space-y-4">
               <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">DNI</span>
+                <span className="mb-1 block text-sm font-medium text-slate-700">
+                  DNI, CE o pasaporte
+                </span>
                 <input
                   type="text"
-                  inputMode="numeric"
+                  inputMode="text"
                   autoComplete="off"
-                  maxLength={8}
+                  autoCapitalize="characters"
+                  maxLength={15}
                   value={dniInput}
-                  onChange={(e) => setDniInput(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                  onChange={(e) =>
+                    setDniInput(e.target.value.toUpperCase().replace(/[^A-Za-z0-9]/g, '').slice(0, 15))
+                  }
                   className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                  placeholder="12345678"
+                  placeholder="12345678 o A1234567"
                   disabled={loading}
                 />
               </label>
@@ -166,7 +175,7 @@ export const ComplementaryFichaLanding: React.FC = () => {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    DNI {session.dni}
+                    Documento {session.dni}
                   </p>
                   <h2 className="text-lg font-bold text-slate-900">Tus datos personales</h2>
                 </div>
@@ -175,7 +184,7 @@ export const ComplementaryFichaLanding: React.FC = () => {
                   onClick={handleChangeDni}
                   className="text-sm text-slate-500 hover:text-slate-800"
                 >
-                  Usar otro DNI
+                  Usar otro documento
                 </button>
               </div>
               <p

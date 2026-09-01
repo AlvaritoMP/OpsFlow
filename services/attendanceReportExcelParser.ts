@@ -1,6 +1,7 @@
 /**
  * Parser flexible para reportes de asistencia en Excel (columnas según plantilla del proveedor).
  */
+import { normalizeDocumentNumber } from '../utils/documentNumber';
 
 export type AttendanceColumnKey =
   | 'worker_name'
@@ -241,9 +242,9 @@ export async function parseAttendanceExcelFile(file: File): Promise<ParsedAttend
   };
 }
 
-/** Normaliza dígito único por cruce con personal */
+/** Normaliza DNI/CE/pasaporte para cruce con personal */
 export function normalizeDniDigits(dni?: string): string {
-  return (dni || '').replace(/\D/g, '');
+  return normalizeDocumentNumber(dni);
 }
 
 /** dd/mm/yyyy o yyyy-mm-dd → yyyy-mm-dd */

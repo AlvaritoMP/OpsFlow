@@ -37,9 +37,25 @@ function asTrimmedString(value: unknown): string {
 }
 
 function normalizeDni(value: unknown): string | null {
-  const digits = asTrimmedString(value).replace(/\D/g, '');
-  if (!/^\d{8}$/.test(digits)) return null;
-  return digits;
+  const normalized = asTrimmedString(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 15);
+  if (normalized.length < 5) return null;
+  return normalized;
+}
+
+function inferDocumentType(doc: string): string {
+  if (/[A-Z]/.test(doc)) return 'Pasaporte';
+  if (/^\d{8}$/.test(doc)) return 'DNI';
+  if (/^\d{9}$/.test(doc)) return 'CE';
+  return 'DNI';
+}
+
+function documentsMatch(a: unknown, b: unknown): boolean {
+  const left = asTrimmedString(a).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const right = asTrimmedString(b).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return Boolean(left && right && left === right);
 }
 
 function asRecord(value: unknown): JsonRecord {
@@ -104,7 +120,7 @@ function hydrateComplementary(
   fill('unidadDestaque', fields.unidadDestaque);
 
   if (!asTrimmedString(complementary.tipoDocumento) && asTrimmedString(complementary.nroDocumento)) {
-    complementary.tipoDocumento = 'DNI';
+    complementary.tipoDocumento = inferDocumentType(asTrimmedString(complementary.nroDocumento));
   }
 
   if (!asTrimmedString(complementary.nombres) && resource?.name) {
@@ -139,10 +155,6 @@ function remainingOpens(openCount: number, maxOpens: number, canEdit: boolean): 
   return Math.max(0, maxOpens - openCount);
 }
 
-function digitsOnly(value: unknown): string {
-  return asTrimmedString(value).replace(/\D/g, '');
-}
-
 function complementaryNeedsHydration(complementary: JsonRecord): boolean {
   const keys = Object.keys(complementary).filter((key) => asTrimmedString(complementary[key]));
   if (keys.length === 0) return true;
@@ -158,7 +170,7 @@ async function findExistingSnapshot(
   const { data: exactRows } = await admin
     .from('resources')
     .select('id, name, dni, phone, email, birth_date, inbound_source_data')
-    .eq('dni', dni)
+    .ilike('dni', dni)
     .eq('type', 'Personal')
     .limit(1);
   let resource = exactRows?.[0];
@@ -170,7 +182,7 @@ async function findExistingSnapshot(
       .eq('type', 'Personal')
       .ilike('dni', `%${dni}%`)
       .limit(20);
-    resource = (looseRows ?? []).find((row) => digitsOnly(row.dni) === dni);
+    resource = (looseRows ?? []).find((row) => documentsMatch(row.dni, dni));
   }
 
   if (resource) {
@@ -205,7 +217,7 @@ async function findExistingSnapshot(
     const stored = asRecord(row.complementary);
     const nested = asRecord(snapshot.complementary);
     const found = pickText(identity.dni, stored.nroDocumento, nested.nroDocumento);
-    return found.replace(/\D/g, '') === dni;
+    return documentsMatch(found, dni);
   });
 
   if (item) {
@@ -216,7 +228,7 @@ async function findExistingSnapshot(
     };
   }
 
-  return { complementary: { tipoDocumento: 'DNI', nroDocumento: dni }, snapshot: {} };
+  return { complementary: { tipoDocumento: inferDocumentType(dni), nroDocumento: dni }, snapshot: {} };
 }
 
 function overlayComplementaryOnHrFields(hr: JsonRecord, complementary: JsonRecord): JsonRecord {
@@ -274,7 +286,7 @@ async function syncComplementary(
   const { data: exactResources } = await admin
     .from('resources')
     .select('id, dni, phone, email, birth_date, inbound_source_data')
-    .eq('dni', dni)
+    .ilike('dni', dni)
     .eq('type', 'Personal');
   let matchedResources = exactResources ?? [];
   if (matchedResources.length === 0) {
@@ -284,7 +296,7 @@ async function syncComplementary(
       .eq('type', 'Personal')
       .ilike('dni', `%${dni}%`)
       .limit(20);
-    matchedResources = (looseResources ?? []).filter((row) => digitsOnly(row.dni) === dni);
+    matchedResources = (looseResources ?? []).filter((row) => documentsMatch(row.dni, dni));
   }
 
   const resourceIds: string[] = [];
@@ -375,8 +387,8 @@ async function syncComplementary(
     const identity = asRecord(snapshot.identity);
     const stored = asRecord(item.complementary);
     const nested = asRecord(snapshot.complementary);
-    const found = pickText(identity.dni, stored.nroDocumento, nested.nroDocumento).replace(/\D/g, '');
-    if (found !== dni) continue;
+    const found = pickText(identity.dni, stored.nroDocumento, nested.nroDocumento);
+    if (!documentsMatch(found, dni)) continue;
 
     const nextSnapshot = {
       ...snapshot,
@@ -417,7 +429,7 @@ async function getValidSession(
 
   const ficha = data?.ficha as FichaRow | FichaRow[] | null;
   const row = Array.isArray(ficha) ? ficha[0] : ficha;
-  if (!row || row.dni !== dni) return null;
+  if (!row || !documentsMatch(row.dni, dni)) return null;
   return { ficha: row, sessionToken: token };
 }
 
@@ -477,7 +489,7 @@ serve(async (req) => {
     const action = asTrimmedString(body.action);
     const dni = normalizeDni(body.dni);
     if (!dni) {
-      return jsonResponse({ error: 'Ingresa un DNI válido de 8 dígitos' }, 400);
+      return jsonResponse({ error: 'Ingresa un documento válido (DNI, CE o pasaporte)' }, 400);
     }
 
     const admin = createClient(supabaseUrl, supabaseServiceKey, {
@@ -509,7 +521,7 @@ serve(async (req) => {
         const { data: lockedRow, error: lockedError } = await admin
           .from('public_complementary_fichas')
           .select('*')
-          .eq('dni', dni)
+          .ilike('dni', dni)
           .maybeSingle();
         if (lockedError || !lockedRow) {
           return jsonResponse({ error: 'No se pudo abrir la ficha' }, 500);
@@ -522,7 +534,8 @@ serve(async (req) => {
         const found = await findExistingSnapshot(admin, dni);
         complementary = {
           ...found.complementary,
-          tipoDocumento: 'DNI',
+          tipoDocumento:
+            asTrimmedString(found.complementary.tipoDocumento) || inferDocumentType(dni),
           nroDocumento: dni,
         };
         await admin
@@ -530,7 +543,11 @@ serve(async (req) => {
           .update({ complementary })
           .eq('id', ficha.id);
       } else {
-        complementary = { ...complementary, tipoDocumento: 'DNI', nroDocumento: dni };
+        complementary = {
+          ...complementary,
+          tipoDocumento: asTrimmedString(complementary.tipoDocumento) || inferDocumentType(dni),
+          nroDocumento: dni,
+        };
       }
 
       const sessionToken = await createSession(admin, ficha.id);
@@ -545,7 +562,7 @@ serve(async (req) => {
       const existingSession = await getValidSession(admin, dni, asTrimmedString(body.sessionToken));
       if (!existingSession) {
         return jsonResponse(
-          { error: 'Sesión vencida o sin cupos. Vuelve a ingresar tu DNI.' },
+          { error: 'Sesión vencida o sin cupos. Vuelve a ingresar tu documento.' },
           403,
         );
       }
@@ -556,7 +573,8 @@ serve(async (req) => {
         return jsonResponse({ error: 'La ficha es demasiado grande' }, 400);
       }
 
-      complementary.tipoDocumento = 'DNI';
+      complementary.tipoDocumento =
+        asTrimmedString(complementary.tipoDocumento) || inferDocumentType(dni);
       complementary.nroDocumento = dni;
       complementary.submittedAt = new Date().toISOString();
 

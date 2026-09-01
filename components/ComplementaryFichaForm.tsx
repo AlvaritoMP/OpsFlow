@@ -30,7 +30,7 @@ export const COMPLEMENTARY_FICHA_GROUPS: ComplementaryFieldGroup[] = [
         input: 'select',
         options: ['DNI', 'CE', 'Pasaporte'],
       },
-      { key: 'nroDocumento', label: 'N° documento' },
+      { key: 'nroDocumento', label: 'N° documento (DNI, CE o pasaporte)' },
       { key: 'nacionalidad', label: 'Nacionalidad' },
       { key: 'edad', label: 'Edad' },
       {

@@ -27,6 +27,7 @@ import {
 } from '../utils/unitClassConfig';
 import { isUnitOperational } from '../utils/unitStatus';
 import { formatDateDisplay } from '../utils/dateFormat';
+import { normalizeDocumentNumber } from '../utils/documentNumber';
 import { DateInput } from './DateInput';
 import { pauseUnitsBackgroundRefresh, resumeUnitsBackgroundRefresh } from '../hooks/unitsRefreshLock';
 import { RosterHourCoverageGrid } from './RosterHourCoverageGrid';
@@ -2533,7 +2534,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         assignedZones: newWorkerForm.zones,
       assignedShift: newWorkerForm.shift,
       compliancePercentage: 100,
-        dni: (newWorkerForm.dni || '').replace(/\D/g, '').slice(0, 8) || undefined,
+        dni: normalizeDocumentNumber(newWorkerForm.dni) || undefined,
         puesto: newWorkerForm.puesto || undefined,
         localidad: newWorkerForm.localidad?.trim() || undefined,
         phone: newWorkerForm.phone?.trim() || undefined,
@@ -2682,7 +2683,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             assignedZones: zones,
             assignedShift: shift || undefined,
             compliancePercentage: 100,
-            dni: (row.dni || '').replace(/\D/g, '').slice(0, 8) || undefined,
+            dni: normalizeDocumentNumber(row.dni) || undefined,
             puesto: row.puesto?.trim() || undefined,
             localidad: row.localidad?.trim() || undefined,
             phone: row.telefono?.trim() || undefined,
@@ -3851,6 +3852,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // endDate es solo referencial y NO debe cambiar el estado automáticamente
       const resourceToUpdate = {
         ...resourceData,
+        dni: normalizeDocumentNumber(editingResource.dni),
         image: finalResourceImage,
         phone: lockedPhone || editingResource.phone?.trim() || undefined,
         jornadaType: lockedJornada || editingResource.jornadaType?.trim() || undefined,
@@ -9210,7 +9212,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </p>
                 <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
                   <li><strong>Nombre</strong> (requerido) - Nombre completo del trabajador</li>
-                  <li><strong>DNI</strong> (opcional) - Documento Nacional de Identidad</li>
+                  <li><strong>DNI</strong> (opcional) - DNI, carné de extranjería o pasaporte (puede incluir letras)</li>
                   <li><strong>Puesto</strong> (opcional) - Cargo o puesto del trabajador</li>
                   <li><strong>Localidad</strong> (opcional) - Distrito, ciudad u otro lugar de referencia</li>
                   <li><strong>Teléfono</strong> (opcional) - Número de contacto del trabajador</li>
@@ -9418,9 +9420,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
-                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.dni || ''} onChange={e => setNewWorkerForm({...newWorkerForm, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
-                  <p className="mt-1 text-xs text-slate-500">Necesario para que el referido complete la ficha en /ficha y para el envío a Opalosis.</p>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">DNI / documento</label>
+                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.dni || ''} onChange={e => setNewWorkerForm({...newWorkerForm, dni: e.target.value})} placeholder="DNI, CE o pasaporte" />
+                  <p className="mt-1 text-xs text-slate-500">Puede incluir letras (p. ej. pasaporte). Necesario para que el referido complete la ficha en /ficha y para el envío a Opalosis.</p>
                 </div>
                 
                 <div>
@@ -10090,8 +10092,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                   </div>
                               </div>
                               <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
-                                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.dni || ''} onChange={e => setEditingResource({...editingResource, dni: e.target.value})} placeholder="Documento Nacional de Identidad" />
+                                  <label className="block text-sm font-medium text-slate-700 mb-1">DNI / documento</label>
+                                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={editingResource.dni || ''} onChange={e => setEditingResource({...editingResource, dni: e.target.value})} placeholder="DNI, CE o pasaporte" />
+                                  <p className="mt-1 text-xs text-slate-500">Puede incluir letras (p. ej. pasaporte).</p>
                               </div>
                               <div>
                                   <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Nacimiento</label>

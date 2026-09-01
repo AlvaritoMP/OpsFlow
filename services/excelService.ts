@@ -621,7 +621,7 @@ export const excelService = {
         ['FORMATO DE COLUMNAS:'],
         [''],
         ['Nombre (REQUERIDO):', 'Nombre completo del trabajador'],
-        ['DNI (Opcional):', 'Documento Nacional de Identidad'],
+        ['DNI (Opcional):', 'DNI, carné de extranjería o pasaporte (puede incluir letras)'],
         ['Puesto (Opcional):', 'Cargo o puesto del trabajador (ej: Guardia de Seguridad, Supervisor)'],
         ['Localidad (Opcional):', 'Distrito, ciudad u otro lugar de referencia del trabajador'],
         ['Teléfono (Opcional):', 'Número de contacto del trabajador (ej: 987654321)'],

@@ -70,6 +70,14 @@ function pickFirst(...values: unknown[]): string {
   return '';
 }
 
+function inferDocumentType(value: unknown): string {
+  const doc = asTrimmedString(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (/[A-Z]/.test(doc)) return 'Pasaporte';
+  if (/^\d{8}$/.test(doc)) return 'DNI';
+  if (/^\d{9}$/.test(doc)) return 'CE';
+  return 'DNI';
+}
+
 function composeNameFromParts(item: HandoffItemPayload): string {
   const identity = item.workerSnapshot?.identity ?? {};
   const fields = item.workerSnapshot?.fields ?? {};
@@ -228,7 +236,7 @@ function hydrateComplementary(
   fill('nacionalidad', fields.nacionalidad);
 
   if (!asTrimmedString(base.tipoDocumento) && asTrimmedString(base.nroDocumento || identity.dni)) {
-    base.tipoDocumento = 'DNI';
+    base.tipoDocumento = inferDocumentType(base.nroDocumento || identity.dni);
   }
 
   return Object.keys(base).length > 0 ? base : null;

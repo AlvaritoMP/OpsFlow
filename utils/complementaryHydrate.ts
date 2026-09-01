@@ -3,6 +3,7 @@ import type {
   WorkerSnapshot,
   WorkerSnapshotComplementary,
 } from '../types';
+import { inferDocumentType } from './documentNumber';
 
 function asText(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -126,8 +127,11 @@ export function hydrateComplementaryFromSnapshot(
     }
   }
 
+  fill('tipoDocumento', fields.tipoDocumento);
   if (!asText(complementary.tipoDocumento) && asText(complementary.nroDocumento || identity.dni)) {
-    complementary.tipoDocumento = 'DNI';
+    complementary.tipoDocumento = inferDocumentType(
+      asText(complementary.nroDocumento) || asText(identity.dni),
+    );
   }
 
   return complementary;
