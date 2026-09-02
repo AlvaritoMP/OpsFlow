@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Unit, Resource, UserRole } from '../types';
 import { resourcesService } from '../services/resourcesService';
 import { unitsService } from '../services/unitsService';
-import { Archive as ArchiveIcon, User, Building, Calendar, Mail, Phone, FileText, RefreshCw, ArrowRight, Search, X, CheckCircle, AlertCircle, Edit2 } from 'lucide-react';
+import { Archive as ArchiveIcon, User, Building, Calendar, Mail, Phone, FileText, RefreshCw, ArrowRight, Search, X, CheckCircle, AlertCircle, Edit2, Download } from 'lucide-react';
 import { SafeImage } from './SafeImage';
 import { checkPermission } from '../services/permissionService';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import { filterOperationalUnits } from '../utils/unitStatus';
 import { DateInput } from './DateInput';
+import { excelService } from '../services/excelService';
+import { formatDateDisplay } from '../utils/dateFormat';
 
 interface ArchiveProps {
   currentUserRole?: UserRole;
@@ -35,6 +37,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
   const [terminationType, setTerminationType] = useState<'cesado' | 'archivado'>('cesado');
   const [terminationDate, setTerminationDate] = useState<string>('');
   const [changingStatus, setChangingStatus] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const canView = checkPermission(currentUserRole || 'OPERATIONS', 'ARCHIVE', 'view');
   const canEdit = checkPermission(currentUserRole || 'OPERATIONS', 'ARCHIVE', 'edit');
@@ -147,6 +150,63 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
     );
   });
 
+  const getPersonnelStatusLabel = (personnel: ArchivedPersonnel): string => {
+    if (personnel.personnelStatus === 'cesado') return 'Cesado';
+    if (personnel.personnelStatus === 'archivado' || personnel.archived) return 'Archivado';
+    return 'Desconocido';
+  };
+
+  const handleExportToExcel = async () => {
+    if (filteredPersonnel.length === 0) {
+      alert('No hay trabajadores para exportar con los filtros actuales.');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const headers = [
+        'Trabajador',
+        'DNI',
+        'Puesto',
+        'Unidad de Origen',
+        'Fecha Inicio',
+        'Fecha Fin',
+        'Fecha de Cese',
+        'Estado',
+        'Fecha de Nacimiento',
+      ];
+
+      const data = filteredPersonnel.map((personnel) => {
+        const dates = getLaborRelationshipDisplayDates(personnel, personnel.contractHistory);
+        const endDate = dates.end ? formatDateDisplay(dates.end) : '';
+        return {
+          'Trabajador': personnel.name,
+          'DNI': personnel.dni || '',
+          'Puesto': personnel.puesto || '',
+          'Unidad de Origen': personnel.originalUnitName || '',
+          'Fecha Inicio': dates.start ? formatDateDisplay(dates.start) : '',
+          'Fecha Fin': endDate,
+          'Fecha de Cese': endDate,
+          'Estado': getPersonnelStatusLabel(personnel),
+          'Fecha de Nacimiento': personnel.birthDate ? formatDateDisplay(personnel.birthDate) : '',
+        };
+      });
+
+      const filterSuffix = searchTerm.trim() ? '_filtrado' : '';
+      const filename = `archivo_personal${filterSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+      await excelService.exportToExcel(data, headers, {
+        filename,
+        sheetName: 'Archivo de Personal',
+      });
+    } catch (error) {
+      console.error('Error al exportar archivo de personal a Excel:', error);
+      alert('Error al exportar a Excel. Por favor, intente nuevamente.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (!canView) {
     return (
       <div className="p-6">
@@ -167,16 +227,16 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
         <p className="text-slate-600">Trabajadores cesados o archivados</p>
       </div>
 
-      {/* Barra de búsqueda */}
-      <div className="mb-6">
-        <div className="relative">
+      {/* Barra de búsqueda y exportación */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
           <input
             type="text"
             placeholder="Buscar por nombre, DNI, puesto o unidad..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+            className="w-full pl-10 pr-10 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
           />
           {searchTerm && (
             <button
@@ -187,7 +247,35 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
             </button>
           )}
         </div>
+        <button
+          type="button"
+          onClick={handleExportToExcel}
+          disabled={loading || exporting || filteredPersonnel.length === 0}
+          className="inline-flex items-center justify-center px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
+          title={searchTerm.trim()
+            ? `Exportar a Excel los ${filteredPersonnel.length} trabajadores que coinciden con la búsqueda`
+            : `Exportar a Excel los ${filteredPersonnel.length} trabajadores mostrados`}
+        >
+          {exporting ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              Exportando...
+            </>
+          ) : (
+            <>
+              <Download size={18} className="mr-2" />
+              Exportar Excel{filteredPersonnel.length > 0 ? ` (${filteredPersonnel.length})` : ''}
+            </>
+          )}
+        </button>
       </div>
+      {!loading && archivedPersonnel.length > 0 && (
+        <p className="mb-4 text-sm text-slate-500">
+          {searchTerm.trim()
+            ? `Mostrando ${filteredPersonnel.length} de ${archivedPersonnel.length} trabajadores. La exportación usará esta lista filtrada.`
+            : `${archivedPersonnel.length} trabajador${archivedPersonnel.length !== 1 ? 'es' : ''} en archivo. La exportación incluirá todos los registros en pantalla.`}
+        </p>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
@@ -241,7 +329,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                           <div className="text-sm font-medium text-slate-900">{personnel.name}</div>
                           {personnel.birthDate && (
                             <div className="text-xs text-slate-500">
-                              Cumpleaños: {new Date(personnel.birthDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}
+                              Cumpleaños: {formatDateDisplay(personnel.birthDate)}
                             </div>
                           )}
                         </div>
@@ -260,37 +348,47 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
-                      {getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).start && (
-                        <div className="mb-1">
-                          <span className="text-slate-400">Inicio:</span>{' '}
-                          {new Date(getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).start!).toLocaleDateString('es-ES')}
-                        </div>
-                      )}
-                      {getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end && (
-                        <div className="text-red-600">
-                          <span className="text-slate-400">Fin:</span>{' '}
-                          {new Date(getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end!).toLocaleDateString('es-ES')}
-                        </div>
-                      )}
+                      {(() => {
+                        const dates = getLaborRelationshipDisplayDates(personnel, personnel.contractHistory);
+                        return (
+                          <>
+                            {dates.start && (
+                              <div className="mb-1">
+                                <span className="text-slate-400">Inicio:</span>{' '}
+                                {formatDateDisplay(dates.start)}
+                              </div>
+                            )}
+                            {dates.end && (
+                              <div className="text-red-600">
+                                <span className="text-slate-400">Fin:</span>{' '}
+                                {formatDateDisplay(dates.end)}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
-                      {getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end ? (
-                        <div className="text-red-600 font-medium">
-                          {new Date(getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end!).toLocaleDateString('es-ES')}
-                        </div>
-                      ) : (
-                        <span className="text-slate-300 italic">-</span>
-                      )}
+                      {(() => {
+                        const end = getLaborRelationshipDisplayDates(personnel, personnel.contractHistory).end;
+                        return end ? (
+                          <div className="text-red-600 font-medium">
+                            {formatDateDisplay(end)}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300 italic">-</span>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        personnel.archived
-                          ? 'bg-amber-100 text-amber-800'
-                          : personnel.personnelStatus === 'cesado'
+                        getPersonnelStatusLabel(personnel) === 'Cesado'
                           ? 'bg-red-100 text-red-800'
+                          : getPersonnelStatusLabel(personnel) === 'Archivado'
+                          ? 'bg-amber-100 text-amber-800'
                           : 'bg-slate-100 text-slate-800'
                       }`}>
-                        {personnel.archived ? 'Archivado' : personnel.personnelStatus === 'cesado' ? 'Cesado' : 'Desconocido'}
+                        {getPersonnelStatusLabel(personnel)}
                       </span>
                     </td>
                     {canEdit && (
@@ -385,7 +483,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                       <div>
                         <span className="text-slate-500">Cumpleaños:</span>{' '}
                         <span className="font-medium">
-                          {new Date(selectedPersonnel.birthDate).toLocaleDateString('es-ES')}
+                          {formatDateDisplay(selectedPersonnel.birthDate)}
                         </span>
                       </div>
                     )}
@@ -393,7 +491,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                       <div>
                         <span className="text-slate-500">Inicio:</span>{' '}
                         <span className="font-medium">
-                          {new Date(getLaborRelationshipDisplayDates(selectedPersonnel, selectedPersonnel.contractHistory).start!).toLocaleDateString('es-ES')}
+                          {formatDateDisplay(getLaborRelationshipDisplayDates(selectedPersonnel, selectedPersonnel.contractHistory).start)}
                         </span>
                       </div>
                     )}
@@ -401,7 +499,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                       <div>
                         <span className="text-slate-500">Fin:</span>{' '}
                         <span className="font-medium text-red-600">
-                          {new Date(getLaborRelationshipDisplayDates(selectedPersonnel, selectedPersonnel.contractHistory).end!).toLocaleDateString('es-ES')}
+                          {formatDateDisplay(getLaborRelationshipDisplayDates(selectedPersonnel, selectedPersonnel.contractHistory).end)}
                         </span>
                       </div>
                     )}

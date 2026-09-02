@@ -20,11 +20,12 @@ export function isValidIsoDate(iso: string): boolean {
   return date.getFullYear() === y && date.getMonth() === mo - 1 && date.getDate() === d;
 }
 
-/** yyyy-MM-dd → dd/mm/yyyy */
+/** yyyy-MM-dd (o ISO datetime) → dd/mm/yyyy */
 export function formatDateDisplay(iso: string | null | undefined): string {
   if (!iso?.trim()) return '';
-  const m = iso.trim().match(ISO_RE);
-  if (!m) return iso;
+  const dateOnly = iso.trim().slice(0, 10);
+  const m = dateOnly.match(ISO_RE);
+  if (!m) return iso.trim();
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 

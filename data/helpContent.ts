@@ -523,6 +523,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Busque por nombre o documento.',
           'Abra el registro para ver el historial asociado.',
+          'Use «Exportar Excel» para descargar la tabla visible: si hay un filtro de búsqueda, solo se exportan esos resultados; si no, se exporta toda la lista en pantalla.',
           'Use esta vista para consultas; las altas nuevas se hacen desde Unidades, Presentaciones ATS o Trabajadores.',
         ],
         tips: [
