@@ -1,6 +1,7 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { Resource, ResourceType, Training, AssignedAsset, DailyShift, MaintenanceRecord } from '../types';
 import { normalizeShiftTime, isVacationWithCoverage } from '../utils/rosterHours';
+import { mapContractFromDB } from './contractService';
 
 // ============================================
 // CRUD PARA RESOURCES
@@ -291,6 +292,18 @@ export const resourcesService = {
 
         if (resource.assignedZones.length > 0) {
           await this.createZoneAssignments(id, resource.assignedZones);
+        }
+      }
+
+      if (resource.type === ResourceType.PERSONNEL && (resource.startDate !== undefined || resource.endDate !== undefined)) {
+        try {
+          const { contractService } = await import('./contractService');
+          await contractService.syncOperationalContractDates(id, {
+            startDate: resource.startDate,
+            endDate: resource.endDate,
+          });
+        } catch (syncError) {
+          console.warn('No se pudo sincronizar el contrato operativo con las fechas de la ficha:', syncError);
         }
       }
 
@@ -1396,7 +1409,7 @@ async function loadRelatedDataBatched(
 
   const contractsById = new Map<string, any[]>();
   for (const [id, rows] of contractsGrouped) {
-    contractsById.set(id, rows);
+    contractsById.set(id, rows.map(mapContractFromDB));
   }
 
   return {

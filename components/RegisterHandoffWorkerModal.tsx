@@ -10,6 +10,7 @@ import {
   Unit,
 } from '../types';
 import { DateInput } from './DateInput';
+import { formatDateDisplay } from '../utils/dateFormat';
 import {
   HandoffWorkerPrefill,
   buildResourceInboundSourceData,
@@ -133,6 +134,10 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
     }
     if (!form.puesto.trim()) {
       setError('Selecciona un puesto requerido de la unidad.');
+      return;
+    }
+    if (!form.startDate) {
+      setError('Indica la fecha de ingreso OpsFlow (la del contrato). La fecha del ATS es solo referencial.');
       return;
     }
 
@@ -389,13 +394,21 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Fecha de ingreso{isPrefilled('startDate') && <PrefillBadge />}
+                Fecha de ingreso OpsFlow *
               </label>
               <DateInput
                 value={form.startDate}
                 onChange={(startDate) => setForm({ ...form, startDate })}
                 className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
               />
+              <p className="mt-1 text-xs text-slate-500">
+                Esta es la fecha de inicio de contrato en OpsFlow. No uses la fecha referencial del ATS.
+              </p>
+              {form.atsHireDate ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  Referencia ATS (no se carga al contrato): {formatDateDisplay(form.atsHireDate)}
+                </p>
+              ) : null}
             </div>
 
             <div>
@@ -555,7 +568,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Fecha fin contrato (opcional)
+                Fecha fin de contrato OpsFlow (opcional)
               </label>
               <DateInput
                 value={form.endDate}

@@ -1,6 +1,26 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { ContractHistory } from '../types';
 
+export function mapContractFromDB(contract: any): ContractHistory {
+  return {
+    id: contract.id,
+    resourceId: contract.resource_id ?? contract.resourceId,
+    contractNumber: contract.contract_number ?? contract.contractNumber,
+    startDate: contract.start_date ?? contract.startDate,
+    endDate: contract.end_date ?? contract.endDate,
+    status: contract.status,
+    notes: contract.notes || undefined,
+    monthlySalary: contract.monthly_salary !== null && contract.monthly_salary !== undefined
+      ? Number(contract.monthly_salary)
+      : (contract.monthlySalary !== undefined ? Number(contract.monthlySalary) : undefined),
+    workConditionAmount: contract.work_condition_amount !== null && contract.work_condition_amount !== undefined
+      ? Number(contract.work_condition_amount)
+      : (contract.workConditionAmount !== undefined ? Number(contract.workConditionAmount) : undefined),
+    createdAt: contract.created_at ?? contract.createdAt,
+    updatedAt: contract.updated_at ?? contract.updatedAt,
+  };
+}
+
 export const contractService = {
   // Obtener historial de contratos de un trabajador
   async getContractHistory(resourceId: string): Promise<ContractHistory[]> {
@@ -13,19 +33,7 @@ export const contractService = {
 
       if (error) throw error;
 
-      return data.map(contract => ({
-        id: contract.id,
-        resourceId: contract.resource_id,
-        contractNumber: contract.contract_number,
-        startDate: contract.start_date,
-        endDate: contract.end_date,
-        status: contract.status,
-        notes: contract.notes || undefined,
-        monthlySalary: contract.monthly_salary !== null && contract.monthly_salary !== undefined ? Number(contract.monthly_salary) : undefined,
-        workConditionAmount: contract.work_condition_amount !== null && contract.work_condition_amount !== undefined ? Number(contract.work_condition_amount) : undefined,
-        createdAt: contract.created_at,
-        updatedAt: contract.updated_at,
-      }));
+      return (data || []).map(mapContractFromDB);
     } catch (error) {
       handleSupabaseError(error);
       return [];
@@ -86,19 +94,7 @@ export const contractService = {
         if (updatePreviousError) throw updatePreviousError;
       }
 
-      return {
-        id: data.id,
-        resourceId: data.resource_id,
-        contractNumber: data.contract_number,
-        startDate: data.start_date,
-        endDate: data.end_date,
-        status: data.status,
-        notes: data.notes || undefined,
-        monthlySalary: data.monthly_salary !== null && data.monthly_salary !== undefined ? Number(data.monthly_salary) : undefined,
-        workConditionAmount: data.work_condition_amount !== null && data.work_condition_amount !== undefined ? Number(data.work_condition_amount) : undefined,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at,
-      };
+      return mapContractFromDB(data);
     } catch (error) {
       handleSupabaseError(error);
       throw error;
@@ -144,19 +140,7 @@ export const contractService = {
       // Si no hay datos, retornar null
       if (!data) return null;
 
-      return {
-        id: data.id,
-        resourceId: data.resource_id,
-        contractNumber: data.contract_number,
-        startDate: data.start_date,
-        endDate: data.end_date,
-        status: data.status,
-        notes: data.notes || undefined,
-        monthlySalary: data.monthly_salary !== null && data.monthly_salary !== undefined ? Number(data.monthly_salary) : undefined,
-        workConditionAmount: data.work_condition_amount !== null && data.work_condition_amount !== undefined ? Number(data.work_condition_amount) : undefined,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at,
-      };
+      return mapContractFromDB(data);
     } catch (error: any) {
       // Manejar errores de red o permisos sin bloquear
       if (error?.code === '406' || error?.message?.includes('406') || error?.message?.includes('Not Acceptable')) {
@@ -165,6 +149,60 @@ export const contractService = {
       }
       handleSupabaseError(error);
       return null;
+    }
+  },
+
+  /**
+   * Alinea el contrato operativo con las fechas de la ficha OpsFlow.
+   * No usa fechas del ATS: esas quedan solo en inbound_source_data.
+   */
+  async syncOperationalContractDates(
+    resourceId: string,
+    dates: { startDate?: string | null; endDate?: string | null }
+  ): Promise<void> {
+    const start = typeof dates.startDate === 'string' ? dates.startDate.trim() : '';
+    const end = typeof dates.endDate === 'string' ? dates.endDate.trim() : '';
+    if (!start && !end) return;
+
+    const history = await this.getContractHistory(resourceId);
+    if (history.length === 0) {
+      if (start && end) {
+        await this.createContract(resourceId, start, end, 'Contrato operativo OpsFlow');
+      }
+      return;
+    }
+
+    const sorted = [...history].sort((a, b) => a.contractNumber - b.contractNumber);
+    const first = sorted[0];
+    const active = sorted.find((c) => c.status === 'activo') || sorted[sorted.length - 1];
+    const nextStart = start || first.startDate;
+    const nextEnd = end || (sorted.length === 1 ? first.endDate : active.endDate);
+    if (!nextStart || !nextEnd || nextEnd < nextStart) return;
+
+    if (sorted.length === 1) {
+      if (first.startDate === nextStart && first.endDate === nextEnd) return;
+      const { error } = await supabase
+        .from('contract_history')
+        .update({ start_date: nextStart, end_date: nextEnd })
+        .eq('id', first.id);
+      if (error) throw error;
+      return;
+    }
+
+    if (start && first.startDate !== nextStart && first.endDate >= nextStart) {
+      const { error } = await supabase
+        .from('contract_history')
+        .update({ start_date: nextStart })
+        .eq('id', first.id);
+      if (error) throw error;
+    }
+
+    if (end && active.endDate !== nextEnd && nextEnd >= active.startDate) {
+      const { error } = await supabase
+        .from('contract_history')
+        .update({ end_date: nextEnd })
+        .eq('id', active.id);
+      if (error) throw error;
     }
   },
 };

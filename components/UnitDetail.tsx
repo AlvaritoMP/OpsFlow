@@ -3035,7 +3035,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setExpandedPersonnel(newExpandedId);
     
     // Cargar historial de contratos cuando se expande
-    if (newExpandedId && !contractHistory[newExpandedId]) {
+    if (newExpandedId && contractHistory[newExpandedId] === undefined) {
       try {
         const { contractService } = await import('../services/contractService');
         const history = await contractService.getContractHistory(newExpandedId);
@@ -3893,6 +3893,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const updatedResources = unit.resources.map(r => 
         r.id === editingResource.id ? updatedResourceFromDB : r
       );
+
+      if (updatedResourceFromDB.contractHistory) {
+        setContractHistory(prev => ({
+          ...prev,
+          [editingResource.id]: updatedResourceFromDB.contractHistory || [],
+        }));
+      }
       
       const currentTab = activeTabRef.current; // Guardar el tab actual
       onUpdate({ ...unit, resources: updatedResources });
@@ -4888,7 +4895,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   useEffect(() => {
     if (activeTab !== 'personnel') return;
-    const ids = personnel.map(p => p.id).filter(id => contractHistoryRef.current[id] === undefined);
+    setContractHistory(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const person of personnel) {
+        if (next[person.id] === undefined && Array.isArray(person.contractHistory)) {
+          next[person.id] = person.contractHistory;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
+    const ids = personnel.map(p => p.id).filter(id => {
+      if (contractHistoryRef.current[id] !== undefined) return false;
+      const worker = personnel.find(p => p.id === id);
+      return !Array.isArray(worker?.contractHistory);
+    });
     if (ids.length === 0) return;
     let cancelled = false;
     (async () => {

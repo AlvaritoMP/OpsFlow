@@ -10,6 +10,8 @@ export interface HandoffWorkerPrefill {
   localidad: string;
   birthDate: string;
   startDate: string;
+  /** Fecha de contratación del paquete ATS; solo referencia, no es el ingreso OpsFlow. */
+  atsHireDate: string;
   endDate: string;
   shift: string;
   monthlySalary?: number;
@@ -113,8 +115,7 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
   ).trim();
   if (email) prefilledFields.push('email');
 
-  const startDate = normalizeDate(fields.hireDate);
-  if (startDate) prefilledFields.push('startDate');
+  const atsHireDate = normalizeDate(fields.hireDate);
 
   const intake = item.opsflowIntake;
   const monthlySalary =
@@ -172,7 +173,8 @@ export function mapHandoffItemToWorkerPrefill(item: InboundHandoffItem): Handoff
     puesto: '',
     localidad: '',
     birthDate,
-    startDate,
+    startDate: '',
+    atsHireDate,
     endDate: '',
     shift,
     monthlySalary,
