@@ -29,6 +29,12 @@ import { isUnitOperational } from '../utils/unitStatus';
 import { formatDateDisplay } from '../utils/dateFormat';
 import { normalizeDocumentNumber } from '../utils/documentNumber';
 import { DateInput } from './DateInput';
+import {
+  TERMINATION_REASON_PRESETS,
+  buildTerminationReason,
+  isTerminationReasonComplete,
+  splitTerminationReason,
+} from '../utils/terminationReason';
 import { pauseUnitsBackgroundRefresh, resumeUnitsBackgroundRefresh } from '../hooks/unitsRefreshLock';
 import { RosterHourCoverageGrid } from './RosterHourCoverageGrid';
 import {
@@ -550,6 +556,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [selectedWorkerForTermination, setSelectedWorkerForTermination] = useState<Resource | null>(null);
   const [terminationType, setTerminationType] = useState<'cesado' | 'archivado'>('cesado');
   const [terminationDate, setTerminationDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [terminationReasonPreset, setTerminationReasonPreset] = useState('');
+  const [terminationReasonOther, setTerminationReasonOther] = useState('');
   const [isTerminating, setIsTerminating] = useState(false);
   
   const [showRenewContractModal, setShowRenewContractModal] = useState(false);
@@ -3711,6 +3719,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Correo',
         'Zonas Asignadas',
         'Estado',
+        'Motivo del Cese',
         'Fecha Inicio',
         'Fecha Fin',
         'Turno',
@@ -3736,6 +3745,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'Correo': worker.email || '',
         'Zonas Asignadas': worker.assignedZones?.join(', ') || 'Sin zona',
         'Estado': worker.personnelStatus === 'cesado' ? 'Cesado' : (worker.status || 'Activo'),
+        'Motivo del Cese': worker.terminationReason || '',
         'Fecha Inicio': (() => {
           const rel = getLaborRelationshipDisplayDates(worker, contractHistory[worker.id]);
           return rel.start ? formatDateFromString(rel.start) : '';
@@ -6943,6 +6953,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             setSelectedWorkerForTermination(worker);
                                             setTerminationDate(new Date().toISOString().split('T')[0]);
                                             setTerminationType('cesado');
+                                            setTerminationReasonPreset('');
+                                            setTerminationReasonOther('');
                                             setShowTerminateModal(true);
                                         }}
                                         className="text-orange-600 hover:text-orange-900 p-1" 
@@ -7053,6 +7065,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             setSelectedWorkerForTermination(worker);
                                             setTerminationType(worker.personnelStatus === 'cesado' ? 'archivado' : 'cesado');
                                             setTerminationDate(worker.endDate || new Date().toISOString().split('T')[0]);
+                                            const split = splitTerminationReason(worker.terminationReason);
+                                            setTerminationReasonPreset(split.preset);
+                                            setTerminationReasonOther(split.other);
                                             setShowTerminateModal(true);
                                         }}
                                         className="text-blue-600 hover:text-blue-900 p-1" 
@@ -7071,7 +7086,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                     await resourcesService.update(worker.id, { 
                                                         archived: false, 
                                                         personnelStatus: 'activo',
-                                                        endDate: null // Eliminar fecha de fin (es solo referencial, no debe afectar el estado)
+                                                        endDate: null, // Eliminar fecha de fin (es solo referencial, no debe afectar el estado)
+                                                        terminationReason: null,
                                                     });
                                                     // Recargar recursos desde BD
                                                     if (onUpdate) {
@@ -11411,7 +11427,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     name="terminationType"
                     value="cesado"
                     checked={terminationType === 'cesado'}
-                    onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
+                    onChange={(e) => {
+                      const next = e.target.value as 'cesado' | 'archivado';
+                      setTerminationType(next);
+                      if (next === 'archivado' && !terminationReasonPreset && !terminationReasonOther) {
+                        setTerminationReasonPreset('Fin de contrato');
+                      }
+                    }}
                     className="mt-1"
                   />
                   <div className="flex-1">
@@ -11428,7 +11450,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     name="terminationType"
                     value="archivado"
                     checked={terminationType === 'archivado'}
-                    onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
+                    onChange={(e) => {
+                      const next = e.target.value as 'cesado' | 'archivado';
+                      setTerminationType(next);
+                      if (next === 'archivado' && !terminationReasonPreset && !terminationReasonOther) {
+                        setTerminationReasonPreset('Fin de contrato');
+                      }
+                    }}
                     className="mt-1"
                   />
                   <div className="flex-1">
@@ -11451,6 +11479,34 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   required
                 />
               </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Motivo del cese *
+                </label>
+                <select
+                  value={terminationReasonPreset}
+                  onChange={(e) => {
+                    setTerminationReasonPreset(e.target.value);
+                    if (e.target.value !== 'Otro') setTerminationReasonOther('');
+                  }}
+                  className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Seleccione un motivo...</option>
+                  {TERMINATION_REASON_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>{preset}</option>
+                  ))}
+                </select>
+                {terminationReasonPreset === 'Otro' && (
+                  <textarea
+                    value={terminationReasonOther}
+                    onChange={(e) => setTerminationReasonOther(e.target.value)}
+                    placeholder="Indique el motivo..."
+                    rows={2}
+                    className="mt-2 w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                )}
+              </div>
             </div>
             
             <div className="flex gap-3">
@@ -11467,6 +11523,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               <button
                 onClick={async () => {
                   if (!selectedWorkerForTermination || !onUpdate) return;
+                  if (!isTerminationReasonComplete(terminationReasonPreset, terminationReasonOther)) {
+                    setNotification({ type: 'error', message: 'Indique el motivo del cese.' });
+                    setTimeout(() => setNotification(null), 4000);
+                    return;
+                  }
+                  const terminationReason = buildTerminationReason(terminationReasonPreset, terminationReasonOther);
                   
                   // Marcar que hay un proceso de cese en curso para evitar conflictos
                   isTerminatingRef.current = true;
@@ -11479,6 +11541,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     if (selectedWorkerForTermination.archived) {
                       const updateData: any = {
                         personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+                        terminationReason,
                       };
                       
                       // Si se cambia la fecha de cese, actualizarla también
@@ -11506,6 +11569,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         type: ResourceType.PERSONNEL, // Necesario para que transformResourceToDB procese los campos
                         personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
                         endDate: terminationDate,
+                        terminationReason,
                       };
                       
                       if (terminationType === 'archivado') {
@@ -11584,7 +11648,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     ? 'bg-orange-600 text-white hover:bg-orange-700'
                     : 'bg-amber-600 text-white hover:bg-amber-700'
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
-                disabled={isTerminating || !terminationDate}
+                disabled={isTerminating || !terminationDate || !isTerminationReasonComplete(terminationReasonPreset, terminationReasonOther)}
               >
                 {isTerminating ? 'Procesando...' : `Confirmar ${terminationType === 'cesado' ? 'Cese' : 'Archivo'}`}
               </button>
@@ -11866,6 +11930,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       workConditionAmount: renewContractForm.workConditionAmount,
                       personnelStatus: 'activo',
                       archived: false,
+                      terminationReason: null,
                     });
                     
                     // Recargar historial de contratos

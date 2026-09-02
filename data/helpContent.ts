@@ -524,6 +524,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Busque por nombre o documento.',
           'Abra el registro para ver el historial asociado.',
           'Use «Exportar Excel» para descargar la tabla visible: si hay un filtro de búsqueda, solo se exportan esos resultados; si no, se exporta toda la lista en pantalla.',
+          'Al cesar o archivar un trabajador se registra el motivo del cese. Ese motivo aparece en esta tabla y en el Excel; puede editarse desde Acciones.',
           'Use esta vista para consultas; las altas nuevas se hacen desde Unidades, Presentaciones ATS o Trabajadores.',
         ],
         tips: [

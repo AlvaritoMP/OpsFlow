@@ -934,6 +934,7 @@ function transformResourceFromDB(
     })(),
     // archived solo se cambia manualmente mediante el proceso de cese/archivo
     archived: data.archived || false,
+    terminationReason: data.termination_reason || undefined,
     // Campos de capacitación
     inTraining: data.in_training || false,
     trainingStartDate: normalizeDateFromDB(data.training_start_date),
@@ -1470,6 +1471,7 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
                              resource.email !== undefined ||
                              resource.puesto !== undefined ||
                              resource.archived !== undefined ||
+                             resource.terminationReason !== undefined ||
                              resource.endDate !== undefined ||
                              resource.startDate !== undefined ||
                              resource.monthlySalary !== undefined ||
@@ -1499,6 +1501,9 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     }
     if (resource.personnelStatus !== undefined) result.personnel_status = resource.personnelStatus;
     if (resource.archived !== undefined) result.archived = resource.archived;
+    if (resource.terminationReason !== undefined) {
+      result.termination_reason = resource.terminationReason?.trim() || null;
+    }
     // Campos de capacitación
     if (resource.inTraining !== undefined) result.in_training = resource.inTraining;
     if (resource.trainingStartDate !== undefined) result.training_start_date = normalizeDateToDB(resource.trainingStartDate);
