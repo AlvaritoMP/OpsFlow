@@ -624,6 +624,8 @@ const App: React.FC = () => {
       throw improvedError;
     }
   }, [updateUnit]);
+
+  const handleAddImageToNewUnit = () => {
     if (!newUnitImageUrl) return;
     setNewUnitImages([...newUnitImages, newUnitImageUrl]);
     setNewUnitImageUrl('');
