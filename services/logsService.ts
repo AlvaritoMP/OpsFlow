@@ -25,15 +25,19 @@ export const logsService = {
     }
   },
 
-  async getByUnitIds(unitIds: string[]): Promise<Map<string, OperationalLog[]>> {
+  async getByUnitIds(unitIds: string[], options?: { light?: boolean }): Promise<Map<string, OperationalLog[]>> {
     const grouped = new Map<string, OperationalLog[]>();
     if (unitIds.length === 0) return grouped;
+    const light = options?.light === true;
+    const select = light
+      ? 'id, unit_id, date, type, description, author'
+      : '*, log_images(image_url), log_responsible(*)';
     try {
       const rows = await fetchInChunks(unitIds, 80, (ids) =>
         fetchAllPaged(async (from, to) => {
           const { data, error } = await supabase
             .from('operational_logs')
-            .select('*, log_images(image_url), log_responsible(*)')
+            .select(select)
             .in('unit_id', ids)
             .order('date', { ascending: false })
             .range(from, to);

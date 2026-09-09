@@ -13,6 +13,7 @@ import {
 } from '../types';
 import { resourcesService } from './resourcesService';
 import { vacationAuditService } from './vacationAuditService';
+import { fetchAllPaged, fetchInChunks } from '../utils/queryBatch';
 import {
   MAX_VACATION_DAYS_WITHOUT_AUTH,
   requiresVacationAuthorization,
@@ -1435,24 +1436,103 @@ export const vacationService = {
 
   // --- Agregados ---
 
-  async getUnitSummaries(units: Unit[]): Promise<VacationBalanceSummary[]> {
-    const summaries: VacationBalanceSummary[] = [];
-
-    for (const unit of units) {
-      const personnel = (unit.resources || []).filter(
-        r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado' && !r.archived
+  async getDayEntriesByUnitIds(unitIds: string[]): Promise<VacationDayEntry[]> {
+    if (unitIds.length === 0) return [];
+    try {
+      const rows = await fetchInChunks(unitIds, 80, (ids) =>
+        fetchAllPaged(async (from, to) => {
+          const { data, error } = await supabase
+            .from('vacation_day_entries')
+            .select('*')
+            .in('unit_id', ids)
+            .order('vacation_date', { ascending: false })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        })
       );
+      return rows.map(transformDayEntryFromDB);
+    } catch (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+  },
 
-      for (const resource of personnel) {
-        const [balance, papeletas, dayEntries] = await Promise.all([
-          this.getBalance(resource.id),
-          this.getPapeletas(resource.id),
-          this.getDayEntries(resource.id),
-        ]);
+  async getPapeletasByUnitIds(unitIds: string[]): Promise<VacationPapeleta[]> {
+    if (unitIds.length === 0) return [];
+    try {
+      const rows = await fetchInChunks(unitIds, 80, (ids) =>
+        fetchAllPaged(async (from, to) => {
+          const { data, error } = await supabase
+            .from('vacation_papeletas')
+            .select('*')
+            .in('unit_id', ids)
+            .order('start_date', { ascending: false })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        })
+      );
+      return rows.map(transformPapeletaFromDB);
+    } catch (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+  },
 
-        const summary = buildBalanceSummary(resource, unit, balance, papeletas, dayEntries);
-        if (summary) summaries.push(summary);
+  async getUnitSummaries(units: Unit[]): Promise<VacationBalanceSummary[]> {
+    const workers: { resource: Resource; unit: Unit }[] = [];
+    for (const unit of units) {
+      for (const resource of unit.resources || []) {
+        if (resource.type === ResourceType.PERSONNEL && resource.personnelStatus !== 'cesado' && !resource.archived) {
+          workers.push({ resource, unit });
+        }
       }
+    }
+    if (workers.length === 0) return [];
+
+    const resourceIds = workers.map((w) => w.resource.id);
+    const unitIds = [...new Set(workers.map((w) => w.unit.id))];
+
+    const [balanceRows, papeletas, dayEntries] = await Promise.all([
+      fetchInChunks(resourceIds, 80, async (ids) => {
+        const { data, error } = await supabase.from('vacation_balances').select('*').in('resource_id', ids);
+        if (error) throw error;
+        return data || [];
+      }).catch((error) => {
+        handleSupabaseError(error);
+        return [] as any[];
+      }),
+      this.getPapeletasByUnitIds(unitIds),
+      this.getDayEntriesByUnitIds(unitIds),
+    ]);
+
+    const balanceByResource = new Map(
+      (balanceRows as any[]).map((row) => [row.resource_id as string, transformBalanceFromDB(row)])
+    );
+    const papeletasByResource = new Map<string, VacationPapeleta[]>();
+    for (const p of papeletas) {
+      const list = papeletasByResource.get(p.resourceId) || [];
+      list.push(p);
+      papeletasByResource.set(p.resourceId, list);
+    }
+    const daysByResource = new Map<string, VacationDayEntry[]>();
+    for (const d of dayEntries) {
+      const list = daysByResource.get(d.resourceId) || [];
+      list.push(d);
+      daysByResource.set(d.resourceId, list);
+    }
+
+    const summaries: VacationBalanceSummary[] = [];
+    for (const { resource, unit } of workers) {
+      const summary = buildBalanceSummary(
+        resource,
+        unit,
+        balanceByResource.get(resource.id) || null,
+        papeletasByResource.get(resource.id) || [],
+        daysByResource.get(resource.id) || []
+      );
+      if (summary) summaries.push(summary);
     }
 
     return summaries.sort((a, b) => a.workerName.localeCompare(b.workerName));

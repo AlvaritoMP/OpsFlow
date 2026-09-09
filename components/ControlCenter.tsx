@@ -40,7 +40,7 @@ interface ContractAlert {
   contractGenerated: boolean;
 }
 
-export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementStaff, onUpdateUnit, currentUserRole }) => {
+export const ControlCenter: React.FC<ControlCenterProps> = React.memo(({ units, managementStaff, onUpdateUnit, currentUserRole }) => {
   const [filterUnit, setFilterUnit] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1131,4 +1131,4 @@ export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementS
       )}
     </div>
   );
-};
+});

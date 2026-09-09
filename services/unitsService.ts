@@ -71,8 +71,8 @@ export const unitsService = {
       const unitIds = data.map((unitData: any) => unitData.id as string);
       const [resourcesByUnit, logsByUnit, requestsByUnit] = await Promise.all([
         resourcesService.getForUnits(unitIds, 'list'),
-        logsService.getByUnitIds(unitIds),
-        requestsService.getByUnitIds(unitIds),
+        logsService.getByUnitIds(unitIds, { light: true }),
+        requestsService.getByUnitIds(unitIds, { light: true }),
       ]);
 
       return data.map((unitData: any) => {

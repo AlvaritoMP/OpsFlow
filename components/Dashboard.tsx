@@ -10,7 +10,7 @@ interface DashboardProps {
   currentUserRole?: UserRole;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, currentUserRole }) => {
+export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelectUnit, currentUserRole }) => {
   const isClient = currentUserRole === 'CLIENT';
   // States for new metrics
   const [workersByShift, setWorkersByShift] = useState({ day: 0, afternoon: 0, night: 0 });
@@ -338,16 +338,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
     const loadArchivedPersonnel = async () => {
       try {
         const { resourcesService } = await import('../services/resourcesService');
-        const archived = await resourcesService.getAllArchivedPersonnel();
+        const archived = await resourcesService.getAllArchivedPersonnel({ includeRelated: false });
         setArchivedPersonnel(archived);
-        console.log('📊 Trabajadores archivados cargados:', archived.length);
-        // Debug: mostrar trabajadores con endDate en enero 2026
-        const jan2026Workers = archived.filter(p => {
-          if (!p.endDate) return false;
-          const endDateStr = p.endDate.split('T')[0];
-          return endDateStr.startsWith('2026-01-');
-        });
-        console.log('📊 Trabajadores archivados con endDate en enero 2026:', jan2026Workers.length, jan2026Workers.map(p => ({ name: p.name, endDate: p.endDate })));
       } catch (error) {
         console.error('Error al cargar trabajadores archivados:', error);
       }
@@ -1107,4 +1099,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
       </div>
     </div>
   );
-};
+});

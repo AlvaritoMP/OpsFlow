@@ -54,15 +54,19 @@ export const requestsService = {
     }
   },
 
-  async getByUnitIds(unitIds: string[]): Promise<Map<string, ClientRequest[]>> {
+  async getByUnitIds(unitIds: string[], options?: { light?: boolean }): Promise<Map<string, ClientRequest[]>> {
     const grouped = new Map<string, ClientRequest[]>();
     if (unitIds.length === 0) return grouped;
+    const light = options?.light === true;
+    const select = light
+      ? 'id, unit_id, date, title, category, priority, status, description, author'
+      : '*, request_attachments(*), request_comments(*)';
     try {
       const rows = await fetchInChunks(unitIds, 80, (ids) =>
         fetchAllPaged(async (from, to) => {
           const { data, error } = await supabase
             .from('client_requests')
-            .select('*, request_attachments(*), request_comments(*)')
+            .select(select)
             .in('unit_id', ids)
             .order('date', { ascending: false })
             .range(from, to);

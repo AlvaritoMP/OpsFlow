@@ -23,11 +23,11 @@ interface InventoryManagementProps {
   canEdit: boolean;
 }
 
-export const InventoryManagement: React.FC<InventoryManagementProps> = ({ currentUser, users, units, canEdit }) => (
+export const InventoryManagement: React.FC<InventoryManagementProps> = React.memo(({ currentUser, users, units, canEdit }) => (
   <InventoryProvider currentUser={currentUser} opsflowUsers={users} units={units} canEdit={canEdit}>
     <InventoryShell />
   </InventoryProvider>
-);
+));
 
 const InventoryShell = () => {
   const { loading, error, actions, isAdmin, canEdit } = useInventory();

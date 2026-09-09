@@ -81,7 +81,7 @@ export const resourcesService = {
         rows.map((r: any) => r.id),
         mode === 'full'
           ? { includeContracts: true, includeAssets: true, includeShifts: 'all' }
-          : { includeContracts: false, includeAssets: false, includeShifts: 'today' }
+          : { includeContracts: false, includeAssets: false, includeShifts: 'today', includeZoneAssignments: false }
       );
 
       for (const resource of rows as any[]) {
@@ -149,7 +149,7 @@ export const resourcesService = {
   // Solo incluir trabajadores que están EXPLÍCITAMENTE archivados (archived = true)
   // O que tienen personnel_status = 'cesado' Y archived = true
   // NO incluir trabajadores activos con solo endDate o solo personnel_status = 'cesado'
-  async getAllArchivedPersonnel(): Promise<Array<Resource & { originalUnitId: string; originalUnitName: string }>> {
+  async getAllArchivedPersonnel(options?: { includeRelated?: boolean }): Promise<Array<Resource & { originalUnitId: string; originalUnitName: string }>> {
     try {
       const { data, error } = await supabase
         .from('resources')
@@ -158,14 +158,23 @@ export const resourcesService = {
           unit:units!resources_unit_id_fkey(id, name)
         `)
         .eq('type', 'Personal')
-        .eq('archived', true) // Solo trabajadores explícitamente archivados
+        .eq('archived', true)
         .order('end_date', { ascending: false });
 
       if (error) throw error;
       if (!data || data.length === 0) return [];
 
-      // Listado de archivados: sin contratos (caro) y con lotes para no saturar la red
-      const related = await loadRelatedDataBatched(data.map((r: any) => r.id), { includeContracts: false });
+      const includeRelated = options?.includeRelated !== false;
+      const related = includeRelated
+        ? await loadRelatedDataBatched(data.map((r: any) => r.id), { includeContracts: false })
+        : {
+            trainingsById: new Map<string, Training[]>(),
+            assetsById: new Map<string, AssignedAsset[]>(),
+            shiftsById: new Map<string, DailyShift[]>(),
+            maintenanceById: new Map<string, MaintenanceRecord[]>(),
+            zonesById: new Map<string, string[]>(),
+            contractsById: new Map<string, any[]>(),
+          };
 
       return data.map((resource: any) => {
         const transformed = transformResourceFromDB(
@@ -1308,6 +1317,9 @@ type RelatedLoadOptions = {
   includeContracts?: boolean;
   includeAssets?: boolean;
   includeShifts?: 'none' | 'today' | 'all';
+  includeTrainings?: boolean;
+  includeMaintenance?: boolean;
+  includeZoneAssignments?: boolean;
 };
 
 async function loadRelatedDataBatched(
@@ -1329,6 +1341,9 @@ async function loadRelatedDataBatched(
   const includeContracts = options.includeContracts !== false;
   const includeAssets = options.includeAssets !== false;
   const includeShifts = options.includeShifts ?? 'all';
+  const includeTrainings = options.includeTrainings !== false;
+  const includeMaintenance = options.includeMaintenance !== false;
+  const includeZoneAssignments = options.includeZoneAssignments !== false;
 
   const safeFetch = async <T>(label: string, fn: () => Promise<T[]>): Promise<T[]> => {
     try {
@@ -1340,17 +1355,19 @@ async function loadRelatedDataBatched(
   };
 
   const [trainingRows, assetRows, shiftRows, maintenanceRows, zoneRows, contractRows] = await Promise.all([
-    safeFetch('capacitaciones', () =>
-      fetchInChunks(resourceIds, CHUNK, async (ids) => {
-        const { data, error } = await supabase
-          .from('trainings')
-          .select('*')
-          .in('resource_id', ids)
-          .order('date', { ascending: false });
-        if (error) throw error;
-        return data || [];
-      })
-    ),
+    includeTrainings
+      ? safeFetch('capacitaciones', () =>
+          fetchInChunks(resourceIds, CHUNK, async (ids) => {
+            const { data, error } = await supabase
+              .from('trainings')
+              .select('*')
+              .in('resource_id', ids)
+              .order('date', { ascending: false });
+            if (error) throw error;
+            return data || [];
+          })
+        )
+      : Promise.resolve([] as any[]),
     includeAssets
       ? safeFetch('activos', () =>
           fetchInChunks(resourceIds, CHUNK, async (ids) => {
@@ -1385,27 +1402,31 @@ async function loadRelatedDataBatched(
             })
           )
         ),
-    safeFetch('mantenimiento', () =>
-      fetchInChunks(resourceIds, CHUNK, async (ids) => {
-        const { data, error } = await supabase
-          .from('maintenance_records')
-          .select('*, maintenance_images(*)')
-          .in('resource_id', ids)
-          .order('date', { ascending: false });
-        if (error) throw error;
-        return data || [];
-      })
-    ),
-    safeFetch('zonas', () =>
-      fetchInChunks(resourceIds, CHUNK, async (ids) => {
-        const { data, error } = await supabase
-          .from('resource_zone_assignments')
-          .select('resource_id, zone_id, zones(name)')
-          .in('resource_id', ids);
-        if (error) throw error;
-        return data || [];
-      })
-    ),
+    includeMaintenance
+      ? safeFetch('mantenimiento', () =>
+          fetchInChunks(resourceIds, CHUNK, async (ids) => {
+            const { data, error } = await supabase
+              .from('maintenance_records')
+              .select('*, maintenance_images(*)')
+              .in('resource_id', ids)
+              .order('date', { ascending: false });
+            if (error) throw error;
+            return data || [];
+          })
+        )
+      : Promise.resolve([] as any[]),
+    includeZoneAssignments
+      ? safeFetch('zonas', () =>
+          fetchInChunks(resourceIds, CHUNK, async (ids) => {
+            const { data, error } = await supabase
+              .from('resource_zone_assignments')
+              .select('resource_id, zone_id, zones(name)')
+              .in('resource_id', ids);
+            if (error) throw error;
+            return data || [];
+          })
+        )
+      : Promise.resolve([] as any[]),
     includeContracts
       ? safeFetch('contratos', () =>
           fetchInChunks(resourceIds, CHUNK, async (ids) => {

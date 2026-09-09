@@ -25,7 +25,7 @@ interface NightSupervisionProps {
   managementStaff: ManagementStaff[];
 }
 
-export const NightSupervision: React.FC<NightSupervisionProps> = ({ 
+export const NightSupervision: React.FC<NightSupervisionProps> = React.memo(({ 
   units, 
   currentUser,
   managementStaff
@@ -2734,5 +2734,5 @@ export const NightSupervision: React.FC<NightSupervisionProps> = ({
       )}
     </div>
   );
-};
+});
 

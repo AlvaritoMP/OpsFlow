@@ -562,12 +562,11 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSelectUnit = (id: string) => {
+  const handleSelectUnit = useCallback((id: string) => {
     setSelectedUnitId(id);
     setCurrentView('units');
-    // On mobile, close sidebar when navigating
     if (window.innerWidth < 768) setSidebarOpen(false);
-  };
+  }, []);
 
   const handleDeleteUnit = async (unitId: string, unitName: string) => {
     if (!confirm(`¿Está seguro de eliminar la unidad "${unitName}"?\n\nEsta acción no se puede deshacer y eliminará todos los datos asociados (personal, equipos, eventos, documentos, etc.).`)) {
@@ -589,9 +588,8 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateUnit = async (updatedUnit: Unit) => {
+  const handleUpdateUnit = useCallback(async (updatedUnit: Unit) => {
     try {
-      // Guardar en la base de datos
       await updateUnit(updatedUnit.id, updatedUnit);
       
       // NO recargar automáticamente todas las unidades para evitar interrupciones
@@ -625,9 +623,7 @@ const App: React.FC = () => {
       // El error se propaga para que el componente pueda mostrar su propia notificación
       throw improvedError;
     }
-  };
-
-  const handleAddImageToNewUnit = () => {
+  }, [updateUnit]);
     if (!newUnitImageUrl) return;
     setNewUnitImages([...newUnitImages, newUnitImageUrl]);
     setNewUnitImageUrl('');
@@ -1624,6 +1620,18 @@ const App: React.FC = () => {
     [permissionScopedUnits]
   );
 
+  const inventoryUnitOptions = React.useMemo(
+    () =>
+      operationalUnits.map((unit) => ({
+        id: unit.id,
+        name: unit.name,
+        workers: (unit.resources || [])
+          .filter((resource) => resource.type === ResourceType.PERSONNEL && resource.archived !== true && resource.personnelStatus !== 'archivado')
+          .map((resource) => ({ id: resource.id, name: resource.name, dni: resource.dni })),
+      })),
+    [operationalUnits]
+  );
+
   const visibleUnits = React.useMemo(() => {
       // Lista de Gestión de Unidades: incluye desactivadas para poder reactivarlas
       let filtered = permissionScopedUnits;
@@ -1765,13 +1773,7 @@ const App: React.FC = () => {
           <InventoryManagement
             currentUser={currentUser}
             users={users}
-            units={operationalUnits.map((unit) => ({
-              id: unit.id,
-              name: unit.name,
-              workers: (unit.resources || [])
-                .filter((resource) => resource.type === ResourceType.PERSONNEL && resource.archived !== true && resource.personnelStatus !== 'archivado')
-                .map((resource) => ({ id: resource.id, name: resource.name, dni: resource.dni })),
-            }))}
+            units={inventoryUnitOptions}
             canEdit={checkPermission(currentUser.role, 'INVENTORY', 'edit')}
           />
         ))}

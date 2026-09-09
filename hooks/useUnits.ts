@@ -95,50 +95,16 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
               }
             }
           } else if (currentUser.linkedClientIds && Array.isArray(currentUser.linkedClientIds) && currentUser.linkedClientIds.length > 0) {
-            // Si NO tiene restricciones explícitas, mostrar todas las unidades de los clientes vinculados
             const { supabase } = await import('../services/supabase');
-            
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`🔓 Usuario CLIENT NO tiene restricciones, mostrando todas las unidades de clientes vinculados`);
-            }
-            
-            for (const clientId of currentUser.linkedClientIds) {
-              if (!clientId) continue;
-              
-              try {
-                // Obtener el nombre del cliente
-                const { data: clientData } = await supabase
-                  .from('clients')
-                  .select('name')
-                  .eq('id', clientId)
-                  .single();
-                
-                if (clientData?.name) {
-                  // Agregar todas las unidades que pertenecen a este cliente
-                  data.forEach(unit => {
-                    if (unit.clientName === clientData.name) {
-                      allowedUnitIds.add(unit.id);
-                    }
-                  });
-                }
-              } catch (err) {
-                console.warn(`⚠️ Error al procesar cliente ${clientId}:`, err);
-              }
-            }
-            
-            // Filtrar por las unidades de los clientes vinculados
-            if (allowedUnitIds.size > 0) {
-              data = data.filter(unit => allowedUnitIds.has(unit.id));
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`✅ Filtrado por clientes vinculados: ${data.length} unidades visibles`);
-              }
-            } else {
-              // Si no hay clientes vinculados o no hay unidades, retornar array vacío
-              data = [];
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`⚠️ Usuario CLIENT no tiene unidades de clientes vinculados`);
-              }
-            }
+            const clientIds = currentUser.linkedClientIds.filter(Boolean);
+            const { data: clientsData } = await supabase
+              .from('clients')
+              .select('id, name')
+              .in('id', clientIds);
+            const clientNames = new Set(
+              (clientsData || []).map((c: any) => c?.name).filter(Boolean)
+            );
+            data = data.filter((unit) => clientNames.has(unit.clientName));
           } else {
             // Si no tiene restricciones ni clientes vinculados, no mostrar nada
             data = [];
@@ -257,7 +223,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     checkAndLoad();
   }, [isAuthenticated, currentUser?.id, currentUser?.linkedClientIds?.join(','), currentUser?.role]);
 
-  const createUnit = async (unit: Partial<Unit>) => {
+  const createUnit = useCallback(async (unit: Partial<Unit>) => {
     try {
       const newUnit = await unitsService.create(unit);
       setUnits((prev) => [...prev, newUnit]);
@@ -266,9 +232,9 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
       setError(err.message || 'Error al crear unidad');
       throw err;
     }
-  };
+  }, []);
 
-  const updateUnit = async (id: string, unit: Partial<Unit>) => {
+  const updateUnit = useCallback(async (id: string, unit: Partial<Unit>) => {
     pendingUpdatesRef.current += 1;
     try {
       const updatedUnit = await unitsService.update(id, unit);
@@ -280,13 +246,13 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     } finally {
       pendingUpdatesRef.current -= 1;
     }
-  };
+  }, []);
 
-  const replaceUnitInState = (replacement: Unit) => {
+  const replaceUnitInState = useCallback((replacement: Unit) => {
     setUnits((prev) => prev.map((u) => (u.id === replacement.id ? replacement : u)));
-  };
+  }, []);
 
-  const deleteUnit = async (id: string) => {
+  const deleteUnit = useCallback(async (id: string) => {
     try {
       await unitsService.delete(id);
       setUnits((prev) => prev.filter((u) => u.id !== id));
@@ -294,17 +260,17 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
       setError(err.message || 'Error al eliminar unidad');
       throw err;
     }
-  };
+  }, []);
 
-  const releaseManagementStaffFromUnits = (staffId: string) => {
-    setUnits(currentUnits => currentUnits.map(unit => ({
+  const releaseManagementStaffFromUnits = useCallback((staffId: string) => {
+    setUnits((currentUnits) => currentUnits.map((unit) => ({
       ...unit,
       coordinator: unit.coordinator?.id === staffId ? undefined : unit.coordinator,
       rovingSupervisor: unit.rovingSupervisor?.id === staffId ? undefined : unit.rovingSupervisor,
       residentSupervisor: unit.residentSupervisor?.id === staffId ? undefined : unit.residentSupervisor,
-      assignedStaff: unit.assignedStaff?.filter(id => id !== staffId) || [],
+      assignedStaff: unit.assignedStaff?.filter((id) => id !== staffId) || [],
     })));
-  };
+  }, []);
 
   return {
     units,

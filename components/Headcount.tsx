@@ -133,7 +133,7 @@ const cellNum = (value: number, showZero = true): string => {
   return String(value || 0);
 };
 
-export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => {
+export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdateUnit }) => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [retenesCatalog, setRetenesCatalog] = useState<Reten[]>([]);
   const [todayRetenes, setTodayRetenes] = useState<RetenAssignment[]>([]);
@@ -1343,4 +1343,4 @@ export const Headcount: React.FC<HeadcountProps> = ({ units, onUpdateUnit }) => 
       </div>
     </div>
   );
-};
+});

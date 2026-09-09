@@ -55,7 +55,7 @@ type AuthModalState = {
   onSubmit: (assignedAuthorizerId: string) => Promise<void>;
 };
 
-export const Vacations: React.FC<VacationsProps> = ({
+export const Vacations: React.FC<VacationsProps> = React.memo(({
   units,
   currentUser,
   fixedUnitId,
@@ -186,10 +186,11 @@ export const Vacations: React.FC<VacationsProps> = ({
       in30.setDate(in30.getDate() + 30);
       const toDate = in30.toISOString().split('T')[0];
 
+      const unitIds = unitsSnapshot.map((u) => u.id);
       const [sums, paps, days, onVac] = await Promise.all([
         vacationService.getUnitSummaries(unitsSnapshot),
-        Promise.all(unitsSnapshot.map(u => vacationService.getPapeletas(undefined, u.id))).then(r => r.flat()),
-        Promise.all(unitsSnapshot.map(u => vacationService.getDayEntries(undefined, u.id))).then(r => r.flat()),
+        vacationService.getPapeletasByUnitIds(unitIds),
+        vacationService.getDayEntriesByUnitIds(unitIds),
         vacationService.getWorkersOnVacation(unitsSnapshot, today, toDate),
       ]);
 
@@ -2097,7 +2098,7 @@ export const Vacations: React.FC<VacationsProps> = ({
 
     </div>
   );
-};
+});
 
 function parseDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
