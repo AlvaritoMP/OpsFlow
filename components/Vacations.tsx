@@ -261,7 +261,7 @@ export const Vacations: React.FC<VacationsProps> = ({
 
   useEffect(() => {
     void loadAuthRequests();
-    const interval = setInterval(() => void loadAuthRequests(), 20000);
+    const interval = setInterval(() => void loadAuthRequests(), 60 * 1000);
     const onVisible = () => {
       if (document.visibilityState === 'visible') void loadAuthRequests();
     };

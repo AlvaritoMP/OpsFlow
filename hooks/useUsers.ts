@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usersService } from '../services/usersService';
 import { User } from '../types';
 
@@ -6,10 +6,15 @@ export const useUsers = (isAuthenticated: boolean) => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const usersRef = useRef<User[]>([]);
+  usersRef.current = users;
 
   const loadUsers = async () => {
+    const hasData = usersRef.current.length > 0;
     try {
-      setLoading(true);
+      if (!hasData) {
+        setLoading(true);
+      }
       setError(null);
       console.log('🔄 Cargando usuarios...');
       

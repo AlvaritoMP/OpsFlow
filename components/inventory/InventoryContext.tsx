@@ -127,9 +127,12 @@ export const InventoryProvider: React.FC<{
     error: null,
   });
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
     try {
-      setState((prev) => ({ ...prev, loading: true, error: null }));
+      if (!silent) {
+        setState((prev) => ({ ...prev, loading: true, error: null }));
+      }
       const data = await stockInventoryService.loadAll();
       setState({ ...data, loading: false, error: null });
     } catch (error) {
@@ -158,32 +161,32 @@ export const InventoryProvider: React.FC<{
     addProduct: async (product) => {
       requireEdit();
       await stockInventoryService.createProduct(product, currentUser.name);
-      await reload();
+      await reload({ silent: true });
     },
     bulkAddProducts: async (products) => {
       requireEdit();
       await stockInventoryService.bulkCreateProducts(products, currentUser.name);
-      await reload();
+      await reload({ silent: true });
     },
     updateProduct: async (product) => {
       requireEdit();
       await stockInventoryService.updateProduct(product);
-      await reload();
+      await reload({ silent: true });
     },
     deleteProduct: async (productId) => {
       requireEdit();
       await stockInventoryService.deleteProduct(productId);
-      await reload();
+      await reload({ silent: true });
     },
     addWarehouse: async (warehouse) => {
       requireEdit();
       await stockInventoryService.createWarehouse(warehouse);
-      await reload();
+      await reload({ silent: true });
     },
     updateWarehouse: async (warehouse) => {
       requireEdit();
       await stockInventoryService.updateWarehouse(warehouse);
-      await reload();
+      await reload({ silent: true });
     },
     consumeStock: async (payload) => {
       requireEdit();
@@ -203,7 +206,7 @@ export const InventoryProvider: React.FC<{
         details: payload.details,
         userName: currentUser.name,
       });
-      await reload();
+      await reload({ silent: true });
     },
     adjustStock: async (payload) => {
       requireEdit();
@@ -218,7 +221,7 @@ export const InventoryProvider: React.FC<{
         details: payload.details,
         userName: currentUser.name,
       });
-      await reload();
+      await reload({ silent: true });
     },
     transferStock: async (payload) => {
       requireEdit();
@@ -234,7 +237,7 @@ export const InventoryProvider: React.FC<{
         details: payload.details,
         userName: currentUser.name,
       });
-      await reload();
+      await reload({ silent: true });
     },
     bulkTransferStock: async (payload) => {
       requireEdit();
@@ -254,37 +257,37 @@ export const InventoryProvider: React.FC<{
         details: payload.details,
         userName: currentUser.name,
       });
-      await reload();
+      await reload({ silent: true });
     },
     updateSettings: async (settings) => {
       requireEdit();
       await stockInventoryService.saveSettings(settings);
-      await reload();
+      await reload({ silent: true });
     },
     addCompany: async (company) => {
       requireEdit();
       await stockInventoryService.createCompany(company);
-      await reload();
+      await reload({ silent: true });
     },
     updateCompany: async (company) => {
       requireEdit();
       await stockInventoryService.updateCompany(company);
-      await reload();
+      await reload({ silent: true });
     },
     deleteCompany: async (companyId) => {
       requireEdit();
       await stockInventoryService.deleteCompany(companyId);
-      await reload();
+      await reload({ silent: true });
     },
     addSupplier: async (supplier) => {
       requireEdit();
       await stockInventoryService.createSupplier(supplier);
-      await reload();
+      await reload({ silent: true });
     },
     updateSupplier: async (supplier) => {
       requireEdit();
       await stockInventoryService.updateSupplier(supplier);
-      await reload();
+      await reload({ silent: true });
     },
     addPurchaseOrder: async (purchaseOrderData) => {
       requireEdit();
@@ -293,7 +296,7 @@ export const InventoryProvider: React.FC<{
         settings: state.settings,
         solicitante: currentUser.name,
       });
-      await reload();
+      await reload({ silent: true });
     },
     updatePurchaseOrderStatus: async (purchaseOrderId, status) => {
       requireEdit();
@@ -306,27 +309,27 @@ export const InventoryProvider: React.FC<{
         warehouses: state.warehouses,
         userName: currentUser.name,
       });
-      await reload();
+      await reload({ silent: true });
     },
     addScheduledPurchase: async (purchase) => {
       requireEdit();
       await stockInventoryService.createScheduledPurchase(purchase);
-      await reload();
+      await reload({ silent: true });
     },
     updateScheduledPurchase: async (purchase) => {
       requireEdit();
       await stockInventoryService.updateScheduledPurchase(purchase);
-      await reload();
+      await reload({ silent: true });
     },
     deleteScheduledPurchase: async (purchaseId) => {
       requireEdit();
       await stockInventoryService.deleteScheduledPurchase(purchaseId);
-      await reload();
+      await reload({ silent: true });
     },
     setUserWarehouseAccess: async (userId, warehouseIds) => {
       if (!isAdmin) throw new Error('Solo administradores pueden asignar almacenes');
       await stockInventoryService.setUserWarehouseAccess(userId, warehouseIds);
-      await reload();
+      await reload({ silent: true });
     },
   };
 

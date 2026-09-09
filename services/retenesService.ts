@@ -154,6 +154,22 @@ export const retenesService = {
 
   // ========== ASIGNACIONES ==========
 
+  async getLatestAssignmentDate(): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('reten_assignments')
+        .select('assignment_date')
+        .order('assignment_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.assignment_date ? String(data.assignment_date) : null;
+    } catch (error) {
+      handleSupabaseError(error);
+      return null;
+    }
+  },
+
   // Obtener asignaciones por rango de fechas
   async getAssignmentsByDateRange(
     startDate: string,

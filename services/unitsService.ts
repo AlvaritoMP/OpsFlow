@@ -68,74 +68,29 @@ export const unitsService = {
         return [];
       }
 
-      // Cargar datos relacionados para cada unidad
-      // Log reducido - solo en desarrollo
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔄 Cargando datos relacionados (recursos, logs, requests, zones, imágenes)...');
-      }
-      const units = await mapWithConcurrency(
-        data,
-        2,
-        async (unitData) => {
-          try {
-            // Cargar assignedStaff primero
-            let assignedStaff: string[] = [];
-            try {
-              const { data: staffData } = await supabase
-                .from('unit_management_staff')
-                .select('management_staff_id')
-                .eq('unit_id', unitData.id);
-              if (staffData) {
-                assignedStaff = staffData.map((s: any) => s.management_staff_id);
-              }
-            } catch (e) {
-              // Si la tabla no existe, simplemente usar array vacío
-              console.warn('⚠️ Tabla unit_management_staff no encontrada, usando array vacío');
-            }
+      const unitIds = data.map((unitData: any) => unitData.id as string);
+      const [resourcesByUnit, logsByUnit, requestsByUnit] = await Promise.all([
+        resourcesService.getForUnits(unitIds, 'list'),
+        logsService.getByUnitIds(unitIds),
+        requestsService.getByUnitIds(unitIds),
+      ]);
 
-            const [resources, logs, requests, zones, documents] = await Promise.all([
-              resourcesService.getByUnitId(unitData.id).catch(err => {
-                console.warn(`⚠️ Error al cargar recursos para unidad ${unitData.id}:`, err);
-                return [];
-              }),
-              logsService.getByUnitId(unitData.id).catch(err => {
-                console.warn(`⚠️ Error al cargar logs para unidad ${unitData.id}:`, err);
-                return [];
-              }),
-              requestsService.getByUnitId(unitData.id).catch(err => {
-                console.warn(`⚠️ Error al cargar requests para unidad ${unitData.id}:`, err);
-                return [];
-              }),
-              zonesService.getByUnitId(unitData.id).catch(err => {
-                console.warn(`⚠️ Error al cargar zones para unidad ${unitData.id}:`, err);
-                return [];
-              }),
-              (async () => {
-                try {
-                  const { documentsService } = await import('./documentsService');
-                  return await documentsService.getByUnitId(unitData.id);
-                } catch (err) {
-                  console.warn(`⚠️ Error al cargar documentos para unidad ${unitData.id}:`, err);
-                  return [];
-                }
-              })(),
-            ]);
-
-            const transformed = transformUnitFromDB(unitData, resources, logs, requests, zones, assignedStaff, documents);
-            // Log reducido - solo en desarrollo
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`✅ Unidad ${unitData.name}: ${transformed.images.length} imágenes, ${transformed.logs.length} logs, ${transformed.resources.length} recursos`);
-            }
-            return transformed;
-          } catch (err) {
-            console.error(`❌ Error al transformar unidad ${unitData.id}:`, err);
-            // Retornar unidad básica sin datos relacionados
-            return transformUnitFromDB(unitData, [], [], [], [], [], []);
-          }
-        }
-      );
-
-      return units;
+      return data.map((unitData: any) => {
+        const assignedStaff = (unitData.unit_management_staff || []).map(
+          (s: any) => s.management_staff_id as string
+        ).filter(Boolean);
+        const zones = unitData.zones?.map(transformZoneFromDB) || [];
+        const unit = transformUnitFromDB(
+          unitData,
+          resourcesByUnit.get(unitData.id) || [],
+          logsByUnit.get(unitData.id) || [],
+          requestsByUnit.get(unitData.id) || [],
+          zones,
+          assignedStaff,
+          []
+        );
+        return { ...unit, detailsHydrated: false };
+      });
     } catch (error) {
       handleSupabaseError(error);
       return [];
@@ -200,7 +155,7 @@ export const unitsService = {
         })(),
       ]);
 
-      return transformUnitFromDB(data, resources, logs, requests, zones, assignedStaff, documents);
+      return { ...transformUnitFromDB(data, resources, logs, requests, zones, assignedStaff, documents), detailsHydrated: true };
     } catch (error) {
       handleSupabaseError(error);
       return null;
@@ -808,25 +763,6 @@ function transformUnitToDB(unit: Partial<Unit>): any {
   }
   
   return data;
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  mapper: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let nextIndex = 0;
-
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex++;
-      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
-    }
-  });
-
-  await Promise.all(workers);
-  return results;
 }
 
 function transformZoneFromDB(zone: any) {

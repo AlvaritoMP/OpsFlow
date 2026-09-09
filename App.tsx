@@ -1,17 +1,30 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes, Route } from 'lucide-react';
-import { Dashboard } from './components/Dashboard';
-import { UnitDetail } from './components/UnitDetail';
-import { ControlCenter } from './components/ControlCenter';
-import { ClientControlCenter } from './components/ClientControlCenter';
-import { Reports } from './components/Reports';
-import { OperationsDashboard } from './components/OperationsDashboard';
-import { StandardAssetsCatalog } from './components/StandardAssetsCatalog';
-import { Retenes } from './components/Retenes';
-import { NightSupervision } from './components/NightSupervision';
-import { SupervisionPlanning } from './components/SupervisionPlanning';
-import { MOCK_USERS } from './constants'; // Mantener solo para currentUser demo
+import { Login } from './components/Login';
+import {
+  Dashboard,
+  UnitDetail,
+  ControlCenter,
+  ClientControlCenter,
+  Reports,
+  OperationsDashboard,
+  StandardAssetsCatalog,
+  Retenes,
+  NightSupervision,
+  SupervisionPlanning,
+  Headcount,
+  Vacations,
+  Archive,
+  WorkersManagement,
+  InboundWorkerHandoff,
+  AtsPresentations,
+  HrOpalosisIngreso,
+  InventoryManagement,
+  AuditLogs,
+  KeepAlivePane,
+  ViewFallback,
+} from './components/lazyAppViews';
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position, UnitClass } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
@@ -22,33 +35,24 @@ import { useManagementStaff } from './hooks/useManagementStaff';
 import { useClients } from './hooks/useClients';
 import { unitsService } from './services/unitsService';
 import { usersService } from './services/usersService';
-import { Login } from './components/Login';
 import { authService } from './services/authService';
 import { LogOut, FileText, RefreshCw, Eye, Cake, Download } from 'lucide-react';
-import { AuditLogs } from './components/AuditLogs';
 import { SafeImage } from './components/SafeImage';
 import { DateInput } from './components/DateInput';
 import { PositionsManagementSection } from './components/PositionsManagement';
-import { Headcount } from './components/Headcount';
-import { Vacations } from './components/Vacations';
 import { vacationAuthorizationRequestService } from './services/vacationAuthorizationRequestService';
 import { canActAsVacationAuthorizer } from './services/vacationAuthService';
-import { Archive } from './components/Archive';
 import { PasswordReset } from './components/PasswordReset';
-import { WorkersManagement } from './components/WorkersManagement';
-import { InboundWorkerHandoff } from './components/InboundWorkerHandoff';
-import { AtsPresentations } from './components/AtsPresentations';
 import { ComplementaryFichaLanding } from './components/ComplementaryFichaLanding';
 import { isPublicComplementaryFichaPath } from './services/publicComplementaryFichaService';
-import { HrOpalosisIngreso } from './components/HrOpalosisIngreso';
 import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffService';
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
 import { filterOperationalUnits, isUnitOperational } from './utils/unitStatus';
 import { HelpPanel, HelpTriggerButton } from './components/HelpPanel';
-import { InventoryManagement } from './components/inventory/InventoryManagement';
 
 /** Polling solo para badge de Presentaciones ATS (Recepción ATS quedó en archivo/consulta). */
-const ATS_COUNT_POLL_MS = 30 * 1000;
+const ATS_COUNT_POLL_MS = 60 * 1000;
+const VACATION_AUTH_POLL_MS = 60 * 1000;
 
 const App: React.FC = () => {
   const isPublicFichaLanding = isPublicComplementaryFichaPath();
@@ -58,6 +62,7 @@ const App: React.FC = () => {
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory'>('dashboard');
+  const [mountedViews, setMountedViews] = useState<Set<string>>(() => new Set(['dashboard']));
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
   
@@ -100,7 +105,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
-  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits, replaceUnitInState, releaseManagementStaffFromUnits } = useUnits(isAuthenticated, currentUser);
+  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits, hydrateUnit, replaceUnitInState, releaseManagementStaffFromUnits } = useUnits(isAuthenticated, currentUser);
   const { users, loading: usersLoading, createUser, updateUser, deleteUser, loadUsers } = useUsers(isAuthenticated);
   const { staff: managementStaff, loading: staffLoading, createStaff, updateStaff, deleteStaff, archiveStaff, loadStaff } = useManagementStaff(isAuthenticated);
   const { clients, loading: clientsLoading, createClient, updateClient, deleteClient, loadClients } = useClients(isAuthenticated);
@@ -378,6 +383,21 @@ const App: React.FC = () => {
     }
   }, [users, isAuthenticated, currentUser?.id]);
 
+  useEffect(() => {
+    setMountedViews((prev) => {
+      if (prev.has(currentView)) return prev;
+      const next = new Set(prev);
+      next.add(currentView);
+      return next;
+    });
+  }, [currentView]);
+
+  useEffect(() => {
+    if (currentView === 'units' && selectedUnitId) {
+      void hydrateUnit(selectedUnitId);
+    }
+  }, [currentView, selectedUnitId, hydrateUnit]);
+
   // Check screen size for responsive sidebar
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -488,7 +508,7 @@ const App: React.FC = () => {
       setPendingVacationAuthCount(count);
     };
     void loadPendingVacationAuth();
-    const interval = setInterval(() => void loadPendingVacationAuth(), 20000);
+    const interval = setInterval(() => void loadPendingVacationAuth(), VACATION_AUTH_POLL_MS);
     const onVisible = () => {
       if (document.visibilityState === 'visible') void loadPendingVacationAuth();
     };
@@ -1673,20 +1693,8 @@ const App: React.FC = () => {
       return <Login onLoginSuccess={handleLoginSuccess} />;
     }
 
-    // Mostrar loading mientras se cargan los datos
-    if (unitsLoading || usersLoading || staffLoading) {
-      return (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-slate-600">Cargando datos...</p>
-          </div>
-        </div>
-      );
-    }
-
-    // Mostrar error si hay problemas
-    if (unitsError) {
+    // Error de unidades solo si no hay datos para mostrar
+    if (unitsError && units.length === 0) {
       return (
         <div className="flex items-center justify-center h-full">
           <div className="text-center text-red-600">
@@ -1703,134 +1711,118 @@ const App: React.FC = () => {
       );
     }
 
-    if (currentView === 'control-center') {
-      // Force remount when view or user role changes
-      return <ControlCenter key={`control-center-${currentView}-${currentUser.role}-${currentUser.id}`} units={operationalUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />;
-    }
-
-    if (currentView === 'client-control-center') {
-      return <ClientControlCenter units={operationalUnits} managementStaff={managementStaff} />;
-    }
-
-    if (currentView === 'reports') {
-      return <Reports units={operationalUnits} />;
-    }
-
-    if (currentView === 'dashboard') {
-      return <Dashboard units={operationalUnits} onSelectUnit={handleSelectUnit} currentUserRole={currentUser?.role} />;
-    }
-
-    if (currentView === 'operations-dashboard') {
-      return <OperationsDashboard currentUser={currentUser} users={users} />;
-    }
-
-    if (currentView === 'audit-logs') {
-      return <AuditLogs />;
-    }
-
-    if (currentView === 'assets-catalog') {
-      return <StandardAssetsCatalog currentUserRole={currentUser.role} />;
-    }
-
-    if (currentView === 'night-supervision') {
-      return <NightSupervision units={operationalUnits} currentUser={currentUser} managementStaff={managementStaff} />;
-    }
-
-    if (currentView === 'supervision-planning') {
+    const renderCachedView = (id: string, node: React.ReactNode, fillHeight = false) => {
+      if (!mountedViews.has(id) && currentView !== id) return null;
       return (
-        <SupervisionPlanning
-          units={operationalUnits}
-          currentUser={currentUser}
-          managementStaff={managementStaff}
-          canEdit={checkPermission(currentUser.role, 'SUPERVISION_PLANNING', 'edit')}
-        />
+        <KeepAlivePane key={id} active={currentView === id} fillHeight={fillHeight}>
+          <React.Suspense fallback={<ViewFallback />}>{node}</React.Suspense>
+        </KeepAlivePane>
       );
-    }
+    };
 
-    if (currentView === 'retenes') {
-      return <Retenes units={operationalUnits} currentUserRole={currentUser.role} />;
-    }
-
-    if (currentView === 'inventory') {
-      return (
-        <InventoryManagement
-          currentUser={currentUser}
-          users={users}
-          units={operationalUnits.map((unit) => ({
-            id: unit.id,
-            name: unit.name,
-            workers: (unit.resources || [])
-              .filter((resource) => resource.type === ResourceType.PERSONNEL && resource.archived !== true && resource.personnelStatus !== 'archivado')
-              .map((resource) => ({ id: resource.id, name: resource.name, dni: resource.dni })),
-          }))}
-          canEdit={checkPermission(currentUser.role, 'INVENTORY', 'edit')}
-        />
-      );
-    }
-
-    if (currentView === 'headcount') {
-      return <Headcount units={operationalUnits} onUpdateUnit={handleUpdateUnit} />;
-    }
-
-    if (currentView === 'vacations') {
-      return (
-        <Vacations
-          units={operationalUnits}
-          currentUser={currentUser}
-          initialActiveView={vacationsNavTab}
-          onPendingAuthCountChange={setPendingVacationAuthCount}
-        />
-      );
-    }
-
-    if (currentView === 'workers-management') {
-      return <WorkersManagement units={operationalUnits} clients={clients} onUpdateUnit={handleUpdateUnit} />;
-    }
-
-    if (currentView === 'ats-reception') {
-      return (
-        <InboundWorkerHandoff
-          canEdit={false}
-          archiveMode
-          units={operationalUnits}
-        />
-      );
-    }
-
-    if (currentView === 'ats-presentations') {
-      return (
-        <AtsPresentations
-          canEdit={checkPermission(currentUser.role, 'ATS_RECEPTION', 'edit')}
-          units={operationalUnits}
-          currentUserName={currentUser?.name}
-          onRegistered={() => {
-            void loadUnits({ silent: true });
-          }}
-        />
-      );
-    }
-
-    if (currentView === 'hr-opalosis') {
-      return (
-        <HrOpalosisIngreso
-          canEdit={checkPermission(currentUser.role, 'HR_OPALOSIS', 'edit')}
-          units={operationalUnits}
-          currentUserName={currentUser?.name}
-        />
-      );
-    }
-
-    if (currentView === 'archive') {
-      return (
-        <div className="w-full h-full">
-          <Archive 
-            key="archive-view" 
-            currentUserRole={currentUser?.role}
-            onRestoreWorker={loadUnits}
+    const keepAliveViews = (
+      <>
+        {unitsLoading && units.length === 0 && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-50/90">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-slate-600">Cargando datos...</p>
+            </div>
+          </div>
+        )}
+        {renderCachedView('control-center', (
+          <ControlCenter units={operationalUnits} managementStaff={managementStaff} onUpdateUnit={handleUpdateUnit} currentUserRole={currentUser.role} />
+        ), true)}
+        {renderCachedView('client-control-center', (
+          <ClientControlCenter units={operationalUnits} managementStaff={managementStaff} />
+        ))}
+        {renderCachedView('reports', <Reports units={operationalUnits} />)}
+        {renderCachedView('dashboard', (
+          <Dashboard units={operationalUnits} onSelectUnit={handleSelectUnit} currentUserRole={currentUser?.role} />
+        ))}
+        {renderCachedView('operations-dashboard', (
+          <OperationsDashboard currentUser={currentUser} users={users} />
+        ))}
+        {renderCachedView('audit-logs', <AuditLogs />)}
+        {renderCachedView('assets-catalog', (
+          <StandardAssetsCatalog currentUserRole={currentUser.role} />
+        ))}
+        {renderCachedView('night-supervision', (
+          <NightSupervision units={operationalUnits} currentUser={currentUser} managementStaff={managementStaff} />
+        ))}
+        {renderCachedView('supervision-planning', (
+          <SupervisionPlanning
+            units={operationalUnits}
+            currentUser={currentUser}
+            managementStaff={managementStaff}
+            canEdit={checkPermission(currentUser.role, 'SUPERVISION_PLANNING', 'edit')}
           />
-        </div>
-      );
-    }
+        ))}
+        {renderCachedView('retenes', (
+          <Retenes units={operationalUnits} currentUserRole={currentUser.role} />
+        ))}
+        {renderCachedView('inventory', (
+          <InventoryManagement
+            currentUser={currentUser}
+            users={users}
+            units={operationalUnits.map((unit) => ({
+              id: unit.id,
+              name: unit.name,
+              workers: (unit.resources || [])
+                .filter((resource) => resource.type === ResourceType.PERSONNEL && resource.archived !== true && resource.personnelStatus !== 'archivado')
+                .map((resource) => ({ id: resource.id, name: resource.name, dni: resource.dni })),
+            }))}
+            canEdit={checkPermission(currentUser.role, 'INVENTORY', 'edit')}
+          />
+        ))}
+        {renderCachedView('headcount', (
+          <Headcount units={operationalUnits} onUpdateUnit={handleUpdateUnit} />
+        ))}
+        {renderCachedView('vacations', (
+          <Vacations
+            units={operationalUnits}
+            currentUser={currentUser}
+            initialActiveView={vacationsNavTab}
+            onPendingAuthCountChange={setPendingVacationAuthCount}
+          />
+        ))}
+        {renderCachedView('workers-management', (
+          <WorkersManagement units={operationalUnits} clients={clients} onUpdateUnit={handleUpdateUnit} />
+        ))}
+        {renderCachedView('ats-reception', (
+          <InboundWorkerHandoff
+            canEdit={false}
+            archiveMode
+            units={operationalUnits}
+          />
+        ))}
+        {renderCachedView('ats-presentations', (
+          <AtsPresentations
+            canEdit={checkPermission(currentUser.role, 'ATS_RECEPTION', 'edit')}
+            units={operationalUnits}
+            currentUserName={currentUser?.name}
+            onRegistered={() => {
+              void loadUnits({ silent: true });
+            }}
+          />
+        ))}
+        {renderCachedView('hr-opalosis', (
+          <HrOpalosisIngreso
+            canEdit={checkPermission(currentUser.role, 'HR_OPALOSIS', 'edit')}
+            units={operationalUnits}
+            currentUserName={currentUser?.name}
+          />
+        ))}
+        {renderCachedView('archive', (
+          <div className="w-full h-full">
+            <Archive
+              currentUserRole={currentUser?.role}
+              onRestoreWorker={loadUnits}
+            />
+          </div>
+        ))}
+      </>
+    );
 
     if (currentView === 'units') {
       if (selectedUnitId) {
@@ -1844,21 +1836,32 @@ const App: React.FC = () => {
         }
 
         return (
-          <UnitDetail 
-            unit={unit} 
-            userRole={currentUser.role}
-            availableStaff={managementStaff} // Pass global staff registry
-            currentUser={currentUser} // Pass current user for restrictions
-            availableClients={clients.map(c => ({ id: c.id, name: c.name }))} // Pass available clients
-            onBack={() => setSelectedUnitId(null)} 
-            onUpdate={handleUpdateUnit}
-            replaceUnitInState={replaceUnitInState}
-            googleMapsApiKey={googleMapsKey}
-          />
+          <>
+            {keepAliveViews}
+            {!unit.detailsHydrated ? (
+              <ViewFallback message="Cargando unidad..." />
+            ) : (
+              <React.Suspense fallback={<ViewFallback message="Cargando unidad..." />}>
+                <UnitDetail 
+                  unit={unit} 
+                  userRole={currentUser.role}
+                  availableStaff={managementStaff}
+                  currentUser={currentUser}
+                  availableClients={clients.map(c => ({ id: c.id, name: c.name }))}
+                  onBack={() => setSelectedUnitId(null)} 
+                  onUpdate={handleUpdateUnit}
+                  replaceUnitInState={replaceUnitInState}
+                  googleMapsApiKey={googleMapsKey}
+                />
+              </React.Suspense>
+            )}
+          </>
         );
       }
 
       return (
+        <>
+        {keepAliveViews}
         <div className="p-6 md:p-8 space-y-6 animate-in fade-in duration-500">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
@@ -2219,11 +2222,14 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+        </>
       );
     }
 
     if (currentView === 'settings') {
       return (
+        <>
+        {keepAliveViews}
         <div className="p-6 md:p-8 space-y-8 animate-in fade-in duration-500 pb-20">
            <div className="flex justify-between items-center">
             <div>
@@ -3278,10 +3284,15 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+        </>
       );
     }
 
-    return null;
+    return (
+      <>
+        {keepAliveViews}
+      </>
+    );
   };
 
   if (isPublicFichaLanding) {

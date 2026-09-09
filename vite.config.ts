@@ -32,6 +32,12 @@ export default defineConfig(({ mode }) => {
         rollupOptions: {
           input: {
             main: path.resolve(__dirname, 'index.html')
+          },
+          output: {
+            manualChunks(id) {
+              if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-')) return 'charts';
+              if (id.includes('leaflet') || id.includes('@vis.gl')) return 'maps';
+            }
           }
         }
       }

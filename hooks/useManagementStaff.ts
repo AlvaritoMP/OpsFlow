@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { managementStaffService } from '../services/managementStaffService';
 import { ManagementStaff } from '../types';
 
@@ -6,10 +6,15 @@ export const useManagementStaff = (isAuthenticated: boolean) => {
   const [staff, setStaff] = useState<ManagementStaff[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const staffRef = useRef<ManagementStaff[]>([]);
+  staffRef.current = staff;
 
   const loadStaff = async () => {
+    const hasData = staffRef.current.length > 0;
     try {
-      setLoading(true);
+      if (!hasData) {
+        setLoading(true);
+      }
       setError(null);
       const data = await managementStaffService.getAll();
       setStaff(data);

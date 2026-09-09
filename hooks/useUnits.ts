@@ -1,7 +1,25 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { unitsService } from '../services/unitsService';
 import { Unit, User } from '../types';
 import { isUnitsBackgroundRefreshPaused } from './unitsRefreshLock';
+
+function mergeUnitsPreservingHydrated(prev: Unit[], next: Unit[]): Unit[] {
+  if (prev.length === 0) return next;
+  const prevById = new Map(prev.map((unit) => [unit.id, unit]));
+  return next.map((unit) => {
+    const old = prevById.get(unit.id);
+    if (!old?.detailsHydrated) return unit;
+    return {
+      ...unit,
+      resources: old.resources,
+      logs: old.logs,
+      requests: old.requests,
+      documents: old.documents,
+      zones: old.zones?.length ? old.zones : unit.zones,
+      detailsHydrated: true,
+    };
+  });
+}
 
 export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) => {
   const [units, setUnits] = useState<Unit[]>([]);
@@ -146,7 +164,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
       if (silent && isUnitsBackgroundRefreshPaused()) {
         return;
       }
-      setUnits(data);
+      setUnits((prev) => mergeUnitsPreservingHydrated(prev, data));
     } catch (err: any) {
       console.error('❌ useUnits: Error al cargar unidades:', err);
       console.error('Detalles:', {
@@ -175,6 +193,33 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
   const loadUnitsRef = useRef(loadUnits);
   loadUnitsRef.current = loadUnits;
   const pendingUpdatesRef = useRef(0);
+  const unitsRef = useRef<Unit[]>([]);
+  unitsRef.current = units;
+  const hydratingRef = useRef(new Set<string>());
+
+  const hydrateUnit = useCallback(async (id: string): Promise<Unit | null> => {
+    const current = unitsRef.current.find((u) => u.id === id);
+    if (current?.detailsHydrated) return current;
+    if (hydratingRef.current.has(id)) return current ?? null;
+    hydratingRef.current.add(id);
+    try {
+      const full = await unitsService.getById(id);
+      if (!full) return current ?? null;
+      const hydrated = { ...full, detailsHydrated: true };
+      setUnits((prev) => prev.map((u) => (u.id === id ? hydrated : u)));
+      return hydrated;
+    } catch (err) {
+      console.warn('useUnits: no se pudo hidratar la unidad', id, err);
+      if (current) {
+        const fallback = { ...current, detailsHydrated: true };
+        setUnits((prev) => prev.map((u) => (u.id === id ? fallback : u)));
+        return fallback;
+      }
+      return null;
+    } finally {
+      hydratingRef.current.delete(id);
+    }
+  }, []);
 
   // Al volver a la pestaña, refrescar datos desde Supabase (otros usuarios / otras pestañas).
   // silent: no activa el spinner global de carga.
@@ -199,7 +244,8 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
 
   const checkAndLoad = async () => {
     if (isAuthenticated) {
-      await loadUnits();
+      const silent = unitsRef.current.length > 0;
+      await loadUnits({ silent });
     } else {
       setUnits([]);
       setLoading(false);
@@ -265,6 +311,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     loading,
     error,
     loadUnits,
+    hydrateUnit,
     createUnit,
     updateUnit,
     deleteUnit,

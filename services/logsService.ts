@@ -1,5 +1,6 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { OperationalLog } from '../types';
+import { fetchAllPaged, fetchInChunks } from '../utils/queryBatch';
 
 // ============================================
 // CRUD PARA OPERATIONAL_LOGS
@@ -21,6 +22,35 @@ export const logsService = {
     } catch (error) {
       handleSupabaseError(error);
       return [];
+    }
+  },
+
+  async getByUnitIds(unitIds: string[]): Promise<Map<string, OperationalLog[]>> {
+    const grouped = new Map<string, OperationalLog[]>();
+    if (unitIds.length === 0) return grouped;
+    try {
+      const rows = await fetchInChunks(unitIds, 80, (ids) =>
+        fetchAllPaged(async (from, to) => {
+          const { data, error } = await supabase
+            .from('operational_logs')
+            .select('*, log_images(image_url), log_responsible(*)')
+            .in('unit_id', ids)
+            .order('date', { ascending: false })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        })
+      );
+      for (const row of rows as any[]) {
+        const unitId = row.unit_id as string;
+        const list = grouped.get(unitId) || [];
+        list.push(transformLogFromDB(row));
+        grouped.set(unitId, list);
+      }
+      return grouped;
+    } catch (error) {
+      handleSupabaseError(error);
+      return grouped;
     }
   },
 

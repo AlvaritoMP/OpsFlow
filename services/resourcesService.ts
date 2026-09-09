@@ -2,6 +2,7 @@ import { supabase, handleSupabaseError } from './supabase';
 import { Resource, ResourceType, Training, AssignedAsset, DailyShift, MaintenanceRecord } from '../types';
 import { normalizeShiftTime, isVacationWithCoverage } from '../utils/rosterHours';
 import { mapContractFromDB } from './contractService';
+import { todayLocalISODate } from '../utils/queryBatch';
 
 // ============================================
 // CRUD PARA RESOURCES
@@ -47,6 +48,64 @@ export const resourcesService = {
     } catch (error) {
       handleSupabaseError(error);
       return [];
+    }
+  },
+
+  /**
+   * Carga recursos de muchas unidades en consultas por lote (no N+1).
+   * mode 'list': turnos de hoy + capacitaciones/mantenimiento; sin contratos ni activos.
+   * mode 'full': mismo detalle que getByUnitId.
+   */
+  async getForUnits(unitIds: string[], mode: 'list' | 'full' = 'list'): Promise<Map<string, Resource[]>> {
+    const grouped = new Map<string, Resource[]>();
+    if (unitIds.length === 0) return grouped;
+
+    try {
+      const rows = await fetchInChunks(unitIds, 80, (ids) =>
+        fetchAllPaged(async (from, to) => {
+          const { data, error } = await supabase
+            .from('resources')
+            .select('*')
+            .in('unit_id', ids)
+            .or('archived.is.null,archived.eq.false,type.neq.Personal')
+            .order('created_at', { ascending: false })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        })
+      );
+
+      if (rows.length === 0) return grouped;
+
+      const related = await loadRelatedDataBatched(
+        rows.map((r: any) => r.id),
+        mode === 'full'
+          ? { includeContracts: true, includeAssets: true, includeShifts: 'all' }
+          : { includeContracts: false, includeAssets: false, includeShifts: 'today' }
+      );
+
+      for (const resource of rows as any[]) {
+        const transformed = transformResourceFromDB(
+          resource,
+          related.trainingsById.get(resource.id) || [],
+          related.assetsById.get(resource.id) || [],
+          related.shiftsById.get(resource.id) || [],
+          related.maintenanceById.get(resource.id) || [],
+          related.zonesById.get(resource.id) || []
+        );
+        const item = {
+          ...transformed,
+          contractHistory: related.contractsById.get(resource.id) || [],
+        };
+        const list = grouped.get(resource.unit_id) || [];
+        list.push(item);
+        grouped.set(resource.unit_id, list);
+      }
+
+      return grouped;
+    } catch (error) {
+      handleSupabaseError(error);
+      return grouped;
     }
   },
 
@@ -1245,9 +1304,15 @@ type RelatedDataMaps = {
  * Carga datos relacionados de muchos recursos en pocas consultas (.in),
  * en lugar de 6 requests por recurso (causa típica de ERR_CONNECTION_CLOSED).
  */
+type RelatedLoadOptions = {
+  includeContracts?: boolean;
+  includeAssets?: boolean;
+  includeShifts?: 'none' | 'today' | 'all';
+};
+
 async function loadRelatedDataBatched(
   resourceIds: string[],
-  options: { includeContracts?: boolean } = {}
+  options: RelatedLoadOptions = {}
 ): Promise<RelatedDataMaps> {
   const empty: RelatedDataMaps = {
     trainingsById: new Map(),
@@ -1262,6 +1327,8 @@ async function loadRelatedDataBatched(
 
   const CHUNK = 80;
   const includeContracts = options.includeContracts !== false;
+  const includeAssets = options.includeAssets !== false;
+  const includeShifts = options.includeShifts ?? 'all';
 
   const safeFetch = async <T>(label: string, fn: () => Promise<T[]>): Promise<T[]> => {
     try {
@@ -1284,32 +1351,40 @@ async function loadRelatedDataBatched(
         return data || [];
       })
     ),
-    safeFetch('activos', () =>
-      fetchInChunks(resourceIds, CHUNK, async (ids) => {
-        const { data, error } = await supabase
-          .from('assigned_assets')
-          .select('*')
-          .in('resource_id', ids)
-          .order('date_assigned', { ascending: false });
-        if (error) throw error;
-        return data || [];
-      })
-    ),
-    safeFetch('turnos', () =>
-      fetchInChunks(resourceIds, CHUNK, async (ids) =>
-        fetchAllPaged(async (from, to) => {
-          const { data, error } = await supabase
-            .from('daily_shifts')
-            .select('*')
-            .in('resource_id', ids)
-            .order('resource_id', { ascending: true })
-            .order('date', { ascending: true })
-            .range(from, to);
-          if (error) throw error;
-          return data || [];
-        })
-      )
-    ),
+    includeAssets
+      ? safeFetch('activos', () =>
+          fetchInChunks(resourceIds, CHUNK, async (ids) => {
+            const { data, error } = await supabase
+              .from('assigned_assets')
+              .select('*')
+              .in('resource_id', ids)
+              .order('date_assigned', { ascending: false });
+            if (error) throw error;
+            return data || [];
+          })
+        )
+      : Promise.resolve([] as any[]),
+    includeShifts === 'none'
+      ? Promise.resolve([] as any[])
+      : safeFetch('turnos', () =>
+          fetchInChunks(resourceIds, CHUNK, async (ids) =>
+            fetchAllPaged(async (from, to) => {
+              let query = supabase
+                .from('daily_shifts')
+                .select('*')
+                .in('resource_id', ids);
+              if (includeShifts === 'today') {
+                query = query.eq('date', todayLocalISODate());
+              }
+              const { data, error } = await query
+                .order('resource_id', { ascending: true })
+                .order('date', { ascending: true })
+                .range(from, to);
+              if (error) throw error;
+              return data || [];
+            })
+          )
+        ),
     safeFetch('mantenimiento', () =>
       fetchInChunks(resourceIds, CHUNK, async (ids) => {
         const { data, error } = await supabase

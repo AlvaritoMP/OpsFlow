@@ -457,6 +457,9 @@ export interface Unit {
 
   /** Metadatos de Headcount por cargo (preventivo FDM editable, observaciones) */
   headcountMeta?: HeadcountPositionMeta[];
+
+  /** true cuando se cargó el detalle completo (documentos, turnos, contratos, activos). */
+  detailsHydrated?: boolean;
 }
 
 // ============================================

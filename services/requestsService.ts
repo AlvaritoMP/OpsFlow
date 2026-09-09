@@ -1,5 +1,6 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { ClientRequest, RequestComment, UserRole } from '../types';
+import { fetchAllPaged, fetchInChunks } from '../utils/queryBatch';
 
 /**
  * Coincide con el CHECK en BD: role IN ('ADMIN','OPERATIONS','OPERATIONS_SUPERVISOR','CLIENT').
@@ -50,6 +51,35 @@ export const requestsService = {
     } catch (error) {
       handleSupabaseError(error);
       return [];
+    }
+  },
+
+  async getByUnitIds(unitIds: string[]): Promise<Map<string, ClientRequest[]>> {
+    const grouped = new Map<string, ClientRequest[]>();
+    if (unitIds.length === 0) return grouped;
+    try {
+      const rows = await fetchInChunks(unitIds, 80, (ids) =>
+        fetchAllPaged(async (from, to) => {
+          const { data, error } = await supabase
+            .from('client_requests')
+            .select('*, request_attachments(*), request_comments(*)')
+            .in('unit_id', ids)
+            .order('date', { ascending: false })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        })
+      );
+      for (const row of rows as any[]) {
+        const unitId = row.unit_id as string;
+        const list = grouped.get(unitId) || [];
+        list.push(transformRequestFromDB(row));
+        grouped.set(unitId, list);
+      }
+      return grouped;
+    } catch (error) {
+      handleSupabaseError(error);
+      return grouped;
     }
   },
 

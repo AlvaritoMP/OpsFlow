@@ -41,9 +41,6 @@ interface ContractAlert {
 }
 
 export const ControlCenter: React.FC<ControlCenterProps> = ({ units, managementStaff, onUpdateUnit, currentUserRole }) => {
-  // Log immediately when component renders
-  console.log('🎯 ControlCenter COMPONENT RENDERED - currentUserRole:', currentUserRole, 'typeof:', typeof currentUserRole, '=== CLIENT:', currentUserRole === 'CLIENT');
-  
   const [filterUnit, setFilterUnit] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');

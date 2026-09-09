@@ -46,34 +46,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
   const activeUnits = units.filter(u => u.status === UnitStatus.ACTIVE).length;
   const issueUnits = units.filter(u => u.status === UnitStatus.ISSUE).length;
   // Calcular total de trabajadores sin duplicar los compartidos
-  const totalWorkers = useMemo(() => {
-    const uniqueWorkers = new Set<string>(); // Set para trabajadores compartidos únicos
-    let uniqueCount = 0; // Contador de trabajadores únicos
-    let sharedCount = 0; // Contador de trabajadores compartidos (solo una vez)
+  const workersTotals = useMemo(() => {
+    const uniqueWorkers = new Set<string>();
+    let uniqueCount = 0;
+    let sharedCount = 0;
 
     units.forEach(unit => {
       unit.resources
         .filter(r => r.type === ResourceType.PERSONNEL && !r.archived && r.personnelStatus !== 'cesado')
         .forEach(r => {
           if (r.isShared) {
-            // Trabajador compartido: usar identificador único (DNI o nombre)
             const identifier = r.dni || r.name;
             if (!uniqueWorkers.has(identifier)) {
               uniqueWorkers.add(identifier);
               sharedCount++;
             }
           } else {
-            // Trabajador único: contar en cada unidad
             uniqueCount++;
           }
         });
     });
 
-    // Guardar breakdown para tooltip
-    setTotalWorkersBreakdown({ unique: uniqueCount, shared: sharedCount });
-
-    return uniqueCount + sharedCount;
+    return { total: uniqueCount + sharedCount, unique: uniqueCount, shared: sharedCount };
   }, [units]);
+
+  const totalWorkers = workersTotals.total;
+
+  useEffect(() => {
+    setTotalWorkersBreakdown({ unique: workersTotals.unique, shared: workersTotals.shared });
+  }, [workersTotals.unique, workersTotals.shared]);
   
   // Calculate workers by shift based on assignedShift field (not rostering)
   // No duplicar trabajadores compartidos
@@ -147,14 +148,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
         });
     });
 
-    // Guardar breakdown para tooltips
-    setShiftBreakdown(shiftBreakdownData);
-
-    return { day: dayCount, afternoon: afternoonCount, night: nightCount };
+    return { counts: { day: dayCount, afternoon: afternoonCount, night: nightCount }, breakdown: shiftBreakdownData };
   }, [units]);
 
   useEffect(() => {
-    setWorkersByShift(workersByShiftCount);
+    setWorkersByShift(workersByShiftCount.counts);
+    setShiftBreakdown(workersByShiftCount.breakdown);
     setLoadingMetrics(false);
   }, [workersByShiftCount]);
 
@@ -168,45 +167,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ units, onSelectUnit, curre
         // Get all retenes (total available)
         const allRetenes = await retenesService.getAll();
         const totalRetenes = allRetenes.length;
-        
-        // Get assignments from a wide range to find the last month with data
-        const wideStartDate = new Date(today.getFullYear() - 1, 0, 1).toISOString().split('T')[0];
-        const wideEndDate = today.toISOString().split('T')[0];
-        const allAssignments = await retenesService.getAssignmentsByDateRange(wideStartDate, wideEndDate);
-        
-        if (allAssignments.length === 0) {
+
+        const latestDateStr = await retenesService.getLatestAssignmentDate();
+        if (!latestDateStr) {
           setRetenCoverages(0);
           setRetenUtilizationRatio(0);
           setMostUsedReten(null);
           return;
         }
-        
-        // Find the last month with assignments
-        const lastAssignmentDate = new Date(allAssignments[allAssignments.length - 1].assignment_date);
+
+        const lastAssignmentDate = new Date(`${latestDateStr}T00:00:00`);
         const calculationMonth = lastAssignmentDate.getMonth();
         const calculationYear = lastAssignmentDate.getFullYear();
-        
+
         const firstDayOfMonth = new Date(calculationYear, calculationMonth, 1);
         const lastDayOfMonth = new Date(calculationYear, calculationMonth + 1, 0);
-        
         const startDate = firstDayOfMonth.toISOString().split('T')[0];
         const endDate = lastDayOfMonth.toISOString().split('T')[0];
-        
-        // Get all assignments in the last month with data
-        const assignments = allAssignments.filter(a => {
-          const assignmentDate = new Date(a.assignment_date);
-          return assignmentDate >= firstDayOfMonth && assignmentDate <= lastDayOfMonth;
-        });
-        
-        setRetenCoverages(assignments.length);
-        
-        // Calculate most used reten in the current month
+
         const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
         const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
         const currentMonthStartStr = currentMonthStart.toISOString().split('T')[0];
         const currentMonthEndStr = currentMonthEnd.toISOString().split('T')[0];
+
+        const sameMonth =
+          startDate === currentMonthStartStr && endDate === currentMonthEndStr;
+
+        const monthAssignments = await retenesService.getAssignmentsByDateRange(startDate, endDate);
+        const currentMonthAssignments = sameMonth
+          ? monthAssignments
+          : await retenesService.getAssignmentsByDateRange(currentMonthStartStr, currentMonthEndStr);
+
+        const assignments = monthAssignments;
         
-        const currentMonthAssignments = await retenesService.getAssignmentsByDateRange(currentMonthStartStr, currentMonthEndStr);
+        setRetenCoverages(assignments.length);
         
         if (currentMonthAssignments.length > 0) {
           // Count assignments by reten
