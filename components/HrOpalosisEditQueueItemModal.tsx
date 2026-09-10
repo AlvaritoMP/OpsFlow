@@ -1049,10 +1049,24 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 }}
               />
               <div className="sm:col-span-2">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Nº cuenta trabajador</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Nº cuenta trabajador (si ya tiene cuenta sueldo)
+                </label>
                 <input
                   value={form.numeroCuentaTrabajador ?? ''}
                   onChange={(e) => setField('numeroCuentaTrabajador', e.target.value || null)}
+                  placeholder="Número de cuenta bancaria"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  CCI (si ya tiene cuenta, ingrese el CCI)
+                </label>
+                <input
+                  value={form.cuentaCci ?? ''}
+                  onChange={(e) => setField('cuentaCci', e.target.value || null)}
+                  placeholder="CCI de 20 dígitos"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
               </div>

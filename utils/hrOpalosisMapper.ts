@@ -197,6 +197,8 @@ export function buildWorkerFieldInventory(
       provincia: 'Provincia',
       distrito: 'Distrito',
       bancoSueldo: 'Banco sueldo',
+      numeroCuenta: 'N° de cuenta (si ya tiene cuenta sueldo)',
+      cuentaCci: 'CCI (cuenta interbancaria)',
       bancoCts: 'Banco CTS',
       sistemaPensionesDeseado: 'Sistema pensiones deseado',
       sistemaPensionesAnterior: 'Sistema pensiones anterior',
@@ -253,6 +255,20 @@ export function buildWorkerFieldInventory(
   }
 
   if (hrFields) {
+    pushInventoryItem(
+      items,
+      'operator',
+      'numeroCuentaTrabajador',
+      'N° de cuenta trabajador',
+      hrFields.numeroCuentaTrabajador,
+    );
+    pushInventoryItem(
+      items,
+      'operator',
+      'cuentaCci',
+      'CCI (cuenta interbancaria)',
+      hrFields.cuentaCci,
+    );
     pushInventoryItem(
       items,
       'operator',
@@ -427,6 +443,7 @@ const ATS_KEYS_ALREADY_IN_DTO = new Set([
  * - extras dinámicos ATS sin columna en el DTO
  * - datos OpsFlow que no tienen columna propia (días/horario)
  * - ficha: puestoContrato / unidadDestaque (distintos de cargo/lugar tipados)
+ * - CCI de cuenta sueldo (no hay columna DTO; el n° de cuenta sí va en NumeroCuentaTrabajador)
  * La trazabilidad completa sigue en PayloadJson.
  */
 export function buildCamposDetalle(
@@ -457,6 +474,10 @@ export function buildCamposDetalle(
     const complementary = snapshot.ats?.complementary;
     push('puestoContrato', complementary?.puestoContrato);
     push('unidadDestaque', complementary?.unidadDestaque);
+    push(
+      'cuentaCci',
+      complementary?.cuentaCci ?? complementary?.cci ?? _hrFields.cuentaCci,
+    );
 
     const ops = snapshot.opsflow;
     push('workDays', ops?.workDays);
@@ -637,6 +658,7 @@ export function normalizeHrFields(raw: unknown): HrOpalosisIngresoFields | null 
         bancoPreferencia: nullIfEmpty(pickString(r.bancoPreferencia)),
         bancoId: pickNumber(r.bancoId) ?? null,
         numeroCuentaTrabajador: nullIfEmpty(pickString(r.numeroCuentaTrabajador)),
+        cuentaCci: nullIfEmpty(pickString(r.cuentaCci, r.cci)),
         urlDocumentoAdjunto: nullIfEmpty(pickString(r.urlDocumentoAdjunto)),
         tallaPoloCamisa: nullIfEmpty(pickString(r.tallaPoloCamisa)),
         tallaCasaca: nullIfEmpty(pickString(r.tallaCasaca)),
@@ -913,7 +935,24 @@ export function mapSnapshotToHrFields(
     bancoPreferencia: nullIfEmpty(bancoLabel),
     bancoId: pickNumber(fields.bancoId) ?? null,
     numeroCuentaTrabajador: nullIfEmpty(
-      pickString(fields.numeroCuenta, fields.bankAccount, fields.numeroCuentaTrabajador),
+      pickString(
+        complementary.numeroCuenta,
+        complementary.numeroCuentaTrabajador,
+        fields.numeroCuenta,
+        fields.bankAccount,
+        fields.numeroCuentaTrabajador,
+        fields.nroCuenta,
+      ),
+    ),
+    cuentaCci: nullIfEmpty(
+      pickString(
+        complementary.cuentaCci,
+        complementary.cci,
+        fields.cuentaCci,
+        fields.cci,
+        fields.cciCuenta,
+        fields.cuentaInterbancaria,
+      ),
     ),
     urlDocumentoAdjunto: nullIfEmpty(pickString(fields.urlDocumentoAdjunto, fields.documentUrl)),
     tallaPoloCamisa: nullIfEmpty(tallaPolo),
@@ -1115,6 +1154,8 @@ export function mergeHrFieldsWithSnapshot(
     fondoPensionId: pickFilledNum(existing.fondoPensionId, mapped.fondoPensionId),
     bancoPreferencia: existing.bancoPreferencia || mapped.bancoPreferencia,
     bancoId: pickFilledNum(existing.bancoId, mapped.bancoId),
+    numeroCuentaTrabajador: existing.numeroCuentaTrabajador || mapped.numeroCuentaTrabajador,
+    cuentaCci: existing.cuentaCci || mapped.cuentaCci,
     tallaPoloCamisa: existing.tallaPoloCamisa || mapped.tallaPoloCamisa,
     tallaCasaca: existing.tallaCasaca || mapped.tallaCasaca,
     tallaPantalon: existing.tallaPantalon || mapped.tallaPantalon,

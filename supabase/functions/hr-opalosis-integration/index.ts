@@ -315,6 +315,53 @@ function buildPayloadJsonFromSnapshot(
   pushField(fieldInventory, 'ats', 'sourceCandidateId', 'sourceCandidateId', ats.sourceCandidateId);
   pushField(fieldInventory, 'ats', 'sourceProcessId', 'sourceProcessId', ats.sourceProcessId);
 
+  const complementary = (ats.complementary ?? {}) as Record<string, unknown>;
+  const complementaryLabels: Record<string, string> = {
+    departamento: 'Departamento',
+    provincia: 'Provincia',
+    distrito: 'Distrito',
+    bancoSueldo: 'Banco sueldo',
+    numeroCuenta: 'N° de cuenta (si ya tiene cuenta sueldo)',
+    cuentaCci: 'CCI (cuenta interbancaria)',
+    bancoCts: 'Banco CTS',
+    sistemaPensionesDeseado: 'Sistema pensiones deseado',
+    sistemaPensionesAnterior: 'Sistema pensiones anterior',
+    tallaCamisa: 'Talla camisa',
+    tallaPantalon: 'Talla pantalón',
+    tallaCalzado: 'Talla calzado',
+    estadoCivil: 'Estado civil',
+    fechaNacimiento: 'Fecha de nacimiento',
+    direccion: 'Dirección',
+    puestoContrato: 'Puesto contrato',
+    unidadDestaque: 'Unidad destaque',
+  };
+  for (const [key, value] of Object.entries(complementary)) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'object') continue;
+    pushField(
+      fieldInventory,
+      'ats',
+      `complementary.${key}`,
+      complementaryLabels[key] || key,
+      value,
+      'Ficha complementaria ATS/OpsFlow',
+    );
+  }
+  pushField(
+    fieldInventory,
+    'operator',
+    'numeroCuentaTrabajador',
+    'N° de cuenta trabajador',
+    hrFields.numeroCuentaTrabajador,
+  );
+  pushField(
+    fieldInventory,
+    'operator',
+    'cuentaCci',
+    'CCI (cuenta interbancaria)',
+    hrFields.cuentaCci,
+  );
+
   for (const [key, label] of Object.entries(OPSFLOW_LABELS)) {
     pushField(fieldInventory, 'opsflow', key, label, ops[key]);
   }
@@ -384,6 +431,7 @@ function buildPayloadJsonFromSnapshot(
         workerName: ats.workerName,
         identity,
         fields,
+        complementary,
         meta: ats.meta ?? {},
       },
       opsflow: ops,
@@ -427,6 +475,7 @@ const ATS_KEYS_ALREADY_IN_DTO = new Set([
  */
 function buildCamposDetalle(
   snapshot: Record<string, unknown> | null,
+  hrFields?: Record<string, unknown> | null,
 ): Array<{ Campo: string; Valor: string }> {
   const out: Array<{ Campo: string; Valor: string }> = [];
   const seen = new Set<string>();
@@ -453,6 +502,10 @@ function buildCamposDetalle(
 
   push('puestoContrato', complementary.puestoContrato);
   push('unidadDestaque', complementary.unidadDestaque);
+  push(
+    'cuentaCci',
+    complementary.cuentaCci ?? complementary.cci ?? hrFields?.cuentaCci,
+  );
   push('workDays', ops.workDays);
   push('entryTime', ops.entryTime);
   push('exitTime', ops.exitTime);
@@ -488,6 +541,9 @@ function buildRegistroPayload(
     existingPayload && !existingPayload.includes('data:')
       ? existingPayload
       : buildPayloadJsonFromSnapshot(workerSnapshot ?? null, hrFields, refOps);
+
+  const complementary = ((workerSnapshot?.ats as Record<string, unknown> | undefined)?.complementary ??
+    {}) as Record<string, unknown>;
 
   return {
     TipoDocumentoId: tipoDocumentoId,
@@ -525,7 +581,12 @@ function buildRegistroPayload(
         : pickString(hrFields.bancoPreferencia) || null,
     FondoPensionId: pickNumber(hrFields.fondoPensionId) ?? null,
     BancoId: pickNumber(hrFields.bancoId) ?? null,
-    NumeroCuentaTrabajador: pickString(hrFields.numeroCuentaTrabajador) || null,
+    NumeroCuentaTrabajador:
+      pickString(
+        hrFields.numeroCuentaTrabajador,
+        complementary.numeroCuenta,
+        complementary.numeroCuentaTrabajador,
+      ) || null,
     UrlDocumentoAdjunto: pickString(hrFields.urlDocumentoAdjunto) || null,
     TallaPoloCamisa: pickString(hrFields.tallaPoloCamisa) || null,
     TallaCasaca: pickString(hrFields.tallaCasaca) || null,
@@ -542,7 +603,7 @@ function buildRegistroPayload(
     UsuarioProcesoId: pickNumber(hrFields.usuarioProcesoId),
     UsuarioOf: pickString(hrFields.usuarioOf) || 'opsflow',
     PayloadJson: payloadJson,
-    CamposDetalle: buildCamposDetalle(workerSnapshot ?? null),
+    CamposDetalle: buildCamposDetalle(workerSnapshot ?? null, hrFields),
   };
 }
 

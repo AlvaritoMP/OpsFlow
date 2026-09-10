@@ -7,6 +7,8 @@ export type ComplementaryFieldDef = {
   input?: 'text' | 'tel' | 'email' | 'select';
   options?: string[];
   fullWidth?: boolean;
+  placeholder?: string;
+  hint?: string;
 };
 
 export type ComplementaryFieldGroup = {
@@ -78,6 +80,20 @@ export const COMPLEMENTARY_FICHA_GROUPS: ComplementaryFieldGroup[] = [
       { key: 'puestoContrato', label: 'Puesto contrato', fullWidth: true },
       { key: 'bancoSueldo', label: 'Banco sueldo' },
       { key: 'bancoCts', label: 'Banco CTS' },
+      {
+        key: 'numeroCuenta',
+        label: 'N° de cuenta (si ya tiene cuenta sueldo, ingrese el número)',
+        placeholder: 'Número de cuenta bancaria',
+        hint: 'Solo si ya tiene cuenta sueldo en el banco indicado. Si no tiene, déjelo vacío.',
+        fullWidth: true,
+      },
+      {
+        key: 'cuentaCci',
+        label: 'CCI (si ya tiene cuenta, ingrese el CCI interbancario)',
+        placeholder: 'CCI de 20 dígitos',
+        hint: 'Cuenta interbancaria (CCI) de la misma cuenta sueldo, si ya la tiene.',
+        fullWidth: true,
+      },
       {
         key: 'sistemaPensionesAnterior',
         label: 'Pensiones anterior',
@@ -161,10 +177,16 @@ export const ComplementaryFichaForm: React.FC<ComplementaryFichaFormProps> = ({
                       disabled={disabled}
                       value={current}
                       onChange={(e) => setField(field.key, e.target.value)}
+                      placeholder={field.placeholder}
                       autoComplete="off"
                       className={inputClassName}
                     />
                   )}
+                  {field.hint ? (
+                    <span className="mt-1 block text-[11px] leading-snug text-slate-500">
+                      {field.hint}
+                    </span>
+                  ) : null}
                 </label>
               );
             })}

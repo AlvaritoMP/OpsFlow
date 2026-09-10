@@ -95,6 +95,20 @@ export function hydrateComplementaryFromSnapshot(
   // Solo unidad de destaque de ficha; no copiar fields.unidad ni unidad OpsFlow.
   fill('unidadDestaque', fields.unidadDestaque);
   fill('bancoSueldo', fields.bancoSueldo, fields.banco);
+  fill(
+    'numeroCuenta',
+    fields.numeroCuenta,
+    fields.numeroCuentaTrabajador,
+    fields.bankAccount,
+    fields.nroCuenta,
+  );
+  fill(
+    'cuentaCci',
+    fields.cuentaCci,
+    fields.cci,
+    fields.cciCuenta,
+    fields.cuentaInterbancaria,
+  );
   fill('bancoCts', fields.bancoCts);
   fill('estadoCivil', fields.estadoCivil, fields.estado_civil);
   fill('nacionalidad', fields.nacionalidad, fields.nationality);

@@ -696,6 +696,16 @@ export async function buildOpaloPersonnelFichaPdf(
   ]);
   b.row([
     {
+      label: 'N° de cuenta (si ya tiene cuenta sueldo)',
+      value: text(ficha.numeroCuenta),
+    },
+    {
+      label: 'CCI (si ya tiene cuenta)',
+      value: text(ficha.cuentaCci),
+    },
+  ]);
+  b.row([
+    {
       label: 'Aportes al sistema de pensiones (si ya ha aportado) — Sistema / AFP / ONP',
       value: text(ficha.sistemaPensionesAnterior),
     },

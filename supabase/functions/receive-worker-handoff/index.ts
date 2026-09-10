@@ -231,6 +231,20 @@ function hydrateComplementary(
   fill('puestoContrato', fields.puestoContrato);
   fill('unidadDestaque', fields.unidadDestaque);
   fill('bancoSueldo', fields.bancoSueldo, fields.banco);
+  fill(
+    'numeroCuenta',
+    fields.numeroCuenta,
+    fields.numeroCuentaTrabajador,
+    fields.bankAccount,
+    fields.nroCuenta,
+  );
+  fill(
+    'cuentaCci',
+    fields.cuentaCci,
+    fields.cci,
+    fields.cciCuenta,
+    fields.cuentaInterbancaria,
+  );
   fill('bancoCts', fields.bancoCts);
   fill('estadoCivil', fields.estadoCivil);
   fill('nacionalidad', fields.nacionalidad);

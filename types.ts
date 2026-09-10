@@ -959,6 +959,10 @@ export interface WorkerSnapshotComplementary {
   unidadDestaque?: string;
   puestoContrato?: string;
   bancoSueldo?: string;
+  /** N° de cuenta sueldo si el trabajador ya tiene cuenta en el banco indicado. */
+  numeroCuenta?: string;
+  /** CCI / cuenta interbancaria si el trabajador ya tiene cuenta. */
+  cuentaCci?: string;
   bancoCts?: string;
   sistemaPensionesAnterior?: string;
   sistemaPensionesDeseado?: string;
@@ -1151,6 +1155,8 @@ export interface HrOpalosisIngresoFields {
   /** ID catálogo Opalosis banco (BancoId) */
   bancoId?: number | null;
   numeroCuentaTrabajador?: string | null;
+  /** CCI / cuenta interbancaria (no hay columna DTO; viaja en CamposDetalle). */
+  cuentaCci?: string | null;
   urlDocumentoAdjunto?: string | null;
   tallaPoloCamisa?: string | null;
   tallaCasaca?: string | null;
