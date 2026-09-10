@@ -197,7 +197,8 @@ export function buildWorkerFieldInventory(
       provincia: 'Provincia',
       distrito: 'Distrito',
       bancoSueldo: 'Banco sueldo',
-      numeroCuenta: 'N° de cuenta (si ya tiene cuenta sueldo)',
+      numeroCuentaTrabajador: 'N° de cuenta trabajador',
+      numeroCuenta: 'N° de cuenta trabajador',
       cuentaCci: 'CCI (cuenta interbancaria)',
       bancoCts: 'Banco CTS',
       sistemaPensionesDeseado: 'Sistema pensiones deseado',
@@ -936,11 +937,11 @@ export function mapSnapshotToHrFields(
     bancoId: pickNumber(fields.bancoId) ?? null,
     numeroCuentaTrabajador: nullIfEmpty(
       pickString(
-        complementary.numeroCuenta,
         complementary.numeroCuentaTrabajador,
+        complementary.numeroCuenta,
+        fields.numeroCuentaTrabajador,
         fields.numeroCuenta,
         fields.bankAccount,
-        fields.numeroCuentaTrabajador,
         fields.nroCuenta,
       ),
     ),

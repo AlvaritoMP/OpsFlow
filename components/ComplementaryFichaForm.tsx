@@ -81,17 +81,17 @@ export const COMPLEMENTARY_FICHA_GROUPS: ComplementaryFieldGroup[] = [
       { key: 'bancoSueldo', label: 'Banco sueldo' },
       { key: 'bancoCts', label: 'Banco CTS' },
       {
-        key: 'numeroCuenta',
+        key: 'numeroCuentaTrabajador',
         label: 'N° de cuenta (si ya tiene cuenta sueldo, ingrese el número)',
         placeholder: 'Número de cuenta bancaria',
-        hint: 'Solo si ya tiene cuenta sueldo en el banco indicado. Si no tiene, déjelo vacío.',
+        hint: 'Completa el mismo número de cuenta que usa OpsFlow / Opalosis. Si no tiene cuenta, déjelo vacío.',
         fullWidth: true,
       },
       {
         key: 'cuentaCci',
         label: 'CCI (si ya tiene cuenta, ingrese el CCI interbancario)',
         placeholder: 'CCI de 20 dígitos',
-        hint: 'Cuenta interbancaria (CCI) de la misma cuenta sueldo, si ya la tiene.',
+        hint: 'Campo adicional: cuenta interbancaria (CCI) de la misma cuenta sueldo.',
         fullWidth: true,
       },
       {

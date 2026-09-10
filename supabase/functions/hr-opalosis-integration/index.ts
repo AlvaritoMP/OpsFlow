@@ -321,7 +321,8 @@ function buildPayloadJsonFromSnapshot(
     provincia: 'Provincia',
     distrito: 'Distrito',
     bancoSueldo: 'Banco sueldo',
-    numeroCuenta: 'N° de cuenta (si ya tiene cuenta sueldo)',
+    numeroCuentaTrabajador: 'N° de cuenta trabajador',
+    numeroCuenta: 'N° de cuenta trabajador',
     cuentaCci: 'CCI (cuenta interbancaria)',
     bancoCts: 'Banco CTS',
     sistemaPensionesDeseado: 'Sistema pensiones deseado',
@@ -584,8 +585,8 @@ function buildRegistroPayload(
     NumeroCuentaTrabajador:
       pickString(
         hrFields.numeroCuentaTrabajador,
-        complementary.numeroCuenta,
         complementary.numeroCuentaTrabajador,
+        complementary.numeroCuenta,
       ) || null,
     UrlDocumentoAdjunto: pickString(hrFields.urlDocumentoAdjunto) || null,
     TallaPoloCamisa: pickString(hrFields.tallaPoloCamisa) || null,

@@ -697,7 +697,7 @@ export async function buildOpaloPersonnelFichaPdf(
   b.row([
     {
       label: 'N° de cuenta (si ya tiene cuenta sueldo)',
-      value: text(ficha.numeroCuenta),
+      value: text(ficha.numeroCuentaTrabajador ?? ficha.numeroCuenta),
     },
     {
       label: 'CCI (si ya tiene cuenta)',

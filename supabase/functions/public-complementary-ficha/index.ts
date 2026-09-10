@@ -124,9 +124,10 @@ function hydrateComplementary(
     fields.banco,
   );
   fill(
-    'numeroCuenta',
-    fields.numeroCuenta,
+    'numeroCuentaTrabajador',
+    complementary.numeroCuenta,
     fields.numeroCuentaTrabajador,
+    fields.numeroCuenta,
     fields.bankAccount,
     fields.nroCuenta,
   );
@@ -270,7 +271,7 @@ function overlayComplementaryOnHrFields(hr: JsonRecord, complementary: JsonRecor
   setIf('bancoPreferencia', complementary.bancoSueldo);
   setIf(
     'numeroCuentaTrabajador',
-    complementary.numeroCuenta || complementary.numeroCuentaTrabajador,
+    complementary.numeroCuentaTrabajador || complementary.numeroCuenta,
   );
   setIf(
     'cuentaCci',

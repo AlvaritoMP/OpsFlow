@@ -959,8 +959,8 @@ export interface WorkerSnapshotComplementary {
   unidadDestaque?: string;
   puestoContrato?: string;
   bancoSueldo?: string;
-  /** N° de cuenta sueldo si el trabajador ya tiene cuenta en el banco indicado. */
-  numeroCuenta?: string;
+  /** Mismo campo que Envío Opalosis / DTO NumeroCuentaTrabajador. */
+  numeroCuentaTrabajador?: string;
   /** CCI / cuenta interbancaria si el trabajador ya tiene cuenta. */
   cuentaCci?: string;
   bancoCts?: string;

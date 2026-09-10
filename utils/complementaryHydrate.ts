@@ -96,9 +96,10 @@ export function hydrateComplementaryFromSnapshot(
   fill('unidadDestaque', fields.unidadDestaque);
   fill('bancoSueldo', fields.bancoSueldo, fields.banco);
   fill(
-    'numeroCuenta',
-    fields.numeroCuenta,
+    'numeroCuentaTrabajador',
+    complementary.numeroCuenta,
     fields.numeroCuentaTrabajador,
+    fields.numeroCuenta,
     fields.bankAccount,
     fields.nroCuenta,
   );
