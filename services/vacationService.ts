@@ -591,6 +591,30 @@ function dayEntrySnapshot(d: VacationDayEntry) {
   };
 }
 
+const USER_AUDIT_FK_COLS = [
+  'updated_by',
+  'created_by',
+  'issued_by',
+  'cancelled_by',
+  'authorized_by',
+] as const;
+
+function isUserAuditFkError(error: unknown): boolean {
+  const e = error as { code?: string; message?: string; details?: string };
+  const text = `${e?.message || ''} ${e?.details || ''}`.toLowerCase();
+  const code = String(e?.code || '');
+  if (code !== '23503' && !text.includes('foreign key')) return false;
+  return USER_AUDIT_FK_COLS.some((col) => text.includes(`${col}_fkey`));
+}
+
+function nullUserAuditFks<T extends Record<string, unknown>>(row: T): T {
+  const next = { ...row };
+  for (const col of USER_AUDIT_FK_COLS) {
+    if (col in next) (next as Record<string, unknown>)[col] = null;
+  }
+  return next;
+}
+
 async function revertShiftsToOff(resourceId: string, start: string, end: string): Promise<void> {
   for (const date of dateRange(start, end)) {
     await resourcesService.upsertDailyShift(resourceId, {
@@ -743,21 +767,30 @@ export const vacationService = {
     workerName?: string
   ): Promise<VacationBalance> {
     const previous = await this.getBalance(resourceId);
-    const { data, error } = await supabase
+    const payload = {
+      resource_id: resourceId,
+      historical_taken_days: historicalTakenDays,
+      annual_entitlement: annualEntitlement,
+      notes,
+      updated_by: updatedBy || null,
+      updated_at: new Date().toISOString(),
+    };
+    let { data, error } = await supabase
       .from('vacation_balances')
-      .upsert(
-        {
-          resource_id: resourceId,
-          historical_taken_days: historicalTakenDays,
-          annual_entitlement: annualEntitlement,
-          notes,
-          updated_by: updatedBy,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'resource_id' }
-      )
+      .upsert(payload, { onConflict: 'resource_id' })
       .select()
       .single();
+
+    // Login usa public.users; si updated_by apunta a auth.users (o el ID no existe), no bloquear el saldo.
+    if (error && payload.updated_by && isUserAuditFkError(error)) {
+      const retry = await supabase
+        .from('vacation_balances')
+        .upsert(nullUserAuditFks(payload), { onConflict: 'resource_id' })
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       handleSupabaseError(error);
@@ -820,35 +853,54 @@ export const vacationService = {
       }
     }
 
-    const { data, error } = await supabase
+    const dayPayload = {
+      resource_id: resourceId,
+      unit_id: unitId,
+      vacation_date: vacationDate,
+      days_count: count,
+      status: 'pending_batch',
+      notes,
+      created_by: createdBy || null,
+    };
+    let { data, error } = await supabase
       .from('vacation_day_entries')
-      .insert({
-        resource_id: resourceId,
-        unit_id: unitId,
-        vacation_date: vacationDate,
-        days_count: count,
-        status: 'pending_batch',
-        notes,
-        created_by: createdBy,
-      })
+      .insert(dayPayload)
       .select()
       .single();
+
+    if (error && dayPayload.created_by && isUserAuditFkError(error)) {
+      const retry = await supabase
+        .from('vacation_day_entries')
+        .insert(nullUserAuditFks(dayPayload))
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       // Compatibilidad si aún no se corrió la migración days_count
       if (String(error.message || '').toLowerCase().includes('days_count')) {
-        const fallback = await supabase
+        const legacyPayload = {
+          resource_id: resourceId,
+          unit_id: unitId,
+          vacation_date: vacationDate,
+          status: 'pending_batch',
+          notes: count === 0.5 ? `${notes || ''} [medio día]`.trim() : notes,
+          created_by: createdBy || null,
+        };
+        let fallback = await supabase
           .from('vacation_day_entries')
-          .insert({
-            resource_id: resourceId,
-            unit_id: unitId,
-            vacation_date: vacationDate,
-            status: 'pending_batch',
-            notes: count === 0.5 ? `${notes || ''} [medio día]`.trim() : notes,
-            created_by: createdBy,
-          })
+          .insert(legacyPayload)
           .select()
           .single();
+        if (fallback.error && legacyPayload.created_by && isUserAuditFkError(fallback.error)) {
+          fallback = await supabase
+            .from('vacation_day_entries')
+            .insert(nullUserAuditFks(legacyPayload))
+            .select()
+            .single();
+        }
         if (fallback.error) {
           handleSupabaseError(fallback.error);
           throw fallback.error;
@@ -896,18 +948,30 @@ export const vacationService = {
       throw new Error('El día a cuenta debe ser 1 día completo o 0.5 (medio día)');
     }
 
-    const { data, error } = await supabase
+    const updatePayload = {
+      vacation_date: newDate,
+      days_count: newCount,
+      notes: updates.notes ?? before.notes,
+      updated_by: updatedBy || null,
+      updated_at: new Date().toISOString(),
+    };
+    let { data, error } = await supabase
       .from('vacation_day_entries')
-      .update({
-        vacation_date: newDate,
-        days_count: newCount,
-        notes: updates.notes ?? before.notes,
-        updated_by: updatedBy,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();
+
+    if (error && updatePayload.updated_by && isUserAuditFkError(error)) {
+      const retry = await supabase
+        .from('vacation_day_entries')
+        .update(nullUserAuditFks(updatePayload))
+        .eq('id', id)
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       handleSupabaseError(error);
@@ -956,14 +1020,23 @@ export const vacationService = {
     }
 
     const before = transformDayEntryFromDB(entry);
-    const { error } = await supabase
+    const cancelPayload = {
+      status: 'cancelled',
+      cancelled_by: cancelledBy || null,
+      cancelled_at: new Date().toISOString(),
+    };
+    let { error } = await supabase
       .from('vacation_day_entries')
-      .update({
-        status: 'cancelled',
-        cancelled_by: cancelledBy,
-        cancelled_at: new Date().toISOString(),
-      })
+      .update(cancelPayload)
       .eq('id', id);
+
+    if (error && cancelPayload.cancelled_by && isUserAuditFkError(error)) {
+      const retry = await supabase
+        .from('vacation_day_entries')
+        .update(nullUserAuditFks(cancelPayload))
+        .eq('id', id);
+      error = retry.error;
+    }
 
     if (error) {
       handleSupabaseError(error);
@@ -1106,28 +1179,39 @@ export const vacationService = {
     const code = await this.generatePapeletaCode();
     const isAdvance = isVacationAdvance(summary?.startDate, startDate);
 
-    const { data, error } = await supabase
+    const papeletaPayload = {
+      resource_id: params.resourceId,
+      unit_id: params.unitId,
+      code,
+      worker_name: params.workerName,
+      worker_dni: params.workerDni,
+      unit_name: params.unitName,
+      start_date: startDate,
+      end_date: endDate,
+      return_date: returnDate,
+      calendar_days: calendarDays,
+      source_type: 'direct',
+      status: 'issued',
+      is_advance: isAdvance,
+      notes,
+      issued_by: params.issuedBy || null,
+      authorized_by: params.authorizedBy?.id ?? null,
+    };
+    let { data, error } = await supabase
       .from('vacation_papeletas')
-      .insert({
-        resource_id: params.resourceId,
-        unit_id: params.unitId,
-        code,
-        worker_name: params.workerName,
-        worker_dni: params.workerDni,
-        unit_name: params.unitName,
-        start_date: startDate,
-        end_date: endDate,
-        return_date: returnDate,
-        calendar_days: calendarDays,
-        source_type: 'direct',
-        status: 'issued',
-        is_advance: isAdvance,
-        notes,
-        issued_by: params.issuedBy,
-        authorized_by: params.authorizedBy?.id ?? null,
-      })
+      .insert(papeletaPayload)
       .select()
       .single();
+
+    if (error && isUserAuditFkError(error)) {
+      const retry = await supabase
+        .from('vacation_papeletas')
+        .insert(nullUserAuditFks(papeletaPayload))
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       handleSupabaseError(error);
@@ -1250,28 +1334,39 @@ export const vacationService = {
     const code = await this.generatePapeletaCode();
     const isAdvance = isVacationAdvance(summary?.startDate, params.startDate);
 
-    const { data, error } = await supabase
+    const accumulatedPayload = {
+      resource_id: params.resourceId,
+      unit_id: params.unitId,
+      code,
+      worker_name: params.workerName,
+      worker_dni: params.workerDni,
+      unit_name: params.unitName,
+      start_date: params.startDate,
+      end_date: endDate,
+      return_date: returnDate,
+      calendar_days: calendarDays,
+      source_type: 'accumulated',
+      status: 'issued',
+      is_advance: isAdvance,
+      notes,
+      issued_by: params.issuedBy || null,
+      authorized_by: params.authorizedBy?.id ?? null,
+    };
+    let { data, error } = await supabase
       .from('vacation_papeletas')
-      .insert({
-        resource_id: params.resourceId,
-        unit_id: params.unitId,
-        code,
-        worker_name: params.workerName,
-        worker_dni: params.workerDni,
-        unit_name: params.unitName,
-        start_date: params.startDate,
-        end_date: endDate,
-        return_date: returnDate,
-        calendar_days: calendarDays,
-        source_type: 'accumulated',
-        status: 'issued',
-        is_advance: isAdvance,
-        notes,
-        issued_by: params.issuedBy,
-        authorized_by: params.authorizedBy?.id ?? null,
-      })
+      .insert(accumulatedPayload)
       .select()
       .single();
+
+    if (error && isUserAuditFkError(error)) {
+      const retry = await supabase
+        .from('vacation_papeletas')
+        .insert(nullUserAuditFks(accumulatedPayload))
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       handleSupabaseError(error);
@@ -1350,20 +1445,32 @@ export const vacationService = {
     const oldStart = current.startDate;
     const oldEnd = current.endDate;
 
-    const { data, error } = await supabase
+    const papeletaUpdate = {
+      start_date: updates.startDate,
+      end_date: finalized.endDate,
+      return_date: updates.returnDate || finalized.returnDate,
+      calendar_days: calendarDays,
+      notes: updates.notes ?? current.notes,
+      updated_by: updatedBy || null,
+      updated_at: new Date().toISOString(),
+    };
+    let { data, error } = await supabase
       .from('vacation_papeletas')
-      .update({
-        start_date: updates.startDate,
-        end_date: finalized.endDate,
-        return_date: updates.returnDate || finalized.returnDate,
-        calendar_days: calendarDays,
-        notes: updates.notes ?? current.notes,
-        updated_by: updatedBy,
-        updated_at: new Date().toISOString(),
-      })
+      .update(papeletaUpdate)
       .eq('id', id)
       .select()
       .single();
+
+    if (error && papeletaUpdate.updated_by && isUserAuditFkError(error)) {
+      const retry = await supabase
+        .from('vacation_papeletas')
+        .update(nullUserAuditFks(papeletaUpdate))
+        .eq('id', id)
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       handleSupabaseError(error);
@@ -1398,16 +1505,25 @@ export const vacationService = {
       throw new Error('Solo se pueden anular papeletas emitidas');
     }
 
-    const { error } = await supabase
+    const cancelPapeletaPayload = {
+      status: 'cancelled',
+      cancelled_by: cancelledBy || null,
+      cancelled_at: new Date().toISOString(),
+      authorized_by: authorizedBy.id || null,
+      updated_at: new Date().toISOString(),
+    };
+    let { error } = await supabase
       .from('vacation_papeletas')
-      .update({
-        status: 'cancelled',
-        cancelled_by: cancelledBy,
-        cancelled_at: new Date().toISOString(),
-        authorized_by: authorizedBy.id,
-        updated_at: new Date().toISOString(),
-      })
+      .update(cancelPapeletaPayload)
       .eq('id', id);
+
+    if (error && isUserAuditFkError(error)) {
+      const retry = await supabase
+        .from('vacation_papeletas')
+        .update(nullUserAuditFks(cancelPapeletaPayload))
+        .eq('id', id);
+      error = retry.error;
+    }
 
     if (error) {
       handleSupabaseError(error);

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS vacation_balances (
   annual_entitlement INTEGER NOT NULL DEFAULT 30,
   notes TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_by UUID REFERENCES users(id),
+  updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
   UNIQUE(resource_id)
 );
 
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS vacation_day_entries (
   papeleta_id UUID,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  created_by UUID REFERENCES users(id),
+  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
   UNIQUE(resource_id, vacation_date)
 );
 
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS vacation_papeletas (
     CHECK (status IN ('draft', 'issued', 'cancelled')),
   notes TEXT,
   issued_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  issued_by UUID REFERENCES users(id),
+  issued_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
