@@ -707,6 +707,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     let cancelled = false;
 
     const loadShiftsFromDb = async () => {
+      if (activeTab !== 'personnel' && activeTab !== 'overview') {
+        return;
+      }
       if (
         isSavingRosterRef.current ||
         rosterHasUnsavedChangesRef.current ||
@@ -749,7 +752,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     return () => {
       cancelled = true;
     };
-  }, [unit.id, personnelViewMode]);
+  }, [unit.id, personnelViewMode, activeTab]);
 
   // Mass Training State
   const [showMassTrainingModal, setShowMassTrainingModal] = useState(false);
@@ -3359,6 +3362,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          const { resourcesService } = await import('../services/resourcesService');
          const resourcesSnapshot = localResourcesRef.current;
          const dirtyKeys = dirtyRosterShiftsRef.current;
+         const dirtyResourceIds = Array.from(
+             new Set(
+                 Array.from(dirtyKeys)
+                     .map((key) => key.slice(0, key.indexOf('|')))
+                     .filter(Boolean)
+             )
+         );
 
          const changedShiftsByResource = new Map<string, { resource: Resource; shifts: DailyShift[] }>();
 
@@ -3386,6 +3396,50 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              return;
          }
 
+         // Una papeleta ya escrita en BD no debe perderse si el roster se guarda después
+         // con el día todavía en Día/OFF (estado local desactualizado o "copiar semana").
+         try {
+             const dbShiftsById = await resourcesService.getDailyShiftsByResourceIds(
+                 Array.from(changedShiftsByResource.keys())
+             );
+             for (const [resourceId, entry] of changedShiftsByResource) {
+                 const dbShifts = dbShiftsById.get(resourceId) || [];
+                 const dbVacationDates = new Set(
+                     dbShifts.filter((s) => s.type === 'Vacation').map((s) => s.date)
+                 );
+                 entry.shifts = entry.shifts.filter((shift) => {
+                     if (shift.type === 'Vacation') return true;
+                     return !dbVacationDates.has(shift.date);
+                 });
+                 if (entry.shifts.length === 0) changedShiftsByResource.delete(resourceId);
+             }
+         } catch (protectError) {
+             console.warn('No se pudo proteger turnos de vacaciones al guardar el roster:', protectError);
+         }
+
+         if (changedShiftsByResource.size === 0) {
+             const shiftsById = await resourcesService.getDailyShiftsByResourceIds(dirtyResourceIds);
+             const nextResources = resourcesSnapshot.map((r) => {
+                 const fromDb = shiftsById.get(r.id);
+                 if (!fromDb) return r;
+                 return { ...r, workSchedule: fromDb };
+             });
+             setLocalResources(nextResources);
+             localResourcesRef.current = nextResources;
+             replaceUnitInState?.({ ...unitRef.current, resources: nextResources });
+             setRosterHasUnsavedChanges(false);
+             setDirtyRosterShifts(new Set());
+             rosterHasUnsavedChangesRef.current = false;
+             dirtyRosterShiftsRef.current = new Set();
+             setIsSavingRoster(false);
+             setNotification({
+                 type: 'info',
+                 message: 'No se sobrescribieron días con papeleta de vacaciones. El roster se actualizó desde la base de datos.',
+             });
+             setTimeout(() => setNotification(null), 4000);
+             return;
+         }
+
          await resourcesService.upsertDailyShiftsBatch(
              Array.from(changedShiftsByResource.values()).map(({ resource, shifts }) => ({
                  resourceId: resource.id,
@@ -3393,10 +3447,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              }))
          );
 
-         const changedIds = Array.from(changedShiftsByResource.keys());
+         const reloadIds = Array.from(new Set([...changedShiftsByResource.keys(), ...dirtyResourceIds]));
          let nextResources = resourcesSnapshot;
          try {
-             const shiftsById = await resourcesService.getDailyShiftsByResourceIds(changedIds);
+             const shiftsById = await resourcesService.getDailyShiftsByResourceIds(reloadIds);
              nextResources = resourcesSnapshot.map((r) => {
                  const fromDb = shiftsById.get(r.id);
                  if (!fromDb) return r;
@@ -3449,6 +3503,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   
                   // Remove existing shift at target date if any
                   const existingIdx = schedule.findIndex(s => s.date === targetDateStr);
+                  const existingTarget = existingIdx > -1 ? schedule[existingIdx] : undefined;
+                  if (existingTarget?.type === 'Vacation') {
+                      return;
+                  }
                   if (existingIdx > -1) schedule.splice(existingIdx, 1);
                   
                   // Add copy
