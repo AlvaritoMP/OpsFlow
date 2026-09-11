@@ -43,7 +43,8 @@ const WEEKDAY_LABELS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'V
 // ============================================
 
 function parseDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split('-').map(Number);
+  const normalized = String(dateStr || '').split('T')[0].split(' ')[0];
+  const [y, m, d] = normalized.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
 
@@ -52,6 +53,26 @@ function formatDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+export function normalizeVacationDate(value: unknown): string {
+  if (value == null || value === '') return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  const raw = String(value).trim();
+  const isoPart = raw.split('T')[0].split(' ')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoPart)) return isoPart;
+  const dmy = isoPart.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (dmy) {
+    const dd = dmy[1].padStart(2, '0');
+    const mm = dmy[2].padStart(2, '0');
+    return `${dmy[3]}-${mm}-${dd}`;
+  }
+  return isoPart.slice(0, 10);
 }
 
 function daysBetweenInclusive(start: string, end: string): number {
@@ -525,7 +546,7 @@ function transformDayEntryFromDB(data: any): VacationDayEntry {
     id: data.id,
     resourceId: data.resource_id,
     unitId: data.unit_id,
-    vacationDate: data.vacation_date,
+    vacationDate: normalizeVacationDate(data.vacation_date),
     daysCount: data.days_count != null ? Number(data.days_count) : 1,
     status: data.status,
     papeletaId: data.papeleta_id,
@@ -548,9 +569,9 @@ function transformPapeletaFromDB(data: any): VacationPapeleta {
     workerName: data.worker_name,
     workerDni: data.worker_dni,
     unitName: data.unit_name,
-    startDate: data.start_date,
-    endDate: data.end_date,
-    returnDate: data.return_date,
+    startDate: normalizeVacationDate(data.start_date),
+    endDate: normalizeVacationDate(data.end_date),
+    returnDate: normalizeVacationDate(data.return_date),
     calendarDays: Number(data.calendar_days),
     sourceType: data.source_type,
     status: data.status,
@@ -626,23 +647,187 @@ async function revertShiftsToOff(resourceId: string, start: string, end: string)
 }
 
 async function syncVacationShifts(resourceId: string, dates: string[]): Promise<void> {
-  for (const date of dates) {
-    await resourcesService.upsertDailyShift(resourceId, {
-      date,
-      type: 'Vacation',
-      hours: 0,
-    });
+  const uniqueDates = [...new Set(dates.map(normalizeVacationDate).filter(Boolean))];
+  if (!resourceId || uniqueDates.length === 0) return;
+
+  let existingByDate = new Map<string, DailyShift>();
+  try {
+    const existing = await resourcesService.getDailyShifts(resourceId);
+    existingByDate = new Map(existing.map((shift) => [shift.date, shift]));
+  } catch (error) {
+    console.warn('No se pudieron leer turnos previos al marcar vacaciones:', error);
   }
+
+  const shifts: DailyShift[] = uniqueDates.map((date) => {
+    const previous = existingByDate.get(date);
+    if (previous?.type === 'Vacation' && (Number(previous.hours) || 0) > 0) {
+      return { ...previous, date, type: 'Vacation', hasCoverage: true };
+    }
+    return { date, type: 'Vacation', hours: 0, hasCoverage: false };
+  });
+
+  await resourcesService.upsertDailyShiftsBatch([{ resourceId, shifts }]);
 }
 
 function dateRange(start: string, end: string): string[] {
   const dates: string[] = [];
-  let current = start;
-  while (current <= end) {
+  let current = normalizeVacationDate(start);
+  const last = normalizeVacationDate(end);
+  if (!current || !last || current > last) return dates;
+  while (current <= last) {
     dates.push(current);
     current = addDays(current, 1);
   }
   return dates;
+}
+
+export type RosterVacationWorker = { id: string; name?: string; dni?: string };
+
+function normalizePersonName(name?: string | null): string {
+  return (name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeDni(dni?: string | null): string {
+  return (dni || '').replace(/[\s.-]/g, '').toLowerCase();
+}
+
+function nameTokens(name?: string | null): string[] {
+  return normalizePersonName(name).split(' ').filter((token) => token.length > 1);
+}
+
+function namesLooselyMatch(a?: string | null, b?: string | null): boolean {
+  const left = nameTokens(a);
+  const right = nameTokens(b);
+  if (left.length === 0 || right.length === 0) return false;
+  if (normalizePersonName(a) === normalizePersonName(b)) return true;
+  const rightSet = new Set(right);
+  const overlap = left.filter((token) => rightSet.has(token)).length;
+  const needed = Math.min(3, Math.min(left.length, right.length), 2);
+  return overlap >= needed && overlap >= 2;
+}
+
+async function collectIssuedVacationDates(
+  workers: RosterVacationWorker[],
+  unitId?: string
+): Promise<Map<string, string[]>> {
+  const dates = new Map<string, Set<string>>();
+  const workerById = new Map(workers.map((worker) => [worker.id, worker]));
+  const workerByDni = new Map<string, string>();
+  const workerByName = new Map<string, string>();
+  for (const worker of workers) {
+    const dni = normalizeDni(worker.dni);
+    if (dni) workerByDni.set(dni, worker.id);
+    const name = normalizePersonName(worker.name);
+    if (name) workerByName.set(name, worker.id);
+  }
+
+  const resolveWorkerId = (resourceId?: string, dni?: string, name?: string): string | undefined => {
+    if (resourceId && workerById.has(resourceId)) return resourceId;
+    const dniKey = normalizeDni(dni);
+    if (dniKey && workerByDni.has(dniKey)) return workerByDni.get(dniKey);
+    const nameKey = normalizePersonName(name);
+    if (nameKey && workerByName.has(nameKey)) return workerByName.get(nameKey);
+    if (nameKey) {
+      const matches = workers.filter((worker) => namesLooselyMatch(worker.name, name));
+      if (matches.length === 1) return matches[0].id;
+    }
+    if (workers.length === 0) return resourceId;
+    return undefined;
+  };
+
+  const add = (resourceId: string | undefined, date: string) => {
+    const normalized = normalizeVacationDate(date);
+    if (!resourceId || !normalized) return;
+    const set = dates.get(resourceId) || new Set<string>();
+    set.add(normalized);
+    dates.set(resourceId, set);
+  };
+
+  const papeletaRows: VacationPapeleta[] = [];
+  const dayRows: VacationDayEntry[] = [];
+  const workerIds = workers.map((worker) => worker.id).filter(Boolean);
+  const tasks: Promise<void>[] = [];
+
+  const loadSafe = async (label: string, run: () => Promise<void>) => {
+    try {
+      await run();
+    } catch (error) {
+      console.warn(`No se pudieron leer ${label} para pintar vacaciones en el roster:`, error);
+    }
+  };
+
+  if (unitId) {
+    tasks.push(loadSafe('papeletas de la unidad', async () => {
+      const { data, error } = await supabase.from('vacation_papeletas').select('*').eq('unit_id', unitId);
+      if (error) throw error;
+      for (const row of data || []) papeletaRows.push(transformPapeletaFromDB(row));
+    }));
+    tasks.push(loadSafe('días a cuenta de la unidad', async () => {
+      const { data, error } = await supabase
+        .from('vacation_day_entries')
+        .select('*')
+        .eq('unit_id', unitId)
+        .neq('status', 'cancelled');
+      if (error) throw error;
+      for (const row of data || []) dayRows.push(transformDayEntryFromDB(row));
+    }));
+  }
+
+  if (workerIds.length > 0) {
+    tasks.push(loadSafe('papeletas del personal', async () => {
+      const rows = await fetchInChunks(workerIds, 80, async (ids) => {
+        const { data, error } = await supabase.from('vacation_papeletas').select('*').in('resource_id', ids);
+        if (error) throw error;
+        return data || [];
+      });
+      for (const row of rows) papeletaRows.push(transformPapeletaFromDB(row));
+    }));
+    tasks.push(loadSafe('días a cuenta del personal', async () => {
+      const rows = await fetchInChunks(workerIds, 80, async (ids) => {
+        const { data, error } = await supabase
+          .from('vacation_day_entries')
+          .select('*')
+          .in('resource_id', ids)
+          .neq('status', 'cancelled');
+        if (error) throw error;
+        return data || [];
+      });
+      for (const row of rows) dayRows.push(transformDayEntryFromDB(row));
+    }));
+  }
+
+  await Promise.all(tasks);
+
+  const seenPapeleta = new Set<string>();
+  for (const papeleta of papeletaRows) {
+    if (papeleta.id) {
+      if (seenPapeleta.has(papeleta.id)) continue;
+      seenPapeleta.add(papeleta.id);
+    }
+    if (papeleta.status && papeleta.status !== 'issued') continue;
+    const workerId = resolveWorkerId(papeleta.resourceId, papeleta.workerDni, papeleta.workerName);
+    for (const date of dateRange(papeleta.startDate, papeleta.endDate)) {
+      add(workerId, date);
+    }
+  }
+
+  const seenDay = new Set<string>();
+  for (const entry of dayRows) {
+    if (entry.id) {
+      if (seenDay.has(entry.id)) continue;
+      seenDay.add(entry.id);
+    }
+    if (entry.status === 'cancelled') continue;
+    add(resolveWorkerId(entry.resourceId), entry.vacationDate);
+  }
+
+  return new Map([...dates.entries()].map(([id, set]) => [id, [...set].sort()]));
 }
 
 async function getSummaryForValidation(
@@ -1219,7 +1404,11 @@ export const vacationService = {
     }
 
     const dates = dateRange(startDate, endDate);
-    await syncVacationShifts(params.resourceId, dates);
+    try {
+      await syncVacationShifts(params.resourceId, dates);
+    } catch (syncError) {
+      console.warn('Papeleta emitida, pero no se pudo marcar el roster:', syncError);
+    }
 
     const result = transformPapeletaFromDB(data);
     await vacationAuditService.logChange({
@@ -1380,6 +1569,11 @@ export const vacationService = {
 
     const result = transformPapeletaFromDB(data);
     result.accumulatedDays = entries.map(transformDayEntryFromDB);
+    try {
+      await syncVacationShifts(params.resourceId, dateRange(params.startDate, endDate));
+    } catch (syncError) {
+      console.warn('Papeleta acumulada emitida, pero no se pudo marcar el roster:', syncError);
+    }
     await vacationAuditService.logChange({
       actionType: 'CREATE',
       entityType: 'VACATION_PAPELETA',
@@ -1478,7 +1672,11 @@ export const vacationService = {
     }
 
     await revertShiftsToOff(current.resourceId, oldStart, oldEnd);
-    await syncVacationShifts(current.resourceId, dateRange(updates.startDate, finalized.endDate));
+    try {
+      await syncVacationShifts(current.resourceId, dateRange(updates.startDate, finalized.endDate));
+    } catch (syncError) {
+      console.warn('Papeleta editada, pero no se pudo actualizar el roster:', syncError);
+    }
 
     const result = transformPapeletaFromDB(data);
     await vacationAuditService.logChange({
@@ -1594,6 +1792,39 @@ export const vacationService = {
       handleSupabaseError(error);
       return [];
     }
+  },
+
+  /**
+   * Reaplica papeletas emitidas (y días a cuenta pendientes) sobre el roster.
+   * Empareja por recurso, DNI o nombre para no perder vacaciones si el trabajador
+   * tiene otro id en el roster que el de la papeleta.
+   */
+  async getIssuedVacationDatesForResources(
+    workers: RosterVacationWorker[],
+    unitId?: string
+  ): Promise<Map<string, string[]>> {
+    if ((!workers || workers.length === 0) && !unitId) return new Map();
+    try {
+      return await collectIssuedVacationDates(workers || [], unitId);
+    } catch (error) {
+      console.warn('No se pudieron leer las papeletas para el roster:', error);
+      return new Map();
+    }
+  },
+
+  async persistIssuedVacationDates(datesByResource: Map<string, string[]>): Promise<void> {
+    for (const [resourceId, dates] of datesByResource) {
+      await syncVacationShifts(resourceId, dates);
+    }
+  },
+
+  async syncIssuedVacationsToRoster(
+    unitId: string,
+    workers: RosterVacationWorker[] = []
+  ): Promise<Map<string, string[]>> {
+    const datesByResource = await this.getIssuedVacationDatesForResources(workers, unitId);
+    await this.persistIssuedVacationDates(datesByResource);
+    return datesByResource;
   },
 
   async getUnitSummaries(units: Unit[]): Promise<VacationBalanceSummary[]> {

@@ -28,6 +28,40 @@ export function workTypeFromAssignedShift(assignedShift?: string): 'Day' | 'Afte
   return 'Day';
 }
 
+/** Marca en el roster los días de una papeleta emitida, sin borrar el resto de la semana. */
+export function applyVacationDatesToSchedule(
+  schedule: DailyShift[] | undefined,
+  vacationDates: Iterable<string>
+): DailyShift[] {
+  const normalizeDate = (value?: string) => String(value || '').split('T')[0].split(' ')[0].slice(0, 10);
+  const byDate = new Map<string, DailyShift>();
+  for (const shift of schedule || []) {
+    const date = normalizeDate(shift.date);
+    if (!date) continue;
+    byDate.set(date, { ...shift, date });
+  }
+  for (const raw of vacationDates) {
+    const date = normalizeDate(raw);
+    if (!date) continue;
+    const existing = byDate.get(date);
+    if (existing?.type === 'Vacation') continue;
+    byDate.set(date, { date, type: 'Vacation', hours: 0, hasCoverage: false });
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function overlayVacationDatesOnResources<T extends { id: string; workSchedule?: DailyShift[] }>(
+  resources: T[],
+  datesByResource: Map<string, string[]> | undefined
+): T[] {
+  if (!datesByResource?.size) return resources;
+  return resources.map((resource) => {
+    const dates = datesByResource.get(resource.id);
+    if (!dates?.length) return resource;
+    return { ...resource, workSchedule: applyVacationDatesToSchedule(resource.workSchedule, dates) };
+  });
+}
+
 export function isVacationWithCoverage(
   shift?: Pick<DailyShift, 'type' | 'hours' | 'startTime' | 'endTime' | 'hasCoverage'>
 ): boolean {

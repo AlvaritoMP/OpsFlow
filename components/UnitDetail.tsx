@@ -46,6 +46,7 @@ import {
   isRosterWorkShift,
   isVacationWithCoverage,
   normalizeShiftTime,
+  overlayVacationDatesOnResources,
   resolveShiftWindow,
 } from '../utils/rosterHours';
 
@@ -640,6 +641,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const rosterHasUnsavedChangesRef = useRef(rosterHasUnsavedChanges);
   const isSavingRosterRef = useRef(isSavingRoster);
   const unitRef = useRef(unit);
+  const vacationDatesByResourceRef = useRef<Map<string, string[]>>(new Map());
   localResourcesRef.current = localResources;
   dirtyRosterShiftsRef.current = dirtyRosterShifts;
   rosterHasUnsavedChangesRef.current = rosterHasUnsavedChanges;
@@ -682,7 +684,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     ) {
       return;
     }
-    setLocalResources(unit.resources);
+    setLocalResources(overlayVacationDatesOnResources(unit.resources, vacationDatesByResourceRef.current));
   }, [unit.resources]);
 
   useEffect(() => {
@@ -710,19 +712,44 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       if (activeTab !== 'personnel' && activeTab !== 'overview') {
         return;
       }
-      if (
-        isSavingRosterRef.current ||
-        rosterHasUnsavedChangesRef.current ||
-        dirtyRosterShiftsRef.current.size > 0
-      ) {
-        return;
-      }
 
       const currentUnit = unitRef.current;
-      const ids = (localResourcesRef.current.length > 0 ? localResourcesRef.current : currentUnit.resources)
-        .filter((r) => r.type === ResourceType.PERSONNEL)
-        .map((r) => r.id);
+      const personnel = (localResourcesRef.current.length > 0 ? localResourcesRef.current : currentUnit.resources)
+        .filter((r) => r.type === ResourceType.PERSONNEL);
+      const ids = personnel.map((r) => r.id);
       if (ids.length === 0) return;
+
+      const workers = personnel.map((r) => ({ id: r.id, name: r.name, dni: r.dni }));
+      let vacationDates = vacationDatesByResourceRef.current;
+      const isDirty =
+        isSavingRosterRef.current ||
+        rosterHasUnsavedChangesRef.current ||
+        dirtyRosterShiftsRef.current.size > 0;
+
+      try {
+        const { vacationService } = await import('../services/vacationService');
+        vacationDates = await vacationService.getIssuedVacationDatesForResources(workers, currentUnit.id);
+        vacationDatesByResourceRef.current = vacationDates;
+        if (!cancelled) {
+          setLocalResources((prev) => overlayVacationDatesOnResources(prev, vacationDates));
+        }
+        if (!isDirty && (personnelViewMode === 'roster' || activeTab === 'personnel')) {
+          try {
+            await vacationService.persistIssuedVacationDates(vacationDates);
+          } catch (syncError) {
+            console.warn('No se pudieron reaplicar las papeletas al roster:', syncError);
+          }
+        }
+      } catch (vacationError) {
+        console.warn('No se pudieron leer las papeletas para el roster:', vacationError);
+      }
+
+      if (cancelled) return;
+
+      if (isDirty) {
+        setLocalResources((prev) => overlayVacationDatesOnResources(prev, vacationDates));
+        return;
+      }
 
       try {
         const { resourcesService } = await import('../services/resourcesService');
@@ -733,18 +760,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           rosterHasUnsavedChangesRef.current ||
           dirtyRosterShiftsRef.current.size > 0
         ) {
+          setLocalResources((prev) => overlayVacationDatesOnResources(prev, vacationDates));
           return;
         }
 
         const base = localResourcesRef.current.length > 0 ? localResourcesRef.current : currentUnit.resources;
-        const next = base.map((r) => {
-          if (r.type !== ResourceType.PERSONNEL) return r;
-          return { ...r, workSchedule: shiftsById.get(r.id) || [] };
-        });
+        const next = overlayVacationDatesOnResources(
+          base.map((r) => {
+            if (r.type !== ResourceType.PERSONNEL) return r;
+            return { ...r, workSchedule: shiftsById.get(r.id) || [] };
+          }),
+          vacationDates
+        );
         setLocalResources(next);
         replaceUnitInState?.({ ...currentUnit, resources: next });
       } catch (error) {
         console.warn('No se pudieron recargar los turnos del roster:', error);
+        setLocalResources((prev) => overlayVacationDatesOnResources(prev, vacationDates));
       }
     };
 
@@ -3407,9 +3439,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  const dbVacationDates = new Set(
                      dbShifts.filter((s) => s.type === 'Vacation').map((s) => s.date)
                  );
+                 const papeletaDates = new Set(vacationDatesByResourceRef.current.get(resourceId) || []);
                  entry.shifts = entry.shifts.filter((shift) => {
                      if (shift.type === 'Vacation') return true;
-                     return !dbVacationDates.has(shift.date);
+                     return !dbVacationDates.has(shift.date) && !papeletaDates.has(shift.date);
                  });
                  if (entry.shifts.length === 0) changedShiftsByResource.delete(resourceId);
              }
@@ -3419,11 +3452,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
          if (changedShiftsByResource.size === 0) {
              const shiftsById = await resourcesService.getDailyShiftsByResourceIds(dirtyResourceIds);
-             const nextResources = resourcesSnapshot.map((r) => {
+             const nextResources = overlayVacationDatesOnResources(
+                 resourcesSnapshot.map((r) => {
                  const fromDb = shiftsById.get(r.id);
                  if (!fromDb) return r;
                  return { ...r, workSchedule: fromDb };
-             });
+                 }),
+                 vacationDatesByResourceRef.current
+             );
              setLocalResources(nextResources);
              localResourcesRef.current = nextResources;
              replaceUnitInState?.({ ...unitRef.current, resources: nextResources });
@@ -3451,11 +3487,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          let nextResources = resourcesSnapshot;
          try {
              const shiftsById = await resourcesService.getDailyShiftsByResourceIds(reloadIds);
-             nextResources = resourcesSnapshot.map((r) => {
+             nextResources = overlayVacationDatesOnResources(
+                 resourcesSnapshot.map((r) => {
                  const fromDb = shiftsById.get(r.id);
                  if (!fromDb) return r;
                  return { ...r, workSchedule: fromDb };
-             });
+                 }),
+                 vacationDatesByResourceRef.current
+             );
          } catch (reloadError) {
              console.warn('Turnos guardados, pero no se pudieron recargar para confirmar:', reloadError);
          }
@@ -3504,7 +3543,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   // Remove existing shift at target date if any
                   const existingIdx = schedule.findIndex(s => s.date === targetDateStr);
                   const existingTarget = existingIdx > -1 ? schedule[existingIdx] : undefined;
-                  if (existingTarget?.type === 'Vacation') {
+                  const papeletaDates = vacationDatesByResourceRef.current.get(r.id) || [];
+                  if (existingTarget?.type === 'Vacation' || papeletaDates.includes(targetDateStr)) {
                       return;
                   }
                   if (existingIdx > -1) schedule.splice(existingIdx, 1);

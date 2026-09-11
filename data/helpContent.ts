@@ -217,7 +217,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Primero emita la papeleta; esos días quedan como Vac en la planificación.',
           'Si después edita o copia la semana, el sistema ya no sobrescribe un día que en la base de datos es vacaciones.',
-          'Si no ve el Vac, entre otra vez a Personal → Turnos / Rostering para recargar.',
+          'Si no ve el Vac, entre otra vez a Personal → Turnos / Rostering: al abrir, el sistema vuelve a pintar las papeletas emitidas (aunque el turno se hubiera quedado en Día u OFF).',
           'Para quitar el Vac del roster hay que anular o editar la papeleta en Vacaciones, no ciclar el recuadro.',
         ],
         tips: [
@@ -427,7 +427,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         tips: [
           'Anular la papeleta revierte esos días del roster a OFF.',
           'No recorra Día/Tarde/Noche para “poner vacaciones”: eso no crea papeleta ni descuenta saldo.',
-          'Si el roster no muestra el Vac, vuelva a entrar a Personal → Turnos para recargar. Guardar o copiar la semana ya no pisa un día con papeleta vigente.',
+          'Si el roster no muestra el Vac, vuelva a entrar a Personal → Turnos. Al abrir, OpsFlow reaplica las papeletas emitidas sobre esa unidad (por trabajador, DNI o nombre) y ya no deja que guardar o copiar la semana pise un día con papeleta vigente.',
         ],
       },
       {

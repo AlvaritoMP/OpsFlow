@@ -1107,24 +1107,51 @@ function mapAssetsFromDB(rows: any[]): AssignedAsset[] {
 
 function normalizeShiftDate(value: any): string {
   if (!value) return '';
-  return String(value).slice(0, 10);
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getUTCFullYear();
+    const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(value.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return String(value).split('T')[0].split(' ')[0].slice(0, 10);
+}
+
+function normalizeShiftType(value: unknown): DailyShift['type'] | '' {
+  const raw = String(value || '').trim();
+  const key = raw.toLowerCase();
+  if (key === 'day' || key === 'dia' || key === 'día') return 'Day';
+  if (key === 'afternoon' || key === 'tarde') return 'Afternoon';
+  if (key === 'night' || key === 'noche' || key === 'nocturno') return 'Night';
+  if (key === 'off' || key === 'descanso') return 'OFF';
+  if (key === 'vacation' || key === 'vac' || key === 'vacaciones') return 'Vacation';
+  if (key === 'sick' || key === 'descanso medico' || key === 'descanso médico') return 'Sick';
+  return raw as DailyShift['type'];
 }
 
 function mapShiftsFromDB(rows: any[]): DailyShift[] {
-  return rows.map(s => {
+  const byDate = new Map<string, DailyShift>();
+  const rank = (type: string) => (type === 'Vacation' ? 3 : type === 'Sick' ? 2 : type === 'OFF' ? 0 : 1);
+  for (const s of rows) {
     const startTime = normalizeShiftTime(s.start_time);
     const endTime = normalizeShiftTime(s.end_time);
     const hours = Number(s.hours);
-    const type = s.type as DailyShift['type'];
-    return {
-      date: normalizeShiftDate(s.date),
+    const type = normalizeShiftType(s.type);
+    const date = normalizeShiftDate(s.date);
+    if (!date || !type) continue;
+    const next: DailyShift = {
+      date,
       type,
       hours,
       startTime,
       endTime,
       hasCoverage: type === 'Vacation' ? hours > 0 : undefined,
     };
-  });
+    const previous = byDate.get(date);
+    if (!previous || rank(type) >= rank(previous.type)) {
+      byDate.set(date, next);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function mapMaintenanceFromDB(rows: any[]): MaintenanceRecord[] {
