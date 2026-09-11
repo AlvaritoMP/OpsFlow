@@ -157,7 +157,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: 'Detalle de Unidad',
     navLabel: 'Detalle de Unidad',
     summary:
-      'Ficha completa de una unidad con pestañas para personal, asistencia, vacaciones, logística, bitácora y más.',
+      'Ficha completa de una unidad: personal, turnos/rostering, vacaciones, asistencia, logística, bitácora y más.',
     sections: [
       {
         heading: 'Pestañas principales',
@@ -178,19 +178,77 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Turnos / Rostering',
-        body: 'En Personal, el modo Turnos / Rostering muestra la programación semanal de cada colaborador. Puede ampliar el rango a 2 o 4 semanas, ver cuántos trabajadores están programados cada día y descargar la vista en PNG o PDF.',
+        body: 'En Personal, el modo Turnos / Rostering es la planificación semanal de cada colaborador: franja (Día, Tarde, Noche, OFF), horario real y cobertura por hora. No crea vacaciones: esas se emiten en la pestaña Vacaciones y luego se ven aquí.',
         steps: [
           'Abra la unidad → Personal → Turnos / Rostering.',
           'Elija 1, 2 o 4 semanas. Las flechas mueven el periodo completo.',
-          'Use Agrupar por turno para ordenar primero Supervisión (supervisor, jefe de turno, coordinador y cargos superiores) y luego Diurno, Tarde y Nocturno. Cada grupo muestra un encabezado y un subtotal con la cantidad de trabajadores. El botón solo afecta esta vista; la Lista conserva su propio orden.',
-          'Al pie de cada día aparece el total de programados (con desglose Día / Tarde / Noche). Al final de cada semana, el total de trabajadores con al menos un turno y la suma de turnos.',
-          'Use PNG o PDF para descargar la programación visible (recomendado: 1 semana para compartir o imprimir).',
-          'Si tiene permiso de edición, haga clic en un turno para ciclarlo (Día → Tarde → Noche → OFF). Si el día ya es vacaciones (por una papeleta), el clic solo pide con cobertura o sin cobertura. Pulse Guardar planificación.',
+          'Si tiene permiso de edición, haga clic en un recuadro de día para ciclarlo: Día → Tarde → Noche → OFF → Día.',
+          'Use horario bajo el recuadro para definir entrada y salida (el color sigue siendo la franja).',
+          'Pulse Guardar planificación. Si no guarda, los cambios se pierden al salir.',
+          'Use PNG o PDF para descargar la programación visible (recomendado: 1 semana para imprimir).',
         ],
         tips: [
-          'Los nombres largos se muestran completos en varias líneas dentro de la columna Colaborador, también al descargar PNG o PDF.',
-          'Agrupar por turno deja Supervisión al inicio y después Diurno → Tarde → Nocturno. Cada grupo tiene encabezado y subtotal de trabajadores. Pulse de nuevo para volver al orden de registro. No modifica la vista Lista.',
-          'Copiar a sem. siguiente replica solo la primera semana visible hacia la semana siguiente. Confirme con Guardar planificación.',
+          'Los nombres largos se muestran completos en la columna Colaborador, también al descargar PNG o PDF.',
+          'Copiar a sem. siguiente replica solo la primera semana visible hacia la siguiente. Confirme con Guardar planificación.',
+          'Copiar semana no pisa un día que ya está de vacaciones por papeleta.',
+        ],
+      },
+      {
+        heading: 'Vacaciones en el roster (cobertura)',
+        body: 'Las vacaciones se registran con una papeleta (o día a cuenta) en la pestaña Vacaciones. El sistema escribe esos días en la planificación como Vac. En el roster no se “crean” vacaciones: solo se indica si ese día va con reemplazo o no.',
+        steps: [
+          'Emita la papeleta en Unidad → Vacaciones (o en el módulo Vacaciones).',
+          'Vuelva a Personal → Turnos / Rostering. Los días del goce aparecen naranja con la etiqueta Vac.',
+          'Haga clic en un día Vac. Solo verá dos opciones: con cobertura o sin cobertura.',
+          'Con cobertura: hay operador de reemplazo. Se muestran el horario y las horas como si el puesto estuviera cubierto; la grilla de cobertura por hora también se llena.',
+          'Sin cobertura: no se envía reemplazo. El recuadro sigue en Vac y las horas quedan vacías.',
+          'Si eligió con cobertura, puede ajustar el horario del reemplazo con horario.',
+          'Pulse Guardar planificación.',
+        ],
+        tips: [
+          'Una papeleta nueva entra al roster como sin cobertura hasta que usted elija lo contrario.',
+          'El clic en Día/Tarde/Noche/OFF no muestra vacaciones: esas solo aparecen cuando el día ya es Vac por papeleta.',
+          'Al volver de la pestaña Vacaciones a Personal, el roster recarga los turnos desde la base de datos para mostrar la papeleta.',
+        ],
+      },
+      {
+        heading: 'Papeleta y planificación: cuál manda',
+        body: 'La papeleta y el roster escriben sobre los mismos días del trabajador. Si se planifica o se copia una semana después de emitir la papeleta, el roster podía pisar el Vac y volver a mostrar Día u OFF, aunque la papeleta siguiera vigente.',
+        steps: [
+          'Primero emita la papeleta; esos días quedan como Vac en la planificación.',
+          'Si después edita o copia la semana, el sistema ya no sobrescribe un día que en la base de datos es vacaciones.',
+          'Si no ve el Vac, entre otra vez a Personal → Turnos / Rostering para recargar.',
+          'Para quitar el Vac del roster hay que anular o editar la papeleta en Vacaciones, no ciclar el recuadro.',
+        ],
+        tips: [
+          'Guardar planificación con cambios pendientes de días que ya tienen papeleta no borra esas vacaciones.',
+          'Si la pantalla se quedó con turnos viejos en memoria, recargar Personal actualiza la grilla.',
+        ],
+      },
+      {
+        heading: 'Cobertura por hora y descanso (OFF)',
+        body: 'Debajo de la grilla semanal está Cobertura por hora: una fila por colaborador y un bloque por cada hora del día seleccionado (0 a 23). El color sigue la franja (Día, Tarde, Noche). Vacaciones con cobertura se pintan en esas horas como si el reemplazo estuviera operando.',
+        steps: [
+          'Pulse el encabezado de un día (lun, mar, etc.) para elegir qué fecha muestra la cobertura por hora.',
+          'Las flechas junto a la fecha recorren día a día.',
+          'Si el trabajador está en OFF, su fila no queda en blanco: aparece la leyenda Descanso a lo largo de las 24 horas.',
+          'Vacaciones sin cobertura no llenan horas. Vacaciones con cobertura sí, con el horario del reemplazo.',
+          'La fila En turno cuenta cuántas personas cubren cada hora (incluye vacaciones con cobertura; no incluye OFF ni vacaciones sin cobertura).',
+        ],
+      },
+      {
+        heading: 'Agrupar por turno',
+        body: 'El botón Agrupar por turno ordena la grilla del roster (no cambia la vista Lista). Primero va el grupo Supervisión y después los turnos operativos.',
+        steps: [
+          'Pulse Agrupar por turno.',
+          'Supervisión agrupa cargos de supervisor o equivalentes/superiores: supervisor, jefe, coordinador, gerente, superintendente, director (por ejemplo Jefe de turno).',
+          'No entran en Supervisión cargos subordinados como auxiliar, asistente, ayudante o practicante.',
+          'Luego aparecen Diurno, Tarde, Nocturno, otros turnos y Sin turno.',
+          'Cada grupo tiene encabezado, cantidad de trabajadores y un subtotal de programados (Día / Tarde / Noche) y horas.',
+          'Vuelva a pulsar el botón para regresar al orden de registro.',
+        ],
+        tips: [
+          'El agrupado usa el puesto del trabajador, no el turno del día. Un supervisor diurno igual sale primero en Supervisión.',
         ],
       },
       {
@@ -337,21 +395,57 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: 'Vacaciones',
     navLabel: 'Vacaciones',
     summary:
-      'Control de vacaciones, calendario y autorizaciones pendientes.',
+      'Control de vacaciones, papeletas, calendario, autorizaciones y cómo el goce se refleja en el roster de la unidad.',
     sections: [
       {
         heading: 'Para qué sirve',
-        body: 'Centraliza el goce vacacional y el flujo de autorización. Si usted es autorizador, verá un aviso en la app cuando haya solicitudes pendientes.',
+        body: 'Centraliza el goce vacacional: saldos, papeletas, días a cuenta, calendario y el flujo de autorización. Si usted es autorizador, verá un aviso cuando haya solicitudes pendientes. Desde cada unidad también está la pestaña Vacaciones.',
       },
       {
         heading: 'Cómo usarlo',
+        body: 'El módulo Vacaciones (menú lateral) y la pestaña Vacaciones de la unidad usan las mismas reglas. En la unidad el panel queda fijado a esa sede.',
         steps: [
-          'Revise el calendario o listados de vacaciones.',
-          'Si tiene el badge de pendientes, entre a la pestaña de Autorizaciones.',
-          'Apruebe o gestione cada solicitud según corresponda.',
+          'Revise saldos, calendario o listados de papeletas y días a cuenta.',
+          'Para dar goce, emita una papeleta (directa o acumulando días a cuenta).',
+          'Si el goce supera 7 días, debe asignar a otro usuario autorizador y registrar justificación.',
+          'Si tiene el badge de pendientes, entre a Autorizaciones y apruebe o rechace.',
         ],
         tips: [
           'También puede gestionar vacaciones desde el detalle de cada unidad (pestaña Vacaciones).',
+        ],
+      },
+      {
+        heading: 'Papeleta y rostering',
+        body: 'Al emitir o editar una papeleta, OpsFlow marca en la planificación de turnos todos los días del periodo como Vacaciones. Eso es lo que luego se ve naranja en Personal → Turnos / Rostering.',
+        steps: [
+          'Emita la papeleta con fechas de salida y término (o días laborales solicitados).',
+          'El sistema escribe cada día del tramo en el roster como Vac, al inicio sin cobertura (0 horas).',
+          'Vaya a Personal → Turnos / Rostering y ubique esas fechas. Debe ver Vac.',
+          'En cada día Vac, un clic abre solo: con cobertura (hay reemplazo; se muestran horas) o sin cobertura (no hay reemplazo; horas vacías).',
+          'Guarde la planificación después de elegir la cobertura.',
+        ],
+        tips: [
+          'Anular la papeleta revierte esos días del roster a OFF.',
+          'No recorra Día/Tarde/Noche para “poner vacaciones”: eso no crea papeleta ni descuenta saldo.',
+          'Si el roster no muestra el Vac, vuelva a entrar a Personal → Turnos para recargar. Guardar o copiar la semana ya no pisa un día con papeleta vigente.',
+        ],
+      },
+      {
+        heading: 'Cobertura del puesto en vacaciones',
+        body: 'Con cobertura significa que hay operador de reemplazo para ese día: en la grilla de horas el puesto se ve cubierto. Sin cobertura significa que no se envía reemplazo: las horas quedan vacías. Es una marca operativa del roster; no cambia el saldo ni el texto legal de la papeleta.',
+        steps: [
+          'Solo aplica cuando el día ya es Vac por papeleta.',
+          'Con cobertura usa el horario habitual del trabajador (o el que usted ajuste con horario).',
+          'Esas horas entran en el total semanal y en Cobertura por hora / En turno.',
+          'Sin cobertura no suma horas ni llena la grilla horaria.',
+        ],
+      },
+      {
+        heading: 'Reglas de goce (resumen)',
+        body: 'El récord se calcula sobre el año comercial (días de servicio / 360 × 30). El primer bloque de 15 días es fraccionable; el segundo bloque de 15 se goza en múltiplos de 7. Un goce mayor a 7 días calendario requiere autorización de otro usuario y justificación.',
+        tips: [
+          'Los descansos semanales intercalados pueden entrar en el periodo de la papeleta según el descanso inferido del roster.',
+          'Los días a cuenta se pueden acumular después en una papeleta.',
         ],
       },
     ],
