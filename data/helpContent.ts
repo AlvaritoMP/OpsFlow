@@ -213,16 +213,18 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Papeleta y planificación: cuál manda',
-        body: 'La papeleta y el roster escriben sobre los mismos días del trabajador. Si se planifica o se copia una semana después de emitir la papeleta, el roster podía pisar el Vac y volver a mostrar Día u OFF, aunque la papeleta siguiera vigente.',
+        body: 'La papeleta emitida manda sobre la planificación. Aunque copie una semana anterior (Día, Tarde, Noche u OFF) encima de días con vacaciones, esos días siguen en Vac. Copiar semana no crea ni borra papeletas.',
         steps: [
           'Primero emita la papeleta; esos días quedan como Vac en la planificación.',
-          'Si después edita o copia la semana, el sistema ya no sobrescribe un día que en la base de datos es vacaciones.',
-          'Si no ve el Vac, entre otra vez a Personal → Turnos / Rostering: al abrir, el sistema vuelve a pintar las papeletas emitidas (aunque el turno se hubiera quedado en Día u OFF).',
-          'Para quitar el Vac del roster hay que anular o editar la papeleta en Vacaciones, no ciclar el recuadro.',
+          'Puede copiar una semana a la siguiente para repetir turnos operativos.',
+          'Si la semana destino (o un día de ella) ya tiene vacaciones programadas, ese Vac se mantiene y no se pisa.',
+          'Un Vac de la semana origen no se copia a un día que no tiene papeleta.',
+          'Si aparece Vac y no hay papeleta para esa fecha, ese recuadro sí se puede cambiar al turno de trabajo; al guardar queda corregido.',
+          'Para quitar un Vac que sí tiene papeleta hay que anular o editar la papeleta en Vacaciones, no ciclar el recuadro ni copiar otra semana encima.',
         ],
         tips: [
-          'Guardar planificación con cambios pendientes de días que ya tienen papeleta no borra esas vacaciones.',
-          'Si la pantalla se quedó con turnos viejos en memoria, recargar Personal actualiza la grilla.',
+          'Guardar planificación no borra un día con papeleta vigente.',
+          'Si la pantalla se quedó con turnos viejos, vuelva a entrar a Personal → Turnos: se reaplican las papeletas emitidas.',
         ],
       },
       {
@@ -427,7 +429,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         tips: [
           'Anular la papeleta revierte esos días del roster a OFF.',
           'No recorra Día/Tarde/Noche para “poner vacaciones”: eso no crea papeleta ni descuenta saldo.',
-          'Si el roster no muestra el Vac, vuelva a entrar a Personal → Turnos. Al abrir, OpsFlow reaplica las papeletas emitidas sobre esa unidad (por trabajador, DNI o nombre) y ya no deja que guardar o copiar la semana pise un día con papeleta vigente.',
+          'Si el roster no muestra el Vac, vuelva a entrar a Personal → Turnos. Al abrir, OpsFlow reaplica las papeletas emitidas. Copiar una semana anterior o guardar la planificación no pisa un día con papeleta vigente.',
         ],
       },
       {

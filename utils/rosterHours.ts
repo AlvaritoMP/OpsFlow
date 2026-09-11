@@ -28,16 +28,24 @@ export function workTypeFromAssignedShift(assignedShift?: string): 'Day' | 'Afte
   return 'Day';
 }
 
-/** Marca en el roster los días de una papeleta emitida, sin borrar el resto de la semana. */
+/** Marca en el roster los días de una papeleta emitida y quita Vac que no tengan papeleta. */
 export function applyVacationDatesToSchedule(
   schedule: DailyShift[] | undefined,
-  vacationDates: Iterable<string>
+  vacationDates: Iterable<string>,
+  worker?: Pick<Resource, 'assignedShift' | 'entryTime' | 'exitTime'>
 ): DailyShift[] {
   const normalizeDate = (value?: string) => String(value || '').split('T')[0].split(' ')[0].slice(0, 10);
+  const authorized = new Set(
+    [...vacationDates].map((date) => normalizeDate(date)).filter(Boolean)
+  );
   const byDate = new Map<string, DailyShift>();
   for (const shift of schedule || []) {
     const date = normalizeDate(shift.date);
     if (!date) continue;
+    if (shift.type === 'Vacation' && !authorized.has(date)) {
+      byDate.set(date, buildShiftForType(date, workTypeFromAssignedShift(worker?.assignedShift), worker));
+      continue;
+    }
     byDate.set(date, { ...shift, date });
   }
   for (const raw of vacationDates) {
@@ -50,15 +58,19 @@ export function applyVacationDatesToSchedule(
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export function overlayVacationDatesOnResources<T extends { id: string; workSchedule?: DailyShift[] }>(
+export function overlayVacationDatesOnResources<T extends { id: string; workSchedule?: DailyShift[]; assignedShift?: string; entryTime?: string; exitTime?: string }>(
   resources: T[],
-  datesByResource: Map<string, string[]> | undefined
+  datesByResource: Map<string, string[]> | null | undefined
 ): T[] {
-  if (!datesByResource?.size) return resources;
+  if (!datesByResource) return resources;
   return resources.map((resource) => {
-    const dates = datesByResource.get(resource.id);
-    if (!dates?.length) return resource;
-    return { ...resource, workSchedule: applyVacationDatesToSchedule(resource.workSchedule, dates) };
+    const dates = datesByResource.get(resource.id) || [];
+    const hasPhantomVacation = resource.workSchedule?.some((shift) => shift.type === 'Vacation');
+    if (!dates.length && !hasPhantomVacation) return resource;
+    return {
+      ...resource,
+      workSchedule: applyVacationDatesToSchedule(resource.workSchedule, dates, resource),
+    };
   });
 }
 

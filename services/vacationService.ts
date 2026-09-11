@@ -706,10 +706,10 @@ function namesLooselyMatch(a?: string | null, b?: string | null): boolean {
   const right = nameTokens(b);
   if (left.length === 0 || right.length === 0) return false;
   if (normalizePersonName(a) === normalizePersonName(b)) return true;
+  if (left.length === right.length && left.every((token) => right.includes(token))) return true;
   const rightSet = new Set(right);
   const overlap = left.filter((token) => rightSet.has(token)).length;
-  const needed = Math.min(3, Math.min(left.length, right.length), 2);
-  return overlap >= needed && overlap >= 2;
+  return overlap >= 3;
 }
 
 async function collectIssuedVacationDates(
@@ -1802,18 +1802,19 @@ export const vacationService = {
   async getIssuedVacationDatesForResources(
     workers: RosterVacationWorker[],
     unitId?: string
-  ): Promise<Map<string, string[]>> {
+  ): Promise<Map<string, string[]> | null> {
     if ((!workers || workers.length === 0) && !unitId) return new Map();
     try {
       return await collectIssuedVacationDates(workers || [], unitId);
     } catch (error) {
       console.warn('No se pudieron leer las papeletas para el roster:', error);
-      return new Map();
+      return null;
     }
   },
 
   async persistIssuedVacationDates(datesByResource: Map<string, string[]>): Promise<void> {
     for (const [resourceId, dates] of datesByResource) {
+      if (dates.length === 0) continue;
       await syncVacationShifts(resourceId, dates);
     }
   },
@@ -1823,6 +1824,7 @@ export const vacationService = {
     workers: RosterVacationWorker[] = []
   ): Promise<Map<string, string[]>> {
     const datesByResource = await this.getIssuedVacationDatesForResources(workers, unitId);
+    if (!datesByResource) return new Map();
     await this.persistIssuedVacationDates(datesByResource);
     return datesByResource;
   },

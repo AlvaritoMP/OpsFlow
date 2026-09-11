@@ -641,7 +641,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const rosterHasUnsavedChangesRef = useRef(rosterHasUnsavedChanges);
   const isSavingRosterRef = useRef(isSavingRoster);
   const unitRef = useRef(unit);
-  const vacationDatesByResourceRef = useRef<Map<string, string[]>>(new Map());
+  const vacationDatesByResourceRef = useRef<Map<string, string[]> | null>(null);
   localResourcesRef.current = localResources;
   dirtyRosterShiftsRef.current = dirtyRosterShifts;
   rosterHasUnsavedChangesRef.current = rosterHasUnsavedChanges;
@@ -719,7 +719,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const ids = personnel.map((r) => r.id);
       if (ids.length === 0) return;
 
-      const workers = personnel.map((r) => ({ id: r.id, name: r.name, dni: r.dni }));
+      const workers = personnel.map((r) => ({ id: r.id, name: r.name, dni: r.dni, assignedShift: r.assignedShift }));
       let vacationDates = vacationDatesByResourceRef.current;
       const isDirty =
         isSavingRosterRef.current ||
@@ -728,14 +728,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       try {
         const { vacationService } = await import('../services/vacationService');
-        vacationDates = await vacationService.getIssuedVacationDatesForResources(workers, currentUnit.id);
-        vacationDatesByResourceRef.current = vacationDates;
-        if (!cancelled) {
-          setLocalResources((prev) => overlayVacationDatesOnResources(prev, vacationDates));
+        const loadedDates = await vacationService.getIssuedVacationDatesForResources(workers, currentUnit.id);
+        if (loadedDates) {
+          vacationDates = loadedDates;
+          vacationDatesByResourceRef.current = loadedDates;
+          if (!cancelled) {
+            setLocalResources((prev) => overlayVacationDatesOnResources(prev, vacationDates));
+          }
         }
-        if (!isDirty && (personnelViewMode === 'roster' || activeTab === 'personnel')) {
+        if (loadedDates && !isDirty && (personnelViewMode === 'roster' || activeTab === 'personnel')) {
           try {
-            await vacationService.persistIssuedVacationDates(vacationDates);
+            await vacationService.persistIssuedVacationDates(loadedDates);
           } catch (syncError) {
             console.warn('No se pudieron reaplicar las papeletas al roster:', syncError);
           }
@@ -772,6 +775,27 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           }),
           vacationDates
         );
+
+        if (vacationDates) {
+          const phantomWrites = next.flatMap((resource) => {
+            if (resource.type !== ResourceType.PERSONNEL) return [];
+            const authorized = new Set(vacationDates.get(resource.id) || []);
+            const corrections = (shiftsById.get(resource.id) || [])
+              .filter((shift) => shift.type === 'Vacation' && !authorized.has(shift.date))
+              .map((shift) => resource.workSchedule?.find((item) => item.date === shift.date))
+              .filter((shift): shift is DailyShift => !!shift && shift.type !== 'Vacation');
+            if (corrections.length === 0) return [];
+            return [{ resourceId: resource.id, shifts: corrections }];
+          });
+          if (phantomWrites.length > 0) {
+            try {
+              await resourcesService.upsertDailyShiftsBatch(phantomWrites);
+            } catch (phantomError) {
+              console.warn('No se pudieron limpiar vacaciones sin papeleta en el roster:', phantomError);
+            }
+          }
+        }
+
         setLocalResources(next);
         replaceUnitInState?.({ ...currentUnit, resources: next });
       } catch (error) {
@@ -3283,6 +3307,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     markRosterShiftDirty(resourceId, date);
   };
 
+  const isProgrammedVacationDate = (resourceId: string, date: string) => {
+      return (vacationDatesByResourceRef.current?.get(resourceId) || []).includes(date);
+  };
+
   const handleRosterShiftChange = (resourceId: string, date: string, currentType: ShiftType) => {
      if (!canEditPersonnel) return;
 
@@ -3292,7 +3320,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      const existingShift = resource?.workSchedule?.find(s => s.date === date);
      const actualCurrentType: ShiftType = (existingShift?.type as ShiftType) || currentType;
 
-     if (actualCurrentType === 'Vacation') {
+     if (actualCurrentType === 'Vacation' && isProgrammedVacationDate(resourceId, date)) {
        setRosterShiftPicker({
          resourceId,
          workerName: resource?.name || '',
@@ -3304,7 +3332,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      }
 
      let nextType: ShiftType = 'Day';
-     if (actualCurrentType === 'Day') nextType = 'Afternoon';
+     if (actualCurrentType === 'Vacation') nextType = 'Day';
+     else if (actualCurrentType === 'Day') nextType = 'Afternoon';
      else if (actualCurrentType === 'Afternoon') nextType = 'Night';
      else if (actualCurrentType === 'Night') nextType = 'OFF';
      else if (actualCurrentType === 'OFF') nextType = 'Day';
@@ -3428,21 +3457,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              return;
          }
 
-         // Una papeleta ya escrita en BD no debe perderse si el roster se guarda después
-         // con el día todavía en Día/OFF (estado local desactualizado o "copiar semana").
+         // Solo una papeleta emitida bloquea el día. Un Vac sin papeleta sí se puede corregir.
          try {
-             const dbShiftsById = await resourcesService.getDailyShiftsByResourceIds(
-                 Array.from(changedShiftsByResource.keys())
-             );
              for (const [resourceId, entry] of changedShiftsByResource) {
-                 const dbShifts = dbShiftsById.get(resourceId) || [];
-                 const dbVacationDates = new Set(
-                     dbShifts.filter((s) => s.type === 'Vacation').map((s) => s.date)
-                 );
-                 const papeletaDates = new Set(vacationDatesByResourceRef.current.get(resourceId) || []);
+                 const papeletaDates = new Set(vacationDatesByResourceRef.current?.get(resourceId) || []);
                  entry.shifts = entry.shifts.filter((shift) => {
-                     if (shift.type === 'Vacation') return true;
-                     return !dbVacationDates.has(shift.date) && !papeletaDates.has(shift.date);
+                     if (!papeletaDates.has(shift.date)) return true;
+                     return shift.type === 'Vacation';
                  });
                  if (entry.shifts.length === 0) changedShiftsByResource.delete(resourceId);
              }
@@ -3526,57 +3547,66 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const handleReplicateWeek = () => {
       const currentWeekDates = rosterDates.slice(0, 7).map(d => toLocalDateStr(d));
       const newDirtyKeys = new Set<string>();
+      let preservedVacationDays = 0;
       
       const updatedResources = localResources.map(r => {
           if (r.type !== ResourceType.PERSONNEL) return r;
           
           const schedule = r.workSchedule ? [...r.workSchedule] : [];
           
-          // Iterate over current week dates to find shifts to copy
           currentWeekDates.forEach(dateStr => {
               const shift = schedule.find(s => s.date === dateStr);
-              if (shift) {
-                  const [y, m, d] = dateStr.split('-').map(Number);
-                  const targetDate = new Date(y, m - 1, d + 7);
-                  const targetDateStr = toLocalDateStr(targetDate);
-                  
-                  // Remove existing shift at target date if any
-                  const existingIdx = schedule.findIndex(s => s.date === targetDateStr);
-                  const existingTarget = existingIdx > -1 ? schedule[existingIdx] : undefined;
-                  const papeletaDates = vacationDatesByResourceRef.current.get(r.id) || [];
-                  if (existingTarget?.type === 'Vacation' || papeletaDates.includes(targetDateStr)) {
-                      return;
-                  }
-                  if (existingIdx > -1) schedule.splice(existingIdx, 1);
-                  
-                  // Add copy
-                  schedule.push({
-                      date: targetDateStr,
-                      type: shift.type,
-                      hours: shift.hours,
-                      startTime: shift.startTime,
-                      endTime: shift.endTime,
-                      hasCoverage: shift.hasCoverage,
-                  });
-                  newDirtyKeys.add(`${r.id}|${targetDateStr}`);
+              if (!shift) return;
+
+              const [y, m, d] = dateStr.split('-').map(Number);
+              const targetDate = new Date(y, m - 1, d + 7);
+              const targetDateStr = toLocalDateStr(targetDate);
+
+              // La papeleta siempre manda: no pisar vacaciones programadas ni copiar Vac a un día sin papeleta.
+              if (isProgrammedVacationDate(r.id, targetDateStr)) {
+                  preservedVacationDays += 1;
+                  return;
               }
+              if (shift.type === 'Vacation' || isProgrammedVacationDate(r.id, dateStr)) {
+                  return;
+              }
+
+              const existingIdx = schedule.findIndex(s => s.date === targetDateStr);
+              if (existingIdx > -1) schedule.splice(existingIdx, 1);
+
+              schedule.push({
+                  date: targetDateStr,
+                  type: shift.type,
+                  hours: shift.hours,
+                  startTime: shift.startTime,
+                  endTime: shift.endTime,
+                  hasCoverage: shift.hasCoverage,
+              });
+              newDirtyKeys.add(`${r.id}|${targetDateStr}`);
           });
           
           return { ...r, workSchedule: schedule };
       });
+
+      const withVacations = overlayVacationDatesOnResources(updatedResources, vacationDatesByResourceRef.current);
       
-      setLocalResources(updatedResources);
+      setLocalResources(withVacations);
       setDirtyRosterShifts(prev => {
         const next = new Set(prev);
         newDirtyKeys.forEach(key => next.add(key));
         return next;
       });
       setRosterHasUnsavedChanges(rosterHasUnsavedChanges || newDirtyKeys.size > 0);
+      const vacationNote = preservedVacationDays > 0
+        ? ' Los días con vacaciones programadas se mantuvieron.'
+        : '';
       setNotification({
-        type: newDirtyKeys.size > 0 ? 'info' : 'error',
+        type: newDirtyKeys.size > 0 || preservedVacationDays > 0 ? 'info' : 'error',
         message: newDirtyKeys.size > 0
-          ? 'Turnos replicados. Presiona "Guardar Planificación" para confirmar los cambios.'
-          : 'No hay turnos en la semana actual para replicar.'
+          ? `Turnos replicados.${vacationNote} Presiona "Guardar Planificación" para confirmar los cambios.`
+          : preservedVacationDays > 0
+            ? 'No se copiaron turnos sobre días con vacaciones programadas. Esos Vac se mantienen.'
+            : 'No hay turnos en la semana actual para replicar.'
       });
       setTimeout(() => setNotification(null), 4000);
   };
@@ -7725,7 +7755,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <button 
                         onClick={handleReplicateWeek}
                         className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm"
-                        title="Copiar la primera semana visible a la semana siguiente"
+                        title="Copia la primera semana visible a la siguiente. Los días con vacaciones programadas no se pisan."
                     >
                         <Copy size={14} className="mr-1.5"/> Copiar a Sem. Siguiente
                     </button>
