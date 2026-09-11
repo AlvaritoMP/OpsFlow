@@ -856,7 +856,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
             Control de Vacaciones
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Régimen general Perú — {DAYS_PER_YEAR} días/año proporcional ({SERVICE_DAYS_PER_YEAR} días servicio) · Primeros {FIRST_BLOCK_DAYS} fraccionables · Segundos {SECOND_BLOCK_DAYS} en múltiplos de {SECOND_BLOCK_MULTIPLE}
+            Régimen general Perú — {DAYS_PER_YEAR} días/año proporcional ({SERVICE_DAYS_PER_YEAR} días servicio) · Primeros {FIRST_BLOCK_DAYS} fraccionables · Segundos {SECOND_BLOCK_DAYS} en múltiplos de {SECOND_BLOCK_MULTIPLE} o bloque completo · Goce continuo de {DAYS_PER_YEAR} días permitido
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -927,7 +927,8 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
             Cada trabajador acumula vacaciones de forma proporcional: {DAYS_PER_YEAR} días por cada {SERVICE_DAYS_PER_YEAR} días
             de servicio calendario (≈ {DAYS_PER_MONTH} por mes completo de 30 días). Los primeros {FIRST_BLOCK_DAYS} días
             ganados de cada año son fraccionables desde medio día. Los segundos {SECOND_BLOCK_DAYS} se gozan en
-            múltiplos de {SECOND_BLOCK_MULTIPLE}. El periodo vacacional es calendario e incluye el día de descanso
+            múltiplos de {SECOND_BLOCK_MULTIPLE}, en bloque completo de {SECOND_BLOCK_DAYS}, o en un goce continuo
+            de {DAYS_PER_YEAR} días (15 + 15). El periodo vacacional es calendario e incluye el día de descanso
             semanal (p. ej. 6 días laborales → 7 en papeleta). Otorgar más de {MAX_VACATION_DAYS_WITHOUT_AUTH} días o
             anular vacaciones requiere solicitar autorización a otro usuario; el designado la aprueba en la pestaña Autorizaciones.
           </p>
@@ -1017,7 +1018,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
                       <th className="text-left p-3">Ingreso</th>
                       <th className="text-center p-3">Ganados</th>
                       <th className="text-center p-3" title="Primeros 15: fraccionables desde 0.5">1.ºs 15</th>
-                      <th className="text-center p-3" title="Segundos 15: múltiplos de 7">2.ºs 15</th>
+                      <th className="text-center p-3" title="Segundos 15: múltiplos de 7, bloque de 15 o goce continuo de 30">2.ºs 15</th>
                       <th className="text-center p-3">Usado</th>
                       <th className="text-center p-3">Saldo</th>
                       <th className="text-center p-3">Acciones</th>

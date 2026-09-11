@@ -1431,7 +1431,7 @@ export interface VacationPeriodBlock {
   accruedInPeriod: number;
   /** Primeros 15 ganados (fraccionables libremente / desde 0.5) */
   firstBlockEarned: number;
-  /** Segundos 15 ganados (goce en múltiplos de 7) */
+  /** Segundos 15 ganados (múltiplos de 7, bloque de 15 o goce continuo de 30) */
   secondBlockEarned: number;
   firstBlockUsed: number;
   secondBlockUsed: number;

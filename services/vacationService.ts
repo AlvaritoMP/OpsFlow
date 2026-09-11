@@ -29,7 +29,7 @@ export const DAYS_PER_MONTH = 2.5;
 export const SERVICE_DAYS_PER_YEAR = 360;
 /** Primer bloque: fraccionable libremente (mín. medio día) */
 export const FIRST_BLOCK_DAYS = 15;
-/** Segundo bloque: goce en múltiplos de 7 */
+/** Segundo bloque: múltiplos de 7, bloque completo de 15, o goce continuo de 30 */
 export const SECOND_BLOCK_DAYS = 15;
 export const MIN_FRACTION_DAYS = 0.5;
 export const SECOND_BLOCK_MULTIPLE = 7;
@@ -400,7 +400,8 @@ export interface PapeletaAllocation {
 /**
  * Valida e imputa días de una papeleta contra saldos first15 / second15.
  * - Primeros 15: fraccionables desde 0.5
- * - Segundos 15: múltiplos de 7 (o remanente final < 7 para cerrar el bloque)
+ * - Segundos 15: múltiplos de 7, el bloque completo de 15, o el remanente para cerrar el bloque
+ * - Un goce continuo de 30 días (15 + 15) está permitido
  */
 export function allocatePapeletaDays(
   requestedDays: number,
@@ -430,19 +431,20 @@ export function allocatePapeletaDays(
   }
 
   if (fromSecond15 > 0) {
-    const isMultiple = isMultipleOf(fromSecond15, SECOND_BLOCK_MULTIPLE);
-    const isResidualClose =
-      Math.abs(fromSecond15 - second15Available) < 0.01 &&
-      fromSecond15 < SECOND_BLOCK_MULTIPLE;
-    if (!isMultiple && !isResidualClose) {
+    const isMultipleOf7 = isMultipleOf(fromSecond15, SECOND_BLOCK_MULTIPLE);
+    const isFullSecondBlock = isMultipleOf(fromSecond15, SECOND_BLOCK_DAYS);
+    const isClosingRemaining =
+      fromSecond15 > 0 && Math.abs(fromSecond15 - second15Available) < 0.01;
+    if (!isMultipleOf7 && !isFullSecondBlock && !isClosingRemaining) {
       return {
         fromFirst15,
         fromSecond15,
         valid: false,
         error:
-          `Los días imputados a los segundos 15 deben ser múltiplos de ${SECOND_BLOCK_MULTIPLE} ` +
+          `Los días imputados a los segundos 15 deben ser múltiplos de ${SECOND_BLOCK_MULTIPLE}, ` +
+          `el bloque completo de ${SECOND_BLOCK_DAYS}, o el remanente para cerrar ese saldo ` +
           `(solicitados al 2.º bloque: ${fromSecond15}). ` +
-          `Ajuste el goce o consuma primero el saldo de los primeros 15 días.`,
+          `El goce continuo de 30 días (15 + 15) sí está permitido si hay saldo.`,
       };
     }
   }
@@ -1357,7 +1359,7 @@ export const vacationService = {
       : '';
     const allocNote =
       `Imputación: ${allocation.fromFirst15} día(s) a primeros 15` +
-      (allocation.fromSecond15 > 0 ? ` + ${allocation.fromSecond15} a segundos 15 (múltiplos de 7)` : '') +
+      (allocation.fromSecond15 > 0 ? ` + ${allocation.fromSecond15} a segundos 15` : '') +
       '.';
     const notes = [params.notes, justificationNote, restNote, allocNote].filter(Boolean).join(' ');
 

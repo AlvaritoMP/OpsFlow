@@ -444,8 +444,9 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Reglas de goce (resumen)',
-        body: 'El récord se calcula sobre el año comercial (días de servicio / 360 × 30). El primer bloque de 15 días es fraccionable; el segundo bloque de 15 se goza en múltiplos de 7. Un goce mayor a 7 días calendario requiere autorización de otro usuario y justificación.',
+        body: 'El récord se calcula sobre el año comercial (días de servicio / 360 × 30). El primer bloque de 15 días es fraccionable; el segundo bloque de 15 se goza en múltiplos de 7, en bloque completo de 15, o junto con los primeros 15 en un goce continuo de 30 días. Un goce mayor a 7 días calendario requiere autorización de otro usuario y justificación.',
         tips: [
+          'Una papeleta del 01.09 al 30.09 (30 días calendario) está permitida si hay 15 + 15 de saldo.',
           'Los descansos semanales intercalados pueden entrar en el periodo de la papeleta según el descanso inferido del roster.',
           'Los días a cuenta se pueden acumular después en una papeleta.',
         ],
