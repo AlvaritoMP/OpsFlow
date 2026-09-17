@@ -18,6 +18,7 @@ import { Resource, ResourceType, Unit, UnitBook, UnitBookCustomSection, UnitBook
 import { unitBookService } from '../services/unitBookService';
 import { SafeImage } from './SafeImage';
 import {
+  formatAgeFromBirthDate,
   formatExperienceFromResource,
   formatOpaloTenure,
   formatZones,
@@ -677,6 +678,7 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
               const draft = drafts[resource.id] || draftFrom(resource);
               const open = openMemberId === resource.id;
               const tenure = formatOpaloTenure(resource.startDate);
+              const age = formatAgeFromBirthDate(resource.birthDate);
               return (
                 <div key={resource.id} className={draft.includeInBook ? 'bg-white' : 'bg-slate-50'}>
                   <div className="px-4 py-3 flex items-center gap-3">
@@ -709,6 +711,7 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
                       <p className="font-medium text-slate-800 truncate">{resource.name}</p>
                       <p className="text-xs text-slate-500 truncate">
                         {resource.puesto || 'Sin puesto'}
+                        {age ? ` · ${age}` : ''}
                         {draft.workZone ? ` · ${draft.workZone}` : ''}
                         {tenure ? ` · ${tenure} en Opalo` : ''}
                       </p>
@@ -725,6 +728,9 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
                     <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                       <Field label="Puesto">
                         <p className="text-sm text-slate-700 pt-1">{resource.puesto || '—'}</p>
+                      </Field>
+                      <Field label="Edad">
+                        <p className="text-sm text-slate-700 pt-1">{age || 'Sin fecha de nacimiento'}</p>
                       </Field>
                       <Field label="Tiempo en Opalo">
                         <p className="text-sm text-slate-700 pt-1">{tenure || (resource.startDate ? resource.startDate : 'Sin fecha de ingreso')}</p>

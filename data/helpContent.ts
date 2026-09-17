@@ -223,7 +223,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Pulse Descargar folleto PDF para generar el documento listo para entregar.',
         ],
         tips: [
-          'La foto, el puesto y el tiempo en Opalo salen del personal de la unidad; las funciones y el mensaje se editan solo para el folleto.',
+          'La foto, el puesto, la edad y el tiempo en Opalo salen del personal de la unidad; las funciones y el mensaje se editan solo para el folleto.',
+          'Si la unidad tiene coordenadas, el PDF incluye dos mapas: alrededores (5 cuadras) y contexto de 10 km. No se muestran en la pestaña.',
           'La experiencia se precarga desde la ficha complementaria si existe, y se puede reescribir para el Unit Book.',
         ],
       },

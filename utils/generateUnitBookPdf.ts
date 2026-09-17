@@ -1,17 +1,21 @@
 import type { jsPDF } from 'jspdf';
 import type { Resource, Unit, UnitBook, UnitBookMember, UnitBookPhoto } from '../types';
-import { formatOpaloTenure, safeUnitBookFilename } from './unitBookHelpers';
+import { formatAgeFromBirthDate, formatOpaloTenure, safeUnitBookFilename } from './unitBookHelpers';
+import { buildUnitBookLocationMaps, hasUnitCoordinates } from './unitBookStaticMap';
 
 const PAGE_W = 210;
 const PAGE_H = 297;
-const MARGIN = 14;
+const MARGIN = 11;
 const CONTENT_W = PAGE_W - MARGIN * 2;
+const FOOTER_H = 8;
 
-const NAVY: [number, number, number] = [16, 43, 82];
-const GOLD: [number, number, number] = [184, 148, 79];
-const SLATE: [number, number, number] = [51, 65, 85];
+const RED: [number, number, number] = [196, 30, 58];
+const BLUE: [number, number, number] = [22, 48, 92];
+const BLUE_SOFT: [number, number, number] = [236, 242, 250];
+const RED_SOFT: [number, number, number] = [252, 235, 238];
+const INK: [number, number, number] = [30, 41, 59];
 const MUTED: [number, number, number] = [100, 116, 139];
-const LIGHT: [number, number, number] = [241, 245, 249];
+const LINE: [number, number, number] = [226, 232, 240];
 const WHITE: [number, number, number] = [255, 255, 255];
 
 const OPALO_LOGO_SRC = new URL('../assets/logo-opalo.jpg', import.meta.url).href;
@@ -24,6 +28,7 @@ export type UnitBookPdfMember = {
   workZone: string;
   colleagueMessage: string;
   tenure: string;
+  age: string;
 };
 
 type LoadedImage = { dataUrl: string; format: 'PNG' | 'JPEG' };
@@ -35,7 +40,6 @@ function text(value: unknown): string {
 
 function imageFormat(dataUrl: string): 'PNG' | 'JPEG' {
   if (dataUrl.startsWith('data:image/png')) return 'PNG';
-  if (dataUrl.startsWith('data:image/webp')) return 'PNG';
   return 'JPEG';
 }
 
@@ -99,54 +103,130 @@ async function loadImageAsDataUrl(src: string, maxEdge = 900): Promise<LoadedIma
   }
 }
 
-function drawFooter(doc: jsPDF, page: number, unitName: string) {
-  doc.setFillColor(...NAVY);
-  doc.rect(0, PAGE_H - 10, PAGE_W, 10, 'F');
+function drawHeaderBar(doc: jsPDF, logo: LoadedImage | null) {
+  doc.setFillColor(...RED);
+  doc.rect(0, 0, PAGE_W, 3.2, 'F');
+  doc.setFillColor(...WHITE);
+  doc.rect(0, 3.2, PAGE_W, 16, 'F');
+  if (logo?.dataUrl) {
+    try {
+      doc.addImage(logo.dataUrl, logo.format, MARGIN, 5.2, 28, 11);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(...BLUE);
+      doc.text('opalo', MARGIN, 13);
+    }
+  } else {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...BLUE);
+    doc.text('opalo', MARGIN, 13);
+  }
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(...RED);
+  doc.text('UNIT BOOK', PAGE_W - MARGIN, 13, { align: 'right' });
+  doc.setDrawColor(...LINE);
+  doc.setLineWidth(0.25);
+  doc.line(MARGIN, 19.2, PAGE_W - MARGIN, 19.2);
+}
+
+function drawFooter(doc: jsPDF, page: number, totalHint: string) {
+  doc.setFillColor(...BLUE);
+  doc.rect(0, PAGE_H - FOOTER_H, PAGE_W, FOOTER_H, 'F');
+  doc.setFillColor(...RED);
+  doc.rect(0, PAGE_H - FOOTER_H, 4, FOOTER_H, 'F');
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
+  doc.setFontSize(7);
   doc.setTextColor(...WHITE);
-  doc.text(`Unit Book  ·  ${unitName}`, MARGIN, PAGE_H - 4);
-  doc.text(String(page), PAGE_W - MARGIN, PAGE_H - 4, { align: 'right' });
+  doc.text(totalHint, MARGIN + 2, PAGE_H - 3);
+  doc.text(String(page), PAGE_W - MARGIN, PAGE_H - 3, { align: 'right' });
 }
 
-function ensureSpace(doc: jsPDF, y: number, needed: number, unitName: string, pageRef: { n: number }): number {
-  if (y + needed <= PAGE_H - 16) return y;
-  drawFooter(doc, pageRef.n, unitName);
-  doc.addPage();
+function newContentPage(doc: jsPDF, logo: LoadedImage | null, pageRef: { n: number }, unitName: string) {
+  if (pageRef.n > 0) {
+    drawFooter(doc, pageRef.n, `Unit Book  ·  ${unitName}`);
+    doc.addPage();
+  }
   pageRef.n += 1;
-  return 16;
+  drawHeaderBar(doc, logo);
+  return 23;
 }
 
-function writeWrapped(
+function ensureSpace(
+  doc: jsPDF,
+  y: number,
+  needed: number,
+  logo: LoadedImage | null,
+  pageRef: { n: number },
+  unitName: string,
+): number {
+  if (y + needed <= PAGE_H - FOOTER_H - 3) return y;
+  return newContentPage(doc, logo, pageRef, unitName);
+}
+
+function writeLines(
   doc: jsPDF,
   value: string,
   x: number,
   y: number,
   maxWidth: number,
   lineH: number,
-  unitName: string,
-  pageRef: { n: number },
+  maxLines: number,
 ): number {
-  const lines = (doc.splitTextToSize(value || '—', maxWidth) as string[]) || ['—'];
-  for (const line of lines) {
-    y = ensureSpace(doc, y, lineH + 1, unitName, pageRef);
+  const lines = (doc.splitTextToSize(value, maxWidth) as string[]).slice(0, maxLines);
+  lines.forEach((line) => {
     doc.text(line, x, y);
     y += lineH;
-  }
+  });
   return y;
 }
 
-function sectionTitle(doc: jsPDF, title: string, y: number, unitName: string, pageRef: { n: number }): number {
-  y = ensureSpace(doc, y, 12, unitName, pageRef);
-  doc.setFillColor(...GOLD);
-  doc.rect(MARGIN, y, 3.2, 7, 'F');
-  doc.setFillColor(...LIGHT);
-  doc.rect(MARGIN + 3.2, y, CONTENT_W - 3.2, 7, 'F');
+function sectionLabel(doc: jsPDF, title: string, y: number): number {
+  doc.setFillColor(...RED);
+  doc.rect(MARGIN, y, 2.2, 5.2, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(...NAVY);
-  doc.text(title.toUpperCase(), MARGIN + 7, y + 4.8);
-  return y + 12;
+  doc.setFontSize(8.5);
+  doc.setTextColor(...BLUE);
+  doc.text(title.toUpperCase(), MARGIN + 5, y + 3.8);
+  return y + 8;
+}
+
+function addImageSafe(
+  doc: jsPDF,
+  img: LoadedImage | null | undefined,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  if (!img?.dataUrl) {
+    doc.setFillColor(...BLUE_SOFT);
+    doc.rect(x, y, w, h, 'F');
+    return;
+  }
+  try {
+    doc.addImage(img.dataUrl, img.format, x, y, w, h);
+  } catch {
+    doc.setFillColor(...BLUE_SOFT);
+    doc.rect(x, y, w, h, 'F');
+  }
+}
+
+function drawPhotoPlaceholder(doc: jsPDF, x: number, y: number, size: number, name: string) {
+  doc.setFillColor(...BLUE);
+  doc.rect(x, y, size, size, 'F');
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() || '')
+    .join('');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(...WHITE);
+  doc.text(initials || '—', x + size / 2, y + size / 2 + 2.4, { align: 'center' });
 }
 
 export async function generateUnitBookPdf(opts: {
@@ -158,160 +238,98 @@ export async function generateUnitBookPdf(opts: {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const { unit, book, photos, members } = opts;
-  const pageRef = { n: 1 };
+  const pageRef = { n: 0 };
   const unitName = unit.name || 'Unidad';
 
   const logo = await loadImageAsDataUrl(OPALO_LOGO_SRC, 400);
   const coverSrc = photos[0]?.imageUrl || unit.images?.[0] || '';
-  const cover = coverSrc ? await loadImageAsDataUrl(coverSrc, 1400) : null;
+  const cover = coverSrc ? await loadImageAsDataUrl(coverSrc, 1200) : null;
   const photoImgs = await Promise.all(
-    photos.map(async (p) => ({ photo: p, img: await loadImageAsDataUrl(p.imageUrl, 1100) })),
+    photos.map(async (p) => ({ photo: p, img: await loadImageAsDataUrl(p.imageUrl, 900) })),
   );
   const memberImgs = await Promise.all(
     members.map(async (m) => ({
       id: m.resource.id,
-      img: m.resource.image ? await loadImageAsDataUrl(m.resource.image, 500) : null,
+      img: m.resource.image ? await loadImageAsDataUrl(m.resource.image, 280) : null,
     })),
   );
   const memberImgMap = new Map(memberImgs.map((m) => [m.id, m.img]));
 
-  // ---------- Portada ----------
-  doc.setFillColor(...NAVY);
-  doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
-  doc.setFillColor(...GOLD);
-  doc.rect(0, 0, 6, PAGE_H, 'F');
+  const coordsOk = hasUnitCoordinates(unit);
+  const maps = coordsOk
+    ? await buildUnitBookLocationMaps(unit.latitude as number, unit.longitude as number)
+    : { near: null, wide: null };
 
-  if (logo?.dataUrl) {
-    try {
-      doc.addImage(logo.dataUrl, logo.format, MARGIN + 4, 16, 38, 14);
-    } catch {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.setTextColor(...WHITE);
-      doc.text('OPALO', MARGIN + 4, 26);
-    }
-  } else {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(...WHITE);
-    doc.text('OPALO', MARGIN + 4, 26);
-  }
+  let y = newContentPage(doc, logo, pageRef, unitName);
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.setTextColor(...GOLD);
-  doc.text('LIBRO DE UNIDAD  ·  UNIT BOOK', MARGIN + 4, 40);
-
+  // Portada compacta
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(26);
-  doc.setTextColor(...WHITE);
-  const nameLines = doc.splitTextToSize(unitName, CONTENT_W - 8) as string[];
-  let y = 56;
-  nameLines.slice(0, 3).forEach((line) => {
-    doc.text(line, MARGIN + 4, y);
-    y += 11;
-  });
+  doc.setFontSize(16);
+  doc.setTextColor(...BLUE);
+  y = writeLines(doc, unitName, MARGIN, y + 4, CONTENT_W * 0.62, 6.2, 2);
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(12);
-  doc.setTextColor(203, 213, 225);
-  doc.text(unit.clientName || '', MARGIN + 4, y + 2);
-  y += 8;
-  if (unit.address) {
-    const addr = doc.splitTextToSize(unit.address, CONTENT_W - 8) as string[];
-    addr.slice(0, 2).forEach((line) => {
-      doc.text(line, MARGIN + 4, y);
-      y += 6;
-    });
-  }
-
-  if (cover?.dataUrl) {
-    const imgY = Math.min(y + 10, 118);
-    const imgH = 110;
-    try {
-      doc.addImage(cover.dataUrl, cover.format, MARGIN + 4, imgY, CONTENT_W - 8, imgH);
-    } catch {
-      // sin portada
-    }
-    y = imgY + imgH + 12;
-  } else {
-    y += 16;
-  }
-
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(11);
-  doc.setTextColor(...GOLD);
-  const tagline = 'Guía de incorporación para quienes se suman al equipo de esta unidad.';
-  const tagLines = doc.splitTextToSize(tagline, CONTENT_W - 8) as string[];
-  tagLines.forEach((line) => {
-    doc.text(line, MARGIN + 4, y);
-    y += 6;
-  });
-
-  const generated = new Date().toLocaleDateString('es-PE', {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.setTextColor(148, 163, 184);
-  doc.text(`Generado el ${generated}`, MARGIN + 4, PAGE_H - 16);
-  doc.text('Uso interno · Opalo', PAGE_W - MARGIN, PAGE_H - 16, { align: 'right' });
+  doc.setTextColor(...MUTED);
+  const introBits = [text(unit.clientName), text(unit.address)].filter(Boolean);
+  introBits.forEach((bit) => {
+    y = writeLines(doc, bit, MARGIN, y, CONTENT_W * 0.62, 4.2, 2);
+  });
 
-  // ---------- La unidad ----------
-  doc.addPage();
-  pageRef.n += 1;
-  y = 18;
+  if (cover?.dataUrl) {
+    addImageSafe(doc, cover, MARGIN + CONTENT_W * 0.64, 23, CONTENT_W * 0.36, 38);
+  }
 
-  y = sectionTitle(doc, 'Conoce la unidad', y, unitName, pageRef);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(...SLATE);
+  y = Math.max(y, 62) + 2;
 
   const welcome = text(book.welcomeMessage);
   if (welcome) {
-    y = ensureSpace(doc, y, 20, unitName, pageRef);
-    doc.setFillColor(255, 250, 240);
-    const welcomeLines = doc.splitTextToSize(`“${welcome}”`, CONTENT_W - 10) as string[];
-    const boxH = Math.min(48, 8 + welcomeLines.length * 5);
-    doc.roundedRect(MARGIN, y - 4, CONTENT_W, boxH, 2, 2, 'F');
+    y = ensureSpace(doc, y, 16, logo, pageRef, unitName);
+    doc.setFillColor(...RED_SOFT);
+    const welcomeLines = (doc.splitTextToSize(`“${welcome}”`, CONTENT_W - 8) as string[]).slice(0, 3);
+    const boxH = 5 + welcomeLines.length * 4.2;
+    doc.roundedRect(MARGIN, y, CONTENT_W, boxH, 1.5, 1.5, 'F');
+    doc.setFillColor(...RED);
+    doc.rect(MARGIN, y, 1.8, boxH, 'F');
     doc.setFont('helvetica', 'italic');
-    doc.setFontSize(10);
-    doc.setTextColor(...NAVY);
-    let wy = y + 4;
-    welcomeLines.slice(0, 7).forEach((line) => {
+    doc.setFontSize(8.5);
+    doc.setTextColor(...BLUE);
+    let wy = y + 5;
+    welcomeLines.forEach((line) => {
       doc.text(line, MARGIN + 5, wy);
-      wy += 5;
+      wy += 4.2;
     });
-    y += boxH + 6;
+    y += boxH + 4;
   }
 
-  const facts: Array<{ label: string; value: string }> = [
-    { label: 'Cliente', value: text(unit.clientName) },
-    { label: 'Dirección', value: text(unit.address) },
+  // Datos clave en fila
+  const facts = [
+    { label: 'Pisos', value: book.floorCount != null ? String(book.floorCount) : '' },
+    { label: 'Zonas', value: (unit.zones || []).map((z) => z.name).filter(Boolean).join(', ') },
     {
-      label: 'Pisos / niveles',
-      value: book.floorCount != null && book.floorCount !== undefined ? String(book.floorCount) : '',
-    },
-    {
-      label: 'Zonas de la unidad',
-      value: (unit.zones || []).map((z) => z.name).filter(Boolean).join(', '),
+      label: 'Supervisión',
+      value: [unit.coordinator?.name, unit.residentSupervisor?.name, unit.rovingSupervisor?.name]
+        .filter(Boolean)
+        .join(' · '),
     },
   ].filter((f) => f.value);
 
-  for (const fact of facts) {
-    y = ensureSpace(doc, y, 12, unitName, pageRef);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...GOLD);
-    doc.text(fact.label.toUpperCase(), MARGIN, y);
-    y += 4.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(...SLATE);
-    y = writeWrapped(doc, fact.value, MARGIN, y, CONTENT_W, 5, unitName, pageRef);
-    y += 3;
+  if (facts.length) {
+    y = ensureSpace(doc, y, 16, logo, pageRef, unitName);
+    const colW = CONTENT_W / facts.length;
+    facts.forEach((fact, i) => {
+      const x = MARGIN + i * colW;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(...RED);
+      doc.text(fact.label.toUpperCase(), x, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...INK);
+      const lines = (doc.splitTextToSize(fact.value, colW - 3) as string[]).slice(0, 2);
+      lines.forEach((line, li) => doc.text(line, x, y + 4.2 + li * 3.6));
+    });
+    y += 14;
   }
 
   const blocks: Array<{ title: string; body?: string }> = [
@@ -323,240 +341,209 @@ export async function generateUnitBookPdf(opts: {
     ...(book.customSections || [])
       .filter((s) => text(s.title) || text(s.body))
       .map((s) => ({ title: s.title || 'Sección', body: s.body })),
-  ];
+  ].filter((b) => text(b.body));
 
   for (const block of blocks) {
-    if (!text(block.body)) continue;
-    y = sectionTitle(doc, block.title, y, unitName, pageRef);
+    y = ensureSpace(doc, y, 16, logo, pageRef, unitName);
+    y = sectionLabel(doc, block.title, y);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(...SLATE);
-    y = writeWrapped(doc, text(block.body), MARGIN, y, CONTENT_W, 5.2, unitName, pageRef);
-    y += 4;
-  }
-
-  const supervisors = [
-    unit.coordinator ? { label: 'Coordinador', name: unit.coordinator.name } : null,
-    unit.residentSupervisor ? { label: 'Supervisor residente', name: unit.residentSupervisor.name } : null,
-    unit.rovingSupervisor ? { label: 'Supervisor de ronda', name: unit.rovingSupervisor.name } : null,
-  ].filter((s): s is { label: string; name: string } => Boolean(s?.name));
-
-  if (supervisors.length) {
-    y = sectionTitle(doc, 'Supervisión de la unidad', y, unitName, pageRef);
-    for (const s of supervisors) {
-      y = ensureSpace(doc, y, 8, unitName, pageRef);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(...NAVY);
-      doc.text(s.label, MARGIN, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...SLATE);
-      doc.text(s.name, MARGIN + 52, y);
-      y += 6;
+    doc.setFontSize(8.5);
+    doc.setTextColor(...INK);
+    const lines = doc.splitTextToSize(text(block.body), CONTENT_W) as string[];
+    for (const line of lines) {
+      y = ensureSpace(doc, y, 5, logo, pageRef, unitName);
+      doc.text(line, MARGIN, y);
+      y += 3.8;
     }
+    y += 2.5;
   }
 
-  drawFooter(doc, pageRef.n, unitName);
+  // Mapas (solo folleto)
+  if (maps.near || maps.wide) {
+    y = ensureSpace(doc, y, 78, logo, pageRef, unitName);
+    y = sectionLabel(doc, 'Ubicación', y);
+    const mapW = (CONTENT_W - 4) / 2;
+    const mapH = 58;
+    const nearImg: LoadedImage | null = maps.near ? { dataUrl: maps.near, format: 'JPEG' } : null;
+    const wideImg: LoadedImage | null = maps.wide ? { dataUrl: maps.wide, format: 'JPEG' } : null;
+    addImageSafe(doc, nearImg, MARGIN, y, mapW, mapH);
+    addImageSafe(doc, wideImg, MARGIN + mapW + 4, y, mapW, mapH);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...RED);
+    doc.text('Alrededores · 5 cuadras (~500 m)', MARGIN, y + mapH + 4);
+    doc.setTextColor(...BLUE);
+    doc.text('Contexto urbano · 10 km', MARGIN + mapW + 4, y + mapH + 4);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...MUTED);
+    const mapNote = text(unit.address) || 'Ubicación de la unidad';
+    doc.text(mapNote.slice(0, 90), MARGIN, y + mapH + 8);
+    y += mapH + 12;
+  }
 
-  // ---------- Galería ----------
+  // Galería compacta 3 columnas
   const gallery = photoImgs.filter((p) => p.img?.dataUrl);
   if (gallery.length) {
-    doc.addPage();
-    pageRef.n += 1;
-    y = 18;
-    y = sectionTitle(doc, 'Fotos de la unidad', y, unitName, pageRef);
-
-    const colW = (CONTENT_W - 6) / 2;
-    const imgH = 62;
-    let col = 0;
-    for (const item of gallery) {
-      if (!item.img) continue;
-      y = ensureSpace(doc, y, imgH + 16, unitName, pageRef);
-      const x = col === 0 ? MARGIN : MARGIN + colW + 6;
-      try {
-        doc.addImage(item.img.dataUrl, item.img.format, x, y, colW, imgH);
-      } catch {
-        doc.setFillColor(...LIGHT);
-        doc.rect(x, y, colW, imgH, 'F');
-      }
+    y = ensureSpace(doc, y, 42, logo, pageRef, unitName);
+    y = sectionLabel(doc, 'Fotos de la unidad', y);
+    const cols = 3;
+    const gap = 2.5;
+    const colW = (CONTENT_W - gap * (cols - 1)) / cols;
+    const imgH = 32;
+    gallery.forEach((item, i) => {
+      const col = i % cols;
+      if (col === 0 && i > 0) y += imgH + (item.photo.caption ? 8 : 3);
+      y = ensureSpace(doc, y, imgH + 8, logo, pageRef, unitName);
+      const x = MARGIN + col * (colW + gap);
+      addImageSafe(doc, item.img, x, y, colW, imgH);
       if (item.photo.caption) {
         doc.setFont('helvetica', 'italic');
-        doc.setFontSize(8);
+        doc.setFontSize(6.5);
         doc.setTextColor(...MUTED);
-        const cap = (doc.splitTextToSize(item.photo.caption, colW) as string[])[0] || '';
-        doc.text(cap, x, y + imgH + 4.5);
+        doc.text((doc.splitTextToSize(item.photo.caption, colW) as string[])[0] || '', x, y + imgH + 3.2);
       }
-      if (col === 1) {
-        y += imgH + 12;
-        col = 0;
-      } else {
-        col = 1;
-      }
-    }
-    if (col === 1) y += imgH + 12;
-    drawFooter(doc, pageRef.n, unitName);
+      if (i === gallery.length - 1) y += imgH + (item.photo.caption ? 8 : 4);
+    });
   }
 
-  // ---------- Equipo ----------
-  doc.addPage();
-  pageRef.n += 1;
-  y = 18;
-  y = sectionTitle(doc, 'Tu equipo en la unidad', y, unitName, pageRef);
+  // Equipo compacto 2 columnas
+  y = ensureSpace(doc, y, 50, logo, pageRef, unitName);
+  y = sectionLabel(doc, 'Tu equipo', y);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(...SLATE);
-  y = writeWrapped(
-    doc,
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  doc.text(
     members.length
-      ? 'Estas son las personas con las que compartirás el servicio. Conócelas: su puesto, funciones, zona y un mensaje para quienes se incorporan.'
-      : 'Aún no hay colaboradores incluidos en este Unit Book.',
+      ? `${members.length} colaboradores de la unidad.`
+      : 'Aún no hay colaboradores incluidos.',
     MARGIN,
     y,
-    CONTENT_W,
-    5.2,
-    unitName,
-    pageRef,
   );
-  y += 6;
+  y += 5;
 
-  const cardH = 88;
+  const gap = 3;
+  const cardW = (CONTENT_W - gap) / 2;
+  const photoSize = 18;
+  let col = 0;
+  let rowY = y;
+  let leftH = 0;
+
+  const cardHeightFor = (member: UnitBookPdfMember): number => {
+    let h = 26;
+    if (text(member.functions)) h += 8;
+    if (text(member.experience)) h += 7;
+    if (text(member.colleagueMessage)) h += 7;
+    return Math.min(h, 46);
+  };
+
   for (const member of members) {
-    y = ensureSpace(doc, y, cardH, unitName, pageRef);
-    doc.setFillColor(...LIGHT);
-    doc.roundedRect(MARGIN, y, CONTENT_W, cardH - 4, 2.5, 2.5, 'F');
+    const cardH = cardHeightFor(member);
+    if (col === 0) {
+      rowY = ensureSpace(doc, rowY, cardH + 2, logo, pageRef, unitName);
+      leftH = cardH;
+    } else if (rowY + cardH > PAGE_H - FOOTER_H - 3) {
+      rowY = newContentPage(doc, logo, pageRef, unitName);
+      col = 0;
+      leftH = cardH;
+    }
+
+    const x = MARGIN + col * (cardW + gap);
+    const cardY = rowY;
+
+    doc.setFillColor(...BLUE_SOFT);
+    doc.roundedRect(x, cardY, cardW, cardH, 1.4, 1.4, 'F');
+    doc.setFillColor(...RED);
+    doc.rect(x, cardY, 1.5, cardH, 'F');
 
     const photo = memberImgMap.get(member.resource.id);
-    const photoSize = 36;
-    const photoX = MARGIN + 4;
-    const photoY = y + 6;
+    const px = x + 3.5;
+    const py = cardY + 3.5;
     if (photo?.dataUrl) {
       try {
-        doc.addImage(photo.dataUrl, photo.format, photoX, photoY, photoSize, photoSize);
+        doc.addImage(photo.dataUrl, photo.format, px, py, photoSize, photoSize);
       } catch {
-        drawPhotoPlaceholder(doc, photoX, photoY, photoSize, member.resource.name);
+        drawPhotoPlaceholder(doc, px, py, photoSize, member.resource.name);
       }
     } else {
-      drawPhotoPlaceholder(doc, photoX, photoY, photoSize, member.resource.name);
+      drawPhotoPlaceholder(doc, px, py, photoSize, member.resource.name);
     }
 
-    const textX = photoX + photoSize + 5;
-    const textW = CONTENT_W - photoSize - 16;
+    const tx = px + photoSize + 3;
+    const tw = cardW - photoSize - 10;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(...NAVY);
-    const names = (doc.splitTextToSize(member.resource.name || 'Colaborador', textW) as string[]).slice(0, 2);
-    let ty = y + 12;
-    names.forEach((line) => {
-      doc.text(line, textX, ty);
-      ty += 5.5;
-    });
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(...GOLD);
-    doc.text(text(member.resource.puesto) || 'Puesto no indicado', textX, ty);
-    ty += 6;
-
-    const metaBits = [
-      member.workZone ? `Zona: ${member.workZone}` : '',
-      member.tenure ? `Tiempo en Opalo: ${member.tenure}` : '',
-      member.resource.assignedShift ? `Turno: ${member.resource.assignedShift}` : '',
-    ].filter(Boolean);
-    doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
+    doc.setTextColor(...BLUE);
+    const names = (doc.splitTextToSize(member.resource.name || 'Colaborador', tw) as string[]).slice(0, 2);
+    let ty = cardY + 7;
+    names.forEach((line) => {
+      doc.text(line, tx, ty);
+      ty += 3.5;
+    });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...RED);
+    doc.text((text(member.resource.puesto) || 'Sin puesto').slice(0, 42), tx, ty);
+    ty += 3.6;
+
+    const meta = [
+      member.age,
+      member.tenure ? `${member.tenure} en Opalo` : '',
+      member.workZone,
+      member.resource.assignedShift,
+    ]
+      .filter(Boolean)
+      .join('  ·  ');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
     doc.setTextColor(...MUTED);
-    if (metaBits.length) {
-      const metaLines = doc.splitTextToSize(metaBits.join('  ·  '), textW) as string[];
-      metaLines.slice(0, 2).forEach((line) => {
-        doc.text(line, textX, ty);
-        ty += 4.2;
+    if (meta) {
+      const metaLines = (doc.splitTextToSize(meta, tw) as string[]).slice(0, 2);
+      metaLines.forEach((line) => {
+        doc.text(line, tx, ty);
+        ty += 3.1;
       });
     }
 
-    const bodyY = Math.max(photoY + photoSize + 6, ty + 2);
-    let by = bodyY;
-    const addMini = (label: string, value: string) => {
-      if (!text(value)) return;
+    let by = Math.max(py + photoSize + 3.5, ty + 1);
+    const addMini = (label: string, value: string, lines: number) => {
+      if (!text(value) || by > cardY + cardH - 4) return;
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(...NAVY);
-      doc.text(label.toUpperCase(), MARGIN + 4, by);
-      by += 4;
+      doc.setFontSize(6);
+      doc.setTextColor(...BLUE);
+      doc.text(label, x + 3.5, by);
+      by += 2.8;
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...SLATE);
-      const lines = (doc.splitTextToSize(value, CONTENT_W - 10) as string[]).slice(0, 3);
-      lines.forEach((line) => {
-        doc.text(line, MARGIN + 4, by);
-        by += 4;
+      doc.setFontSize(6.5);
+      doc.setTextColor(...INK);
+      const wrapped = (doc.splitTextToSize(value, cardW - 7) as string[]).slice(0, lines);
+      wrapped.forEach((line) => {
+        if (by > cardY + cardH - 2.5) return;
+        doc.text(line, x + 3.5, by);
+        by += 2.8;
       });
-      by += 1.5;
+      by += 0.6;
     };
-
-    addMini('Funciones', member.functions);
-    addMini('Experiencia', member.experience);
-    if (member.colleagueMessage) {
+    addMini('FUNCIONES', member.functions, 2);
+    addMini('EXPERIENCIA', member.experience, 1);
+    if (text(member.colleagueMessage) && by < cardY + cardH - 4) {
       doc.setFont('helvetica', 'italic');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...NAVY);
-      const quote = (doc.splitTextToSize(`“${member.colleagueMessage}”`, CONTENT_W - 10) as string[]).slice(0, 3);
-      quote.forEach((line) => {
-        if (by < y + cardH - 8) {
-          doc.text(line, MARGIN + 4, by);
-          by += 4;
-        }
-      });
+      doc.setFontSize(6.5);
+      doc.setTextColor(...RED);
+      const q = (doc.splitTextToSize(`“${member.colleagueMessage}”`, cardW - 7) as string[])[0];
+      if (q) doc.text(q, x + 3.5, by);
     }
 
-    y += cardH;
+    if (col === 1) {
+      rowY += Math.max(leftH, cardH) + 2.2;
+      col = 0;
+    } else {
+      col = 1;
+    }
   }
 
-  drawFooter(doc, pageRef.n, unitName);
-
-  // ---------- Cierre ----------
-  doc.addPage();
-  pageRef.n += 1;
-  doc.setFillColor(...NAVY);
-  doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
-  doc.setFillColor(...GOLD);
-  doc.rect(0, 0, 6, PAGE_H, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20);
-  doc.setTextColor(...WHITE);
-  doc.text('Bienvenido al equipo', MARGIN + 8, 120);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(12);
-  doc.setTextColor(203, 213, 225);
-  const close = doc.splitTextToSize(
-    'Este Unit Book es una guía para situarte en la unidad: el servicio, los espacios y las personas con las que trabajarás. Cualquier duda, acude a tu supervisor o al equipo de operaciones.',
-    CONTENT_W - 10,
-  ) as string[];
-  let cy = 136;
-  close.forEach((line) => {
-    doc.text(line, MARGIN + 8, cy);
-    cy += 7;
-  });
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(11);
-  doc.setTextColor(...GOLD);
-  doc.text('Opalo  ·  Operaciones', MARGIN + 8, 250);
-
+  drawFooter(doc, pageRef.n, `Unit Book  ·  ${unitName}  ·  Opalo`);
   doc.save(safeUnitBookFilename(unitName));
-}
-
-function drawPhotoPlaceholder(doc: jsPDF, x: number, y: number, size: number, name: string) {
-  doc.setFillColor(203, 213, 225);
-  doc.rect(x, y, size, size, 'F');
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() || '')
-    .join('');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.setTextColor(...NAVY);
-  doc.text(initials || '—', x + size / 2, y + size / 2 + 4, { align: 'center' });
 }
 
 export function buildPdfMembers(
@@ -579,6 +566,7 @@ export function buildPdfMembers(
         workZone: draft?.workZone ?? profile?.workZone ?? '',
         colleagueMessage: draft?.colleagueMessage ?? profile?.colleagueMessage ?? '',
         tenure: formatOpaloTenure(resource.startDate),
+        age: formatAgeFromBirthDate(resource.birthDate),
       };
       return row;
     })

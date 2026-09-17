@@ -1,6 +1,23 @@
 import type { Resource, WorkerSnapshotExperiencia } from '../types';
 import { hydrateComplementaryFromSnapshot } from './complementaryHydrate';
 
+export function formatAgeFromBirthDate(birthDate?: string | null): string {
+  if (!birthDate) return '';
+  const match = String(birthDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return '';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || !month || !day) return '';
+
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  const monthDiff = today.getMonth() + 1 - month;
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < day)) age -= 1;
+  if (age < 0 || age > 120) return '';
+  return `${age} años`;
+}
+
 export function formatOpaloTenure(startDate?: string | null): string {
   if (!startDate) return '';
   const start = new Date(`${startDate}T00:00:00`);
