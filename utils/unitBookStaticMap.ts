@@ -1,11 +1,9 @@
-/** Mapas estáticos para el Unit Book (solo PDF). Tiles Carto/OSM, sin UI. */
-
-export const UNIT_BOOK_NEAR_RADIUS_M = 500; // ~5 cuadras
-export const UNIT_BOOK_WIDE_RADIUS_M = 10_000;
+/** Mapas estáticos para el Unit Book (solo PDF). Tiles OSM/Esri, sin clave ni radio. */
 
 const TILE = 256;
 const NEAR_ZOOM = 16;
 const WIDE_ZOOM = 12;
+const PIN_RED: [number, number, number] = [196, 30, 58];
 
 function lngToTile(lng: number, zoom: number): number {
   return ((lng + 180) / 360) * 2 ** zoom;
@@ -23,10 +21,6 @@ function wrapTile(x: number, zoom: number): number {
   return ((x % n) + n) % n;
 }
 
-function metersPerPixel(lat: number, zoom: number): number {
-  return (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
-}
-
 function loadTileImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -37,14 +31,52 @@ function loadTileImage(url: string): Promise<HTMLImageElement | null> {
   });
 }
 
+function tileUrls(zoom: number, tx: number, ty: number): string[] {
+  const x = wrapTile(tx, zoom);
+  return [
+    `https://tile.openstreetmap.org/${zoom}/${x}/${ty}.png`,
+    `https://tile.openstreetmap.de/${zoom}/${x}/${ty}.png`,
+    `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${zoom}/${ty}/${x}`,
+  ];
+}
+
+async function loadFirstTile(zoom: number, tx: number, ty: number): Promise<HTMLImageElement | null> {
+  for (const url of tileUrls(zoom, tx, ty)) {
+    const img = await loadTileImage(url);
+    if (img) return img;
+  }
+  return null;
+}
+
+function drawLocationPin(ctx: CanvasRenderingContext2D, cx: number, cy: number) {
+  const [r, g, b] = PIN_RED;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.35)';
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 2;
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + 12);
+  ctx.bezierCurveTo(cx + 14, cy + 2, cx + 12, cy - 12, cx, cy - 12);
+  ctx.bezierCurveTo(cx - 12, cy - 12, cx - 14, cy + 2, cx, cy + 12);
+  ctx.closePath();
+  ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.beginPath();
+  ctx.arc(cx, cy - 4, 4.2, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.restore();
+}
+
 async function renderMapCanvas(
   lat: number,
   lng: number,
   zoom: number,
   width: number,
   height: number,
-  radiusM: number,
-  circleRgb: [number, number, number],
 ): Promise<string | null> {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -68,46 +100,18 @@ async function renderMapCanvas(
   for (let tx = startTx; tx <= endTx; tx++) {
     for (let ty = startTy; ty <= endTy; ty++) {
       if (ty < 0 || ty >= 2 ** zoom) continue;
-      const url = `https://a.basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${wrapTile(tx, zoom)}/${ty}.png`;
       const dx = (tx - topLeftX) * TILE;
       const dy = (ty - topLeftY) * TILE;
       jobs.push(
-        (async () => {
-          let img = await loadTileImage(url);
-          if (!img) {
-            img = await loadTileImage(
-              `https://tile.openstreetmap.org/${zoom}/${wrapTile(tx, zoom)}/${ty}.png`,
-            );
-          }
+        loadFirstTile(zoom, tx, ty).then((img) => {
           if (img) ctx.drawImage(img, dx, dy, TILE, TILE);
-        })(),
+        }),
       );
     }
   }
   await Promise.all(jobs);
 
-  const cx = width / 2;
-  const cy = height / 2;
-  const rPx = radiusM / metersPerPixel(lat, zoom);
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(${circleRgb[0]}, ${circleRgb[1]}, ${circleRgb[2]}, 0.14)`;
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = `rgb(${circleRgb[0]}, ${circleRgb[1]}, ${circleRgb[2]})`;
-  ctx.stroke();
-
-  // Pin
-  ctx.beginPath();
-  ctx.arc(cx, cy, 8, 0, Math.PI * 2);
-  ctx.fillStyle = `rgb(${circleRgb[0]}, ${circleRgb[1]}, ${circleRgb[2]})`;
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-
+  drawLocationPin(ctx, width / 2, height / 2);
   return canvas.toDataURL('image/jpeg', 0.86);
 }
 
@@ -116,8 +120,8 @@ export async function buildUnitBookLocationMaps(
   lng: number,
 ): Promise<{ near: string | null; wide: string | null }> {
   const [near, wide] = await Promise.all([
-    renderMapCanvas(lat, lng, NEAR_ZOOM, 800, 500, UNIT_BOOK_NEAR_RADIUS_M, [196, 30, 58]),
-    renderMapCanvas(lat, lng, WIDE_ZOOM, 800, 500, UNIT_BOOK_WIDE_RADIUS_M, [22, 48, 92]),
+    renderMapCanvas(lat, lng, NEAR_ZOOM, 800, 500),
+    renderMapCanvas(lat, lng, WIDE_ZOOM, 800, 500),
   ]);
   return { near, wide };
 }

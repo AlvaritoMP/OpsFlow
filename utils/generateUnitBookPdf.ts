@@ -31,7 +31,7 @@ export type UnitBookPdfMember = {
   age: string;
 };
 
-type LoadedImage = { dataUrl: string; format: 'PNG' | 'JPEG' };
+type LoadedImage = { dataUrl: string; format: 'PNG' | 'JPEG'; aspect?: number };
 
 function text(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -103,33 +103,176 @@ async function loadImageAsDataUrl(src: string, maxEdge = 900): Promise<LoadedIma
   }
 }
 
+/** Recorta al centro (un poco arriba, para el rostro) sin estirar. */
+async function loadCoverCroppedImage(
+  src: string,
+  targetW: number,
+  targetH: number,
+): Promise<LoadedImage | null> {
+  const loaded = await loadImageAsDataUrl(src, Math.max(targetW, targetH) * 3);
+  if (!loaded?.dataUrl) return null;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        if (!w || !h) {
+          resolve(loaded);
+          return;
+        }
+        const targetRatio = targetW / targetH;
+        const srcRatio = w / h;
+        let sx = 0;
+        let sy = 0;
+        let sw = w;
+        let sh = h;
+        if (srcRatio > targetRatio) {
+          sw = h * targetRatio;
+          sx = (w - sw) / 2;
+        } else {
+          sh = w / targetRatio;
+          sy = Math.max(0, (h - sh) * 0.22);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(loaded);
+          return;
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetW, targetH);
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.88), format: 'JPEG' });
+      } catch {
+        resolve(loaded);
+      }
+    };
+    img.onerror = () => resolve(loaded);
+    img.src = loaded.dataUrl;
+  });
+}
+
+/** Recorta el blanco alrededor del logo y conserva su proporción. */
+function prepareLogoDataUrl(src: string): Promise<LoadedImage | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const width = img.naturalWidth || img.width || 0;
+        const height = img.naturalHeight || img.height || 0;
+        if (!width || !height) {
+          resolve(null);
+          return;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const { data } = ctx.getImageData(0, 0, width, height);
+        let minX = width;
+        let minY = height;
+        let maxX = 0;
+        let maxY = 0;
+        let found = false;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const a = data[i + 3];
+            if (a < 20) continue;
+            if (r > 245 && g > 245 && b > 245) continue;
+            found = true;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+        if (!found) {
+          resolve({ dataUrl: canvas.toDataURL('image/png'), format: 'PNG', aspect: width / height });
+          return;
+        }
+        const pad = Math.max(2, Math.round(Math.min(width, height) * 0.02));
+        minX = Math.max(0, minX - pad);
+        minY = Math.max(0, minY - pad);
+        maxX = Math.min(width - 1, maxX + pad);
+        maxY = Math.min(height - 1, maxY + pad);
+        const cropW = maxX - minX + 1;
+        const cropH = maxY - minY + 1;
+        const out = document.createElement('canvas');
+        out.width = cropW;
+        out.height = cropH;
+        const outCtx = out.getContext('2d');
+        if (!outCtx) {
+          resolve(null);
+          return;
+        }
+        outCtx.fillStyle = '#ffffff';
+        outCtx.fillRect(0, 0, cropW, cropH);
+        outCtx.drawImage(canvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+        resolve({
+          dataUrl: out.toDataURL('image/png'),
+          format: 'PNG',
+          aspect: cropW / Math.max(cropH, 1),
+        });
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+const HEADER_RED = 3.2;
+const HEADER_BODY = 18;
+const HEADER_H = HEADER_RED + HEADER_BODY;
+const CONTENT_TOP = HEADER_H + 3.2;
+
 function drawHeaderBar(doc: jsPDF, logo: LoadedImage | null) {
   doc.setFillColor(...RED);
-  doc.rect(0, 0, PAGE_W, 3.2, 'F');
+  doc.rect(0, 0, PAGE_W, HEADER_RED, 'F');
   doc.setFillColor(...WHITE);
-  doc.rect(0, 3.2, PAGE_W, 16, 'F');
+  doc.rect(0, HEADER_RED, PAGE_W, HEADER_BODY, 'F');
+
+  const logoH = 13;
+  const logoW = logo?.aspect ? Math.min(54, Math.max(38, logoH * logo.aspect)) : 46;
+  const logoY = HEADER_RED + (HEADER_BODY - logoH) / 2;
+
   if (logo?.dataUrl) {
     try {
-      doc.addImage(logo.dataUrl, logo.format, MARGIN, 5.2, 28, 11);
+      doc.addImage(logo.dataUrl, logo.format, MARGIN, logoY, logoW, logoH);
     } catch {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
+      doc.setFontSize(16);
       doc.setTextColor(...BLUE);
-      doc.text('opalo', MARGIN, 13);
+      doc.text('opalo', MARGIN, HEADER_RED + 12);
     }
   } else {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(16);
     doc.setTextColor(...BLUE);
-    doc.text('opalo', MARGIN, 13);
+    doc.text('opalo', MARGIN, HEADER_RED + 12);
   }
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
+  doc.setFontSize(9);
   doc.setTextColor(...RED);
-  doc.text('UNIT BOOK', PAGE_W - MARGIN, 13, { align: 'right' });
+  doc.text('UNIT BOOK', PAGE_W - MARGIN, HEADER_RED + HEADER_BODY / 2 + 1.2, { align: 'right' });
   doc.setDrawColor(...LINE);
   doc.setLineWidth(0.25);
-  doc.line(MARGIN, 19.2, PAGE_W - MARGIN, 19.2);
+  doc.line(MARGIN, HEADER_H, PAGE_W - MARGIN, HEADER_H);
 }
 
 function drawFooter(doc: jsPDF, page: number, totalHint: string) {
@@ -151,7 +294,7 @@ function newContentPage(doc: jsPDF, logo: LoadedImage | null, pageRef: { n: numb
   }
   pageRef.n += 1;
   drawHeaderBar(doc, logo);
-  return 23;
+  return CONTENT_TOP;
 }
 
 function ensureSpace(
@@ -214,9 +357,9 @@ function addImageSafe(
   }
 }
 
-function drawPhotoPlaceholder(doc: jsPDF, x: number, y: number, size: number, name: string) {
+function drawPhotoPlaceholder(doc: jsPDF, x: number, y: number, w: number, h: number, name: string) {
   doc.setFillColor(...BLUE);
-  doc.rect(x, y, size, size, 'F');
+  doc.rect(x, y, w, h, 'F');
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -226,7 +369,7 @@ function drawPhotoPlaceholder(doc: jsPDF, x: number, y: number, size: number, na
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(...WHITE);
-  doc.text(initials || '—', x + size / 2, y + size / 2 + 2.4, { align: 'center' });
+  doc.text(initials || '—', x + w / 2, y + h / 2 + 2.4, { align: 'center' });
 }
 
 export async function generateUnitBookPdf(opts: {
@@ -241,7 +384,7 @@ export async function generateUnitBookPdf(opts: {
   const pageRef = { n: 0 };
   const unitName = unit.name || 'Unidad';
 
-  const logo = await loadImageAsDataUrl(OPALO_LOGO_SRC, 400);
+  const logo = await prepareLogoDataUrl(OPALO_LOGO_SRC);
   const coverSrc = photos[0]?.imageUrl || unit.images?.[0] || '';
   const cover = coverSrc ? await loadImageAsDataUrl(coverSrc, 1200) : null;
   const photoImgs = await Promise.all(
@@ -250,7 +393,7 @@ export async function generateUnitBookPdf(opts: {
   const memberImgs = await Promise.all(
     members.map(async (m) => ({
       id: m.resource.id,
-      img: m.resource.image ? await loadImageAsDataUrl(m.resource.image, 280) : null,
+      img: m.resource.image ? await loadCoverCroppedImage(m.resource.image, 240, 320) : null,
     })),
   );
   const memberImgMap = new Map(memberImgs.map((m) => [m.id, m.img]));
@@ -277,10 +420,10 @@ export async function generateUnitBookPdf(opts: {
   });
 
   if (cover?.dataUrl) {
-    addImageSafe(doc, cover, MARGIN + CONTENT_W * 0.64, 23, CONTENT_W * 0.36, 38);
+    addImageSafe(doc, cover, MARGIN + CONTENT_W * 0.64, CONTENT_TOP, CONTENT_W * 0.36, 38);
   }
 
-  y = Math.max(y, 62) + 2;
+  y = Math.max(y, CONTENT_TOP + 38 + 2);
 
   const welcome = text(book.welcomeMessage);
   if (welcome) {
@@ -371,9 +514,9 @@ export async function generateUnitBookPdf(opts: {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(...RED);
-    doc.text('Alrededores · 5 cuadras (~500 m)', MARGIN, y + mapH + 4);
+    doc.text('Alrededores · calles cercanas', MARGIN, y + mapH + 4);
     doc.setTextColor(...BLUE);
-    doc.text('Contexto urbano · 10 km', MARGIN + mapW + 4, y + mapH + 4);
+    doc.text('Contexto urbano · zona amplia', MARGIN + mapW + 4, y + mapH + 4);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
     doc.setTextColor(...MUTED);
@@ -424,13 +567,14 @@ export async function generateUnitBookPdf(opts: {
 
   const gap = 3;
   const cardW = (CONTENT_W - gap) / 2;
-  const photoSize = 18;
+  const photoW = 16;
+  const photoH = 21.5;
   let col = 0;
   let rowY = y;
   let leftH = 0;
 
   const cardHeightFor = (member: UnitBookPdfMember): number => {
-    let h = 26;
+    let h = 28.5;
     if (text(member.functions)) h += 8;
     if (text(member.experience)) h += 7;
     if (text(member.colleagueMessage)) h += 7;
@@ -461,16 +605,16 @@ export async function generateUnitBookPdf(opts: {
     const py = cardY + 3.5;
     if (photo?.dataUrl) {
       try {
-        doc.addImage(photo.dataUrl, photo.format, px, py, photoSize, photoSize);
+        doc.addImage(photo.dataUrl, photo.format, px, py, photoW, photoH);
       } catch {
-        drawPhotoPlaceholder(doc, px, py, photoSize, member.resource.name);
+        drawPhotoPlaceholder(doc, px, py, photoW, photoH, member.resource.name);
       }
     } else {
-      drawPhotoPlaceholder(doc, px, py, photoSize, member.resource.name);
+      drawPhotoPlaceholder(doc, px, py, photoW, photoH, member.resource.name);
     }
 
-    const tx = px + photoSize + 3;
-    const tw = cardW - photoSize - 10;
+    const tx = px + photoW + 3;
+    const tw = cardW - photoW - 10;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...BLUE);
@@ -505,7 +649,7 @@ export async function generateUnitBookPdf(opts: {
       });
     }
 
-    let by = Math.max(py + photoSize + 3.5, ty + 1);
+    let by = Math.max(py + photoH + 3.5, ty + 1);
     const addMini = (label: string, value: string, lines: number) => {
       if (!text(value) || by > cardY + cardH - 4) return;
       doc.setFont('helvetica', 'bold');
