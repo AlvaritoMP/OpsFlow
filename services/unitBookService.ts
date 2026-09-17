@@ -307,4 +307,45 @@ export const unitBookService = {
       throw error;
     }
   },
+
+  /** Lleva el perfil editorial del Unit Book a la nueva unidad, si existía. */
+  async moveMemberToUnit(resourceId: string, fromUnitId: string, toUnitId: string): Promise<void> {
+    if (!resourceId || !fromUnitId || !toUnitId || fromUnitId === toUnitId) return;
+
+    const { data: existing, error: fetchError } = await supabase
+      .from('unit_book_members')
+      .select('*')
+      .eq('resource_id', resourceId)
+      .eq('unit_id', fromUnitId)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+
+    const { error: deleteError } = await supabase
+      .from('unit_book_members')
+      .delete()
+      .eq('resource_id', resourceId)
+      .eq('unit_id', fromUnitId);
+
+    if (deleteError) throw deleteError;
+
+    if (!existing) return;
+
+    const { error: insertError } = await supabase.from('unit_book_members').upsert(
+      {
+        unit_id: toUnitId,
+        resource_id: resourceId,
+        functions: existing.functions,
+        experience: existing.experience,
+        work_zone: existing.work_zone,
+        colleague_message: existing.colleague_message,
+        include_in_book: existing.include_in_book ?? true,
+        display_order: existing.display_order ?? 0,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'unit_id,resource_id' }
+    );
+
+    if (insertError) throw insertError;
+  },
 };

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { unitsService } from '../services/unitsService';
-import { Unit, User } from '../types';
+import { Resource, Unit, User } from '../types';
 import { isUnitsBackgroundRefreshPaused } from './unitsRefreshLock';
+import { TransferWorkerResult } from '../services/workerTransferService';
 
 function mergeUnitsPreservingHydrated(prev: Unit[], next: Unit[]): Unit[] {
   if (prev.length === 0) return next;
@@ -252,6 +253,36 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     setUnits((prev) => prev.map((u) => (u.id === replacement.id ? replacement : u)));
   }, []);
 
+  const applyPersonnelUnitMove = useCallback((move: TransferWorkerResult) => {
+    const placedWorker: Resource = { ...move.worker, unitId: move.toUnitId, assignedZones: [] };
+    const placedSwap: Resource | undefined = move.swappedWorker
+      ? { ...move.swappedWorker, unitId: move.fromUnitId, assignedZones: [] }
+      : undefined;
+
+    setUnits((prev) =>
+      prev.map((unit) => {
+        const current = unit.resources || [];
+        if (unit.id === move.fromUnitId) {
+          const next = current.filter((r) => r.id !== move.worker.id);
+          if (placedSwap && !next.some((r) => r.id === placedSwap.id)) {
+            next.push(placedSwap);
+          }
+          return { ...unit, resources: next };
+        }
+        if (unit.id === move.toUnitId) {
+          const next = placedSwap
+            ? current.filter((r) => r.id !== placedSwap.id)
+            : [...current];
+          if (!next.some((r) => r.id === placedWorker.id)) {
+            next.push(placedWorker);
+          }
+          return { ...unit, resources: next };
+        }
+        return unit;
+      })
+    );
+  }, []);
+
   const deleteUnit = useCallback(async (id: string) => {
     try {
       await unitsService.delete(id);
@@ -282,6 +313,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     updateUnit,
     deleteUnit,
     replaceUnitInState,
+    applyPersonnelUnitMove,
     releaseManagementStaffFromUnits,
   };
 };

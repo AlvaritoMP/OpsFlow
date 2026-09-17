@@ -310,6 +310,23 @@ export const bpoPersonnelService = {
     }
   },
 
+  async reassignUnit(resourceId: string, toUnitId: string): Promise<void> {
+    if (!resourceId || !toUnitId) return;
+    const payload = { unit_id: toUnitId };
+    const tables = [
+      'resource_bpo_profiles',
+      'resource_bpo_dependents',
+      'resource_bpo_personnel_documents',
+    ] as const;
+
+    for (const table of tables) {
+      const { error } = await supabase.from(table).update(payload).eq('resource_id', resourceId);
+      if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
+        throw error;
+      }
+    }
+  },
+
   async deleteDocument(id: string): Promise<void> {
     try {
       const { data, error: fetchError } = await supabase

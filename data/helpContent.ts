@@ -270,6 +270,19 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
       },
       {
+        heading: 'Trasladar o intercambiar de unidad',
+        body: 'Un colaborador activo puede pasar a otra unidad sin perder su expediente. Contratos, incrementos, capacitaciones, dotaciones, ficha y turnos viajan con la persona. Las zonas de la unidad anterior se limpian (son propias de cada sede). Vacaciones, tareo y constancias históricas quedan registradas en la unidad donde ocurrieron.',
+        steps: [
+          'En Personal, pulse el ícono de intercambio junto al trabajador (o Trasladar en la vista Trabajadores).',
+          'Elija Trasladar para moverlo a otra unidad, o Intercambiar para cruzarlo con un colaborador de la unidad destino.',
+          'Seleccione la unidad (y, si aplica, el trabajador con quien intercambia) y confirme.',
+          'El colaborador aparece de inmediato en la nueva unidad con todo su historial.',
+        ],
+        tips: [
+          'No use cese + archivo + recuperar para un simple cambio de sede: el traslado mantiene el estado activo.',
+        ],
+      },
+      {
         heading: 'Ficha complementaria del trabajador',
         body: 'Al expandir un colaborador en la pestaña Personal verá el panel Ficha complementaria. Ahí están los datos que vinieron del ATS (o que OpsFlow completó) y puede consultarlos o editarlos con autonomía.',
         steps: [
@@ -481,6 +494,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Busque trabajadores por nombre o documento.',
           'Revise su estado y unidades asociadas.',
           'Use las acciones de edición según su permiso.',
+          'Trasladar o intercambiar mueve al colaborador a otra unidad con su historial (contratos, incrementos, capacitaciones, dotaciones).',
         ],
       },
       {

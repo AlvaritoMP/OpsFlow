@@ -293,6 +293,21 @@ export interface Resource {
   unitId?: string;
 }
 
+export type WorkerUnitTransferMode = 'transfer' | 'swap';
+
+/** Auditoría de un traslado o intercambio de personal entre unidades */
+export interface WorkerUnitTransfer {
+  id: string;
+  resourceId: string;
+  fromUnitId?: string;
+  toUnitId: string;
+  swappedResourceId?: string;
+  mode: WorkerUnitTransferMode;
+  notes?: string;
+  transferredBy?: string;
+  transferredAt: string;
+}
+
 export interface SalaryIncrement {
   id: string;
   resourceId: string;

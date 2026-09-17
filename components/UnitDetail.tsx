@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation, User } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2, BookOpen } from 'lucide-react';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2, BookOpen, ArrowLeftRight } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
@@ -13,6 +13,8 @@ import { Vacations } from './Vacations';
 import { BpoContactsTab } from './BpoContactsTab';
 import { BpoBanksTab } from './BpoBanksTab';
 import { UnitBookTab } from './UnitBookTab';
+import { TransferWorkerModal } from './TransferWorkerModal';
+import { TransferWorkerResult } from '../services/workerTransferService';
 import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
 import { WorkerComplementaryPanel } from './WorkerComplementaryPanel';
 import { WORK_DAY_OPTIONS, REGIME_OPTIONS, jornadaOptionList } from './OpsflowIntakeForm';
@@ -61,6 +63,7 @@ interface UnitDetailProps {
   onUpdate?: (updatedUnit: Unit) => void | Promise<void>;
   /** Solo estado React: usar para requests/comentarios sin disparar persistencia de toda la unidad (evita re-guardar cientos de recursos). */
   replaceUnitInState?: (updatedUnit: Unit) => void;
+  onPersonnelMoved?: (result: TransferWorkerResult) => void;
   googleMapsApiKey?: string;
 }
 
@@ -347,7 +350,7 @@ type RosterWeekCount = 1 | 2 | 4;
 type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'jornada' | 'compliance' | 'salary' | 'zones' | 'localidad' | 'phone';
 type SortDirection = 'asc' | 'desc';
 
-export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, replaceUnitInState, googleMapsApiKey }) => {
+export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, replaceUnitInState, onPersonnelMoved, googleMapsApiKey }) => {
   const unitClass = resolveUnitClass(unit.unitClass);
   const managementSectionLabels = getManagementSectionLabels(unit.unitClass);
   // Cargar activos estándar al montar el componente
@@ -561,6 +564,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [terminationReasonPreset, setTerminationReasonPreset] = useState('');
   const [terminationReasonOther, setTerminationReasonOther] = useState('');
   const [isTerminating, setIsTerminating] = useState(false);
+  const [workerToTransfer, setWorkerToTransfer] = useState<Resource | null>(null);
   
   const [showRenewContractModal, setShowRenewContractModal] = useState(false);
   const [selectedWorkerForRenewal, setSelectedWorkerForRenewal] = useState<Resource | null>(null);
@@ -7102,6 +7106,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 </button>
                                 )}
                                 {!showArchivedPersonnel && worker.personnelStatus === 'activo' && (
+                                    <button
+                                        onClick={() => setWorkerToTransfer(worker)}
+                                        className="text-indigo-600 hover:text-indigo-900 p-1"
+                                        title="Trasladar o intercambiar de unidad"
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
+                                    >
+                                        <ArrowLeftRight size={16} />
+                                    </button>
+                                )}
+                                {!showArchivedPersonnel && worker.personnelStatus === 'activo' && (
                                     <button 
                                         onClick={() => {
                                             setSelectedWorkerForTermination(worker);
@@ -11555,6 +11569,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              </div>
           </div>
         </div>
+      )}
+
+      {workerToTransfer && (
+        <TransferWorkerModal
+          worker={workerToTransfer}
+          fromUnit={{ id: unit.id, name: unit.name, clientName: unit.clientName }}
+          onClose={() => setWorkerToTransfer(null)}
+          onTransferred={(result) => {
+            onPersonnelMoved?.(result);
+            setExpandedPersonnel((id) => (id === result.worker.id ? null : id));
+            setSelectedPersonnelIds((ids) => ids.filter((id) => id !== result.worker.id));
+            const message = result.mode === 'swap'
+              ? `${result.worker.name} y ${result.swappedWorker?.name || 'el otro trabajador'} se intercambiaron de unidad, con todo su historial.`
+              : `${result.worker.name} fue trasladado a otra unidad con su historial de contratos, incrementos, capacitaciones y dotaciones.`;
+            setNotification({ type: 'success', message });
+            setTimeout(() => setNotification(null), 5000);
+            setWorkerToTransfer(null);
+          }}
+        />
       )}
 
       {/* Modal de Confirmación de Cese */}

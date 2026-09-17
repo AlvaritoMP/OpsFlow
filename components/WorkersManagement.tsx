@@ -1,16 +1,21 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw, FileDown } from 'lucide-react';
-import { Unit, Resource, ResourceType, Client } from '../types';
+import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw, FileDown, ArrowLeftRight } from 'lucide-react';
+import { Unit, Resource, ResourceType, Client, UserRole } from '../types';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import { formatDateDisplay } from '../utils/dateFormat';
 import { downloadOpaloPersonnelFicha } from '../utils/generateOpaloPersonnelFichaPdf';
 import { SafeImage } from './SafeImage';
 import { DateInput } from './DateInput';
+import { checkPermission } from '../services/permissionService';
+import { TransferWorkerModal } from './TransferWorkerModal';
+import { TransferWorkerResult } from '../services/workerTransferService';
 
 interface WorkersManagementProps {
   units: Unit[];
   clients: Client[];
+  currentUserRole?: UserRole;
   onUpdateUnit?: (unit: Unit) => void;
+  onPersonnelMoved?: (result: TransferWorkerResult) => void;
 }
 
 interface WorkerWithUnit extends Resource {
@@ -33,7 +38,7 @@ const getWorkerIngresoDate = (worker: Pick<Resource, 'startDate' | 'endDate' | '
   return getLaborRelationshipDisplayDates(worker, worker.contractHistory).start?.slice(0, 10);
 };
 
-export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, clients, onUpdateUnit }) => {
+export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, clients, currentUserRole, onUpdateUnit, onPersonnelMoved }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'activo' | 'cesado' | 'archivado'>('all');
   const [unitFilter, setUnitFilter] = useState<string>('all');
@@ -43,8 +48,10 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [datePreset, setDatePreset] = useState<DatePreset>(null);
   const [selectedWorker, setSelectedWorker] = useState<WorkerWithUnit | null>(null);
+  const [workerToTransfer, setWorkerToTransfer] = useState<WorkerWithUnit | null>(null);
   const [downloadingFichaId, setDownloadingFichaId] = useState<string | null>(null);
   const getWorkerInitial = (name?: string) => (name?.trim().charAt(0) || '?').toUpperCase();
+  const canEditPersonnel = currentUserRole ? checkPermission(currentUserRole, 'PERSONNEL', 'edit') : false;
 
   const applyRecentPreset = (preset: Exclude<DatePreset, null>) => {
     const today = new Date();
@@ -535,6 +542,17 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                         >
                           Ver detalles
                         </button>
+                        {canEditPersonnel && worker.personnelStatus === 'activo' && !worker.archived && (
+                          <button
+                            type="button"
+                            onClick={() => setWorkerToTransfer(worker)}
+                            className="inline-flex items-center gap-1 text-indigo-700 hover:text-indigo-900 text-sm font-medium"
+                            title="Trasladar o intercambiar de unidad"
+                          >
+                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                            Trasladar
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void handleDownloadFicha(worker)}
@@ -571,6 +589,16 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
                   <FileDown className="w-4 h-4" />
                   {downloadingFichaId === selectedWorker.id ? 'Generando…' : 'Descargar Ficha Opalo'}
                 </button>
+                {canEditPersonnel && selectedWorker.personnelStatus === 'activo' && !selectedWorker.archived && (
+                  <button
+                    type="button"
+                    onClick={() => setWorkerToTransfer(selectedWorker)}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100"
+                  >
+                    <ArrowLeftRight className="w-4 h-4" />
+                    Trasladar
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setSelectedWorker(null)}
@@ -652,6 +680,23 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
             </div>
           </div>
         </div>
+      )}
+
+      {workerToTransfer && (
+        <TransferWorkerModal
+          worker={workerToTransfer}
+          fromUnit={{
+            id: workerToTransfer.unitId,
+            name: workerToTransfer.unitName,
+            clientName: workerToTransfer.clientName,
+          }}
+          onClose={() => setWorkerToTransfer(null)}
+          onTransferred={(result) => {
+            onPersonnelMoved?.(result);
+            setWorkerToTransfer(null);
+            setSelectedWorker(null);
+          }}
+        />
       )}
     </div>
   );
