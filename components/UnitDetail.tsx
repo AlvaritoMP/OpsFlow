@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation, User } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2 } from 'lucide-react';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2, BookOpen } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { checkPermission } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
@@ -12,6 +12,7 @@ import { AttendanceReportsTab } from './AttendanceReportsTab';
 import { Vacations } from './Vacations';
 import { BpoContactsTab } from './BpoContactsTab';
 import { BpoBanksTab } from './BpoBanksTab';
+import { UnitBookTab } from './UnitBookTab';
 import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
 import { WorkerComplementaryPanel } from './WorkerComplementaryPanel';
 import { WORK_DAY_OPTIONS, REGIME_OPTIONS, jornadaOptionList } from './OpsflowIntakeForm';
@@ -1002,6 +1003,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canEditGeneral = checkPermission(userRole, 'UNIT_OVERVIEW', 'edit');
   const canViewPersonnel = checkPermission(userRole, 'PERSONNEL', 'view');
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
+  const canViewUnitBook = checkPermission(userRole, 'UNIT_BOOK', 'view');
+  const canEditUnitBook = checkPermission(userRole, 'UNIT_BOOK', 'edit');
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
   const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
   const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit') || userRole === 'OPERATIONS' || userRole === 'OPERATIONS_SUPERVISOR';
@@ -8850,6 +8853,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {canViewPersonnel && isTabVisibleForUnitClass('documents', unit.unitClass) && (
               <button onClick={() => setActiveTab('documents')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'documents' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('documents', unit.unitClass)}</button>
           )}
+          {canViewUnitBook && isTabVisibleForUnitClass('unitbook', unit.unitClass) && (
+              <button onClick={() => setActiveTab('unitbook')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 flex items-center gap-1.5 ${activeTab === 'unitbook' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                <BookOpen size={14} className="text-indigo-600" /> {getTabLabelForUnitClass('unitbook', unit.unitClass)}
+              </button>
+          )}
           {isNightSupervisionVisibleForUnitClass(unit.unitClass) && (
           <button 
             onClick={openNightSupervisionModal}
@@ -8878,6 +8886,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'blueprint' && renderBlueprint()}
         {activeTab === 'requests' && renderClientRequests()}
         {activeTab === 'documents' && renderDocuments()}
+        {activeTab === 'unitbook' && (
+          <UnitBookTab unit={unit} canEdit={canEditUnitBook} currentUserId={currentUser?.id} />
+        )}
         {activeTab === 'attendance' && (
           <AttendanceReportsTab unit={unit} canUpload={canEditPersonnel} />
         )}

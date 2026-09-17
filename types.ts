@@ -44,6 +44,7 @@ export type AppFeature =
   | 'ASSETS_CATALOG'
   | 'INVENTORY'
   | 'DOCUMENTS'
+  | 'UNIT_BOOK'
   | 'ARCHIVE'
   | 'SETTINGS'
   | 'ATS_RECEPTION'
@@ -387,6 +388,54 @@ export interface UnitDocument {
   mimeType: string; // Tipo MIME del archivo
   uploadedAt: string; // Fecha de carga
   uploadedBy?: string; // ID del usuario que subió el documento
+}
+
+/** Sección extra editable del Unit Book */
+export interface UnitBookCustomSection {
+  id: string;
+  title: string;
+  body: string;
+}
+
+/** Folleto de incorporación de una unidad (contenido editorial) */
+export interface UnitBook {
+  id: string;
+  unitId: string;
+  serviceObjective?: string;
+  floorCount?: number | null;
+  welcomeMessage?: string;
+  workSchedule?: string;
+  dressCode?: string;
+  accessInstructions?: string;
+  importantNotes?: string;
+  customSections: UnitBookCustomSection[];
+  updatedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UnitBookPhoto {
+  id: string;
+  unitId: string;
+  imageUrl: string;
+  caption?: string;
+  displayOrder: number;
+  createdAt: string;
+}
+
+/** Perfil de un colaborador dentro del Unit Book (campos editables, no reemplazan la ficha HR) */
+export interface UnitBookMember {
+  id: string;
+  unitId: string;
+  resourceId: string;
+  functions?: string;
+  experience?: string;
+  workZone?: string;
+  colleagueMessage?: string;
+  includeInBook: boolean;
+  displayOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ============================================

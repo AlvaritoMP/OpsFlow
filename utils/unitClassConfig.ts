@@ -12,7 +12,8 @@ export type UnitDetailTab =
   | 'attendance'
   | 'vacations'
   | 'contacts'
-  | 'banks';
+  | 'banks'
+  | 'unitbook';
 
 const BPO_ONLY_TABS: UnitDetailTab[] = ['contacts', 'banks'];
 
@@ -78,6 +79,7 @@ export function getTabLabelForUnitClass(tab: UnitDetailTab, unitClass?: UnitClas
     documents: 'Documentos',
     contacts: 'Contactos',
     banks: 'Bancos',
+    unitbook: 'Unit Book',
   };
 
   return defaults[tab];

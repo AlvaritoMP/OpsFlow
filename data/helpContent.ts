@@ -173,6 +173,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Plano: planos y ubicación.',
           'Requerimientos: solicitudes del cliente.',
           'Documentos: archivos de la unidad.',
+          'Unit Book: folleto de incorporación (objetivo, fotos, equipo) para candidatos nuevos.',
           'Contactos / Bancos: solo en unidades BPO.',
         ],
       },
@@ -209,6 +210,21 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Una papeleta nueva entra al roster como sin cobertura hasta que usted elija lo contrario.',
           'El clic en Día/Tarde/Noche/OFF no muestra vacaciones: esas solo aparecen cuando el día ya es Vac por papeleta.',
           'Al volver de la pestaña Vacaciones a Personal, el roster recarga los turnos desde la base de datos para mostrar la papeleta.',
+        ],
+      },
+      {
+        heading: 'Unit Book',
+        body: 'El Unit Book es el folleto que se entrega a candidatos o nuevos ingresos para situarlos en la unidad: el servicio, los espacios y el equipo.',
+        steps: [
+          'Abra la unidad → Unit Book.',
+          'Complete el objetivo del servicio, cantidad de pisos, horarios, vestimenta, acceso y un mensaje de bienvenida.',
+          'Agregue fotos de la unidad (o impórtelas desde la galería de General) y secciones extra si hace falta.',
+          'En Equipo, marque quién aparece en el folleto y edite funciones, experiencia, zona y un mensaje a los colegas.',
+          'Pulse Descargar folleto PDF para generar el documento listo para entregar.',
+        ],
+        tips: [
+          'La foto, el puesto y el tiempo en Opalo salen del personal de la unidad; las funciones y el mensaje se editan solo para el folleto.',
+          'La experiencia se precarga desde la ficha complementaria si existe, y se puede reescribir para el Unit Book.',
         ],
       },
       {
