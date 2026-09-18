@@ -3,6 +3,14 @@
 export const DIALOG_CALLBACK_ID = 'falta_attendance_v1';
 export const UNIT_PICKER_ACTION = 'open_falta_dialog';
 export const UNIT_CONTINUE_ACTION = 'continue_falta_dialog';
+export const FORM_ACTIONS = {
+  unit: 'setunit',
+  worker: 'setworker',
+  type: 'settype',
+  reason: 'setreason',
+  coverage: 'setcoverage',
+  register: 'register',
+};
 export const SELECT_OPTIONS_MAX = 100;
 export const ATTACHMENTS_BUCKET = 'attendance-incident-attachments';
 
@@ -59,13 +67,17 @@ export function validateSubmission(submission) {
   const errors = {};
   const unitId = asText(submission?.unit_id);
   const employeeId = asText(submission?.employee_id);
+  const employeeQuery = asText(submission?.employee_query);
   const incidentType = asText(submission?.incident_type);
   const incidentReason = asText(submission?.incident_reason);
   const hasCoverage = asText(submission?.has_coverage);
   const observations = asText(submission?.observations);
 
   if (!unitId) errors.unit_id = 'Seleccione la unidad / sede operativa.';
-  if (!employeeId) errors.employee_id = 'Seleccione el trabajador.';
+  if (!employeeId && !employeeQuery) {
+    errors.employee_id = 'Seleccione el trabajador.';
+    errors.employee_query = 'Indique el DNI o apellido del trabajador.';
+  }
   if (!TYPE_SET.has(incidentType)) errors.incident_type = 'Seleccione un tipo de incidencia válido.';
   if (!REASON_SET.has(incidentReason)) errors.incident_reason = 'Seleccione un motivo de la lista.';
   if (!COVERAGE_SET.has(hasCoverage)) errors.has_coverage = 'Seleccione la cobertura de puesto.';
@@ -77,6 +89,7 @@ export function validateSubmission(submission) {
     values: {
       unitId,
       employeeId,
+      employeeQuery,
       incidentType,
       incidentReason,
       hasCoverage,
