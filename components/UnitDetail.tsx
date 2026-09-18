@@ -1007,14 +1007,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canEditGeneral = checkPermission(userRole, 'UNIT_OVERVIEW', 'edit');
   const canViewPersonnel = checkPermission(userRole, 'PERSONNEL', 'view');
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
-  const canViewUnitBook = checkPermission(userRole, 'UNIT_BOOK', 'view');
-  const canEditUnitBook = checkPermission(userRole, 'UNIT_BOOK', 'edit');
+  const canViewUnitBook = userRole !== 'CLIENT' && checkPermission(userRole, 'UNIT_BOOK', 'view');
+  const canEditUnitBook = canViewUnitBook && checkPermission(userRole, 'UNIT_BOOK', 'edit');
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
   const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
   const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit') || userRole === 'OPERATIONS' || userRole === 'OPERATIONS_SUPERVISOR';
   const canManageZones = canEditGeneral || canEditBlueprint;
   const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
+
+  useEffect(() => {
+    if (activeTab === 'unitbook' && !canViewUnitBook) {
+      setActiveTab('overview');
+      activeTabRef.current = 'overview';
+    }
+  }, [activeTab, canViewUnitBook]);
 
   /** Solo lista de requerimientos: evita `onUpdate` → persistir toda la unidad y re-guardar todos los recursos. */
   const applyUnitRequestsInUI = (requests: ClientRequest[]): void | Promise<void> => {
@@ -8900,7 +8907,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'blueprint' && renderBlueprint()}
         {activeTab === 'requests' && renderClientRequests()}
         {activeTab === 'documents' && renderDocuments()}
-        {activeTab === 'unitbook' && (
+        {activeTab === 'unitbook' && canViewUnitBook && (
           <UnitBookTab unit={unit} canEdit={canEditUnitBook} currentUserId={currentUser?.id} />
         )}
         {activeTab === 'attendance' && (

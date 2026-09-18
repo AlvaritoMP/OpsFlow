@@ -2279,27 +2279,29 @@ const App: React.FC = () => {
                                         {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'].map(roleStr => {
                                             const role = roleStr as UserRole;
                                             const perm = permissions[role][feature];
+                                            const lockedForClient = role === 'CLIENT' && feature === 'UNIT_BOOK';
                                             return (
                                                 <td key={role} className="px-4 py-3 text-center border-l border-slate-200">
                                                     <div className="flex flex-col items-center gap-2">
-                                                        <label className="flex items-center space-x-2 cursor-pointer text-xs">
+                                                        <label className={`flex items-center space-x-2 text-xs ${lockedForClient ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                                                             <input 
                                                                 type="checkbox" 
                                                                 className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                                                checked={perm.view}
+                                                                checked={lockedForClient ? false : perm.view}
+                                                                disabled={lockedForClient}
                                                                 onChange={(e) => handlePermissionChange(role, feature, 'view', e.target.checked)}
                                                             />
-                                                            <span className={perm.view ? 'text-slate-700' : 'text-slate-400'}>Ver</span>
+                                                            <span className={perm.view && !lockedForClient ? 'text-slate-700' : 'text-slate-400'}>Ver</span>
                                                         </label>
-                                                        <label className="flex items-center space-x-2 cursor-pointer text-xs">
+                                                        <label className={`flex items-center space-x-2 text-xs ${lockedForClient || !perm.view ? 'cursor-not-allowed' : 'cursor-pointer'} ${lockedForClient ? 'opacity-50' : ''}`}>
                                                             <input 
                                                                 type="checkbox" 
                                                                 className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                                                                checked={perm.edit}
+                                                                checked={lockedForClient ? false : perm.edit}
                                                                 onChange={(e) => handlePermissionChange(role, feature, 'edit', e.target.checked)}
-                                                                disabled={!perm.view} // Cannot edit if cannot view
+                                                                disabled={lockedForClient || !perm.view}
                                                             />
-                                                            <span className={perm.edit ? 'text-slate-700' : 'text-slate-400'}>Editar</span>
+                                                            <span className={perm.edit && !lockedForClient ? 'text-slate-700' : 'text-slate-400'}>Editar</span>
                                                         </label>
                                                     </div>
                                                 </td>

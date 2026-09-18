@@ -123,7 +123,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     ASSETS_CATALOG: { view: false, edit: false },
     INVENTORY: { view: false, edit: false },
     DOCUMENTS: { view: true, edit: false },
-    UNIT_BOOK: { view: true, edit: false },
+    UNIT_BOOK: { view: false, edit: false },
     ARCHIVE: { view: false, edit: false },
     SETTINGS: { view: false, edit: false },
     ATS_RECEPTION: { view: false, edit: false },
@@ -198,6 +198,8 @@ export const savePermissions = (config: PermissionConfig) => {
 };
 
 export const checkPermission = (role: UserRole, feature: AppFeature, action: 'view' | 'edit'): boolean => {
+  if (role === 'CLIENT' && feature === 'UNIT_BOOK') return false;
+
   const config = getPermissions();
   const roleConfig = config[role];
   if (!roleConfig) return false;

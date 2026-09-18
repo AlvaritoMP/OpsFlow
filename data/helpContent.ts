@@ -438,12 +438,13 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'El módulo Vacaciones (menú lateral) y la pestaña Vacaciones de la unidad usan las mismas reglas. En la unidad el panel queda fijado a esa sede.',
         steps: [
           'Revise saldos, calendario o listados de papeletas y días a cuenta.',
-          'Para dar goce, emita una papeleta (directa o acumulando días a cuenta).',
-          'Si el goce supera 7 días, debe asignar a otro usuario autorizador y registrar justificación.',
-          'Si tiene el badge de pendientes, entre a Autorizaciones y apruebe o rechace.',
+          'Para dar goce, emita una papeleta (directa o acumulando días a cuenta). Puede registrar histórico, adelantos y cualquier tramo de fechas.',
+          'El sistema muestra buenas prácticas 15+15 y avisa si hay adelanto; eso no impide guardar.',
+          'Anular vacaciones ya emitidas sigue el flujo de Autorizaciones cuando corresponde.',
         ],
         tips: [
           'También puede gestionar vacaciones desde el detalle de cada unidad (pestaña Vacaciones).',
+          'Documente adelantos y casos especiales en observaciones o justificación (opcional).',
         ],
       },
       {
@@ -473,10 +474,11 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
       },
       {
-        heading: 'Reglas de goce (resumen)',
-        body: 'El récord se calcula sobre el año comercial (días de servicio / 360 × 30). El primer bloque de 15 días es fraccionable; el segundo bloque de 15 se goza en múltiplos de 7, en bloque completo de 15, o junto con los primeros 15 en un goce continuo de 30 días. Un goce mayor a 7 días calendario requiere autorización de otro usuario y justificación.',
+        heading: 'Buenas prácticas de goce (informativas)',
+        body: 'El récord se calcula sobre el año comercial (días de servicio / 360 × 30). Como guía: el primer bloque de 15 días es fraccionable; el segundo de 15 se goza en múltiplos de 7, en bloque de 15 o en un goce continuo de 30 días. OpsFlow no bloquea el registro: puede cargar histórico, adelantar días aún no ganados y emitir cualquier papeleta. El saldo puede quedar negativo; eso queda marcado como adelanto.',
         tips: [
-          'Una papeleta del 01.09 al 30.09 (30 días calendario) está permitida si hay 15 + 15 de saldo.',
+          'Una papeleta del 01.09 al 30.09 (30 días calendario) se puede emitir aunque el saldo aún no llegue a 30: se registra como adelanto.',
+          'Los avisos de buena práctica aparecen en el resumen del goce; no impiden emitir.',
           'Los descansos semanales intercalados pueden entrar en el periodo de la papeleta según el descanso inferido del roster.',
           'Los días a cuenta se pueden acumular después en una papeleta.',
         ],

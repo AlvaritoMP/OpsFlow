@@ -15,8 +15,6 @@ import {
   MIN_FRACTION_DAYS,
   SECOND_BLOCK_MULTIPLE,
   SERVICE_DAYS_PER_YEAR,
-  MAX_VACATION_DAYS_WITHOUT_AUTH,
-  requiresVacationAuthorization,
   finalizeVacationPeriod,
   expandVacationWithRestDays,
   allocatePapeletaDays,
@@ -565,24 +563,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
     const worker = allPersonnel.find(p => p.resourceId === papeletaForm.resourceId);
     if (!worker) return;
 
-    const calendarDays = papeletaPreview?.calendarDays ?? 0;
-    const needsAuthorization = requiresVacationAuthorization(calendarDays);
     const justification = papeletaForm.justification.trim();
-
-    if (needsAuthorization && !justification) {
-      alert(`Debe ingresar la justificación del goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días.`);
-      return;
-    }
-
-    if (needsAuthorization) {
-      openAuthModal(
-        'Solicitar autorización de vacaciones',
-        `El goce de ${calendarDays} días supera el máximo de ${MAX_VACATION_DAYS_WITHOUT_AUTH} días. Se enviará una solicitud al usuario que designe.`,
-        submitCreatePapeletaRequest,
-        justification
-      );
-      return;
-    }
 
     try {
       let result: VacationPapeleta;
@@ -602,6 +583,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
           returnDate: returnDate || papeletaForm.returnDate,
           notes: papeletaForm.notes,
           issuedBy: currentUser.id,
+          justification: justification || undefined,
           requestedWorkDays: workDays > 0 ? workDays : undefined,
           weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
         });
@@ -618,6 +600,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
           dayEntryIds: papeletaForm.selectedDayIds,
           notes: papeletaForm.notes,
           issuedBy: currentUser.id,
+          justification: justification || undefined,
           weeklyRestDay: selectedWorkerSummary?.weeklyRestDay,
         });
       }
@@ -856,7 +839,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
             Control de Vacaciones
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Régimen general Perú — {DAYS_PER_YEAR} días/año proporcional ({SERVICE_DAYS_PER_YEAR} días servicio) · Primeros {FIRST_BLOCK_DAYS} fraccionables · Segundos {SECOND_BLOCK_DAYS} en múltiplos de {SECOND_BLOCK_MULTIPLE} o bloque completo · Goce continuo de {DAYS_PER_YEAR} días permitido
+            Régimen general Perú — {DAYS_PER_YEAR} días/año · Buenas prácticas 15+15 informativas · Se puede registrar histórico y adelantos
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -922,15 +905,14 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3 text-sm text-blue-800">
         <Info size={18} className="shrink-0 mt-0.5" />
         <div>
-          <p className="font-medium">Normativa aplicada (fracción 15 + 15)</p>
+          <p className="font-medium">Buenas prácticas (no bloquean el registro)</p>
           <p className="text-blue-700 mt-1">
-            Cada trabajador acumula vacaciones de forma proporcional: {DAYS_PER_YEAR} días por cada {SERVICE_DAYS_PER_YEAR} días
-            de servicio calendario (≈ {DAYS_PER_MONTH} por mes completo de 30 días). Los primeros {FIRST_BLOCK_DAYS} días
-            ganados de cada año son fraccionables desde medio día. Los segundos {SECOND_BLOCK_DAYS} se gozan en
-            múltiplos de {SECOND_BLOCK_MULTIPLE}, en bloque completo de {SECOND_BLOCK_DAYS}, o en un goce continuo
-            de {DAYS_PER_YEAR} días (15 + 15). El periodo vacacional es calendario e incluye el día de descanso
-            semanal (p. ej. 6 días laborales → 7 en papeleta). Otorgar más de {MAX_VACATION_DAYS_WITHOUT_AUTH} días o
-            anular vacaciones requiere solicitar autorización a otro usuario; el designado la aprueba en la pestaña Autorizaciones.
+            El récord se calcula de forma proporcional: {DAYS_PER_YEAR} días por cada {SERVICE_DAYS_PER_YEAR} días
+            de servicio (≈ {DAYS_PER_MONTH} por mes de 30 días). Como guía: primeros {FIRST_BLOCK_DAYS} fraccionables
+            desde medio día; segundos {SECOND_BLOCK_DAYS} en múltiplos de {SECOND_BLOCK_MULTIPLE} o en bloque de {SECOND_BLOCK_DAYS};
+            un goce continuo de {DAYS_PER_YEAR} días es habitual. Puede registrar histórico, adelantos (días aún no ganados)
+            y cualquier tramo: el sistema avisa la práctica recomendada, pero no impide guardar. Documente adelantos y goces
+            largos en observaciones.
           </p>
         </div>
       </div>
@@ -1074,14 +1056,12 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
                             >
                               Histórico
                             </button>
-                            {s.canIssuePapeleta && (
-                              <button
-                                onClick={() => openPapeletaForWorker(s.resourceId, 'direct')}
-                                className="text-xs px-2 py-1 bg-emerald-100 hover:bg-emerald-200 rounded text-emerald-700"
-                              >
-                                Papeleta
-                              </button>
-                            )}
+                            <button
+                              onClick={() => openPapeletaForWorker(s.resourceId, 'direct')}
+                              className="text-xs px-2 py-1 bg-emerald-100 hover:bg-emerald-200 rounded text-emerald-700"
+                            >
+                              Papeleta
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1820,60 +1800,57 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
               </div>
 
               {papeletaPreview && (
-                <div className={`rounded-lg border p-3 text-xs space-y-1 ${papeletaPreview.allocation.valid ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                <div className={`rounded-lg border p-3 text-xs space-y-1 ${papeletaPreview.allocation.warnings.length ? 'bg-amber-50 border-amber-200 text-amber-950' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
                   <p className="font-medium flex items-center gap-1">
-                    {papeletaPreview.allocation.valid ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                    {papeletaPreview.allocation.warnings.length ? <AlertCircle size={14} /> : <CheckCircle size={14} />}
                     Resumen del goce
                   </p>
                   <p>Días a descontar del saldo: <strong>{papeletaPreview.calendarDays}</strong></p>
                   {papeletaPreview.endDate && <p>Término efectivo: <strong>{formatDateDisplay(papeletaPreview.endDate)}</strong></p>}
                   {papeletaPreview.returnDate && <p>Retorno sugerido: <strong>{formatDateDisplay(papeletaPreview.returnDate)}</strong></p>}
                   {selectedWorkerSummary?.startDate &&
-                    isVacationAdvance(selectedWorkerSummary.startDate, papeletaForm.startDate) && (
+                    isVacationAdvance(selectedWorkerSummary.startDate, papeletaForm.startDate, undefined, {
+                      availableDays: selectedWorkerSummary.availableDays,
+                      requestedDays: papeletaPreview.calendarDays,
+                    }) && (
                     <p className="text-orange-800 font-medium">
-                      Este goce se emitirá como <strong>Adelanto de Vacaciones</strong> (el trabajador aún no ha ganado 30 días).
+                      Este goce se emitirá como <strong>Adelanto de Vacaciones</strong> (días aún no ganados o primer año incompleto).
                     </p>
                   )}
                   {papeletaPreview.includedRestDates.length > 0 && (
                     <p>Incluye descanso ({papeletaPreview.restDayLabel}): {papeletaPreview.includedRestDates.map(formatDateDisplay).join(', ')}</p>
                   )}
-                  {papeletaPreview.allocation.valid ? (
-                    <>
-                      <p>
-                        Imputación → 1.ºs 15: {papeletaPreview.allocation.fromFirst15}
-                        {papeletaPreview.allocation.fromSecond15 > 0 && (
-                          <> · 2.ºs 15: {papeletaPreview.allocation.fromSecond15}</>
-                        )}
-                      </p>
-                      {requiresVacationAuthorization(papeletaPreview.calendarDays) && (
-                        <p className="text-amber-700 font-medium">
-                          Requiere justificación y solicitud de autorización (supera {MAX_VACATION_DAYS_WITHOUT_AUTH} días).
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <p>{papeletaPreview.allocation.error}</p>
-                  )}
+                  <p>
+                    Imputación → 1.ºs 15: {papeletaPreview.allocation.fromFirst15}
+                    {papeletaPreview.allocation.fromSecond15 > 0 && (
+                      <> · 2.ºs 15: {papeletaPreview.allocation.fromSecond15}</>
+                    )}
+                    {(papeletaPreview.allocation.advanceDays || 0) > 0 && (
+                      <> · Adelanto: {papeletaPreview.allocation.advanceDays}</>
+                    )}
+                  </p>
+                  {papeletaPreview.allocation.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                  <p className="text-slate-600">Las buenas prácticas son informativas: puede emitir este goce igual.</p>
                 </div>
               )}
 
-              {papeletaPreview && requiresVacationAuthorization(papeletaPreview.calendarDays) && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Justificación del goce <span className="text-red-600">*</span>
-                  </label>
-                  <p className="text-xs text-slate-500 mb-2">
-                    Obligatorio para solicitudes mayores a {MAX_VACATION_DAYS_WITHOUT_AUTH} días. El autorizador verá este texto.
-                  </p>
-                  <textarea
-                    className="w-full border border-amber-200 rounded-lg p-2 text-sm bg-amber-50/50"
-                    rows={3}
-                    value={papeletaForm.justification}
-                    onChange={e => setPapeletaForm({ ...papeletaForm, justification: e.target.value })}
-                    placeholder="Indique el motivo o sustento del otorgamiento de vacaciones por más de 7 días..."
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Justificación / sustento (opcional)
+                </label>
+                <p className="text-xs text-slate-500 mb-2">
+                  Recomendado para adelantos o goces largos. No es obligatorio para guardar.
+                </p>
+                <textarea
+                  className="w-full border rounded-lg p-2 text-sm"
+                  rows={3}
+                  value={papeletaForm.justification}
+                  onChange={e => setPapeletaForm({ ...papeletaForm, justification: e.target.value })}
+                  placeholder="Opcional: motivo del goce, adelanto o registro histórico..."
+                />
+              </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">Observaciones</label>
@@ -1891,11 +1868,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
                   !papeletaForm.startDate ||
                   !(papeletaForm.endDate || papeletaPreview?.endDate) ||
                   !(papeletaForm.returnDate || papeletaPreview?.returnDate) ||
-                  (papeletaMode === 'accumulated' && papeletaForm.selectedDayIds.length < 1) ||
-                  (papeletaPreview != null && !papeletaPreview.allocation.valid) ||
-                  (papeletaPreview != null &&
-                    requiresVacationAuthorization(papeletaPreview.calendarDays) &&
-                    !papeletaForm.justification.trim())
+                  (papeletaMode === 'accumulated' && papeletaForm.selectedDayIds.length < 1)
                 }
                 className="w-full bg-emerald-600 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 disabled:opacity-50"
               >

@@ -296,14 +296,21 @@ export function calculateAccruedDays(
 }
 
 /**
- * Adelanto: al inicio del goce el trabajador aún no ha ganado el derecho completo
- * de 30 días (no completó el primer año de servicios / acumulación < 30).
+ * Adelanto: el trabajador aún no ganó 30 días, o el goce supera el saldo disponible.
  */
 export function isVacationAdvance(
   hireDate: string | undefined | null,
   asOfDate: string,
-  annualEntitlement: number = DAYS_PER_YEAR
+  annualEntitlement: number = DAYS_PER_YEAR,
+  options?: { availableDays?: number; requestedDays?: number }
 ): boolean {
+  if (
+    options?.requestedDays != null &&
+    options?.availableDays != null &&
+    round1(options.requestedDays) > round1(options.availableDays) + 0.01
+  ) {
+    return true;
+  }
   if (!hireDate || !asOfDate) return false;
   const { accruedDays } = calculateAccruedDays(hireDate, annualEntitlement, parseDate(asOfDate));
   return accruedDays < annualEntitlement;
@@ -393,72 +400,77 @@ function allocateUsageToBlocks(
 export interface PapeletaAllocation {
   fromFirst15: number;
   fromSecond15: number;
+  advanceDays: number;
   valid: boolean;
+  warnings: string[];
   error?: string;
 }
 
 /**
- * Valida e imputa días de una papeleta contra saldos first15 / second15.
- * - Primeros 15: fraccionables desde 0.5
- * - Segundos 15: múltiplos de 7, el bloque completo de 15, o el remanente para cerrar el bloque
- * - Un goce continuo de 30 días (15 + 15) está permitido
+ * Imputa días contra first15 / second15 y arma avisos de buena práctica.
+ * No bloquea el registro: el histórico, el adelanto y cualquier tramo se pueden guardar.
  */
 export function allocatePapeletaDays(
   requestedDays: number,
   first15Available: number,
   second15Available: number
 ): PapeletaAllocation {
-  const days = round1(requestedDays);
-  if (days < MIN_FRACTION_DAYS) {
-    return {
-      fromFirst15: 0,
-      fromSecond15: 0,
-      valid: false,
-      error: `El goce mínimo es ${MIN_FRACTION_DAYS} día(s) (medio día).`,
-    };
+  const days = round1(Math.max(0, requestedDays));
+  const warnings: string[] = [];
+  const firstAvail = round1(Math.max(0, first15Available));
+  const secondAvail = round1(Math.max(0, second15Available));
+
+  if (days > 0 && days < MIN_FRACTION_DAYS) {
+    warnings.push(`Buena práctica: el goce mínimo recomendado es ${MIN_FRACTION_DAYS} día.`);
   }
 
-  const fromFirst15 = round1(Math.min(days, Math.max(0, first15Available)));
-  const fromSecond15 = round1(days - fromFirst15);
+  const fromFirst15 = round1(Math.min(days, firstAvail));
+  const remainder = round1(days - fromFirst15);
+  const fromSecond15 = round1(Math.min(remainder, secondAvail));
+  const advanceDays = round1(Math.max(0, remainder - fromSecond15));
 
-  if (fromSecond15 > second15Available + 0.01) {
-    return {
-      fromFirst15,
-      fromSecond15,
-      valid: false,
-      error: `Saldo insuficiente. Disponibles: ${round1(first15Available)} (primeros 15) + ${round1(second15Available)} (segundos 15).`,
-    };
+  if (advanceDays > 0) {
+    warnings.push(
+      `Este goce incluye ${advanceDays} día(s) de adelanto (aún no ganados). Saldo disponible: ${round1(firstAvail + secondAvail)}.`
+    );
   }
 
   if (fromSecond15 > 0) {
     const isMultipleOf7 = isMultipleOf(fromSecond15, SECOND_BLOCK_MULTIPLE);
     const isFullSecondBlock = isMultipleOf(fromSecond15, SECOND_BLOCK_DAYS);
-    const isClosingRemaining =
-      fromSecond15 > 0 && Math.abs(fromSecond15 - second15Available) < 0.01;
+    const isClosingRemaining = Math.abs(fromSecond15 - secondAvail) < 0.01;
     if (!isMultipleOf7 && !isFullSecondBlock && !isClosingRemaining) {
-      return {
-        fromFirst15,
-        fromSecond15,
-        valid: false,
-        error:
-          `Los días imputados a los segundos 15 deben ser múltiplos de ${SECOND_BLOCK_MULTIPLE}, ` +
-          `el bloque completo de ${SECOND_BLOCK_DAYS}, o el remanente para cerrar ese saldo ` +
-          `(solicitados al 2.º bloque: ${fromSecond15}). ` +
-          `El goce continuo de 30 días (15 + 15) sí está permitido si hay saldo.`,
-      };
+      warnings.push(
+        `Buena práctica: los segundos 15 se gozan en múltiplos de ${SECOND_BLOCK_MULTIPLE}, en bloque de ${SECOND_BLOCK_DAYS} o para cerrar el remanente (este goce imputa ${fromSecond15} al 2.º bloque).`
+      );
     }
   }
 
   if (fromFirst15 > 0 && fromFirst15 < MIN_FRACTION_DAYS) {
-    return {
-      fromFirst15,
-      fromSecond15,
-      valid: false,
-      error: `En los primeros 15 días el fraccionamiento mínimo es ${MIN_FRACTION_DAYS} día.`,
-    };
+    warnings.push(`Buena práctica: en los primeros 15 el fraccionamiento mínimo recomendado es ${MIN_FRACTION_DAYS} día.`);
   }
 
-  return { fromFirst15, fromSecond15, valid: true };
+  if (days > MAX_VACATION_DAYS_WITHOUT_AUTH) {
+    warnings.push(
+      `Buena práctica: un goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días conviene dejarlo documentado en observaciones.`
+    );
+  }
+
+  return {
+    fromFirst15,
+    fromSecond15,
+    advanceDays,
+    valid: true,
+    warnings,
+    error: warnings[0],
+  };
+}
+
+function formatAllocationNote(allocation: PapeletaAllocation): string {
+  const parts = [`Imputación: ${allocation.fromFirst15} día(s) a primeros 15`];
+  if (allocation.fromSecond15 > 0) parts.push(`${allocation.fromSecond15} a segundos 15`);
+  if (allocation.advanceDays > 0) parts.push(`${allocation.advanceDays} de adelanto`);
+  return `${parts.join(' + ')}.`;
 }
 
 export function buildBalanceSummary(
@@ -493,11 +505,7 @@ export function buildBalanceSummary(
   const second15Available = round1(periodBlocks.reduce((s, b) => s + b.secondBlockAvailable, 0));
 
   const weeklyRestDay = inferWeeklyRestDay(resource.workSchedule);
-  const canIssueFromFirst = first15Available >= MIN_FRACTION_DAYS;
-  const canIssueFromSecond =
-    second15Available >= SECOND_BLOCK_MULTIPLE ||
-    (second15Available > 0 && second15Available < SECOND_BLOCK_MULTIPLE);
-  const canIssuePapeleta = availableDays >= MIN_FRACTION_DAYS && (canIssueFromFirst || canIssueFromSecond);
+  const canIssuePapeleta = true;
 
   return {
     resourceId: resource.id,
@@ -1028,18 +1036,6 @@ export const vacationService = {
       throw new Error('El día a cuenta debe ser 1 día completo o 0.5 (medio día)');
     }
 
-    const summaryHint = await getSummaryForValidation(resourceId, unitId, '', '');
-    if (summaryHint) {
-      const allocation = allocatePapeletaDays(
-        count,
-        summaryHint.first15Available,
-        summaryHint.second15Available
-      );
-      if (!allocation.valid) {
-        throw new Error(allocation.error || 'No se puede registrar el día a cuenta con el saldo actual');
-      }
-    }
-
     const dayPayload = {
       resource_id: resourceId,
       unit_id: unitId,
@@ -1339,32 +1335,18 @@ export const vacationService = {
     const firstAvail = summary?.first15Available ?? 0;
     const secondAvail = summary?.second15Available ?? 0;
     const allocation = allocatePapeletaDays(calendarDays, firstAvail, secondAvail);
-    if (!allocation.valid) {
-      throw new Error(allocation.error || 'Goce no permitido según reglas de fraccionamiento');
-    }
-
-    if (requiresVacationAuthorization(calendarDays) && !params.authorizedBy) {
-      throw new Error(
-        `Goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días requiere autorización de otro usuario`
-      );
-    }
-    if (requiresVacationAuthorization(calendarDays) && !params.justification?.trim()) {
-      throw new Error(
-        `Debe registrar la justificación del goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días`
-      );
-    }
 
     const justificationNote = params.justification?.trim()
-      ? `Justificación (>7 días): ${params.justification.trim()}`
+      ? `Justificación: ${params.justification.trim()}`
       : '';
-    const allocNote =
-      `Imputación: ${allocation.fromFirst15} día(s) a primeros 15` +
-      (allocation.fromSecond15 > 0 ? ` + ${allocation.fromSecond15} a segundos 15` : '') +
-      '.';
+    const allocNote = formatAllocationNote(allocation);
     const notes = [params.notes, justificationNote, restNote, allocNote].filter(Boolean).join(' ');
 
     const code = await this.generatePapeletaCode();
-    const isAdvance = isVacationAdvance(summary?.startDate, startDate);
+    const isAdvance = isVacationAdvance(summary?.startDate, startDate, DAYS_PER_YEAR, {
+      availableDays: summary?.availableDays,
+      requestedDays: calendarDays,
+    }) || allocation.advanceDays > 0;
 
     const papeletaPayload = {
       resource_id: params.resourceId,
@@ -1495,35 +1477,21 @@ export const vacationService = {
     }
 
     const allocation = allocatePapeletaDays(calendarDays, firstForValidation, secondForValidation);
-    if (!allocation.valid) {
-      throw new Error(allocation.error || 'Goce no permitido según reglas de fraccionamiento');
-    }
-
-    if (requiresVacationAuthorization(calendarDays) && !params.authorizedBy) {
-      throw new Error(
-        `Goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días requiere autorización de otro usuario`
-      );
-    }
-    if (requiresVacationAuthorization(calendarDays) && !params.justification?.trim()) {
-      throw new Error(
-        `Debe registrar la justificación del goce mayor a ${MAX_VACATION_DAYS_WITHOUT_AUTH} días`
-      );
-    }
 
     const justificationNote = params.justification?.trim()
-      ? `Justificación (>7 días): ${params.justification.trim()}`
+      ? `Justificación: ${params.justification.trim()}`
       : '';
     const restNote = finalized.includedRestDates.length
       ? `Incluye descanso semanal (${weeklyRestDayLabel(restDay)}): ${finalized.includedRestDates.join(', ')}.`
       : '';
-    const allocNote =
-      `Imputación: ${allocation.fromFirst15} día(s) a primeros 15` +
-      (allocation.fromSecond15 > 0 ? ` + ${allocation.fromSecond15} a segundos 15` : '') +
-      '.';
+    const allocNote = formatAllocationNote(allocation);
     const notes = [params.notes, justificationNote, restNote, allocNote].filter(Boolean).join(' ');
 
     const code = await this.generatePapeletaCode();
-    const isAdvance = isVacationAdvance(summary?.startDate, params.startDate);
+    const isAdvance = isVacationAdvance(summary?.startDate, params.startDate, DAYS_PER_YEAR, {
+      availableDays: summary?.availableDays,
+      requestedDays: calendarDays,
+    }) || allocation.advanceDays > 0;
 
     const accumulatedPayload = {
       resource_id: params.resourceId,
@@ -1617,26 +1585,6 @@ export const vacationService = {
     const restDay = updates.weeklyRestDay ?? summary?.weeklyRestDay ?? 0;
     const finalized = finalizeVacationPeriod(updates.startDate, updates.endDate, restDay);
     const calendarDays = round1(finalized.calendarDays);
-
-    const excludeDays = Number(current.calendarDays);
-    let firstForValidation = summary?.first15Available ?? 0;
-    let secondForValidation = summary?.second15Available ?? 0;
-    if (summary?.startDate) {
-      const periodAccruals = buildPeriodAccruals(summary.startDate, DAYS_PER_YEAR);
-      const withoutCurrent = allocateUsageToBlocks(
-        periodAccruals,
-        round1(Math.max(0, (summary.totalUsedDays || 0) - excludeDays))
-      );
-      firstForValidation = round1(withoutCurrent.reduce((s, b) => s + b.firstBlockAvailable, 0));
-      secondForValidation = round1(withoutCurrent.reduce((s, b) => s + b.secondBlockAvailable, 0));
-    } else {
-      firstForValidation = round1(firstForValidation + excludeDays);
-    }
-
-    const allocation = allocatePapeletaDays(calendarDays, firstForValidation, secondForValidation);
-    if (!allocation.valid) {
-      throw new Error(allocation.error || 'Goce no permitido con el saldo disponible');
-    }
 
     const oldStart = current.startDate;
     const oldEnd = current.endDate;
