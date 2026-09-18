@@ -15,7 +15,8 @@ import {
 import {
   configStatus,
   loadConfig,
-  publicBaseFromRequest,
+  mattermostActionUrl,
+  mattermostDialogSubmitUrl,
   safeEqual,
   signState,
   verifyState,
@@ -110,32 +111,31 @@ function isInteractiveAction(body) {
   return false;
 }
 
+function optionValue(value) {
+  if (value && typeof value === 'object') {
+    return String(value.value || value.id || '').trim();
+  }
+  return String(value || '').trim();
+}
+
 function selectedUnitFromAction(payload) {
   const ctx = payload?.context || {};
-  return String(
-    ctx.selected_option ||
-      ctx.selectedOption ||
-      ctx.unit_id ||
-      ctx.unitId ||
-      payload?.selected_option ||
-      payload?.data?.value ||
-      '',
-  ).trim();
+  return (
+    optionValue(ctx.selected_option) ||
+    optionValue(ctx.selectedOption) ||
+    optionValue(ctx.unit_id) ||
+    optionValue(ctx.unitId) ||
+    optionValue(payload?.selected_option) ||
+    optionValue(payload?.data?.value)
+  );
 }
 
-function webhookRoot(req) {
-  const base = publicBaseFromRequest(req);
-  if (!base || !/^https?:\/\//i.test(base)) {
-    throw new Error(
-      'Falta una URL pública absoluta de OpsFlow. Agregue OPS_FLOW_PUBLIC_URL=https://opalo-opsflow.bouasv.easypanel.host en EasyPanel (sin slash final).',
-    );
+function interactiveActionUrl() {
+  const url = mattermostActionUrl();
+  if (!/^https?:\/\//i.test(url) || /localhost|127\.0\.0\.1/i.test(url)) {
+    return 'https://opalo-opsflow.bouasv.easypanel.host/api/webhooks/mattermost/action';
   }
-  return `${base}/api/webhooks/mattermost`;
-}
-
-/** Misma URL del slash command /falta: Mattermost ya la tiene permitida. */
-function commandActionUrl(req) {
-  return `${webhookRoot(req)}/command`;
+  return url;
 }
 
 function extractFileIds(value) {
@@ -518,13 +518,14 @@ async function handleInteractiveAction(req, res, body) {
     return;
   }
 
-  const root = webhookRoot(req);
-  const actionUrl = commandActionUrl(req);
+  const actionUrl = interactiveActionUrl();
+  const submitUrl = mattermostDialogSubmitUrl();
+  console.log('⚡ Mattermost action → dialog.open', { actionUrl, submitUrl, unit: selected });
   let unitName = '';
   try {
     const opened = await openFaltaDialog({
       triggerId,
-      submitUrl: `${root}/dialog-submit`,
+      submitUrl,
       statePayload: {
         channel_id: payload.channel_id || stateCheck.payload.channel_id,
         user_id: payload.user_id || stateCheck.payload.user_id,
@@ -606,18 +607,8 @@ async function handleCommand(req, res, body) {
     return;
   }
 
-  const base = publicBaseFromRequest(req);
-  if (!base || !/^https?:\/\//i.test(base)) {
-    sendJson(res, 200, {
-      response_type: 'ephemeral',
-      text: 'OpsFlow no tiene OPS_FLOW_PUBLIC_URL (https://opalo-opsflow.bouasv.easypanel.host). Agréguela en EasyPanel y vuelva a intentar /falta.',
-    });
-    return;
-  }
-
-  const root = `${base}/api/webhooks/mattermost`;
-  const actionUrl = `${root}/command`;
-  console.log('🔗 /falta interactive URL:', actionUrl);
+  const actionUrl = interactiveActionUrl();
+  console.log('🔗 /falta integration.url:', actionUrl);
 
   try {
     const units = await listActiveUnits();
@@ -642,7 +633,7 @@ async function handleCommand(req, res, body) {
 
     await openFaltaDialog({
       triggerId,
-      submitUrl: `${root}/dialog-submit`,
+      submitUrl: mattermostDialogSubmitUrl(),
       statePayload: { channel_id: channelId, user_id: userId, team_id: teamId, user_name: userName },
       unitId: unitFromText?.id || null,
       workerQuery: unitFromText ? '' : text,
@@ -920,9 +911,20 @@ export function startMattermostThreadPoller() {
 
 export async function handleMattermostRequest(req, res, urlPath) {
   const path = urlPath.replace(/\/+$/, '') || '/';
+  const isActionPath = path.endsWith('/action') || path.endsWith('/actions');
 
   if (req.method === 'GET' && path.endsWith('/health')) {
     sendJson(res, 200, { ok: true, configured: configStatus() });
+    return;
+  }
+
+  if (req.method === 'GET' && isActionPath) {
+    sendJson(res, 200, {
+      ok: true,
+      method: 'GET',
+      hint: 'Mattermost debe hacer POST a esta URL (integration.url).',
+      actionUrl: interactiveActionUrl(),
+    });
     return;
   }
 
@@ -935,7 +937,7 @@ export async function handleMattermostRequest(req, res, urlPath) {
   const body = parsePayload(req, raw);
   console.log('📥 Mattermost webhook', req.method, path, String(req.headers['content-type'] || ''));
 
-  if (path.endsWith('/action') || path.endsWith('/actions')) {
+  if (isActionPath) {
     await handleInteractiveAction(req, res, body);
     return;
   }

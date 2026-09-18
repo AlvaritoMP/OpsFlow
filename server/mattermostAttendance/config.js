@@ -9,12 +9,44 @@ function trimEnv(name, ...fallbacks) {
   return '';
 }
 
+const DEFAULT_PUBLIC_BASE = 'https://opalo-opsflow.bouasv.easypanel.host';
+
 function firstAbsoluteHttpUrl(...candidates) {
   for (const raw of candidates) {
     const value = String(raw || '').trim().replace(/\/+$/, '');
-    if (/^https?:\/\//i.test(value)) return value;
+    if (!/^https?:\/\//i.test(value)) continue;
+    try {
+      const parsed = new URL(value);
+      const host = parsed.hostname.toLowerCase();
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1') continue;
+      return `${parsed.protocol}//${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '')}`;
+    } catch {
+      /* ignore invalid */
+    }
   }
   return '';
+}
+
+/** URL pública absoluta de OpsFlow. Nunca relativa ni localhost. */
+export function opsFlowPublicBase() {
+  return (
+    firstAbsoluteHttpUrl(
+      process.env.APP_BASE_URL,
+      process.env.OPS_FLOW_PUBLIC_URL,
+      process.env.OPS_FLOW_URL,
+      process.env.VITE_API_URL,
+      DEFAULT_PUBLIC_BASE,
+    ) || DEFAULT_PUBLIC_BASE
+  );
+}
+
+/** Endpoint al que Mattermost hace POST al pulsar Continuar / el select. */
+export function mattermostActionUrl() {
+  return `${opsFlowPublicBase()}/api/webhooks/mattermost/action`;
+}
+
+export function mattermostDialogSubmitUrl() {
+  return `${opsFlowPublicBase()}/api/webhooks/mattermost/dialog-submit`;
 }
 
 export function loadConfig() {
@@ -22,12 +54,7 @@ export function loadConfig() {
     process.env.MATTERMOST_URL,
     process.env.MATTERMOST_BASE_URL,
   );
-  const publicUrl = firstAbsoluteHttpUrl(
-    process.env.OPS_FLOW_PUBLIC_URL,
-    process.env.OPS_FLOW_URL,
-    process.env.VITE_API_URL,
-    'https://opalo-opsflow.bouasv.easypanel.host',
-  );
+  const publicUrl = opsFlowPublicBase();
   const supabaseUrl = trimEnv('SUPABASE_URL', 'VITE_SUPABASE_URL');
   const serviceKey = trimEnv('SUPABASE_SERVICE_ROLE_KEY');
   const anonKey = trimEnv('SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY');
@@ -73,6 +100,8 @@ export function configStatus() {
     serviceRole: cfg.hasServiceRole,
     publicUrl: Boolean(cfg.publicUrl),
     publicUrlValue: cfg.publicUrl || null,
+    actionUrl: mattermostActionUrl(),
+    dialogSubmitUrl: mattermostDialogSubmitUrl(),
   };
 }
 
@@ -109,16 +138,6 @@ export function verifyState(state, secret, maxAgeMs = 15 * 60 * 1000) {
   return { ok: true, payload };
 }
 
-export function publicBaseFromRequest(req) {
-  const cfg = loadConfig();
-  if (cfg.publicUrl) return cfg.publicUrl;
-  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim() || 'https';
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
-    .split(',')[0]
-    .trim()
-    .replace(/:\d+$/, (port) => (port === ':80' || port === ':443' ? '' : port));
-  if (host && host.includes('.') && !/^localhost$/i.test(host.split(':')[0])) {
-    return `${proto}://${host}`;
-  }
-  return '';
+export function publicBaseFromRequest(_req) {
+  return opsFlowPublicBase();
 }

@@ -6,6 +6,7 @@ import {
   handleMattermostRequest,
   startMattermostThreadPoller,
 } from './server/mattermostAttendance/index.js';
+import { mattermostActionUrl } from './server/mattermostAttendance/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -250,6 +251,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`📁 Sirviendo archivos desde: ${distPath}`);
   console.log(`🔁 Proxy Opalosis en /api/opalosis-proxy/*`);
   console.log(`📣 Webhooks Mattermost en /api/webhooks/mattermost/*`);
+  console.log(`🔘 Mattermost integration.url: ${mattermostActionUrl()}`);
   startMattermostThreadPoller();
   console.log(`✅ Servidor listo para recibir peticiones`);
 });

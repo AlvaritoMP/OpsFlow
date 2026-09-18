@@ -130,16 +130,18 @@ Ejecuta en Supabase SQL Editor:
 | `MATTERMOST_SLASH_TOKEN` | Token del Slash Command `/falta` |
 | `MATTERMOST_OUTGOING_TOKEN` | Token del Outgoing Webhook de adjuntos (opcional si usas el poller) |
 | `MATTERMOST_TEAM_NAME` | Slug del equipo, para el permalink del hilo (ej. `operaciones`) |
-| `OPS_FLOW_PUBLIC_URL` | URL pública de OpsFlow (`https://<host-easypanel>`) |
+| `APP_BASE_URL` | URL pública absoluta de OpsFlow, **sin slash final**. Se inyecta en `integration.url` del botón Continuar. Ejemplo: `https://opalo-opsflow.bouasv.easypanel.host` |
+| `OPS_FLOW_PUBLIC_URL` | Alias de `APP_BASE_URL` (si no defines `APP_BASE_URL`) |
 | `SUPABASE_URL` | URL del proyecto (puede repetir `VITE_SUPABASE_URL`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role para guardar incidencias y subir archivos |
 
 En Mattermost:
 
-1. **Slash Command** `/falta` → Request URL: `https://<host>/api/webhooks/mattermost/command`
-2. El modal envía a `https://<host>/api/webhooks/mattermost/dialog-submit` (lo abre OpsFlow con el `trigger_id`)
-3. (Opcional) **Outgoing Webhook** del canal → `https://<host>/api/webhooks/mattermost/post-attachment`
-4. Invita al bot al canal. El servidor también revisa hilos cada 20s por si el webhook no dispara en respuestas solo con imagen.
+1. **Slash Command** `/falta` → Request URL: `https://<host>/api/webhooks/mattermost/command` (sin slash final)
+2. El botón **Continuar** y el select de unidad hacen POST a `https://<host>/api/webhooks/mattermost/action` (URL absoluta; Mattermost no acepta rutas relativas)
+3. El modal envía a `https://<host>/api/webhooks/mattermost/dialog-submit` (lo abre OpsFlow con el `trigger_id`)
+4. (Opcional) **Outgoing Webhook** del canal → `https://<host>/api/webhooks/mattermost/post-attachment`
+5. Invita al bot al canal. El servidor también revisa hilos cada 20s por si el webhook no dispara en respuestas solo con imagen.
 
 Prueba de salud: `GET https://<host>/api/webhooks/mattermost/health`
 
