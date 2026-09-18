@@ -634,20 +634,10 @@ async function handleCommand(req, res, body) {
       values,
     });
     console.log('🔗 /falta formulario inline', actionUrl);
-    try {
-      await createPost({
-        channel_id: channelId,
-        message: form.text,
-        props: { attachments: form.attachments },
-      });
-      sendJson(res, 200, {
-        response_type: 'ephemeral',
-        text: 'Formulario publicado en el canal (mensaje de **opsflow-bot**). Elija la unidad y se cargarán los operarios.',
-      });
-    } catch (postErr) {
-      console.warn('⚠️  createPost /falta, se publica in_channel:', postErr instanceof Error ? postErr.message : postErr);
-      sendJson(res, 200, { ...form, response_type: 'in_channel' });
-    }
+    sendJson(res, 200, {
+      ...form,
+      response_type: 'in_channel',
+    });
   } catch (err) {
     console.error('❌ /falta formulario:', err);
     sendJson(res, 200, {
