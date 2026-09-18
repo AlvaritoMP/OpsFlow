@@ -43,6 +43,7 @@ import {
   getPost,
   getPostThread,
   getTeam,
+  patchPost,
 } from './mattermostApi.js';
 
 function sendJson(res, status, body) {
@@ -93,11 +94,20 @@ function parsePayload(req, raw) {
 }
 
 function interactivePayload(body) {
-  if (body?.payloadJson && typeof body.payloadJson === 'object') return body.payloadJson;
-  if (body && typeof body === 'object' && (body.context || body.type === 'select' || body.type === 'button')) {
-    return body;
+  let payload = null;
+  if (body?.payloadJson && typeof body.payloadJson === 'object') payload = body.payloadJson;
+  else if (body && typeof body === 'object' && (body.context || body.type === 'select' || body.type === 'button')) {
+    payload = body;
   }
-  return null;
+  if (!payload) return null;
+  if (typeof payload.context === 'string') {
+    try {
+      payload = { ...payload, context: JSON.parse(payload.context) };
+    } catch {
+      payload = { ...payload, context: {} };
+    }
+  }
+  return payload;
 }
 
 function isInteractiveAction(body) {
@@ -120,12 +130,13 @@ function optionValue(value) {
 function selectedUnitFromAction(payload) {
   const ctx = payload?.context || {};
   return (
+    optionValue(payload?.selected_option) ||
     optionValue(ctx.selected_option) ||
     optionValue(ctx.selectedOption) ||
-    optionValue(ctx.unit_id) ||
-    optionValue(ctx.unitId) ||
-    optionValue(payload?.selected_option) ||
-    optionValue(payload?.data?.value)
+    optionValue(payload?.data?.selected_option) ||
+    optionValue(payload?.data?.value) ||
+    optionValue(payload?.option) ||
+    optionValue(payload?.value)
   );
 }
 
@@ -313,7 +324,7 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
             options: unitOptions,
           }),
           selectAction({
-            id: 'setworker',
+            id: values.unit_id ? 'operario' : 'setworker',
             name: 'Trabajador',
             actionUrl,
             state,
@@ -371,12 +382,26 @@ async function workersForForm(unitId, workerQuery) {
 }
 
 function formUpdateResponse(form, extraText) {
+  const message = extraText ? `${form.text}\n\n${extraText}` : form.text;
   return {
     update: {
-      message: extraText ? `${form.text}\n\n${extraText}` : form.text,
+      message,
+      attachments: form.attachments,
       props: { attachments: form.attachments },
     },
   };
+}
+
+async function refreshFormPost(postId, form) {
+  if (!postId) return;
+  try {
+    await patchPost(postId, {
+      message: form.text,
+      props: { attachments: form.attachments },
+    });
+  } catch (err) {
+    console.warn('⚠️  No se pudo actualizar el mensaje /falta:', err instanceof Error ? err.message : err);
+  }
 }
 
 function cardFields({ unit, worker, values }) {
@@ -465,6 +490,8 @@ async function handleInteractiveAction(req, res, body) {
     type: payload.type || action || 'unknown',
     action,
     selected: selected || null,
+    contextKeys: Object.keys(payload.context || {}),
+    postId: payload.post_id || null,
   });
 
   const stateCheck = verifyState(stateRaw, cfg.stateSecret);
@@ -473,10 +500,16 @@ async function handleInteractiveAction(req, res, body) {
     return;
   }
 
+  const actionUrl = interactiveActionUrl();
+  const units = await listActiveUnits();
+
   if (action === FORM_ACTIONS.unit || action === UNIT_PICKER_ACTION) {
-    if (selected && selected !== 'pending') {
-      if (values.unit_id !== selected) values.employee_id = '';
-      values.unit_id = selected;
+    const unit =
+      (selected && units.find((u) => u.id === selected)) ||
+      matchUnitByText(units, selected);
+    if (unit) {
+      if (values.unit_id !== unit.id) values.employee_id = '';
+      values.unit_id = unit.id;
     }
   } else if (action === FORM_ACTIONS.worker) {
     if (selected && selected !== 'pending') values.employee_id = selected;
@@ -486,10 +519,14 @@ async function handleInteractiveAction(req, res, body) {
     if (selected) values.incident_reason = selected;
   } else if (action === FORM_ACTIONS.coverage) {
     if (selected) values.has_coverage = selected;
+  } else if (payload.type === 'select' && selected) {
+    const unit = units.find((u) => u.id === selected) || matchUnitByText(units, selected);
+    if (unit) {
+      if (values.unit_id !== unit.id) values.employee_id = '';
+      values.unit_id = unit.id;
+    }
   }
 
-  const actionUrl = interactiveActionUrl();
-  const units = await listActiveUnits();
   const workers = await workersForForm(values.unit_id);
   const form = ephemeralFaltaForm({
     actionUrl,
@@ -498,6 +535,7 @@ async function handleInteractiveAction(req, res, body) {
     workers,
     values,
   });
+  await refreshFormPost(payload.post_id || payload.postId, form);
 
   if (action === FORM_ACTIONS.register || action === UNIT_CONTINUE_ACTION) {
     const result = await saveAndPublishFalta({
@@ -588,18 +626,28 @@ async function handleCommand(req, res, body) {
       { channel_id: channelId, user_id: userId, team_id: teamId, user_name: userName, ts: Date.now() },
       cfg.stateSecret,
     );
+    const form = ephemeralFaltaForm({
+      actionUrl,
+      state,
+      units,
+      workers,
+      values,
+    });
     console.log('🔗 /falta formulario inline', actionUrl);
-    sendJson(
-      res,
-      200,
-      ephemeralFaltaForm({
-        actionUrl,
-        state,
-        units,
-        workers,
-        values,
-      }),
-    );
+    try {
+      await createEphemeralPost(userId, {
+        channel_id: channelId,
+        message: form.text,
+        props: { attachments: form.attachments },
+      });
+      sendJson(res, 200, {
+        response_type: 'ephemeral',
+        text: 'Complete el formulario de arriba y pulse **Registrar**.',
+      });
+    } catch (postErr) {
+      console.warn('⚠️  Ephemeral API /falta, se envía en la respuesta del comando:', postErr instanceof Error ? postErr.message : postErr);
+      sendJson(res, 200, form);
+    }
   } catch (err) {
     console.error('❌ /falta formulario:', err);
     sendJson(res, 200, {

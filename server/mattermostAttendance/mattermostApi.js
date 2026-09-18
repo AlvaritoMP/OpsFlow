@@ -55,8 +55,12 @@ export async function openDialog({ triggerId, url, dialog }) {
   });
 }
 
-export async function createPost(post) {
-  return mattermostFetch('/api/v4/posts', { method: 'POST', body: post });
+export async function patchPost(postId, patch) {
+  if (!postId) throw new Error('Falta post_id para actualizar el mensaje');
+  return mattermostFetch(`/api/v4/posts/${encodeURIComponent(postId)}/patch`, {
+    method: 'PUT',
+    body: patch,
+  });
 }
 
 export async function createEphemeralPost(userId, post) {

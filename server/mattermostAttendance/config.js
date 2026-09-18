@@ -40,9 +40,14 @@ export function opsFlowPublicBase() {
   );
 }
 
-/** Endpoint al que Mattermost hace POST al pulsar Continuar / el select. */
+/** Slash command /falta: Mattermost ya confía en esta URL para acciones interactivas. */
+export function mattermostCommandUrl() {
+  return `${opsFlowPublicBase()}/api/webhooks/mattermost/command`;
+}
+
+/** Alias de la URL de acciones. Usamos la del slash command para que el select dispare el POST. */
 export function mattermostActionUrl() {
-  return `${opsFlowPublicBase()}/api/webhooks/mattermost/action`;
+  return mattermostCommandUrl();
 }
 
 export function mattermostDialogSubmitUrl() {
