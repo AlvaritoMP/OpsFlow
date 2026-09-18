@@ -2,6 +2,10 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  handleMattermostRequest,
+  startMattermostThreadPoller,
+} from './server/mattermostAttendance/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -199,6 +203,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (urlPath === '/api/webhooks/mattermost' || urlPath.startsWith('/api/webhooks/mattermost/')) {
+    try {
+      await handleMattermostRequest(req, res, urlPath);
+    } catch (err) {
+      console.error('❌ Mattermost webhook error:', err);
+      sendJson(res, 500, {
+        error: 'Error interno del webhook Mattermost',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
+
   let spaPath = urlPath;
   if (spaPath === '/' || spaPath === '') {
     spaPath = '/index.html';
@@ -222,6 +239,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://0.0.0.0:${PORT}`);
   console.log(`📁 Sirviendo archivos desde: ${distPath}`);
   console.log(`🔁 Proxy Opalosis en /api/opalosis-proxy/*`);
+  console.log(`📣 Webhooks Mattermost en /api/webhooks/mattermost/*`);
+  startMattermostThreadPoller();
   console.log(`✅ Servidor listo para recibir peticiones`);
 });
 

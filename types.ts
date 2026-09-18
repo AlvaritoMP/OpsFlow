@@ -21,6 +21,59 @@ export enum StaffStatus {
   REPLACED = 'Reemplazo Temporal',
 }
 
+/** Tipos de incidencia del slash command Mattermost `/falta`. */
+export type PayrollAttendanceIncidentType =
+  | 'INASISTENCIA'
+  | 'TARDANZA'
+  | 'DESCANSO_MEDICO_INICIAL'
+  | 'PERMISO_LICENCIA';
+
+export type PayrollAttendanceIncidentReason =
+  | 'SALUD_EMERGENCIA'
+  | 'PROBLEMA_PERSONAL'
+  | 'TRAMITE_DOCUMENTARIO'
+  | 'SIN_COMUNICACION'
+  | 'OPERATIVO_TRASLADO';
+
+export type PayrollAttendanceCoverage = 'CON_COBERTURA' | 'SIN_COBERTURA' | 'NO_APLICA';
+
+export type PayrollAttendanceIncidentStatus =
+  | 'PENDING_JUSTIFICATION'
+  | 'MEDICAL_REST'
+  | 'LEAVE_OR_PERMIT'
+  | 'UNJUSTIFIED_ABSENCE';
+
+export interface PayrollAttendanceIncidentAttachment {
+  id?: string;
+  mattermost_file_id?: string;
+  mattermost_post_id?: string;
+  file_name: string;
+  mime_type?: string | null;
+  storage_path?: string;
+  public_url: string;
+  uploaded_at?: string;
+}
+
+export interface PayrollAttendanceIncident {
+  id: string;
+  unitId: string;
+  employeeId: string;
+  incidentType: PayrollAttendanceIncidentType;
+  incidentReason: PayrollAttendanceIncidentReason;
+  hasCoverage: PayrollAttendanceCoverage;
+  status: PayrollAttendanceIncidentStatus;
+  incidentDate: string;
+  observations?: string | null;
+  reportedBy?: string | null;
+  mattermostPostId?: string | null;
+  mattermostPermalink?: string | null;
+  attachments: PayrollAttendanceIncidentAttachment[];
+  createdAt: string;
+  updatedAt: string;
+  employeeName?: string;
+  employeeDni?: string;
+}
+
 export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'CLIENT';
 export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 

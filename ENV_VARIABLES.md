@@ -114,6 +114,35 @@ Edge Function → EasyPanel /api/opalosis-proxy/* → Onyx
 
 Con el proxy configurado, `OPALOSIS_API_KEY` **ya no es necesaria** en Supabase (la key vive solo en EasyPanel).
 
+## Mattermost — faltas de asistencia (`/falta`)
+
+Integración servidor (EasyPanel). **No** uses prefijo `VITE_` (no deben ir al frontend).
+
+Ejecuta en Supabase SQL Editor:
+
+1. `database/migrations/create_payroll_attendance_incidents.sql`
+2. (Opcional) `database/storage_policies_attendance_incidents.sql` — si da `42501 must be owner of table objects`, ignóralo: no se puede hacer `ALTER` sobre `storage.objects`. El bucket público del paso 1 + `SUPABASE_SERVICE_ROLE_KEY` bastan. Políticas extra: Dashboard → Storage → `attendance-incident-attachments` → Policies.
+
+| Variable | Descripción |
+|----------|-------------|
+| `MATTERMOST_URL` | URL del servidor Mattermost, sin slash final (`https://chat.empresa.com`) |
+| `MATTERMOST_BOT_TOKEN` | Token personal del bot (Integrations → Bot Accounts) |
+| `MATTERMOST_SLASH_TOKEN` | Token del Slash Command `/falta` |
+| `MATTERMOST_OUTGOING_TOKEN` | Token del Outgoing Webhook de adjuntos (opcional si usas el poller) |
+| `MATTERMOST_TEAM_NAME` | Slug del equipo, para el permalink del hilo (ej. `operaciones`) |
+| `OPS_FLOW_PUBLIC_URL` | URL pública de OpsFlow (`https://<host-easypanel>`) |
+| `SUPABASE_URL` | URL del proyecto (puede repetir `VITE_SUPABASE_URL`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role para guardar incidencias y subir archivos |
+
+En Mattermost:
+
+1. **Slash Command** `/falta` → Request URL: `https://<host>/api/webhooks/mattermost/command`
+2. El modal envía a `https://<host>/api/webhooks/mattermost/dialog-submit` (lo abre OpsFlow con el `trigger_id`)
+3. (Opcional) **Outgoing Webhook** del canal → `https://<host>/api/webhooks/mattermost/post-attachment`
+4. Invita al bot al canal. El servidor también revisa hilos cada 20s por si el webhook no dispara en respuestas solo con imagen.
+
+Prueba de salud: `GET https://<host>/api/webhooks/mattermost/health`
+
 Prueba del proxy (desde cualquier máquina, con el secret):
 
 ```powershell

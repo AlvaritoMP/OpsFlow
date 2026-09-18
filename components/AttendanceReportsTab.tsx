@@ -15,6 +15,7 @@ import {
   TrendingUp,
   Grid3x3,
   ClipboardList,
+  ClipboardPlus,
 } from 'lucide-react';
 import { Unit, ResourceType, Resource } from '../types';
 import {
@@ -28,6 +29,7 @@ import { SafeImage } from './SafeImage';
 import { AttendanceEvolutionView } from './AttendanceEvolutionView';
 import { AttendanceConsolidatedView } from './AttendanceConsolidatedView';
 import { AttendanceTareoView } from './AttendanceTareoView';
+import { AttendanceIncidentsPanel } from './AttendanceIncidentsPanel';
 import { AttendanceMarkCommentBlock } from './AttendanceMarkCommentBlock';
 import { DateInput } from './DateInput';
 
@@ -37,7 +39,7 @@ interface AttendanceReportsTabProps {
 }
 
 type ViewMode = 'cards' | 'table';
-type ScreenMode = 'byImport' | 'evolution' | 'consolidated' | 'tareo';
+type ScreenMode = 'byImport' | 'evolution' | 'consolidated' | 'tareo' | 'incidents';
 
 function punchChipClasses(label: string): string {
   if (label === 'Sin marca' || label === 'No marco')
@@ -306,6 +308,15 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
         >
           <ClipboardList size={16} /> Tareo / Novedades
         </button>
+        <button
+          type="button"
+          onClick={() => setScreenMode('incidents')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium ${
+            screenMode === 'incidents' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <ClipboardPlus size={16} /> Expedientes Mattermost
+        </button>
       </div>
 
       {screenMode === 'byImport' && (
@@ -352,6 +363,9 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
       </div>
       )}
 
+      {screenMode === 'incidents' ? (
+        <AttendanceIncidentsPanel unit={unit} canEdit={canUpload} />
+      ) : (
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="lg:w-72 shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-3 border-b border-slate-100 bg-slate-50 text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
@@ -640,6 +654,7 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };
