@@ -61,6 +61,8 @@ function mapAttachments(raw: unknown): PayrollAttendanceIncidentAttachment[] {
 function mapIncident(row: Record<string, any>): PayrollAttendanceIncident {
   const resourceRaw = row.resources || row.employee || null;
   const resource = Array.isArray(resourceRaw) ? resourceRaw[0] : resourceRaw;
+  const unitRaw = row.units || row.unit || null;
+  const unit = Array.isArray(unitRaw) ? unitRaw[0] : unitRaw;
   return {
     id: row.id,
     unitId: row.unit_id,
@@ -79,6 +81,7 @@ function mapIncident(row: Record<string, any>): PayrollAttendanceIncident {
     updatedAt: row.updated_at,
     employeeName: resource?.name || undefined,
     employeeDni: resource?.dni || undefined,
+    unitName: unit?.name || undefined,
   };
 }
 
@@ -87,13 +90,38 @@ export const attendanceIncidentService = {
     try {
       const { data, error } = await supabase
         .from('payroll_attendance_incidents')
-        .select('*, resources!employee_id(id, name, dni)')
+        .select('*, resources!employee_id(id, name, dni), units!unit_id(id, name)')
         .eq('unit_id', unitId)
         .order('incident_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(limit);
       if (error) throw error;
       return (data || []).map(mapIncident);
+    } catch (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+  },
+
+  async listAll(limit = 500): Promise<PayrollAttendanceIncident[]> {
+    try {
+      const pageSize = 200;
+      const rows: Record<string, any>[] = [];
+      let from = 0;
+      while (rows.length < limit) {
+        const to = Math.min(from + pageSize - 1, limit - 1);
+        const { data, error } = await supabase
+          .from('payroll_attendance_incidents')
+          .select('*, resources!employee_id(id, name, dni), units!unit_id(id, name)')
+          .order('created_at', { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        const chunk = data || [];
+        rows.push(...chunk);
+        if (chunk.length < pageSize) break;
+        from += pageSize;
+      }
+      return rows.map(mapIncident);
     } catch (error) {
       handleSupabaseError(error);
       return [];

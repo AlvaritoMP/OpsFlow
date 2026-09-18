@@ -72,6 +72,7 @@ export interface PayrollAttendanceIncident {
   updatedAt: string;
   employeeName?: string;
   employeeDni?: string;
+  unitName?: string;
 }
 
 export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'CLIENT';
@@ -101,7 +102,8 @@ export type AppFeature =
   | 'ARCHIVE'
   | 'SETTINGS'
   | 'ATS_RECEPTION'
-  | 'HR_OPALOSIS';
+  | 'HR_OPALOSIS'
+  | 'MATTERMOST';
 
 export interface PermissionRule {
   view: boolean;

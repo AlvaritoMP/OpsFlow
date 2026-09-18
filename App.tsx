@@ -22,6 +22,7 @@ import {
   HrOpalosisIngreso,
   InventoryManagement,
   AuditLogs,
+  MattermostIncidents,
   KeepAlivePane,
   ViewFallback,
 } from './components/lazyAppViews';
@@ -62,7 +63,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(!isPublicFichaLanding);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'mattermost'>('dashboard');
   const [mountedViews, setMountedViews] = useState<Set<string>>(() => new Set(['dashboard']));
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
@@ -1771,6 +1772,12 @@ const App: React.FC = () => {
         ))}
         {renderCachedView('retenes', (
           <Retenes units={operationalUnits} currentUserRole={currentUser.role} />
+        ))}
+        {renderCachedView('mattermost', (
+          <MattermostIncidents
+            canEdit={checkPermission(currentUser.role, 'MATTERMOST', 'edit')}
+            onSelectUnit={handleSelectUnit}
+          />
         ))}
         {renderCachedView('inventory', (
           <InventoryManagement
@@ -3504,6 +3511,16 @@ const App: React.FC = () => {
                   >
                     <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Retenes</span>
+                  </button>
+              )}
+
+              {checkPermission(currentUser.role, 'MATTERMOST', 'view') && (
+                  <button
+                    onClick={() => { setCurrentView('mattermost'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'mattermost' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <MessageCircle size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Mattermost</span>
                   </button>
               )}
 

@@ -57,6 +57,9 @@ export const InventoryManagement = React.lazy(() =>
 export const AuditLogs = React.lazy(() =>
   import('./AuditLogs').then((m) => ({ default: m.AuditLogs }))
 );
+export const MattermostIncidents = React.lazy(() =>
+  import('./MattermostIncidents').then((m) => ({ default: m.MattermostIncidents }))
+);
 
 export const ViewFallback: React.FC<{ message?: string }> = ({ message = 'Cargando sección...' }) => (
   <div className="flex items-center justify-center h-full min-h-[40vh]">
