@@ -2,6 +2,7 @@
 
 export const DIALOG_CALLBACK_ID = 'falta_attendance_v1';
 export const UNIT_PICKER_ACTION = 'open_falta_dialog';
+export const UNIT_CONTINUE_ACTION = 'continue_falta_dialog';
 export const SELECT_OPTIONS_MAX = 100;
 export const ATTACHMENTS_BUCKET = 'attendance-incident-attachments';
 

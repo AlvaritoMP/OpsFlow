@@ -204,6 +204,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (urlPath === '/api/webhooks/mattermost' || urlPath.startsWith('/api/webhooks/mattermost/')) {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+        'Access-Control-Max-Age': '86400',
+      });
+      res.end();
+      return;
+    }
     try {
       await handleMattermostRequest(req, res, urlPath);
     } catch (err) {

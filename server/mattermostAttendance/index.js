@@ -5,6 +5,7 @@ import {
   INCIDENT_REASONS,
   INCIDENT_TYPES,
   SELECT_OPTIONS_MAX,
+  UNIT_CONTINUE_ACTION,
   UNIT_PICKER_ACTION,
   coverageBadge,
   labelOf,
@@ -50,6 +51,7 @@ function sendJson(res, status, body) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'Access-Control-Allow-Origin': '*',
   });
   res.end(payload);
 }
@@ -89,6 +91,40 @@ function parsePayload(req, raw) {
     }
   }
   return obj;
+}
+
+function interactivePayload(body) {
+  if (body?.payloadJson && typeof body.payloadJson === 'object') return body.payloadJson;
+  if (body && typeof body === 'object' && (body.context || body.type === 'select' || body.type === 'button')) {
+    return body;
+  }
+  return null;
+}
+
+function isInteractiveAction(body) {
+  const p = interactivePayload(body);
+  if (!p) return false;
+  const action = p.context?.action || p.context?.Action;
+  if (action === UNIT_PICKER_ACTION || action === UNIT_CONTINUE_ACTION) return true;
+  if (p.type === 'select' || p.type === 'button') return true;
+  return false;
+}
+
+function selectedUnitFromAction(payload) {
+  const ctx = payload?.context || {};
+  return String(
+    ctx.selected_option ||
+      ctx.selectedOption ||
+      ctx.unit_id ||
+      ctx.unitId ||
+      payload?.selected_option ||
+      payload?.data?.value ||
+      '',
+  ).trim();
+}
+
+function webhookRoot(req) {
+  return `${publicBaseFromRequest(req)}/api/webhooks/mattermost`;
 }
 
 function extractFileIds(value) {
@@ -232,20 +268,39 @@ function buildDialog({ submitUrl, state, units, workers, defaultUnitId, truncate
 
 async function openFaltaDialog({ triggerId, submitUrl, statePayload, unitId, workerQuery }) {
   const cfg = loadConfig();
-  const units = await listActiveUnits();
-  if (!units.length) {
-    throw new Error('No hay unidades operativas activas en OpsFlow.');
+  if (!triggerId) {
+    throw new Error('Mattermost no envió trigger_id; no se puede abrir el modal.');
   }
 
+  let units = [];
   let scopedUnitId = unitId || null;
-  let workers = await listActiveWorkers(scopedUnitId || undefined);
-  if (workerQuery) {
-    const unitMatch = matchUnitByText(units, workerQuery);
-    if (unitMatch && !scopedUnitId) {
-      scopedUnitId = unitMatch.id;
-      workers = await listActiveWorkers(scopedUnitId);
-    } else {
-      workers = filterWorkers(workers, workerQuery);
+  let workers;
+
+  if (scopedUnitId) {
+    const [unit, unitWorkers] = await Promise.all([
+      getUnitById(scopedUnitId),
+      listActiveWorkers(scopedUnitId),
+    ]);
+    if (!unit || !isUnitOk(unit)) {
+      throw new Error('La unidad no existe o no está operativa.');
+    }
+    units = [unit];
+    workers = unitWorkers;
+  } else {
+    units = await listActiveUnits();
+    if (!units.length) {
+      throw new Error('No hay unidades operativas activas en OpsFlow.');
+    }
+    workers = await listActiveWorkers();
+    if (workerQuery) {
+      const unitMatch = matchUnitByText(units, workerQuery);
+      if (unitMatch) {
+        scopedUnitId = unitMatch.id;
+        units = [unitMatch];
+        workers = await listActiveWorkers(scopedUnitId);
+      } else {
+        workers = filterWorkers(workers, workerQuery);
+      }
     }
   }
 
@@ -274,39 +329,72 @@ async function openFaltaDialog({ triggerId, submitUrl, statePayload, unitId, wor
     }),
   });
 
-  return { opened: true, workerCount: workers.length, truncated };
+  return { opened: true, workerCount: workers.length, truncated, unitName: units[0]?.name || '' };
 }
 
-function ephemeralUnitPicker({ submitUrl, units, channelId, userId, teamId, userName }) {
+function unitSelectAction({ actionUrl, state }) {
+  return {
+    id: 'falta_unit_select',
+    name: 'Seleccionar unidad',
+    type: 'select',
+    integration: {
+      url: actionUrl,
+      context: {
+        action: UNIT_PICKER_ACTION,
+        state,
+      },
+    },
+  };
+}
+
+function continueButtonAction({ actionUrl, state, unitId }) {
+  return {
+    id: 'falta_unit_continue',
+    name: 'Continuar',
+    type: 'button',
+    style: 'primary',
+    integration: {
+      url: actionUrl,
+      context: {
+        action: UNIT_CONTINUE_ACTION,
+        unit_id: unitId || '',
+        state,
+      },
+    },
+  };
+}
+
+function ephemeralUnitPicker({ actionUrl, units, channelId, userId, teamId, userName }) {
   const cfg = loadConfig();
   const state = signState(
     { channel_id: channelId, user_id: userId, team_id: teamId, user_name: userName, ts: Date.now() },
     cfg.stateSecret,
   );
+  const select = unitSelectAction({ actionUrl, state });
+  select.options = units.slice(0, SELECT_OPTIONS_MAX).map((u) => ({
+    text: String(u.name || 'Unidad').slice(0, 100),
+    value: u.id,
+  }));
   return {
     response_type: 'ephemeral',
-    text: `Hay más de ${SELECT_OPTIONS_MAX} operarios activos. Seleccione primero la **unidad** para abrir el formulario con su personal.`,
+    text: `Hay más de ${SELECT_OPTIONS_MAX} operarios activos. 1) Elija la **unidad**. 2) Pulse **Continuar** para abrir el formulario (si el modal no aparece al elegir la unidad).`,
     attachments: [
       {
-        actions: [
-          {
-            name: 'Seleccionar unidad',
-            type: 'select',
-            options: units.slice(0, SELECT_OPTIONS_MAX).map((u) => ({
-              text: String(u.name || 'Unidad').slice(0, 100),
-              value: u.id,
-            })),
-            integration: {
-              url: submitUrl.replace(/dialog-submit$/, 'command'),
-              context: {
-                action: UNIT_PICKER_ACTION,
-                state,
-              },
-            },
-          },
-        ],
+        fallback: 'Seleccione una unidad y pulse Continuar',
+        color: '#0f766e',
+        actions: [select, continueButtonAction({ actionUrl, state, unitId: '' })],
       },
     ],
+  };
+}
+
+function continueAttachment({ actionUrl, state, unitId, unitName }) {
+  return {
+    fallback: 'Pulse Continuar para abrir el formulario',
+    color: '#0f766e',
+    title: unitName ? `Unidad: ${unitName}` : 'Unidad seleccionada',
+    text: 'Pulse **Continuar** si el formulario no se abrió.',
+    actions: [continueButtonAction({ actionUrl, state, unitId })],
   };
 }
 
@@ -384,51 +472,106 @@ async function ingestFromPostLike({ postId, rootId, fileIds, userName }) {
   return { ignored: false, incidentId: incident.id, ...result };
 }
 
-async function handleCommand(req, res, body) {
+async function handleInteractiveAction(req, res, body) {
   const cfg = loadConfig();
-  const payload = body.payloadJson || null;
+  const payload = interactivePayload(body) || body;
+  const action = payload.context?.action || payload.context?.Action || '';
+  const triggerId = payload.trigger_id || payload.triggerId || '';
+  const selected = selectedUnitFromAction(payload);
+  const stateRaw = payload.context?.state || payload.state || '';
 
+  console.log('📩 Mattermost action', {
+    type: payload.type || action || 'unknown',
+    action,
+    hasTrigger: Boolean(triggerId),
+    hasUnit: Boolean(selected),
+  });
+
+  const stateCheck = verifyState(stateRaw, cfg.stateSecret);
+  if (!stateCheck.ok) {
+    sendJson(res, 200, { ephemeral_text: stateCheck.error || 'El formulario expiró. Ejecute /falta de nuevo.' });
+    return;
+  }
+
+  if (!selected) {
+    sendJson(res, 200, {
+      ephemeral_text: 'Primero seleccione la unidad en el menú y luego pulse Continuar.',
+    });
+    return;
+  }
+
+  if (!triggerId) {
+    sendJson(res, 200, {
+      ephemeral_text: 'Mattermost no envió trigger_id. Pulse Continuar de nuevo o ejecute /falta.',
+    });
+    return;
+  }
+
+  const root = webhookRoot(req);
+  const actionUrl = `${root}/action`;
+  let unitName = '';
+  try {
+    const opened = await openFaltaDialog({
+      triggerId,
+      submitUrl: `${root}/dialog-submit`,
+      statePayload: {
+        channel_id: payload.channel_id || stateCheck.payload.channel_id,
+        user_id: payload.user_id || stateCheck.payload.user_id,
+        team_id: payload.team_id || stateCheck.payload.team_id,
+        user_name: payload.user_name || stateCheck.payload.user_name,
+      },
+      unitId: selected,
+    });
+    unitName = opened.unitName || '';
+    sendJson(res, 200, {
+      update: {
+        message: `Unidad **${unitName || 'seleccionada'}**. Si el formulario no apareció, pulse Continuar.`,
+        props: {
+          attachments: [
+            continueAttachment({
+              actionUrl,
+              state: stateRaw,
+              unitId: selected,
+              unitName,
+            }),
+          ],
+        },
+      },
+      ephemeral_text: 'Formulario abierto. Si no lo ve, pulse Continuar.',
+    });
+  } catch (err) {
+    console.error('❌ Mattermost action → dialog.open:', err);
+    sendJson(res, 200, {
+      update: {
+        message: `Unidad **${unitName || selected}**. Pulse Continuar para abrir el formulario.`,
+        props: {
+          attachments: [
+            continueAttachment({
+              actionUrl,
+              state: stateRaw,
+              unitId: selected,
+              unitName,
+            }),
+          ],
+        },
+      },
+      ephemeral_text: `No se pudo abrir el formulario: ${err instanceof Error ? err.message : String(err)}. Pulse Continuar.`,
+    });
+  }
+}
+
+async function handleCommand(req, res, body) {
   if (
     body.type === 'dialog_submission' ||
-    payload?.type === 'dialog_submission' ||
+    body.payloadJson?.type === 'dialog_submission' ||
     (body.submission && typeof body.submission === 'object')
   ) {
     await handleDialogSubmit(req, res, body);
     return;
   }
 
-  if (payload?.context?.action === UNIT_PICKER_ACTION) {
-    const triggerId = payload.trigger_id;
-    const selected = payload.context?.selected_option || payload.data?.value || '';
-    const stateCheck = verifyState(payload.context?.state, cfg.stateSecret);
-    if (!stateCheck.ok) {
-      sendJson(res, 200, { ephemeral_text: stateCheck.error });
-      return;
-    }
-    if (!triggerId || !selected) {
-      sendJson(res, 200, { ephemeral_text: 'No se recibió la unidad seleccionada. Ejecute /falta de nuevo.' });
-      return;
-    }
-    const base = publicBaseFromRequest(req);
-    try {
-      await openFaltaDialog({
-        triggerId,
-        submitUrl: `${base}/api/webhooks/mattermost/dialog-submit`,
-        statePayload: {
-          channel_id: payload.channel_id || stateCheck.payload.channel_id,
-          user_id: payload.user_id || stateCheck.payload.user_id,
-          team_id: payload.team_id || stateCheck.payload.team_id,
-          user_name: payload.user_name || stateCheck.payload.user_name,
-        },
-        unitId: selected,
-      });
-      sendEmpty(res);
-    } catch (err) {
-      console.error('❌ Mattermost unit picker → dialog:', err);
-      sendJson(res, 200, {
-        ephemeral_text: `No se pudo abrir el formulario: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
+  if (isInteractiveAction(body)) {
+    await handleInteractiveAction(req, res, body);
     return;
   }
 
@@ -461,6 +604,8 @@ async function handleCommand(req, res, body) {
     return;
   }
 
+  const root = `${base}/api/webhooks/mattermost`;
+
   try {
     const units = await listActiveUnits();
     const workers = text ? filterWorkers(await listActiveWorkers(), text) : await listActiveWorkers();
@@ -471,7 +616,7 @@ async function handleCommand(req, res, body) {
         res,
         200,
         ephemeralUnitPicker({
-          submitUrl: `${base}/api/webhooks/mattermost/dialog-submit`,
+          actionUrl: `${root}/action`,
           units,
           channelId,
           userId,
@@ -484,7 +629,7 @@ async function handleCommand(req, res, body) {
 
     await openFaltaDialog({
       triggerId,
-      submitUrl: `${base}/api/webhooks/mattermost/dialog-submit`,
+      submitUrl: `${root}/dialog-submit`,
       statePayload: { channel_id: channelId, user_id: userId, team_id: teamId, user_name: userName },
       unitId: unitFromText?.id || null,
       workerQuery: unitFromText ? '' : text,
@@ -775,7 +920,12 @@ export async function handleMattermostRequest(req, res, urlPath) {
 
   const raw = await readBody(req);
   const body = parsePayload(req, raw);
+  console.log('📥 Mattermost webhook', req.method, path, String(req.headers['content-type'] || ''));
 
+  if (path.endsWith('/action') || path.endsWith('/actions')) {
+    await handleInteractiveAction(req, res, body);
+    return;
+  }
   if (path.endsWith('/command')) {
     await handleCommand(req, res, body);
     return;
@@ -789,5 +939,10 @@ export async function handleMattermostRequest(req, res, urlPath) {
     return;
   }
 
-  sendJson(res, 404, { error: 'Webhook Mattermost desconocido' });
+  if (isInteractiveAction(body)) {
+    await handleInteractiveAction(req, res, body);
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Webhook Mattermost desconocido', path });
 }
