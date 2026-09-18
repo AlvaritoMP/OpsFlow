@@ -9,14 +9,24 @@ function trimEnv(name, ...fallbacks) {
   return '';
 }
 
-function stripTrailingSlash(url) {
-  return url.replace(/\/+$/, '');
+function firstAbsoluteHttpUrl(...candidates) {
+  for (const raw of candidates) {
+    const value = String(raw || '').trim().replace(/\/+$/, '');
+    if (/^https?:\/\//i.test(value)) return value;
+  }
+  return '';
 }
 
 export function loadConfig() {
-  const mattermostUrl = stripTrailingSlash(trimEnv('MATTERMOST_URL', 'MATTERMOST_BASE_URL'));
-  const publicUrl = stripTrailingSlash(
-    trimEnv('OPS_FLOW_PUBLIC_URL', 'OPS_FLOW_URL', 'PUBLIC_URL', 'VITE_API_URL'),
+  const mattermostUrl = firstAbsoluteHttpUrl(
+    process.env.MATTERMOST_URL,
+    process.env.MATTERMOST_BASE_URL,
+  );
+  const publicUrl = firstAbsoluteHttpUrl(
+    process.env.OPS_FLOW_PUBLIC_URL,
+    process.env.OPS_FLOW_URL,
+    process.env.VITE_API_URL,
+    'https://opalo-opsflow.bouasv.easypanel.host',
   );
   const supabaseUrl = trimEnv('SUPABASE_URL', 'VITE_SUPABASE_URL');
   const serviceKey = trimEnv('SUPABASE_SERVICE_ROLE_KEY');
@@ -62,6 +72,7 @@ export function configStatus() {
     supabase: Boolean(cfg.supabaseUrl && cfg.supabaseKey),
     serviceRole: cfg.hasServiceRole,
     publicUrl: Boolean(cfg.publicUrl),
+    publicUrlValue: cfg.publicUrl || null,
   };
 }
 
@@ -104,7 +115,10 @@ export function publicBaseFromRequest(req) {
   const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim() || 'https';
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
     .split(',')[0]
-    .trim();
-  if (!host) return '';
-  return `${proto}://${host}`;
+    .trim()
+    .replace(/:\d+$/, (port) => (port === ':80' || port === ':443' ? '' : port));
+  if (host && host.includes('.') && !/^localhost$/i.test(host.split(':')[0])) {
+    return `${proto}://${host}`;
+  }
+  return '';
 }

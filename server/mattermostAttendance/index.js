@@ -124,7 +124,18 @@ function selectedUnitFromAction(payload) {
 }
 
 function webhookRoot(req) {
-  return `${publicBaseFromRequest(req)}/api/webhooks/mattermost`;
+  const base = publicBaseFromRequest(req);
+  if (!base || !/^https?:\/\//i.test(base)) {
+    throw new Error(
+      'Falta una URL pública absoluta de OpsFlow. Agregue OPS_FLOW_PUBLIC_URL=https://opalo-opsflow.bouasv.easypanel.host en EasyPanel (sin slash final).',
+    );
+  }
+  return `${base}/api/webhooks/mattermost`;
+}
+
+/** Misma URL del slash command /falta: Mattermost ya la tiene permitida. */
+function commandActionUrl(req) {
+  return `${webhookRoot(req)}/command`;
 }
 
 function extractFileIds(value) {
@@ -508,7 +519,7 @@ async function handleInteractiveAction(req, res, body) {
   }
 
   const root = webhookRoot(req);
-  const actionUrl = `${root}/action`;
+  const actionUrl = commandActionUrl(req);
   let unitName = '';
   try {
     const opened = await openFaltaDialog({
@@ -596,15 +607,17 @@ async function handleCommand(req, res, body) {
   }
 
   const base = publicBaseFromRequest(req);
-  if (!base) {
+  if (!base || !/^https?:\/\//i.test(base)) {
     sendJson(res, 200, {
       response_type: 'ephemeral',
-      text: 'OpsFlow no tiene OPS_FLOW_PUBLIC_URL configurada; no se puede abrir el modal.',
+      text: 'OpsFlow no tiene OPS_FLOW_PUBLIC_URL (https://opalo-opsflow.bouasv.easypanel.host). Agréguela en EasyPanel y vuelva a intentar /falta.',
     });
     return;
   }
 
   const root = `${base}/api/webhooks/mattermost`;
+  const actionUrl = `${root}/command`;
+  console.log('🔗 /falta interactive URL:', actionUrl);
 
   try {
     const units = await listActiveUnits();
@@ -616,7 +629,7 @@ async function handleCommand(req, res, body) {
         res,
         200,
         ephemeralUnitPicker({
-          actionUrl: `${root}/action`,
+          actionUrl,
           units,
           channelId,
           userId,
