@@ -48,6 +48,7 @@ import { isPublicComplementaryFichaPath } from './services/publicComplementaryFi
 import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffService';
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
 import { filterOperationalUnits, isUnitOperational } from './utils/unitStatus';
+import { unitBelongsToLinkedClients } from './utils/unitVisibility';
 import { HelpPanel, HelpTriggerButton } from './components/HelpPanel';
 
 /** Polling solo para badge de Presentaciones ATS (Recepción ATS quedó en archivo/consulta). */
@@ -1610,9 +1611,9 @@ const App: React.FC = () => {
           return units;
       }
       if (currentUser.linkedClientNames && currentUser.linkedClientNames.length > 0) {
-          return units.filter(u => currentUser.linkedClientNames?.includes(u.clientName));
+          return units.filter(u => unitBelongsToLinkedClients(u.clientName, currentUser.linkedClientNames));
       }
-      if (currentUser.role === 'CLIENT') return [];
+      // CLIENT sin empresas vinculadas: useUnits ya recorta por user_visible_units (o deja vacío).
       return units;
   }, [units, currentUser]);
 
@@ -1834,7 +1835,7 @@ const App: React.FC = () => {
         if (!unit) return <div className="p-8">Unidad no encontrada</div>;
         
         // Security check: Ensure user can see this unit
-        const isLinked = currentUser.linkedClientNames?.includes(unit.clientName);
+        const isLinked = unitBelongsToLinkedClients(unit.clientName, currentUser.linkedClientNames);
         if (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN' && currentUser.linkedClientNames?.length && !isLinked) {
              return <div className="p-8 text-red-600 font-bold">Acceso Denegado a esta Unidad.</div>;
         }

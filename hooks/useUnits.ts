@@ -3,6 +3,7 @@ import { unitsService } from '../services/unitsService';
 import { Resource, Unit, User } from '../types';
 import { isUnitsBackgroundRefreshPaused } from './unitsRefreshLock';
 import { TransferWorkerResult } from '../services/workerTransferService';
+import { filterUnitsByLinkedClientNames } from '../utils/unitVisibility';
 
 function mergeUnitsPreservingHydrated(prev: Unit[], next: Unit[]): Unit[] {
   if (prev.length === 0) return next;
@@ -26,6 +27,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loadRequestIdRef = useRef(0);
 
   const loadUnits = async (options?: { silent?: boolean }) => {
     const silent = options?.silent === true;
@@ -51,6 +53,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
       }
       
       // Cargar todas las unidades primero
+      const requestId = ++loadRequestIdRef.current;
       let data = await unitsService.getAll();
       
       if (process.env.NODE_ENV === 'development') {
@@ -95,22 +98,28 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
                 console.log(`⚠️ Usuario CLIENT tiene restricciones pero no hay unidades permitidas, mostrando 0 unidades`);
               }
             }
-          } else if (currentUser.linkedClientIds && Array.isArray(currentUser.linkedClientIds) && currentUser.linkedClientIds.length > 0) {
-            const { supabase } = await import('../services/supabase');
-            const clientIds = currentUser.linkedClientIds.filter(Boolean);
-            const { data: clientsData } = await supabase
-              .from('clients')
-              .select('id, name')
-              .in('id', clientIds);
-            const clientNames = new Set(
-              (clientsData || []).map((c: any) => c?.name).filter(Boolean)
-            );
-            data = data.filter((unit) => clientNames.has(unit.clientName));
           } else {
-            // Si no tiene restricciones ni clientes vinculados, no mostrar nada
-            data = [];
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`⚠️ Usuario CLIENT no tiene restricciones ni clientes vinculados, mostrando 0 unidades`);
+            // Los usuarios CLIENT se vinculan por nombre de empresa (user_client_links).
+            // linkedClientIds casi nunca viene poblado en el objeto User.
+            const linkedNames = [...(currentUser.linkedClientNames || [])];
+            if (currentUser.linkedClientIds && currentUser.linkedClientIds.length > 0) {
+              const { supabase } = await import('../services/supabase');
+              const clientIds = currentUser.linkedClientIds.filter(Boolean);
+              const { data: clientsData } = await supabase
+                .from('clients')
+                .select('id, name')
+                .in('id', clientIds);
+              (clientsData || []).forEach((client: { name?: string }) => {
+                if (client?.name) linkedNames.push(client.name);
+              });
+            }
+            if (linkedNames.length > 0) {
+              data = filterUnitsByLinkedClientNames(data, linkedNames);
+            } else {
+              data = [];
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`⚠️ Usuario CLIENT no tiene restricciones ni clientes vinculados, mostrando 0 unidades`);
+              }
             }
           }
           
@@ -119,8 +128,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
           }
         } catch (filterError) {
           console.error('❌ Error al filtrar unidades por usuario CLIENT:', filterError);
-          // En caso de error en el filtrado, retornar todas las unidades para evitar un bloqueo total
-          // Esto es más seguro que bloquear al usuario completamente
+          data = filterUnitsByLinkedClientNames(data, currentUser.linkedClientNames);
         }
       }
       
@@ -129,6 +137,9 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
       }
       // Un refresh iniciado antes de pausar no debe pisar ediciones en curso.
       if (silent && isUnitsBackgroundRefreshPaused()) {
+        return;
+      }
+      if (requestId !== loadRequestIdRef.current) {
         return;
       }
       setUnits((prev) => mergeUnitsPreservingHydrated(prev, data));
@@ -222,7 +233,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
 
   useEffect(() => {
     checkAndLoad();
-  }, [isAuthenticated, currentUser?.id, currentUser?.linkedClientIds?.join(','), currentUser?.role]);
+  }, [isAuthenticated, currentUser?.id, currentUser?.linkedClientIds?.join(','), currentUser?.linkedClientNames?.join(','), currentUser?.role]);
 
   const createUnit = useCallback(async (unit: Partial<Unit>) => {
     try {
