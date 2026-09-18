@@ -63,6 +63,10 @@ export async function patchPost(postId, patch) {
   });
 }
 
+export async function createPost(post) {
+  return mattermostFetch('/api/v4/posts', { method: 'POST', body: post });
+}
+
 export async function createEphemeralPost(userId, post) {
   return mattermostFetch('/api/v4/posts/ephemeral', {
     method: 'POST',
