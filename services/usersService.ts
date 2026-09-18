@@ -132,16 +132,33 @@ export const usersService = {
 
       console.log('Creando usuario con ID:', userData.id);
 
-      // Insertar usuario en la tabla
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('users')
         .insert(userData)
         .select()
         .single();
 
       if (error) {
-        console.error('Error al insertar usuario:', error);
-        throw error;
+        const missingColumn =
+          error.code === '42703' ||
+          error.code === 'PGRST204' ||
+          /can_delete_attendance_incidents/i.test(error.message || '');
+        if (missingColumn && userData.can_delete_attendance_incidents !== undefined) {
+          delete userData.can_delete_attendance_incidents;
+          const retry = await supabase.from('users').insert(userData).select().single();
+          if (retry.error) {
+            console.error('Error al insertar usuario:', retry.error);
+            throw retry.error;
+          }
+          data = retry.data;
+        } else {
+          console.error('Error al insertar usuario:', error);
+          throw error;
+        }
+      }
+
+      if (!data) {
+        throw new Error('Error al crear el usuario en la base de datos');
       }
 
       // Insertar vínculos con clientes si existen
@@ -171,7 +188,19 @@ export const usersService = {
         .update(userData)
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        const missingColumn =
+          error.code === '42703' ||
+          error.code === 'PGRST204' ||
+          /can_delete_attendance_incidents/i.test(error.message || '');
+        if (missingColumn && userData.can_delete_attendance_incidents !== undefined) {
+          delete userData.can_delete_attendance_incidents;
+          const retry = await supabase.from('users').update(userData).eq('id', id);
+          if (retry.error) throw retry.error;
+        } else {
+          throw error;
+        }
+      }
 
       // Actualizar vínculos con clientes
       if (user.linkedClientNames !== undefined) {
@@ -255,6 +284,7 @@ function transformUserFromDB(data: any): User {
     role: data.role as UserRole,
     avatar: data.avatar,
     linkedClientNames: data.user_client_links?.map((link: any) => link.client_name) || [],
+    canDeleteAttendanceIncidents: data.can_delete_attendance_incidents === true,
     // NO incluir password_hash en el objeto User retornado por seguridad
   };
 }
@@ -276,6 +306,9 @@ function transformUserToDB(user: Partial<User>): any {
   // O incluir password_hash directamente si se proporciona
   if (user.password_hash !== undefined) {
     result.password_hash = user.password_hash;
+  }
+  if (user.canDeleteAttendanceIncidents !== undefined) {
+    result.can_delete_attendance_incidents = Boolean(user.canDeleteAttendanceIncidents);
   }
   // Si se proporciona password pero no password_hash, se debe hashear antes de llamar a esta función
   

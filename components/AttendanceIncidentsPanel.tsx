@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ClipboardPlus, ExternalLink, FileText, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { ClipboardPlus, ExternalLink, FileText, Image as ImageIcon, RefreshCw, Trash2 } from 'lucide-react';
 import { Unit } from '../types';
 import {
   PAYROLL_COVERAGE_LABELS,
@@ -14,6 +14,7 @@ import { SafeImage } from './SafeImage';
 interface AttendanceIncidentsPanelProps {
   unit: Unit;
   canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 function coverageClass(value: string): string {
@@ -44,6 +45,7 @@ function isImage(mime?: string | null, name?: string): boolean {
 export const AttendanceIncidentsPanel: React.FC<AttendanceIncidentsPanelProps> = ({
   unit,
   canEdit = false,
+  canDelete = false,
 }) => {
   const [rows, setRows] = useState<PayrollAttendanceIncident[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,6 +77,24 @@ export const AttendanceIncidentsPanel: React.FC<AttendanceIncidentsPanelProps> =
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo actualizar el estado');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const onDelete = async (row: PayrollAttendanceIncident) => {
+    const who = row.employeeName || 'este trabajador';
+    const ok = window.confirm(
+      `¿Eliminar el expediente de falta de ${who} (${formatDay(row.incidentDate)}) en OpsFlow?\n\nÚsalo para pruebas o registros erróneos. El mensaje en Mattermost no se borra. Esta acción no se puede deshacer.`
+    );
+    if (!ok) return;
+    setSavingId(row.id);
+    setError(null);
+    try {
+      await attendanceIncidentService.deleteById(row.id);
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo eliminar el expediente');
     } finally {
       setSavingId(null);
     }
@@ -163,6 +183,18 @@ export const AttendanceIncidentsPanel: React.FC<AttendanceIncidentsPanelProps> =
                       {PAYROLL_INCIDENT_STATUS_LABELS[row.status]}
                     </span>
                   )}
+                  {canDelete ? (
+                    <button
+                      type="button"
+                      title="Eliminar expediente de prueba o erróneo"
+                      disabled={savingId === row.id}
+                      onClick={() => void onDelete(row)}
+                      className="inline-flex items-center gap-1 text-xs text-red-700 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      <Trash2 size={12} />
+                      Borrar
+                    </button>
+                  ) : null}
                 </div>
               </div>
 

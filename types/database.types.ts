@@ -20,6 +20,7 @@ export interface Database {
           email: string
           role: string
           avatar: string | null
+          can_delete_attendance_incidents: boolean
           created_at: string
           updated_at: string
         }
@@ -29,6 +30,7 @@ export interface Database {
           email: string
           role: string
           avatar?: string | null
+          can_delete_attendance_incidents?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -38,6 +40,7 @@ export interface Database {
           email?: string
           role?: string
           avatar?: string | null
+          can_delete_attendance_incidents?: boolean
           created_at?: string
           updated_at?: string
         }

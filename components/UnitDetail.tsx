@@ -3,7 +3,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 're
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation, User } from '../types';
 import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2, BookOpen, ArrowLeftRight } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
-import { checkPermission } from '../services/permissionService';
+import { checkPermission, canDeleteAttendanceIncidents } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
 import { requestsService, requestCommentIsFromViewer } from '../services/requestsService';
 import { variableCompensationsService } from '../services/variableCompensationsService';
@@ -8911,7 +8911,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           <UnitBookTab unit={unit} canEdit={canEditUnitBook} currentUserId={currentUser?.id} />
         )}
         {activeTab === 'attendance' && (
-          <AttendanceReportsTab unit={unit} canUpload={canEditPersonnel} />
+          <AttendanceReportsTab
+            unit={unit}
+            canUpload={canEditPersonnel}
+            canDelete={canDeleteAttendanceIncidents(currentUser)}
+          />
         )}
         {activeTab === 'vacations' && currentUser && (
           <Vacations

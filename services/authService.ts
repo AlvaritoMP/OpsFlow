@@ -591,6 +591,7 @@ export const authService = {
         role: userData.role || 'OPERATIONS',
         avatar: userData.avatar || userData.name?.substring(0, 2).toUpperCase(),
         linkedClientNames: userData.linkedClientNames,
+        canDeleteAttendanceIncidents: userData.canDeleteAttendanceIncidents === true,
         password_hash: passwordHash, // Guardar el hash
       });
 

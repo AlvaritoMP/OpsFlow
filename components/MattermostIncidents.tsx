@@ -7,6 +7,7 @@ import {
   MessageCircle,
   RefreshCw,
   Search,
+  Trash2,
   User,
   X,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ import { DateInput } from './DateInput';
 
 interface MattermostIncidentsProps {
   canEdit?: boolean;
+  canDelete?: boolean;
   onSelectUnit?: (unitId: string) => void;
 }
 
@@ -92,6 +94,7 @@ function norm(value: string | null | undefined): string {
 
 export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
   canEdit = false,
+  canDelete = false,
   onSelectUnit,
 }) => {
   const [rows, setRows] = useState<PayrollAttendanceIncident[]>([]);
@@ -154,6 +157,24 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
     }
   };
 
+  const onDelete = async (row: PayrollAttendanceIncident) => {
+    const who = row.employeeName || 'este trabajador';
+    const ok = window.confirm(
+      `¿Eliminar el expediente de falta de ${who} (${formatDay(row.incidentDate)}) en OpsFlow?\n\nÚsalo para pruebas o registros erróneos. El mensaje en Mattermost no se borra. Esta acción no se puede deshacer.`
+    );
+    if (!ok) return;
+    setSavingId(row.id);
+    setError(null);
+    try {
+      await attendanceIncidentService.deleteById(row.id);
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo eliminar el expediente');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-4 animate-in fade-in duration-300">
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
@@ -165,6 +186,9 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
           <p className="text-sm text-slate-500 mt-1 max-w-3xl">
             Todos los <code className="bg-slate-100 px-1 rounded">/falta</code> reportados por
             supervisores, en orden de registro. Las fotos y CITT se adjuntan en el hilo de Mattermost.
+            {canDelete
+              ? ' Puedes borrar un expediente de prueba o erróneo; el mensaje en Mattermost no se elimina.'
+              : null}
           </p>
         </div>
         <button
@@ -313,6 +337,18 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
                         {PAYROLL_INCIDENT_STATUS_LABELS[row.status]}
                       </span>
                     )}
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        title="Eliminar expediente de prueba o erróneo"
+                        disabled={savingId === row.id}
+                        onClick={() => void onDelete(row)}
+                        className="inline-flex items-center gap-1 text-xs text-red-700 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        <Trash2 size={12} />
+                        Borrar
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 

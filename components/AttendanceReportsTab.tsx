@@ -36,6 +36,7 @@ import { DateInput } from './DateInput';
 interface AttendanceReportsTabProps {
   unit: Unit;
   canUpload: boolean;
+  canDelete?: boolean;
 }
 
 type ViewMode = 'cards' | 'table';
@@ -63,7 +64,7 @@ function resourceForRow(unit: Unit, row: AttendanceReportRowDTO): Resource | und
   return unit.resources.find((r) => r.id === row.matched_resource_id);
 }
 
-export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit, canUpload }) => {
+export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit, canUpload, canDelete = false }) => {
   const [imports, setImports] = useState<AttendanceReportImportDTO[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [rows, setRows] = useState<AttendanceReportRowDTO[]>([]);
@@ -364,7 +365,7 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
       )}
 
       {screenMode === 'incidents' ? (
-        <AttendanceIncidentsPanel unit={unit} canEdit={canUpload} />
+        <AttendanceIncidentsPanel unit={unit} canEdit={canUpload} canDelete={canDelete} />
       ) : (
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="lg:w-72 shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

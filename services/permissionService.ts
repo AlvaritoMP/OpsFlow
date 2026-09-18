@@ -215,6 +215,13 @@ export const checkPermission = (role: UserRole, feature: AppFeature, action: 'vi
   return featureConfig[action];
 };
 
+/** Borrar expedientes /falta: siempre el superadmin; otros usuarios si se les asignó la autonomía. */
+export const canDeleteAttendanceIncidents = (user: { role: UserRole; canDeleteAttendanceIncidents?: boolean } | null | undefined): boolean => {
+  if (!user) return false;
+  if (user.role === 'SUPER_ADMIN') return true;
+  return user.canDeleteAttendanceIncidents === true;
+};
+
 export const FEATURE_LABELS: Record<AppFeature, string> = {
   DASHBOARD: 'Dashboard Principal',
   UNIT_OVERVIEW: 'Detalle Unidad (General)',

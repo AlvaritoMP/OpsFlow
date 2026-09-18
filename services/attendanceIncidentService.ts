@@ -135,4 +135,27 @@ export const attendanceIncidentService = {
       .eq('id', id);
     if (error) handleSupabaseError(error);
   },
+
+  async deleteById(id: string): Promise<void> {
+    const { data: files, error: filesError } = await supabase
+      .from('payroll_attendance_incident_attachments')
+      .select('storage_path')
+      .eq('incident_id', id);
+    if (filesError && filesError.code !== 'PGRST205' && filesError.code !== '42P01') {
+      handleSupabaseError(filesError);
+    }
+    const paths = (files || [])
+      .map((row: { storage_path?: string }) => row.storage_path)
+      .filter((path): path is string => Boolean(path));
+    if (paths.length) {
+      const { error: storageError } = await supabase.storage
+        .from('attendance-incident-attachments')
+        .remove(paths);
+      if (storageError) {
+        console.warn('No se pudieron borrar archivos de storage de la falta:', storageError.message);
+      }
+    }
+    const { error } = await supabase.from('payroll_attendance_incidents').delete().eq('id', id);
+    if (error) handleSupabaseError(error);
+  },
 };

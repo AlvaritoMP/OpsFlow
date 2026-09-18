@@ -135,6 +135,8 @@ export interface User {
   linkedClientIds?: string[]; // Array of client IDs for more precise linking
   password?: string; // Contraseña (solo para crear/actualizar, nunca se retorna)
   password_hash?: string; // Hash de la contraseña (solo para comparación interna)
+  /** Puede borrar expedientes /falta. SUPER_ADMIN siempre puede; el resto solo si está marcado. */
+  canDeleteAttendanceIncidents?: boolean;
 }
 
 export type StaffStatus = 'activo' | 'cesado' | 'archivado';

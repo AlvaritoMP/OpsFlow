@@ -29,7 +29,7 @@ import {
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position, UnitClass } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
-import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission } from './services/permissionService';
+import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission, canDeleteAttendanceIncidents } from './services/permissionService';
 import { useUnits } from './hooks/useUnits';
 import { useUsers } from './hooks/useUsers';
 import { useManagementStaff } from './hooks/useManagementStaff';
@@ -142,7 +142,7 @@ const App: React.FC = () => {
   // User Management State
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [userForm, setUserForm] = useState<{name: string, email: string, password: string, role: UserRole, linkedClientNames: string[]}>({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [] });
+  const [userForm, setUserForm] = useState<{name: string, email: string, password: string, role: UserRole, linkedClientNames: string[], canDeleteAttendanceIncidents: boolean}>({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [passwordForm, setPasswordForm] = useState<{userId: string, newPassword: string, confirmPassword: string}>({ userId: '', newPassword: '', confirmPassword: '' });
   const [userOperationLoading, setUserOperationLoading] = useState<{type: 'create' | 'update' | 'delete' | 'password' | null, userId?: string}>({ type: null });
@@ -1036,7 +1036,7 @@ const App: React.FC = () => {
   // --- USER MANAGEMENT HANDLERS ---
   const openAddUserModal = () => {
       setEditingUser(null);
-      setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [] });
+      setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
       setShowUserModal(true);
   };
 
@@ -1047,7 +1047,8 @@ const App: React.FC = () => {
           email: user.email, 
           password: '', 
           role: user.role, 
-          linkedClientNames: user.linkedClientNames || [] 
+          linkedClientNames: user.linkedClientNames || [],
+          canDeleteAttendanceIncidents: user.canDeleteAttendanceIncidents === true,
       });
       setShowUserModal(true);
   };
@@ -1155,13 +1156,19 @@ const App: React.FC = () => {
         return;
       }
 
+      const deleteAutonomy =
+        currentUser?.role === 'SUPER_ADMIN'
+          ? userForm.role !== 'SUPER_ADMIN' && userForm.canDeleteAttendanceIncidents
+          : undefined;
+
       if (editingUser) {
         // Update existing user (sin crear cuenta de Auth si ya existe)
         await updateUser(editingUser.id, {
           name: userForm.name,
           email: userForm.email,
           role: userForm.role,
-          linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined
+          linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined,
+          ...(deleteAutonomy !== undefined ? { canDeleteAttendanceIncidents: deleteAutonomy } : {}),
         });
       } else {
         // Create new user (sin Supabase Auth)
@@ -1170,7 +1177,8 @@ const App: React.FC = () => {
           email: userForm.email,
           role: userForm.role,
           avatar: userForm.name.substring(0,2).toUpperCase(),
-          linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined
+          linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined,
+          ...(deleteAutonomy !== undefined ? { canDeleteAttendanceIncidents: deleteAutonomy } : {}),
         });
         
         if (!dbUser) {
@@ -1184,7 +1192,7 @@ const App: React.FC = () => {
       await loadUsers();
       
       setShowUserModal(false);
-      setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [] });
+      setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
     } catch (error: any) {
       console.error('Error al guardar usuario:', error);
       alert(error.message || 'Error al guardar el usuario. Por favor, intente nuevamente.');
@@ -1776,6 +1784,7 @@ const App: React.FC = () => {
         {renderCachedView('mattermost', (
           <MattermostIncidents
             canEdit={checkPermission(currentUser.role, 'MATTERMOST', 'edit')}
+            canDelete={canDeleteAttendanceIncidents(currentUser)}
             onSelectUnit={handleSelectUnit}
           />
         ))}
@@ -2995,6 +3004,27 @@ const App: React.FC = () => {
                                     : "Ninguno seleccionado (Verá todo si es Operaciones, nada si es Cliente)"}
                               </p>
                           </div>
+                      )}
+
+                      {currentUser?.role === 'SUPER_ADMIN' && userForm.role !== 'SUPER_ADMIN' && (
+                        <label className="flex items-start gap-2 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 rounded border-slate-300 text-teal-700 focus:ring-teal-600"
+                            checked={userForm.canDeleteAttendanceIncidents}
+                            onChange={(e) =>
+                              setUserForm({ ...userForm, canDeleteAttendanceIncidents: e.target.checked })
+                            }
+                          />
+                          <span>
+                            <span className="block text-sm font-medium text-slate-800">
+                              Puede borrar expedientes /falta
+                            </span>
+                            <span className="block text-xs text-slate-500 mt-0.5">
+                              Autonomía para eliminar registros de prueba o erróneos en OpsFlow. El mensaje en Mattermost no se borra.
+                            </span>
+                          </span>
+                        </label>
                       )}
 
                       <button 
