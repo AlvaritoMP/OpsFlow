@@ -102,7 +102,8 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [workerQuery, setWorkerQuery] = useState('');
-  const [dateQuery, setDateQuery] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [reporterQuery, setReporterQuery] = useState('');
 
   const load = useCallback(async () => {
@@ -125,24 +126,27 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
   const filtered = useMemo(() => {
     const worker = norm(workerQuery);
     const reporter = norm(reporterQuery);
+    const from = dateFrom && dateTo && dateFrom > dateTo ? dateTo : dateFrom;
+    const to = dateFrom && dateTo && dateFrom > dateTo ? dateFrom : dateTo;
     return rows.filter((row) => {
       if (worker) {
         const hay = `${norm(row.employeeName)} ${norm(row.employeeDni)}`;
         if (!hay.includes(worker)) return false;
       }
-      if (dateQuery) {
-        const hitIncident = row.incidentDate === dateQuery;
-        const hitCreated = createdDateIso(row.createdAt) === dateQuery;
-        if (!hitIncident && !hitCreated) return false;
+      if (from || to) {
+        const reportedOn = createdDateIso(row.createdAt);
+        if (!reportedOn) return false;
+        if (from && reportedOn < from) return false;
+        if (to && reportedOn > to) return false;
       }
       if (reporter) {
         if (!norm(row.reportedBy).includes(reporter)) return false;
       }
       return true;
     });
-  }, [rows, workerQuery, dateQuery, reporterQuery]);
+  }, [rows, workerQuery, dateFrom, dateTo, reporterQuery]);
 
-  const hasFilters = Boolean(workerQuery || dateQuery || reporterQuery);
+  const hasFilters = Boolean(workerQuery || dateFrom || dateTo || reporterQuery);
 
   const onStatus = async (id: string, status: PayrollAttendanceIncidentStatus) => {
     setSavingId(id);
@@ -206,7 +210,7 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase mb-3">
           <Search size={14} /> Buscar reportes
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           <label className="block">
             <span className="block text-xs font-medium text-slate-600 mb-1">Trabajador (nombre o DNI)</span>
             <input
@@ -218,8 +222,22 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
             />
           </label>
           <label className="block">
-            <span className="block text-xs font-medium text-slate-600 mb-1">Fecha (incidencia o reporte)</span>
-            <DateInput value={dateQuery} onChange={setDateQuery} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            <span className="block text-xs font-medium text-slate-600 mb-1">Reporte desde</span>
+            <DateInput
+              value={dateFrom}
+              onChange={setDateFrom}
+              max={dateTo || undefined}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-xs font-medium text-slate-600 mb-1">Reporte hasta</span>
+            <DateInput
+              value={dateTo}
+              onChange={setDateTo}
+              min={dateFrom || undefined}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            />
           </label>
           <label className="block">
             <span className="block text-xs font-medium text-slate-600 mb-1">Usuario que reportó</span>
@@ -240,7 +258,8 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
             type="button"
             onClick={() => {
               setWorkerQuery('');
-              setDateQuery('');
+              setDateFrom('');
+              setDateTo('');
               setReporterQuery('');
             }}
             className="mt-3 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800"
