@@ -307,7 +307,7 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
     : '';
 
   return {
-    response_type: 'ephemeral',
+    response_type: 'in_channel',
     text: `${intro}${extra}\n\n${summaryLine(values, units, workers)}`,
     attachments: [
       {
@@ -635,18 +635,18 @@ async function handleCommand(req, res, body) {
     });
     console.log('🔗 /falta formulario inline', actionUrl);
     try {
-      await createEphemeralPost(userId, {
+      await createPost({
         channel_id: channelId,
         message: form.text,
         props: { attachments: form.attachments },
       });
       sendJson(res, 200, {
         response_type: 'ephemeral',
-        text: 'Complete el formulario de arriba y pulse **Registrar**.',
+        text: 'Formulario publicado en el canal (mensaje de **opsflow-bot**). Elija la unidad y se cargarán los operarios.',
       });
     } catch (postErr) {
-      console.warn('⚠️  Ephemeral API /falta, se envía en la respuesta del comando:', postErr instanceof Error ? postErr.message : postErr);
-      sendJson(res, 200, form);
+      console.warn('⚠️  createPost /falta, se publica in_channel:', postErr instanceof Error ? postErr.message : postErr);
+      sendJson(res, 200, { ...form, response_type: 'in_channel' });
     }
   } catch (err) {
     console.error('❌ /falta formulario:', err);
