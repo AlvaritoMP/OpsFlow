@@ -1529,6 +1529,8 @@ const App: React.FC = () => {
 
   // Permission Handlers
   const handlePermissionChange = (role: UserRole, feature: AppFeature, type: 'view' | 'edit', value: boolean) => {
+    if (role === 'CLIENT' && feature === 'UNIT_BOOK') return;
+    if (role === 'CLIENT' && feature === 'VACATIONS' && type === 'edit') return;
     try {
       setPermissions(prev => {
         // Crear una copia profunda para evitar mutaciones
@@ -1587,6 +1589,16 @@ const App: React.FC = () => {
               throw new Error(`Invalid permission values for role ${role}, feature ${feature}`);
             }
           }
+        }
+
+        if (cleanPermissions.CLIENT) {
+          cleanPermissions.CLIENT = {
+            ...cleanPermissions.CLIENT,
+            VACATIONS: {
+              view: cleanPermissions.CLIENT.VACATIONS?.view ?? true,
+              edit: false,
+            },
+          };
         }
 
         // Intentar serializar para verificar que no hay problemas
@@ -2296,6 +2308,7 @@ const App: React.FC = () => {
                                             const role = roleStr as UserRole;
                                             const perm = permissions[role][feature];
                                             const lockedForClient = role === 'CLIENT' && feature === 'UNIT_BOOK';
+                                            const lockedClientEdit = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'VACATIONS');
                                             return (
                                                 <td key={role} className="px-4 py-3 text-center border-l border-slate-200">
                                                     <div className="flex flex-col items-center gap-2">
@@ -2309,15 +2322,15 @@ const App: React.FC = () => {
                                                             />
                                                             <span className={perm.view && !lockedForClient ? 'text-slate-700' : 'text-slate-400'}>Ver</span>
                                                         </label>
-                                                        <label className={`flex items-center space-x-2 text-xs ${lockedForClient || !perm.view ? 'cursor-not-allowed' : 'cursor-pointer'} ${lockedForClient ? 'opacity-50' : ''}`}>
+                                                        <label className={`flex items-center space-x-2 text-xs ${lockedClientEdit || !perm.view ? 'cursor-not-allowed' : 'cursor-pointer'} ${lockedClientEdit ? 'opacity-50' : ''}`}>
                                                             <input 
                                                                 type="checkbox" 
                                                                 className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                                                                checked={lockedForClient ? false : perm.edit}
+                                                                checked={lockedClientEdit ? false : perm.edit}
                                                                 onChange={(e) => handlePermissionChange(role, feature, 'edit', e.target.checked)}
-                                                                disabled={lockedForClient || !perm.view}
+                                                                disabled={lockedClientEdit || !perm.view}
                                                             />
-                                                            <span className={perm.edit && !lockedForClient ? 'text-slate-700' : 'text-slate-400'}>Editar</span>
+                                                            <span className={perm.edit && !lockedClientEdit ? 'text-slate-700' : 'text-slate-400'}>Editar</span>
                                                         </label>
                                                     </div>
                                                 </td>

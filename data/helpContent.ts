@@ -59,7 +59,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'SUPER_ADMIN / ADMIN: acceso completo, configuración y auditoría.',
           'OPERATIONS / OPERATIONS_SUPERVISOR: operación diaria de unidades, retenes, ATS y vacaciones.',
-          'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control y headcount (según permisos).',
+          'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control, headcount y consulta de vacaciones (saldos y calendario, sin edición).',
         ],
       },
       {
@@ -166,7 +166,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'General: datos base, estado y responsables.',
           'Personal: trabajadores asignados, altas, ceses y perfiles.',
           'Asistencia: tareo / marcas del personal.',
-          'Vacaciones: control de goce por persona en la unidad.',
+          'Vacaciones: control de goce por persona en la unidad. El cliente solo consulta Saldos y Control y el Calendario, sin modificar.',
           'Variables: conceptos variables de compensación (si aplica).',
           'Logística: equipos y materiales (unidades de Operaciones).',
           'Supervisión / Actividades: bitácora de eventos e incidencias.',
@@ -444,6 +444,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'También puede gestionar vacaciones desde el detalle de cada unidad (pestaña Vacaciones).',
+          'Los usuarios CLIENT ven en la unidad solo Saldos y Control y Calendario, en modo consulta.',
           'Documente adelantos y casos especiales en observaciones o justificación (opcional).',
         ],
       },

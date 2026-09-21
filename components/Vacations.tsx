@@ -30,6 +30,7 @@ import { DateInput } from './DateInput';
 import { formatDateDisplay } from '../utils/dateFormat';
 import { excelService } from '../services/excelService';
 import { useUsers } from '../hooks/useUsers';
+import { checkPermission } from '../services/permissionService';
 
 interface VacationsProps {
   units: Unit[];
@@ -46,6 +47,20 @@ interface VacationsProps {
 
 type ActiveView = 'balances' | 'monitoring' | 'calendar' | 'papeletas' | 'day-entries' | 'history' | 'approvals';
 
+const CLIENT_VACATION_VIEWS: ActiveView[] = ['balances', 'calendar'];
+
+function resolveInitialView(
+  role: User['role'],
+  embedded: boolean,
+  initialActiveView?: ActiveView
+): ActiveView {
+  const preferred = initialActiveView || (embedded ? 'calendar' : 'balances');
+  if (role === 'CLIENT' && !CLIENT_VACATION_VIEWS.includes(preferred)) {
+    return embedded ? 'calendar' : 'balances';
+  }
+  return preferred;
+}
+
 type AuthModalState = {
   title: string;
   message: string;
@@ -61,8 +76,12 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   initialActiveView,
   onPendingAuthCountChange,
 }) => {
-  const { users } = useUsers(true);
-  const [activeView, setActiveView] = useState<ActiveView>(initialActiveView || (embedded ? 'calendar' : 'balances'));
+  const isClientReadOnly = currentUser.role === 'CLIENT';
+  const canEditVacations = !isClientReadOnly && checkPermission(currentUser.role, 'VACATIONS', 'edit');
+  const { users } = useUsers(!isClientReadOnly);
+  const [activeView, setActiveView] = useState<ActiveView>(
+    resolveInitialView(currentUser.role, embedded, initialActiveView)
+  );
   const [loading, setLoading] = useState(true);
   const [summaries, setSummaries] = useState<VacationBalanceSummary[]>([]);
   const [papeletas, setPapeletas] = useState<VacationPapeleta[]>([]);
@@ -232,6 +251,12 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   }, [historyFrom, historyTo]);
 
   const loadAuthRequests = useCallback(async () => {
+    if (currentUser.role === 'CLIENT') {
+      setAuthRequestsForMe([]);
+      setAuthRequestsByMe([]);
+      onPendingAuthCountChange?.(0);
+      return;
+    }
     setAuthRequestsLoading(true);
     try {
       const [forMe, byMe] = await Promise.all([
@@ -249,8 +274,15 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   }, [currentUser.id, currentUser.role, onPendingAuthCountChange]);
 
   useEffect(() => {
-    if (initialActiveView) setActiveView(initialActiveView);
-  }, [initialActiveView]);
+    if (!initialActiveView) return;
+    setActiveView(resolveInitialView(currentUser.role, embedded, initialActiveView));
+  }, [initialActiveView, currentUser.role, embedded]);
+
+  useEffect(() => {
+    if (isClientReadOnly && !CLIENT_VACATION_VIEWS.includes(activeView)) {
+      setActiveView(embedded ? 'calendar' : 'balances');
+    }
+  }, [isClientReadOnly, activeView, embedded]);
 
   useEffect(() => {
     if (activeView === 'history') {
@@ -259,6 +291,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   }, [activeView, loadHistory]);
 
   useEffect(() => {
+    if (isClientReadOnly) return;
     void loadAuthRequests();
     const interval = setInterval(() => void loadAuthRequests(), 60 * 1000);
     const onVisible = () => {
@@ -269,7 +302,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [loadAuthRequests]);
+  }, [loadAuthRequests, isClientReadOnly]);
 
   useEffect(() => {
     if (activeView === 'approvals') {
@@ -283,6 +316,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
     onSubmit: AuthModalState['onSubmit'],
     justification?: string
   ) => {
+    if (!canEditVacations) return;
     setAuthModal({ title, message, onSubmit, justification });
   };
 
@@ -396,6 +430,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const handleSaveHistorical = async () => {
+    if (!canEditVacations) return;
     if (!historicalForm.resourceId) return;
     const worker = allPersonnel.find(p => p.resourceId === historicalForm.resourceId);
     try {
@@ -417,6 +452,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const handleAddDay = async () => {
+    if (!canEditVacations) return;
     if (!dayForm.resourceId || !dayForm.unitId || !dayForm.date) return;
     try {
       await vacationService.addDayEntry(
@@ -514,6 +550,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   }, [papeletaForm, papeletaMode, selectedWorkerSummary, dayEntries]);
 
   const submitCreatePapeletaRequest = async (assignedAuthorizerId: string) => {
+    if (!canEditVacations) return;
     const worker = allPersonnel.find(p => p.resourceId === papeletaForm.resourceId);
     if (!worker) return;
 
@@ -560,6 +597,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const handleCreatePapeleta = async () => {
+    if (!canEditVacations) return;
     const worker = allPersonnel.find(p => p.resourceId === papeletaForm.resourceId);
     if (!worker) return;
 
@@ -621,6 +659,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const requestCancelPapeleta = (p: VacationPapeleta) => {
+    if (!canEditVacations) return;
     openAuthModal(
       'Solicitar anulación de papeleta',
       `Se enviará una solicitud para anular la papeleta ${p.code} de ${p.workerName} (${p.calendarDays} días). La anulación se ejecutará cuando el autorizador la apruebe.`,
@@ -650,6 +689,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const requestCancelDayEntry = (d: VacationDayEntry) => {
+    if (!canEditVacations) return;
     const worker = allPersonnel.find(p => p.resourceId === d.resourceId);
     openAuthModal(
       'Solicitar anulación de día a cuenta',
@@ -680,6 +720,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const handleApproveAuthRequest = async (req: VacationAuthorizationRequest) => {
+    if (!canEditVacations) return;
     if (!window.confirm(`¿Aprobar esta solicitud?\n\n${req.summary}`)) return;
     setResolvingRequestId(req.id);
     try {
@@ -700,6 +741,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const handleRejectAuthRequest = async (req: VacationAuthorizationRequest) => {
+    if (!canEditVacations) return;
     const reason = window.prompt('Motivo del rechazo (opcional):') ?? '';
     if (reason === null) return;
     setResolvingRequestId(req.id);
@@ -715,6 +757,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const handleCancelAuthRequest = async (req: VacationAuthorizationRequest) => {
+    if (!canEditVacations) return;
     if (!window.confirm('¿Retirar esta solicitud pendiente?')) return;
     try {
       await vacationAuthorizationRequestService.cancelByRequester(req.id, currentUser.id);
@@ -725,7 +768,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const handleSaveEditPapeleta = async () => {
-    if (!editPapeleta) return;
+    if (!canEditVacations || !editPapeleta) return;
     try {
       await vacationService.updatePapeleta(
         editPapeleta.id,
@@ -746,7 +789,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const handleSaveEditDayEntry = async () => {
-    if (!editDayEntry) return;
+    if (!canEditVacations || !editDayEntry) return;
     try {
       await vacationService.updateDayEntry(
         editDayEntry.id,
@@ -766,6 +809,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
   };
 
   const openPapeletaForWorker = (resourceId: string, mode: 'direct' | 'accumulated') => {
+    if (!canEditVacations) return;
     const worker = allPersonnel.find(p => p.resourceId === resourceId);
     const summary = summaries.find(s => s.resourceId === resourceId);
     const pending = dayEntries.filter(d => d.resourceId === resourceId && d.status === 'pending_batch');
@@ -811,7 +855,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
 
   const pendingAuthCount = authRequestsForMe.length;
 
-  const tabs: { id: ActiveView; label: string; icon: React.ReactNode; badge?: number }[] = [
+  const allTabs: { id: ActiveView; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: 'balances', label: 'Saldos y Control', icon: <Users size={16} /> },
     { id: 'calendar', label: 'Calendario', icon: <Calendar size={16} /> },
     { id: 'monitoring', label: 'Monitoreo', icon: <Clock size={16} /> },
@@ -827,6 +871,9 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
     },
     { id: 'history', label: 'Historial', icon: <History size={16} /> },
   ];
+  const tabs = isClientReadOnly
+    ? allTabs.filter(tab => CLIENT_VACATION_VIEWS.includes(tab.id))
+    : allTabs;
 
   return (
     <div className={embedded ? 'space-y-4' : 'p-6 md:p-8 space-y-6 animate-in fade-in duration-500'}>
@@ -839,9 +886,12 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
             Control de Vacaciones
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Régimen general Perú — {DAYS_PER_YEAR} días/año · Buenas prácticas 15+15 informativas · Se puede registrar histórico y adelantos
+            {isClientReadOnly
+              ? 'Consulta de saldos y calendario de vacaciones · solo lectura'
+              : `Régimen general Perú — ${DAYS_PER_YEAR} días/año · Buenas prácticas 15+15 informativas · Se puede registrar histórico y adelantos`}
           </p>
         </div>
+        {canEditVacations && (
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => { setDayForm({ resourceId: '', unitId: '', date: new Date().toISOString().split('T')[0], notes: '', daysCount: 1 }); setShowDayModal(true); }}
@@ -856,6 +906,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
             <FileText size={16} /> Nueva Papeleta
           </button>
         </div>
+        )}
       </div>
       )}
 
@@ -867,9 +918,12 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
               Vacaciones — {fixedUnitName || 'Unidad'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Gestión de saldos, papeletas y días a cuenta del personal de esta unidad
+              {isClientReadOnly
+                ? 'Consulta de saldos y calendario del personal de esta unidad'
+                : 'Gestión de saldos, papeletas y días a cuenta del personal de esta unidad'}
             </p>
           </div>
+          {canEditVacations && (
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => {
@@ -897,11 +951,12 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
               <FileText size={14} /> Nueva Papeleta
             </button>
           </div>
+          )}
         </div>
       )}
 
       {/* Info banner */}
-      {!embedded && (
+      {!embedded && !isClientReadOnly && (
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3 text-sm text-blue-800">
         <Info size={18} className="shrink-0 mt-0.5" />
         <div>
@@ -1003,7 +1058,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
                       <th className="text-center p-3" title="Segundos 15: múltiplos de 7, bloque de 15 o goce continuo de 30">2.ºs 15</th>
                       <th className="text-center p-3">Usado</th>
                       <th className="text-center p-3">Saldo</th>
-                      <th className="text-center p-3">Acciones</th>
+                      <th className="text-center p-3">{canEditVacations ? 'Acciones' : 'Detalle'}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1049,6 +1104,8 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
                             >
                               Bloques
                             </button>
+                            {canEditVacations && (
+                              <>
                             <button
                               onClick={() => { setHistoricalForm({ resourceId: s.resourceId, days: s.historicalTakenDays, notes: '' }); setShowHistoricalModal(true); }}
                               className="text-xs px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700"
@@ -1062,6 +1119,8 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
                             >
                               Papeleta
                             </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1090,7 +1149,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
           )}
 
           {/* TAB: Monitoreo */}
-          {activeView === 'monitoring' && (
+          {!isClientReadOnly && activeView === 'monitoring' && (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {onVacation.length === 0 ? (
                 <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-xl border border-dashed">
@@ -1136,7 +1195,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
           )}
 
           {/* TAB: Papeletas */}
-          {activeView === 'papeletas' && (
+          {!isClientReadOnly && activeView === 'papeletas' && (
             <div className="space-y-3">
               <div className="flex justify-end">
                 <button
@@ -1204,7 +1263,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
                           >
                             <Download size={16} />
                           </button>
-                          {p.status === 'issued' && (
+                          {canEditVacations && p.status === 'issued' && (
                             <>
                               <button
                                 type="button"
@@ -1259,7 +1318,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
           )}
 
           {/* TAB: Días a cuenta */}
-          {activeView === 'day-entries' && (
+          {!isClientReadOnly && activeView === 'day-entries' && (
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
@@ -1293,7 +1352,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
                             </span>
                           </td>
                           <td className="p-3 text-center">
-                            {d.status === 'pending_batch' && (
+                            {canEditVacations && d.status === 'pending_batch' && (
                               <div className="flex items-center justify-center gap-2">
                                 <button
                                   type="button"
@@ -1328,7 +1387,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
           )}
 
           {/* TAB: Autorizaciones */}
-          {activeView === 'approvals' && (
+          {!isClientReadOnly && activeView === 'approvals' && (
             <div className="space-y-6">
               {pendingAuthCount > 0 && canActAsVacationAuthorizer(currentUser.role) && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex gap-3">
@@ -1447,7 +1506,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
           )}
 
           {/* TAB: Historial de cambios */}
-          {activeView === 'history' && (
+          {!isClientReadOnly && activeView === 'history' && (
             <div className="space-y-3">
               <div className="flex flex-col md:flex-row gap-3 md:items-end justify-between">
                 <div className="flex flex-wrap gap-3">
@@ -1541,7 +1600,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
       )}
 
       {/* Modal: Saldo histórico */}
-      {showHistoricalModal && (
+      {canEditVacations && showHistoricalModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
             <div className="bg-slate-800 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
@@ -1584,7 +1643,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
       )}
 
       {/* Modal: Día a cuenta */}
-      {showDayModal && (
+      {canEditVacations && showDayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
             <div className="bg-amber-500 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
@@ -1655,7 +1714,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
       )}
 
       {/* Modal: Papeleta */}
-      {showPapeletaModal && (
+      {canEditVacations && showPapeletaModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="bg-emerald-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center sticky top-0">
@@ -1976,7 +2035,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
         </div>
       )}
 
-      {authModal && (
+      {canEditVacations && authModal && (
         <VacationAuthorizationModal
           open
           title={authModal.title}
@@ -1989,7 +2048,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
         />
       )}
 
-      {editPapeleta && (
+      {canEditVacations && editPapeleta && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
             <div className="bg-blue-600 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">
@@ -2035,7 +2094,7 @@ export const Vacations: React.FC<VacationsProps> = React.memo(({
         </div>
       )}
 
-      {editDayEntry && (
+      {canEditVacations && editDayEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
             <div className="bg-amber-500 text-white px-6 py-4 rounded-t-xl flex justify-between items-center">

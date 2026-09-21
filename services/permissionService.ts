@@ -123,7 +123,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     NIGHT_SUPERVISION: { view: false, edit: false },
     SUPERVISION_PLANNING: { view: false, edit: false },
     RETENES: { view: false, edit: false },
-    VACATIONS: { view: false, edit: false },
+    VACATIONS: { view: true, edit: false },
     ASSETS_CATALOG: { view: false, edit: false },
     INVENTORY: { view: false, edit: false },
     DOCUMENTS: { view: true, edit: false },
@@ -204,6 +204,7 @@ export const savePermissions = (config: PermissionConfig) => {
 
 export const checkPermission = (role: UserRole, feature: AppFeature, action: 'view' | 'edit'): boolean => {
   if (role === 'CLIENT' && feature === 'UNIT_BOOK') return false;
+  if (role === 'CLIENT' && feature === 'VACATIONS' && action === 'edit') return false;
 
   const config = getPermissions();
   const roleConfig = config[role];
