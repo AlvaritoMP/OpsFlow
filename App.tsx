@@ -25,6 +25,7 @@ import {
   MattermostIncidents,
   KeepAlivePane,
   ViewFallback,
+  ChunkLoadErrorBoundary,
 } from './components/lazyAppViews';
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position, UnitClass } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
@@ -1753,6 +1754,7 @@ const App: React.FC = () => {
     };
 
     const keepAliveViews = (
+      <ChunkLoadErrorBoundary>
       <>
         {unitsLoading && units.length === 0 && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-50/90">
@@ -1855,6 +1857,7 @@ const App: React.FC = () => {
           </div>
         ))}
       </>
+      </ChunkLoadErrorBoundary>
     );
 
     if (currentView === 'units') {

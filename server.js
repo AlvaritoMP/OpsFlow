@@ -53,6 +53,7 @@ function getMimeType(filePath) {
   const mimeTypes = {
     '.html': 'text/html',
     '.js': 'application/javascript',
+    '.mjs': 'application/javascript',
     '.css': 'text/css',
     '.json': 'application/json',
     '.png': 'image/png',
@@ -69,6 +70,18 @@ function getMimeType(filePath) {
   return mimeTypes[ext] || 'application/octet-stream';
 }
 
+const STATIC_ASSET_EXT = /\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|eot|json|txt)$/i;
+
+function getCacheControl(filePath) {
+  const base = path.basename(filePath);
+  if (base === 'index.html') return 'no-store';
+  const ext = path.extname(filePath).toLowerCase();
+  if (filePath.includes(`${path.sep}assets${path.sep}`) && (ext === '.js' || ext === '.css' || ext === '.mjs')) {
+    return 'public, max-age=31536000, immutable';
+  }
+  return 'no-cache';
+}
+
 function serveFile(filePath, res) {
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -81,7 +94,7 @@ function serveFile(filePath, res) {
     const mimeType = getMimeType(filePath);
     res.writeHead(200, {
       'Content-Type': mimeType,
-      'Cache-Control': 'no-cache',
+      'Cache-Control': getCacheControl(filePath),
     });
     res.end(data);
     console.log(`✅ Served: ${filePath} (${data.length} bytes)`);
@@ -236,6 +249,15 @@ const server = http.createServer(async (req, res) => {
 
   fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
+      if (STATIC_ASSET_EXT.test(spaPath)) {
+        console.log(`⚠️  Asset not found: ${filePath}`);
+        res.writeHead(404, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        res.end('Not Found');
+        return;
+      }
       console.log(`⚠️  File not found: ${filePath}, serving index.html`);
       filePath = path.join(distPath, 'index.html');
     } else {
