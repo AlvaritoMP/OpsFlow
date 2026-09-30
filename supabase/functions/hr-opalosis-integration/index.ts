@@ -920,6 +920,16 @@ serve(async (req) => {
       if (body.departamentoId) query.DepartamentoId = body.departamentoId;
       if (body.provinciaId) query.ProvinciaId = body.provinciaId;
 
+      // Onyx responde HTTP 404 en GET /banco si no viene ?buscar=.
+      // No es un envío de trabajador: sin texto devolvemos lista vacía.
+      if (catalog === 'banco' && !query.buscar) {
+        return jsonResponse({
+          catalog,
+          items: [],
+          simulated: false,
+        });
+      }
+
       const result = await callOpalosis(`/${catalog}`, { method: 'GET', query });
       if (!result.ok) {
         return jsonResponse({

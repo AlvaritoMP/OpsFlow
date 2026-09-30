@@ -1,5 +1,6 @@
 import React from 'react';
 import type { WorkerSnapshotComplementary } from '../types';
+import { COMPLEMENTARY_BANK_OPTIONS } from '../utils/complementaryBanks';
 
 export type ComplementaryFieldDef = {
   key: keyof WorkerSnapshotComplementary;
@@ -78,8 +79,18 @@ export const COMPLEMENTARY_FICHA_GROUPS: ComplementaryFieldGroup[] = [
     fields: [
       { key: 'unidadDestaque', label: 'Unidad destaque', fullWidth: true },
       { key: 'puestoContrato', label: 'Puesto contrato', fullWidth: true },
-      { key: 'bancoSueldo', label: 'Banco sueldo' },
-      { key: 'bancoCts', label: 'Banco CTS' },
+      {
+        key: 'bancoSueldo',
+        label: 'Banco sueldo',
+        input: 'select',
+        options: [...COMPLEMENTARY_BANK_OPTIONS],
+      },
+      {
+        key: 'bancoCts',
+        label: 'Banco CTS',
+        input: 'select',
+        options: [...COMPLEMENTARY_BANK_OPTIONS],
+      },
       {
         key: 'numeroCuentaTrabajador',
         label: 'N° de cuenta (si ya tiene cuenta sueldo, ingrese el número)',

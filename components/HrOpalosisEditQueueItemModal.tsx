@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, Loader2, Search, X } from 'lucide-react';
 import { hrOutboundIngresoService } from '../services/hrOutboundIngresoService';
+import { COMPLEMENTARY_BANK_OPTIONS } from '../utils/complementaryBanks';
 import {
   HR_SHAREPOINT_DOCS_LIBRARY_URL,
   buildWorkerFieldInventory,
@@ -33,6 +34,8 @@ function CatalogSearch({
   minChars = 1,
   loadOnMount = false,
   autoMatchLabel = false,
+  fallbackItems,
+  requireQuery = false,
 }: {
   catalog: OpalosisCatalogName;
   label: string;
@@ -45,6 +48,10 @@ function CatalogSearch({
   loadOnMount?: boolean;
   /** Si hay etiqueta OpsFlow y aún no hay ID, intenta emparejar con el catálogo. */
   autoMatchLabel?: boolean;
+  /** Opciones locales (ficha) si el catálogo remoto no lista todo de una vez. */
+  fallbackItems?: OpalosisCatalogItem[];
+  /** GET sin ?buscar= responde 404 (catálogo banco). No consultar hasta que haya texto. */
+  requireQuery?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<OpalosisCatalogItem[]>([]);
@@ -53,6 +60,10 @@ function CatalogSearch({
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const matchedRef = useRef(false);
+  const requestSeq = useRef(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const allItemsRef = useRef<OpalosisCatalogItem[]>([]);
+  const fullListLoaded = useRef(false);
 
   useEffect(() => {
     matchedRef.current = false;
@@ -67,34 +78,122 @@ function CatalogSearch({
       .replace(/\s+/g, ' ')
       .trim();
 
+  const filterFallback = (term: string) => {
+    const base = fallbackItems ?? [];
+    const n = normalize(term);
+    if (!n) return base;
+    return base.filter((it) => normalize(it.label).includes(n));
+  };
+
+  const mergeItems = (remote: OpalosisCatalogItem[], local: OpalosisCatalogItem[]) => {
+    const seen = new Set(remote.map((it) => normalize(it.label)));
+    return [...remote, ...local.filter((it) => !seen.has(normalize(it.label)))];
+  };
+
+  const rememberFullList = (next: OpalosisCatalogItem[]) => {
+    fullListLoaded.current = true;
+    allItemsRef.current = next;
+    setItems(next);
+  };
+
+  const filterFullList = (term: string) => {
+    const n = normalize(term);
+    if (!n) return allItemsRef.current;
+    return allItemsRef.current.filter((it) => normalize(it.label).includes(n));
+  };
+
+  const fetchCatalog = (buscar?: string) =>
+    hrOutboundIngresoService.fetchCatalog({
+      catalog,
+      buscar: buscar || undefined,
+      departamentoId: departamentoId ?? undefined,
+      provinciaId: provinciaId ?? undefined,
+    });
+
   const load = async (buscar?: string) => {
+    const term = buscar?.trim() ?? '';
+    if (requireQuery && term.length < minChars) {
+      setItems(filterFallback(term));
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    if (!term && loadOnMount && fullListLoaded.current) {
+      setItems(allItemsRef.current);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    const seq = ++requestSeq.current;
     setLoading(true);
     setError(null);
     try {
-      const result = await hrOutboundIngresoService.fetchCatalog({
-        catalog,
-        buscar: buscar || undefined,
-        departamentoId: departamentoId ?? undefined,
-        provinciaId: provinciaId ?? undefined,
-      });
-      setItems(result.items);
+      const result = await fetchCatalog(term || undefined);
+      if (seq !== requestSeq.current) return;
+      const merged = mergeItems(result.items, filterFallback(term));
+      if (!term && loadOnMount) rememberFullList(merged);
+      else setItems(merged);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar catálogo');
+      if (seq !== requestSeq.current) return;
+      if (fallbackItems?.length) {
+        setItems(filterFallback(term));
+        setError(null);
+        return;
+      }
+      const raw = e instanceof Error ? e.message : 'Error al cargar catálogo';
+      // Algunos catálogos responden 404 si se piden sin texto. No es un envío.
+      if (/HTTP 404/.test(raw) && !term) {
+        try {
+          const retry = await fetchCatalog('a');
+          if (seq !== requestSeq.current) return;
+          if (retry.items.length > 0) {
+            setItems(retry.items);
+            setError(null);
+            return;
+          }
+        } catch {
+          // La búsqueda amplia tampoco está disponible.
+        }
+        if (seq !== requestSeq.current) return;
+        setItems([]);
+        setError(null);
+        return;
+      }
+      if (/HTTP 404/.test(raw)) {
+        setItems([]);
+        setError(null);
+        return;
+      }
+      setError(raw);
       setItems([]);
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fullListLoaded.current = false;
+    allItemsRef.current = [];
+    setItems([]);
+  }, [catalog, departamentoId, provinciaId]);
 
   useEffect(() => {
     // Distritos suelen requerir provincia; provincias pueden buscarse solo por nombre
     if (catalog === 'distritos' && !provinciaId && !valueLabel) return;
 
+    // GET /banco sin buscar responde 404. Con texto, se busca; sin texto, lista local.
+    if (requireQuery) {
+      if (autoMatchLabel && valueLabel && !valueId) {
+        load(valueLabel);
+      }
+      return;
+    }
+
     if (loadOnMount || (autoMatchLabel && valueLabel && !valueId)) {
       load(autoMatchLabel && valueLabel && !valueId ? valueLabel : undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, loadOnMount, departamentoId, provinciaId, autoMatchLabel, valueLabel, valueId]);
+  }, [catalog, loadOnMount, departamentoId, provinciaId, autoMatchLabel, valueLabel, valueId, requireQuery]);
 
   useEffect(() => {
     if (!autoMatchLabel || valueId || !valueLabel || matchedRef.current || items.length === 0) {
@@ -102,8 +201,9 @@ function CatalogSearch({
     }
     const target = normalize(valueLabel);
     if (!target) return;
-    const exact = items.find((it) => normalize(it.label) === target);
-    const partial = items.find(
+    const pool = items.filter((it) => !it.raw?.local);
+    const exact = pool.find((it) => normalize(it.label) === target);
+    const partial = pool.find(
       (it) =>
         normalize(it.label).includes(target) || target.includes(normalize(it.label)),
     );
@@ -116,18 +216,56 @@ function CatalogSearch({
   }, [items, autoMatchLabel, valueId, valueLabel]);
 
   useEffect(() => {
-    if (loadOnMount || autoMatchLabel) return;
     if (timer.current) clearTimeout(timer.current);
-    if (!query.trim() || query.trim().length < minChars) {
-      setItems([]);
+
+    if (loadOnMount && fullListLoaded.current && !requireQuery) {
+      setItems(filterFullList(query));
+      setError(null);
       return;
     }
+
+    if (requireQuery) {
+      if (query.trim().length < minChars) {
+        requestSeq.current += 1;
+        setItems(filterFallback(query));
+        setError(null);
+        setLoading(false);
+        return;
+      }
+      setItems(filterFallback(query));
+      setError(null);
+      timer.current = setTimeout(() => load(query.trim()), 350);
+      return () => {
+        if (timer.current) clearTimeout(timer.current);
+      };
+    }
+
+    if (!query.trim() || query.trim().length < minChars) return;
     timer.current = setTimeout(() => load(query.trim()), 350);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, catalog, departamentoId, provinciaId]);
+  }, [query, catalog, departamentoId, provinciaId, requireQuery]);
+
+  const clearSelection = () => {
+    onSelect(null);
+    setQuery('');
+    setError(null);
+    setOpen(true);
+    inputRef.current?.focus();
+    if (requireQuery) {
+      requestSeq.current += 1;
+      setLoading(false);
+      setItems(filterFallback(''));
+      return;
+    }
+    if (loadOnMount && fullListLoaded.current) {
+      setItems(allItemsRef.current);
+      return;
+    }
+    load();
+  };
 
   return (
     <div className="relative">
@@ -139,7 +277,7 @@ function CatalogSearch({
           </span>
           <button
             type="button"
-            onClick={() => onSelect(null)}
+            onClick={clearSelection}
             className="ml-2 text-xs text-emerald-700 hover:text-emerald-900"
           >
             Cambiar
@@ -150,7 +288,7 @@ function CatalogSearch({
           <span className="truncate text-emerald-900">{valueLabel}</span>
           <button
             type="button"
-            onClick={() => onSelect(null)}
+            onClick={clearSelection}
             className="ml-2 text-xs text-emerald-700 hover:text-emerald-900"
           >
             Cambiar
@@ -160,6 +298,7 @@ function CatalogSearch({
       <div className="relative">
         <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
         <input
+          ref={inputRef}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -167,18 +306,31 @@ function CatalogSearch({
           }}
           onFocus={() => {
             setOpen(true);
-            if (loadOnMount && items.length === 0) load();
+            if (requireQuery) {
+              if (!query.trim()) setItems(filterFallback(''));
+              return;
+            }
+            if (loadOnMount && fullListLoaded.current) {
+              setItems(filterFullList(query));
+              return;
+            }
+            if (items.length === 0) load(query.trim() || undefined);
           }}
-          placeholder={loadOnMount ? 'Buscar o seleccionar…' : `Escriba al menos ${minChars} carácter(es)…`}
+          placeholder="Buscar o seleccionar…"
           className="w-full rounded-lg border border-slate-300 py-2 pl-8 pr-3 text-sm"
         />
         {loading && <Loader2 size={14} className="absolute right-2.5 top-2.5 animate-spin text-slate-400" />}
       </div>
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {open && !loading && items.length === 0 && !error && (
+        <p className="mt-1 text-xs text-slate-500">
+          {query.trim().length >= minChars ? 'Sin coincidencias' : 'Escriba para buscar'}
+        </p>
+      )}
       {open && items.length > 0 && (
         <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
           {items.map((it) => (
-            <li key={it.id}>
+            <li key={`${it.raw?.local ? 'local' : 'remote'}-${it.id}-${it.label}`}>
               <button
                 type="button"
                 className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
@@ -188,7 +340,10 @@ function CatalogSearch({
                   setOpen(false);
                 }}
               >
-                <span className="font-mono text-xs text-slate-400">#{it.id}</span> {it.label}
+                {!it.raw?.local && (
+                  <span className="font-mono text-xs text-slate-400">#{it.id} </span>
+                )}
+                {it.label}
               </button>
             </li>
           ))}
@@ -213,6 +368,23 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState(item.workerSnapshot);
+  const initialBancoLabel = useRef(
+    (form.labels?.banco || form.bancoPreferencia || '').trim(),
+  );
+  const bancoFallbackItems = useMemo(() => {
+    const labels = [...COMPLEMENTARY_BANK_OPTIONS] as string[];
+    const extra = initialBancoLabel.current;
+    const norm = (s: string) =>
+      s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    if (extra && !labels.some((label) => norm(label) === norm(extra))) {
+      labels.unshift(extra);
+    }
+    return labels.map((label, index) => ({
+      id: -(index + 1),
+      label,
+      raw: { local: true },
+    }));
+  }, []);
 
   // Rehidratar complementary + Régimen/jornada desde recurso e intake OpsFlow
   useEffect(() => {
@@ -1036,10 +1208,13 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
                 valueLabel={form.labels?.banco ?? form.bancoPreferencia ?? undefined}
                 loadOnMount
                 autoMatchLabel
+                requireQuery
+                fallbackItems={bancoFallbackItems}
                 onSelect={(it) => {
+                  const localOnly = Boolean(it?.raw?.local);
                   setForm((prev) => ({
                     ...prev,
-                    bancoId: it?.id ?? null,
+                    bancoId: it && !localOnly ? it.id : null,
                     bancoPreferencia: it?.label ?? null,
                     labels: {
                       ...prev.labels,
