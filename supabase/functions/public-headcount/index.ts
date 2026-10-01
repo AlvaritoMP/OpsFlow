@@ -127,6 +127,10 @@ async function fetchAll(
   return all;
 }
 
+function normalizeRole(value: unknown): string {
+  return String(value || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+}
+
 async function requireShareUser(req: Request, admin: SupabaseClient, anonKey: string, url: string) {
   const authHeader = req.headers.get('Authorization') || '';
   const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
@@ -138,19 +142,42 @@ async function requireShareUser(req: Request, admin: SupabaseClient, anonKey: st
   });
   const { data: authData, error: authError } = await userClient.auth.getUser(jwt);
   if (authError || !authData.user) {
-    return jsonResponse({ message: 'Sesión no válida.' }, 401);
+    return jsonResponse({ message: 'Sesión no válida. Cierra sesión, vuelve a entrar y pulsa el botón otra vez.' }, 401);
   }
-  const { data: row, error } = await admin
+
+  const { data: byId, error } = await admin
     .from('users')
-    .select('id, role')
+    .select('id, role, email')
     .eq('id', authData.user.id)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  const role = String(row?.role || '');
-  if (!SHARE_ROLES.has(role)) {
+
+  let row = byId;
+  const email = String(authData.user.email || '').trim();
+  const idRole = normalizeRole(row?.role);
+  const idCanShare = Boolean(row?.id) && idRole !== 'CLIENT' && SHARE_ROLES.has(idRole);
+  if (!idCanShare && email) {
+    const { data: byEmail, error: emailError } = await admin
+      .from('users')
+      .select('id, role, email')
+      .ilike('email', email)
+      .limit(1)
+      .maybeSingle();
+    if (emailError) throw new Error(emailError.message);
+    if (byEmail?.id) row = byEmail;
+  }
+
+  if (!row?.id) {
+    return jsonResponse({
+      message: 'No se encontró tu usuario de OpsFlow. Cierra sesión, vuelve a entrar y pulsa el botón otra vez.',
+    }, 403);
+  }
+
+  const role = normalizeRole(row.role);
+  if (role === 'CLIENT' || !SHARE_ROLES.has(role)) {
     return jsonResponse({ message: 'Tu usuario no puede compartir el cuadro de headcount.' }, 403);
   }
-  return authData.user.id;
+  return String(row.id);
 }
 
 async function activeToken(admin: SupabaseClient): Promise<string | null> {

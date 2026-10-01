@@ -891,7 +891,9 @@ export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdate
               className="w-full text-xs font-mono border border-slate-200 rounded-lg px-3 py-2 bg-slate-50"
             />
           )}
-          {publicLinkError && <p className="text-red-600 text-xs">{publicLinkError}</p>}
+          {publicLinkError && (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{publicLinkError}</p>
+          )}
           {publicLink && (
             <button
               type="button"
