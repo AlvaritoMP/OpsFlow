@@ -47,6 +47,8 @@ import { canActAsVacationAuthorizer } from './services/vacationAuthService';
 import { PasswordReset } from './components/PasswordReset';
 import { ComplementaryFichaLanding } from './components/ComplementaryFichaLanding';
 import { isPublicComplementaryFichaPath } from './services/publicComplementaryFichaService';
+import { isPublicHeadcountPath } from './services/publicHeadcountService';
+import { PublicHeadcountView } from './components/PublicHeadcountView';
 import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffService';
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
 import { filterOperationalUnits, isUnitOperational } from './utils/unitStatus';
@@ -59,9 +61,11 @@ const VACATION_AUTH_POLL_MS = 60 * 1000;
 
 const App: React.FC = () => {
   const isPublicFichaLanding = isPublicComplementaryFichaPath();
+  const isPublicHeadcountLanding = isPublicHeadcountPath();
+  const isPublicLanding = isPublicFichaLanding || isPublicHeadcountLanding;
   // Estado de autenticación
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authLoading, setAuthLoading] = useState(!isPublicFichaLanding);
+  const [authLoading, setAuthLoading] = useState(!isPublicLanding);
   const authRequestRef = useRef(0);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -313,7 +317,7 @@ const App: React.FC = () => {
   useEffect(() => {
     let mounted = true;
     
-    if (isPublicFichaLanding) {
+    if (isPublicFichaLanding || isPublicHeadcountLanding) {
       setAuthLoading(false);
       return;
     }
@@ -376,7 +380,7 @@ const App: React.FC = () => {
     return () => {
       mounted = false;
     };
-  }, [isPublicFichaLanding]);
+  }, [isPublicFichaLanding, isPublicHeadcountLanding]);
 
   // Actualizar currentUser cuando se carguen los usuarios
   useEffect(() => {
@@ -1815,7 +1819,11 @@ const App: React.FC = () => {
           />
         ))}
         {renderCachedView('headcount', (
-          <Headcount units={operationalUnits} onUpdateUnit={handleUpdateUnit} />
+          <Headcount
+            units={operationalUnits}
+            onUpdateUnit={handleUpdateUnit}
+            canSharePublicLink={currentUser.role !== 'CLIENT'}
+          />
         ))}
         {renderCachedView('vacations', (
           <Vacations
@@ -3359,6 +3367,10 @@ const App: React.FC = () => {
       </>
     );
   };
+
+  if (isPublicHeadcountLanding) {
+    return <PublicHeadcountView />;
+  }
 
   if (isPublicFichaLanding) {
     return <ComplementaryFichaLanding />;

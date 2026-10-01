@@ -42,3 +42,6 @@ verify_jwt = false
 
 [functions.public-complementary-ficha]
 verify_jwt = false
+
+[functions.public-headcount]
+verify_jwt = false

@@ -3,11 +3,14 @@ import { toBlob, toPng } from 'html-to-image';
 import { Unit, Resource, ResourceType, Position, HeadcountPositionMeta } from '../types';
 import { positionsService } from '../services/positionsService';
 import { retenesService, Reten, RetenAssignment } from '../services/retenesService';
-import { Users, Briefcase, Building, X, Filter, RefreshCw, Image as ImageIcon, Download, Copy, Check } from 'lucide-react';
+import { Users, Briefcase, Building, X, Filter, RefreshCw, Image as ImageIcon, Download, Copy, Check, Link2 } from 'lucide-react';
+import { publicHeadcountService } from '../services/publicHeadcountService';
 
 interface HeadcountProps {
   units: Unit[];
   onUpdateUnit?: (unit: Unit) => Promise<void>;
+  /** Permite copiar el enlace público de solo lectura (no aplica al rol cliente). */
+  canSharePublicLink?: boolean;
 }
 
 type ShiftKey = 'Day' | 'Afternoon' | 'Night';
@@ -133,7 +136,7 @@ const cellNum = (value: number, showZero = true): string => {
   return String(value || 0);
 };
 
-export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdateUnit }) => {
+export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdateUnit, canSharePublicLink = false }) => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [retenesCatalog, setRetenesCatalog] = useState<Reten[]>([]);
   const [todayRetenes, setTodayRetenes] = useState<RetenAssignment[]>([]);
@@ -149,6 +152,10 @@ export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdate
   const reportRef = useRef<HTMLDivElement>(null);
   const [capturingImage, setCapturingImage] = useState(false);
   const [imageActionFeedback, setImageActionFeedback] = useState<'copied' | 'downloaded' | 'error' | null>(null);
+  const [publicLink, setPublicLink] = useState<string | null>(null);
+  const [publicLinkBusy, setPublicLinkBusy] = useState<'copy' | 'rotate' | null>(null);
+  const [publicLinkError, setPublicLinkError] = useState<string | null>(null);
+  const [publicLinkCopied, setPublicLinkCopied] = useState(false);
   const todayLocal = toLocalDateStr();
 
   useEffect(() => {
@@ -764,6 +771,34 @@ export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdate
     }
   };
 
+  const sharePublicLink = async (rotate: boolean) => {
+    if (rotate) {
+      const ok = window.confirm(
+        'El enlace actual dejará de funcionar. Quien lo tenga ya no podrá ver el cuadro. ¿Renovar el enlace?'
+      );
+      if (!ok) return;
+    }
+    setPublicLinkBusy(rotate ? 'rotate' : 'copy');
+    setPublicLinkError(null);
+    setPublicLinkCopied(false);
+    try {
+      const url = rotate
+        ? await publicHeadcountService.rotateLink()
+        : await publicHeadcountService.copyLink();
+      setPublicLink(url);
+      try {
+        await navigator.clipboard.writeText(url);
+        setPublicLinkCopied(true);
+      } catch {
+        setPublicLinkError('El enlace está listo. Selecciónalo y cópialo manualmente.');
+      }
+    } catch (err) {
+      setPublicLinkError(err instanceof Error ? err.message : 'No se pudo generar el enlace');
+    } finally {
+      setPublicLinkBusy(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6 md:p-8">
@@ -790,6 +825,18 @@ export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdate
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canSharePublicLink && (
+            <button
+              type="button"
+              onClick={() => void sharePublicLink(false)}
+              disabled={publicLinkBusy !== null}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              title="Quien tenga el enlace ve el cuadro, sin editar y sin el resto de OpsFlow, de 8:00 a.m. a 6:00 p.m."
+            >
+              {publicLinkCopied ? <Check size={16} className="text-green-600" /> : <Link2 size={16} />}
+              {publicLinkBusy === 'copy' ? 'Generando…' : publicLinkCopied ? 'Enlace copiado' : 'Enlace de solo lectura'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void copyReportImage()}
@@ -829,6 +876,34 @@ export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdate
           </button>
         </div>
       </div>
+
+      {canSharePublicLink && (publicLink || publicLinkError) && (
+        <div className="no-capture bg-white rounded-xl border border-slate-200 px-4 py-3 text-sm space-y-2">
+          <p className="text-slate-600">
+            Este enlace muestra solo el cuadro, sin poder modificarlo y sin otras pantallas de OpsFlow.
+            Funciona de 8:00 a.m. a 6:00 p.m. (hora de Perú).
+          </p>
+          {publicLink && (
+            <input
+              readOnly
+              value={publicLink}
+              onFocus={(e) => e.currentTarget.select()}
+              className="w-full text-xs font-mono border border-slate-200 rounded-lg px-3 py-2 bg-slate-50"
+            />
+          )}
+          {publicLinkError && <p className="text-red-600 text-xs">{publicLinkError}</p>}
+          {publicLink && (
+            <button
+              type="button"
+              onClick={() => void sharePublicLink(true)}
+              disabled={publicLinkBusy !== null}
+              className="text-xs text-slate-500 hover:text-slate-800 underline disabled:opacity-50"
+            >
+              {publicLinkBusy === 'rotate' ? 'Renovando…' : 'Renovar enlace (el anterior deja de funcionar)'}
+            </button>
+          )}
+        </div>
+      )}
 
       {imageActionFeedback === 'error' && (
         <div className="no-capture text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
