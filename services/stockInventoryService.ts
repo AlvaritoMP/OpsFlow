@@ -19,6 +19,8 @@ import type {
 
 const db = (table: string) => supabase.from(table as never);
 
+const PRODUCT_LIST_COLUMNS = 'id,name,sku,category,price,low_stock_threshold,description';
+
 const DEFAULT_SETTINGS: InvAppSettings = {
   colors: {
     inStock: 'bg-green-50 text-green-700 border-green-200',
@@ -177,7 +179,7 @@ export const stockInventoryService = {
         scheduledRes,
         accessRes,
       ] = await Promise.all([
-        db('inv_products').select('*').order('name'),
+        db('inv_products').select(PRODUCT_LIST_COLUMNS).order('name'),
         db('inv_warehouses').select('*').order('name'),
         db('inv_stock').select('*'),
         db('inv_movements').select('*').order('timestamp', { ascending: false }).limit(500),
@@ -230,6 +232,18 @@ export const stockInventoryService = {
       handleSupabaseError(error);
       throw error;
     }
+  },
+
+  async getProductImages(productId: string): Promise<string[]> {
+    const { data, error } = await db('inv_products')
+      .select('images')
+      .eq('id', productId)
+      .maybeSingle();
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+    return asArray((data as { images?: unknown } | null)?.images);
   },
 
   async createProduct(product: Omit<InvProduct, 'id'>, userName: string): Promise<InvProduct> {

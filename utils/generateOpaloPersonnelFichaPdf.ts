@@ -7,7 +7,7 @@ import type {
   WorkerSnapshotFamiliar,
   WorkerSnapshotAntecedenteSalud,
 } from '../types';
-import { hydrateComplementaryFromSnapshot } from './complementaryHydrate';
+import { hydrateComplementaryFromSnapshot, isComplementaryJubilado } from './complementaryHydrate';
 import { inferDocumentType } from './documentNumber';
 import { extractHandoffNameParts } from './handoffNameParts';
 
@@ -704,14 +704,18 @@ export async function buildOpaloPersonnelFichaPdf(
       value: text(ficha.cuentaCci),
     },
   ]);
+  const jubilado = isComplementaryJubilado(ficha.jubilado);
   b.row([
+    { label: 'Jubilado', value: jubilado ? 'Sí' : 'No', span: 0.7 },
     {
       label: 'Aportes al sistema de pensiones (si ya ha aportado) — Sistema / AFP / ONP',
-      value: text(ficha.sistemaPensionesAnterior),
+      value: jubilado ? 'No aplica' : text(ficha.sistemaPensionesAnterior),
+      span: 1.15,
     },
     {
       label: 'De no haber aportado anteriormente, desea afiliarse a — Elección AFP / ONP',
-      value: text(ficha.sistemaPensionesDeseado),
+      value: jubilado ? 'No aplica' : text(ficha.sistemaPensionesDeseado),
+      span: 1.15,
     },
   ]);
 

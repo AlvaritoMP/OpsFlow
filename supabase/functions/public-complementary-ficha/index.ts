@@ -31,6 +31,13 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
+function isJubiladoFlag(value: unknown): boolean {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+  const text = String(value).trim().toLowerCase();
+  return text === 'si' || text === 'sí' || text === 'true' || text === '1' || text === 'yes';
+}
+
 function asTrimmedString(value: unknown): string {
   if (value === null || value === undefined) return '';
   return String(value).trim();
@@ -277,10 +284,16 @@ function overlayComplementaryOnHrFields(hr: JsonRecord, complementary: JsonRecor
     'cuentaCci',
     complementary.cuentaCci || complementary.cci,
   );
-  setIf(
-    'sistemaPension',
-    complementary.sistemaPensionesDeseado || complementary.sistemaPensionesAnterior,
-  );
+  const jubilado = isJubiladoFlag(complementary.jubilado);
+  if (jubilado) {
+    next.sistemaPension = 'Jubilado';
+    delete next.fondoPensionId;
+  } else {
+    setIf(
+      'sistemaPension',
+      complementary.sistemaPensionesDeseado || complementary.sistemaPensionesAnterior,
+    );
+  }
   const sexo = asTrimmedString(complementary.sexo);
   if (sexo) next.sexo = sexo.slice(0, 1).toUpperCase();
   const shoe = Number(asTrimmedString(complementary.tallaCalzado).replace(',', '.'));
@@ -297,7 +310,9 @@ function overlayComplementaryOnHrFields(hr: JsonRecord, complementary: JsonRecor
   setLabel('banco', complementary.bancoSueldo);
   setLabel(
     'fondoPension',
-    complementary.sistemaPensionesDeseado || complementary.sistemaPensionesAnterior,
+    jubilado
+      ? 'Jubilado'
+      : complementary.sistemaPensionesDeseado || complementary.sistemaPensionesAnterior,
   );
   setLabel('estadoCivil', complementary.estadoCivil);
   next.labels = labels;

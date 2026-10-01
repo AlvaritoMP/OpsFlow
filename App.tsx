@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes, Route } from 'lucide-react';
 import { Login } from './components/Login';
 import {
@@ -62,6 +62,7 @@ const App: React.FC = () => {
   // Estado de autenticación
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(!isPublicFichaLanding);
+  const authRequestRef = useRef(0);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'mattermost'>('dashboard');
@@ -317,10 +318,11 @@ const App: React.FC = () => {
       return;
     }
 
+    const requestId = ++authRequestRef.current;
     const checkAuth = async () => {
       try {
         const dbUser = await authService.getCurrentUser();
-        if (!mounted) return;
+        if (!mounted || requestId !== authRequestRef.current) return;
         
         if (dbUser) {
           setCurrentUser(dbUser);
@@ -330,11 +332,11 @@ const App: React.FC = () => {
         }
       } catch (error: any) {
         console.error('Error verificando autenticación:', error);
-        if (!mounted) return;
+        if (!mounted || requestId !== authRequestRef.current) return;
         setAppError(error.message || 'Error al verificar autenticación');
         setIsAuthenticated(false);
       } finally {
-        if (mounted) {
+        if (mounted && requestId === authRequestRef.current) {
           setAuthLoading(false);
         }
       }
@@ -550,8 +552,10 @@ const App: React.FC = () => {
 
   // Manejar login exitoso
   const handleLoginSuccess = async (user: User) => {
+    authRequestRef.current += 1;
     setCurrentUser(user);
     setIsAuthenticated(true);
+    setAuthLoading(false);
   };
 
   // Manejar logout

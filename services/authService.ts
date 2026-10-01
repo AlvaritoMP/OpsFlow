@@ -11,6 +11,79 @@ import { hashPassword, verifyPassword } from '../utils/passwordHash';
 
 const SESSION_STORAGE_KEY = 'OPSFLOW_SESSION';
 
+function isTransientDbError(error: any): boolean {
+  const message = String(error?.message || error || '').toLowerCase();
+  const code = String(error?.code || '');
+  return (
+    message.includes('timeout') ||
+    message.includes('failed to fetch') ||
+    message.includes('network') ||
+    message.includes('fetch') ||
+    code === 'ETIMEDOUT' ||
+    code === '57014' ||
+    code === 'PGRST301'
+  );
+}
+
+async function syncSupabaseAuthSession(dbUser: User, password: string): Promise<void> {
+  const email = dbUser.email.toLowerCase();
+  try {
+    const authResult = await supabase.auth.signInWithPassword({ email, password });
+    if (!authResult.error) {
+      console.log('✅ Sesión de Supabase Auth creada correctamente');
+      return;
+    }
+
+    const isInvalidCredentials = authResult.error.message?.includes('Invalid login credentials') ||
+      authResult.error.message?.includes('Email not confirmed') ||
+      authResult.status === 400;
+
+    let userExistsInAuth = false;
+    try {
+      const adminAuth = supabase.auth.admin as { getUserByEmail?: (value: string) => Promise<{ data: { user: unknown } }> };
+      if (!adminAuth?.getUserByEmail) throw new Error('admin lookup unavailable');
+      const { data: { user } } = await adminAuth.getUserByEmail(email);
+      userExistsInAuth = !!user;
+    } catch {
+      userExistsInAuth = isInvalidCredentials;
+    }
+
+    if (userExistsInAuth && isInvalidCredentials) {
+      console.warn('⚠️ Usuario existe en Supabase Auth pero la contraseña no coincide. La sesión local sigue activa.');
+      return;
+    }
+
+    if (!(authResult.error.message?.includes('User not found') || !userExistsInAuth)) {
+      console.warn('⚠️ Error al autenticar con Supabase Auth:', authResult.error.message);
+      return;
+    }
+
+    const signUpResult = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { name: dbUser.name, role: dbUser.role },
+        emailRedirectTo: undefined,
+      },
+    });
+
+    if (signUpResult.error) {
+      console.warn('⚠️ No se pudo crear cuenta en Supabase Auth:', signUpResult.error.message);
+      return;
+    }
+
+    if (signUpResult.data?.user) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const signInResult = await supabase.auth.signInWithPassword({ email, password });
+      if (signInResult.error) {
+        console.warn('⚠️ No se pudo hacer sign in después de crear cuenta:', signInResult.error.message);
+      }
+    }
+  } catch (authErr: any) {
+    console.warn('⚠️ No se pudo crear sesión de Supabase Auth:', authErr?.message || authErr);
+  }
+}
+
 export interface Session {
   userId: string;
   email: string;
@@ -54,8 +127,16 @@ export const authService = {
     });
     
     try {
-      // Intentar obtener de la BD
-      const dbUser = await usersService.getById(session.userId);
+      // Reintentar si la base está despertando: un fallo transitorio no debe
+      // devolver al login a quien ya tiene sesión.
+      let dbUser: User | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        dbUser = await usersService.getById(session.userId);
+        if (dbUser) break;
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+        }
+      }
       if (dbUser) {
         console.log('✅ getCurrentUser() - Usuario obtenido de BD:', {
           id: dbUser.id,
@@ -127,14 +208,25 @@ export const authService = {
       // Esto es para usuarios creados directamente en la BD sin Supabase Auth
       try {
         console.log('🔍 Buscando usuario en tabla users...');
-        const { data: dbUsers, error: dbError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('email', normalizedEmail)
-          .limit(1);
+        let dbUsers: any[] | null = null;
+        let dbError: any = null;
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          const result = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', normalizedEmail)
+            .limit(1);
+          dbUsers = result.data;
+          dbError = result.error;
+          if (!dbError) break;
+          const transient = isTransientDbError(dbError);
+          console.error(`❌ Error al buscar usuario en BD (intento ${attempt}):`, dbError);
+          if (!transient || attempt === 4) break;
+          await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+        }
 
         if (dbError) {
-          console.error('❌ Error al buscar usuario en BD:', dbError);
+          throw new Error('No se pudo conectar con el servidor para verificar sus credenciales. Espere un momento e intente de nuevo.');
         }
 
         if (!dbError && dbUsers && dbUsers.length > 0) {
@@ -188,135 +280,9 @@ export const authService = {
               };
               localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 
-              // Intentar crear sesión de Supabase Auth para compatibilidad con Storage
-              // Esto es necesario para que Storage funcione
-              // IMPORTANTE: Si el usuario existe en Auth pero la contraseña no coincide,
-              // continuamos con la sesión local sin bloquear la aplicación
-              try {
-                const authResult = await supabase.auth.signInWithPassword({
-                  email: email.toLowerCase(),
-                  password: password,
-                });
-                
-                if (authResult.error) {
-                  // Verificar si el usuario existe en Auth pero las credenciales no coinciden
-                  const isInvalidCredentials = authResult.error.message?.includes('Invalid login credentials') || 
-                                               authResult.error.message?.includes('Email not confirmed') ||
-                                               authResult.status === 400;
-                  
-                  // Verificar si el usuario existe en Auth
-                  let userExistsInAuth = false;
-                  try {
-                    // Intentar obtener el usuario por email (esto no requiere contraseña)
-                    const { data: { user } } = await supabase.auth.admin.getUserByEmail(email.toLowerCase());
-                    userExistsInAuth = !!user;
-                  } catch (e) {
-                    // Si no podemos verificar, asumimos que puede existir
-                    userExistsInAuth = isInvalidCredentials;
-                  }
-                  
-                  if (userExistsInAuth && isInvalidCredentials) {
-                    // El usuario existe en Auth pero la contraseña no coincide
-                    console.warn('⚠️ Usuario existe en Supabase Auth pero la contraseña no coincide.');
-                    console.warn('⚠️ Continuando con sesión local. Para subir imágenes, necesitas que la contraseña en Auth coincida con la de la tabla users.');
-                    console.warn('⚠️ SOLUCIÓN: Restablece la contraseña en Supabase Dashboard → Authentication → Users para que coincida.');
-                    // Continuar sin bloquear - la sesión local ya está activa
-                  } else if (authResult.error.message?.includes('User not found') || !userExistsInAuth) {
-                    // El usuario no existe en Auth, intentar crearlo
-                    console.log('ℹ️ Usuario no existe en Supabase Auth. Intentando crear cuenta...');
-                    
-                    // Verificar si el email ya está registrado en Auth
-                    try {
-                      // Intentar sign up (puede fallar si ya existe)
-                      const signUpResult = await supabase.auth.signUp({
-                        email: email.toLowerCase(),
-                        password: password,
-                        options: {
-                          data: {
-                            name: dbUser.name,
-                            role: dbUser.role,
-                          },
-                          emailRedirectTo: undefined, // No requerir confirmación de email
-                        }
-                      });
-                      
-                      if (signUpResult.error) {
-                        if (signUpResult.error.message?.includes('already registered') || 
-                            signUpResult.error.message?.includes('User already registered')) {
-                          console.log('ℹ️ Usuario ya existe en Supabase Auth. Intentando sign in con credenciales...');
-                          // El usuario existe pero las credenciales pueden no coincidir
-                          // Intentar sign in de nuevo después de un momento
-                          await new Promise(resolve => setTimeout(resolve, 1000));
-                          const retryResult = await supabase.auth.signInWithPassword({
-                            email: email.toLowerCase(),
-                            password: password,
-                          });
-                          
-                          if (retryResult.error) {
-                            console.warn('⚠️ No se pudo autenticar con Supabase Auth después de crear cuenta:', retryResult.error.message);
-                            console.warn('⚠️ Esto puede deberse a que la contraseña en Auth es diferente a la de la tabla users.');
-                            console.warn('⚠️ SOLUCIÓN: Ejecuta el script SQL para migrar usuarios a Supabase Auth o restablece la contraseña en Supabase Dashboard.');
-                          } else {
-                            console.log('✅ Sesión de Supabase Auth creada correctamente después de reintento');
-                          }
-                        } else {
-                        console.warn('⚠️ No se pudo crear cuenta en Supabase Auth:', signUpResult.error.message);
-                          console.warn('⚠️ Código de error:', signUpResult.error.status);
-                          console.warn('⚠️ Esto puede deberse a políticas de Supabase que requieren confirmación de email.');
-                        }
-                      } else if (signUpResult.data?.user) {
-                        console.log('✅ Cuenta creada en Supabase Auth, intentando sign in...');
-                        // Esperar un momento para que Supabase procese el signup
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        const signInResult = await supabase.auth.signInWithPassword({
-                          email: email.toLowerCase(),
-                          password: password,
-                        });
-                        
-                        if (signInResult.error) {
-                          console.warn('⚠️ No se pudo hacer sign in después de crear cuenta:', signInResult.error.message);
-                          console.warn('⚠️ Puede ser necesario confirmar el email o esperar unos segundos.');
-                        } else {
-                          console.log('✅ Sesión de Supabase Auth creada correctamente');
-                        }
-                      }
-                    } catch (signUpErr: any) {
-                      console.warn('⚠️ Error al crear cuenta en Supabase Auth:', signUpErr);
-                      console.warn('⚠️ Detalles:', {
-                        message: signUpErr.message,
-                        status: signUpErr.status,
-                        code: signUpErr.code
-                      });
-                    }
-                  } else {
-                    console.warn('⚠️ Error al autenticar con Supabase Auth:', authResult.error.message);
-                    console.warn('⚠️ Código de error:', authResult.error.status);
-                  }
-                } else {
-                  console.log('✅ Sesión de Supabase Auth creada correctamente');
-                }
-              } catch (authErr: any) {
-                // Si falla, la sesión local ya está activa, pero Storage no funcionará
-                // No bloquear la aplicación - solo advertir de forma menos agresiva
-                console.warn('⚠️ No se pudo crear sesión de Supabase Auth:', authErr?.message || authErr);
-                console.warn('⚠️ La sesión local está activa. La aplicación funcionará normalmente.');
-                console.warn('⚠️ Para subir imágenes a Storage, necesitas sesión de Supabase Auth.');
-                console.warn('⚠️ SOLUCIÓN: Si tu usuario existe en Auth, asegúrate de que la contraseña coincida.');
-                console.warn('⚠️ Puedes restablecer la contraseña en Supabase Dashboard → Authentication → Users');
-              }
-              
-              // Verificar si finalmente se creó la sesión de Auth (sin bloquear si no existe)
-              try {
-                const { data: { session: finalSession } } = await supabase.auth.getSession();
-                if (finalSession) {
-                  console.log('✅ Sesión de Supabase Auth verificada:', finalSession.user.id);
-                } else {
-                  // No mostrar advertencia agresiva - solo log informativo
-                  console.log('ℹ️ Sesión local activa. Sesión de Supabase Auth no disponible (esto es normal si las contraseñas no coinciden).');
-                }
-              } catch (e) {
-                // Ignorar errores de verificación - no es crítico
-              }
+              // Auth de Supabase solo hace falta para Storage. No debe bloquear el ingreso:
+              // si el proyecto está frío, esas llamadas tardaban y el login parecía fallar.
+              void syncSupabaseAuthSession(dbUser, password);
 
               // Registrar login en auditoría
               try {
@@ -343,7 +309,14 @@ export const authService = {
         } else {
           console.warn('⚠️ Usuario no encontrado en tabla users. Intentando Supabase Auth...');
         }
-      } catch (dbErr) {
+      } catch (dbErr: any) {
+        const message = String(dbErr?.message || '');
+        if (
+          message.includes('Contraseña incorrecta') ||
+          message.includes('No se pudo conectar')
+        ) {
+          throw dbErr;
+        }
         console.error('❌ Error al buscar usuario en BD:', dbErr);
       }
 

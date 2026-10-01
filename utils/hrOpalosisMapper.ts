@@ -20,7 +20,7 @@ import {
   hasStructuredNameParts,
 } from './handoffNameParts';
 import { HANDOFF_FIELD_LABELS } from './workerSnapshotMapper';
-import { hydrateComplementaryFromSnapshot } from './complementaryHydrate';
+import { hydrateComplementaryFromSnapshot, isComplementaryJubilado } from './complementaryHydrate';
 
 const OPSFLOW_FIELD_LABELS: Record<string, string> = {
   name: 'Nombre',
@@ -201,6 +201,7 @@ export function buildWorkerFieldInventory(
       numeroCuenta: 'N° de cuenta trabajador',
       cuentaCci: 'CCI (cuenta interbancaria)',
       bancoCts: 'Banco CTS',
+      jubilado: 'Jubilado',
       sistemaPensionesDeseado: 'Sistema pensiones deseado',
       sistemaPensionesAnterior: 'Sistema pensiones anterior',
       tallaCamisa: 'Talla camisa',
@@ -856,14 +857,17 @@ export function mapSnapshotToHrFields(
     fields.banco,
     fields.bancoPreferencia,
   );
-  const pensionLabel = pickString(
-    complementary.sistemaPensionesDeseado,
-    complementary.sistemaPensionesAnterior,
-    fields.sistemaPension,
-    fields.fondoPension,
-    fields.sistemaPensionesDeseado,
-    fields.sistemaPensionesAnterior,
-  );
+  const jubilado = isComplementaryJubilado(complementary.jubilado);
+  const pensionLabel = jubilado
+    ? 'Jubilado'
+    : pickString(
+        complementary.sistemaPensionesDeseado,
+        complementary.sistemaPensionesAnterior,
+        fields.sistemaPension,
+        fields.fondoPension,
+        fields.sistemaPensionesDeseado,
+        fields.sistemaPensionesAnterior,
+      );
   const estadoCivilLabel = pickString(
     complementary.estadoCivil,
     fields.estadoCivil,
@@ -932,7 +936,7 @@ export function mapSnapshotToHrFields(
     sueldo,
     movilidad,
     sistemaPension: nullIfEmpty(pensionLabel),
-    fondoPensionId: pickNumber(fields.fondoPensionId) ?? null,
+    fondoPensionId: jubilado ? null : (pickNumber(fields.fondoPensionId) ?? null),
     bancoPreferencia: nullIfEmpty(bancoLabel),
     bancoId: pickNumber(fields.bancoId) ?? null,
     numeroCuentaTrabajador: nullIfEmpty(
@@ -1118,6 +1122,7 @@ export function mergeHrFieldsWithSnapshot(
   const mapped = mapSnapshotToHrFields(snapshot, refOperaciones, options);
   if (!existing) return mapped;
 
+  const jubilado = isComplementaryJubilado(snapshot.ats.complementary?.jubilado);
   const pickFilledString = (a?: string | null, b?: string | null) => {
     const av = a?.trim();
     if (av) return a as string;
@@ -1151,8 +1156,10 @@ export function mergeHrFieldsWithSnapshot(
     urlDocumentoAdjunto: existing.urlDocumentoAdjunto || mapped.urlDocumentoAdjunto,
     tieneAsignacionFamiliar:
       existing.tieneAsignacionFamiliar || mapped.tieneAsignacionFamiliar,
-    sistemaPension: existing.sistemaPension || mapped.sistemaPension,
-    fondoPensionId: pickFilledNum(existing.fondoPensionId, mapped.fondoPensionId),
+    sistemaPension: jubilado ? 'Jubilado' : existing.sistemaPension || mapped.sistemaPension,
+    fondoPensionId: jubilado
+      ? null
+      : pickFilledNum(existing.fondoPensionId, mapped.fondoPensionId),
     bancoPreferencia: existing.bancoPreferencia || mapped.bancoPreferencia,
     bancoId: pickFilledNum(existing.bancoId, mapped.bancoId),
     numeroCuentaTrabajador: existing.numeroCuentaTrabajador || mapped.numeroCuentaTrabajador,
@@ -1176,7 +1183,9 @@ export function mergeHrFieldsWithSnapshot(
       provincia: existing.labels?.provincia || mapped.labels?.provincia,
       distrito: existing.labels?.distrito || mapped.labels?.distrito,
       banco: existing.labels?.banco || mapped.labels?.banco,
-      fondoPension: existing.labels?.fondoPension || mapped.labels?.fondoPension,
+      fondoPension: jubilado
+        ? 'Jubilado'
+        : existing.labels?.fondoPension || mapped.labels?.fondoPension,
       estadoCivil: existing.labels?.estadoCivil || mapped.labels?.estadoCivil,
     },
     refOperaciones: existing.refOperaciones || mapped.refOperaciones || refOperaciones,
@@ -1200,6 +1209,7 @@ export function refreshHrFieldsFromLiveSnapshot(
   const mapped = mapSnapshotToHrFields(snapshot, refOperaciones, options);
   if (!existing) return mapped;
 
+  const jubilado = isComplementaryJubilado(snapshot.ats.complementary?.jubilado);
   const keepId = (current?: number | null, next?: number | null) =>
     current !== null && current !== undefined ? current : (next ?? null);
 
@@ -1209,7 +1219,7 @@ export function refreshHrFieldsFromLiveSnapshot(
     lugarTrabajoId: keepId(existing.lugarTrabajoId, mapped.lugarTrabajoId),
     modeloContratoId: keepId(existing.modeloContratoId, mapped.modeloContratoId),
     regimenLaboralId: keepId(existing.regimenLaboralId, mapped.regimenLaboralId),
-    fondoPensionId: keepId(existing.fondoPensionId, mapped.fondoPensionId),
+    fondoPensionId: jubilado ? null : keepId(existing.fondoPensionId, mapped.fondoPensionId),
     bancoId: keepId(existing.bancoId, mapped.bancoId),
     departamentoId: keepId(existing.departamentoId, mapped.departamentoId),
     provinciaId: keepId(existing.provinciaId, mapped.provinciaId),

@@ -1,10 +1,43 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeftRight, FileDown, FileUp, Filter, Package, Plus, RefreshCw, Search, SlidersHorizontal, Warehouse as WarehouseIcon, XCircle } from 'lucide-react';
 import { useInventory } from './InventoryContext';
 import { InvButton, InvCard, InvInput, InvModal, InvSelect, InvTextarea, exportToCsv } from './InventoryUi';
 import { InventoryBulkTransferModal } from './InventoryBulkTransferModal';
 import { InventoryMovementDocumentModal } from './InventoryMovementDocumentModal';
+import { stockInventoryService } from '../../services/stockInventoryService';
 import { INV_CONSUMPTION_REASON_LABELS, type InvConsumptionReason, type InvLogEntry, type InvLogType, type InvProduct, type InvWarehouse, type User } from '../../types';
+
+function compressImageFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 960;
+        let { width, height } = img;
+        if (width > max || height > max) {
+          const scale = max / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(String(reader.result));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.72));
+      };
+      img.onerror = () => resolve(String(reader.result));
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export const InventoryDashboardView = ({ onGenerateSuggestedPO }: { onGenerateSuggestedPO: (products: InvProduct[]) => void }) => {
   const { products, inventory, warehouses, logs, isAdmin } = useInventory();
@@ -153,16 +186,34 @@ const ProductFormModal = ({
     description: product?.description || '',
   });
   const [images, setImages] = useState<string[]>(product?.images || []);
+  const [imagesReady, setImagesReady] = useState(!product?.id);
+  const [imagesError, setImagesError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (!product?.id) return;
+    let cancelled = false;
+    stockInventoryService.getProductImages(product.id)
+      .then((loaded) => {
+        if (cancelled) return;
+        setImages(loaded);
+        setImagesReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setImagesError('No se pudieron cargar las imágenes de este producto. Cierre y vuelva a abrir antes de guardar, para no borrarlas.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [product?.id]);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []).slice(0, 4 - images.length);
+    const files = Array.from(e.target.files || []).slice(0, 4 - images.length) as File[];
     files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) setImages((prev) => [...prev, String(event.target.result)]);
-      };
-      reader.readAsDataURL(file as File);
+      void compressImageFile(file)
+        .then((dataUrl) => setImages((prev) => (prev.length >= 4 ? prev : [...prev, dataUrl])))
+        .catch(() => setImagesError('No se pudo procesar una de las imágenes.'));
     });
   };
 
@@ -172,6 +223,7 @@ const ProductFormModal = ({
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
+          if (!imagesReady) return;
           onSave({ ...formData, images });
         }}
       >
@@ -191,7 +243,9 @@ const ProductFormModal = ({
               </div>
             ))}
           </div>
-          {images.length < 4 && (
+          {imagesError && <p className="text-xs text-amber-700 mb-2">{imagesError}</p>}
+          {!imagesReady && !imagesError && <p className="text-xs text-slate-500 mb-2">Cargando imágenes...</p>}
+          {images.length < 4 && imagesReady && (
             <>
               <input ref={fileInputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleImageUpload} />
               <InvButton type="button" onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700">
@@ -202,7 +256,7 @@ const ProductFormModal = ({
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <InvButton onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700">Cancelar</InvButton>
-          <InvButton type="submit">{product ? 'Guardar' : 'Añadir'}</InvButton>
+          <InvButton type="submit" disabled={!imagesReady}>{product ? 'Guardar' : 'Añadir'}</InvButton>
         </div>
       </form>
     </InvModal>
@@ -415,17 +469,37 @@ export const InventoryProductsView = () => {
 const ProductDetailModal = ({ product, onClose }: { product: InvProduct; onClose: () => void }) => {
   const { inventory, warehouses } = useInventory();
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [images, setImages] = useState<string[]>(product.images || []);
+  const [imagesLoading, setImagesLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    stockInventoryService.getProductImages(product.id)
+      .then((loaded) => {
+        if (!cancelled) setImages(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setImages([]);
+      })
+      .finally(() => {
+        if (!cancelled) setImagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [product.id]);
   const stockByWarehouse = warehouses
     .map((w) => ({ warehouseName: w.name, quantity: inventory.find((i) => i.productId === product.id && i.warehouseId === w.id)?.quantity || 0 }))
     .filter((item) => item.quantity > 0);
   return (
     <InvModal isOpen onClose={onClose} title={product.name}>
-      {product.images?.[0] && (
+      {imagesLoading && <p className="text-xs text-slate-500 mb-3">Cargando imágenes...</p>}
+      {images[0] && (
         <div className="mb-4">
-          <img src={product.images[selectedImageIndex]} alt="" className="w-full h-48 object-cover rounded-lg bg-slate-100" />
-          {product.images.length > 1 && (
+          <img src={images[selectedImageIndex]} alt="" className="w-full h-48 object-cover rounded-lg bg-slate-100" />
+          {images.length > 1 && (
             <div className="flex gap-2 mt-2 justify-center">
-              {product.images.map((src, i) => (
+              {images.map((src, i) => (
                 <img key={i} src={src} alt="" onClick={() => setSelectedImageIndex(i)} className={`w-14 h-14 object-cover rounded cursor-pointer border-2 ${selectedImageIndex === i ? 'border-blue-500' : 'border-transparent'}`} />
               ))}
             </div>

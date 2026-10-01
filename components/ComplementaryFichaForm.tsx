@@ -1,15 +1,18 @@
 import React from 'react';
 import type { WorkerSnapshotComplementary } from '../types';
 import { COMPLEMENTARY_BANK_OPTIONS } from '../utils/complementaryBanks';
+import { isComplementaryJubilado } from '../utils/complementaryHydrate';
 
 export type ComplementaryFieldDef = {
   key: keyof WorkerSnapshotComplementary;
   label: string;
-  input?: 'text' | 'tel' | 'email' | 'select';
+  input?: 'text' | 'tel' | 'email' | 'select' | 'boolean';
   options?: string[];
   fullWidth?: boolean;
   placeholder?: string;
   hint?: string;
+  /** Se deshabilita cuando el trabajador está marcado como jubilado. */
+  disabledWhenJubilado?: boolean;
 };
 
 export type ComplementaryFieldGroup = {
@@ -106,16 +109,25 @@ export const COMPLEMENTARY_FICHA_GROUPS: ComplementaryFieldGroup[] = [
         fullWidth: true,
       },
       {
+        key: 'jubilado',
+        label: 'Jubilado',
+        input: 'boolean',
+        fullWidth: true,
+        hint: 'Si está jubilado, no aplica afiliación AFP. Las opciones de AFP quedan desactivadas.',
+      },
+      {
         key: 'sistemaPensionesAnterior',
         label: 'Pensiones anterior',
         input: 'select',
         options: ['AFP', 'ONP'],
+        disabledWhenJubilado: true,
       },
       {
         key: 'sistemaPensionesDeseado',
         label: 'Pensiones deseado',
         input: 'select',
         options: ['AFP', 'ONP'],
+        disabledWhenJubilado: true,
       },
       { key: 'nombreFamiliarOpalo', label: 'Familiar en Opalo', fullWidth: true },
     ],
@@ -145,8 +157,23 @@ export const ComplementaryFichaForm: React.FC<ComplementaryFichaFormProps> = ({
   onChange,
   compact = false,
 }) => {
+  const jubilado = isComplementaryJubilado(value.jubilado);
+
   const setField = (key: keyof WorkerSnapshotComplementary, raw: string) => {
     onChange({ ...value, [key]: raw });
+  };
+
+  const setJubilado = (next: boolean) => {
+    if (next) {
+      onChange({
+        ...value,
+        jubilado: true,
+        sistemaPensionesAnterior: '',
+        sistemaPensionesDeseado: '',
+      });
+      return;
+    }
+    onChange({ ...value, jubilado: false });
   };
 
   return (
@@ -159,15 +186,45 @@ export const ComplementaryFichaForm: React.FC<ComplementaryFichaFormProps> = ({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {group.fields.map((field) => {
               const spanClass = field.fullWidth ? 'col-span-1 sm:col-span-2' : 'col-span-1';
-              const current = fieldToInputValue(value[field.key]);
+              const lockedByJubilado = Boolean(field.disabledWhenJubilado && jubilado);
+              const current = lockedByJubilado ? '' : fieldToInputValue(value[field.key]);
+              const fieldDisabled = disabled || lockedByJubilado;
+              if (field.input === 'boolean') {
+                const checked = field.key === 'jubilado' ? jubilado : Boolean(value[field.key]);
+                return (
+                  <label key={String(field.key)} className={`block ${spanClass}`}>
+                    <span className="flex min-h-[44px] items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/20 disabled:opacity-50"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={(e) => {
+                          if (field.key === 'jubilado') setJubilado(e.target.checked);
+                          else onChange({ ...value, [field.key]: e.target.checked });
+                        }}
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-slate-800">{field.label}</span>
+                        {field.hint ? (
+                          <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
+                            {field.hint}
+                          </span>
+                        ) : null}
+                      </span>
+                    </span>
+                  </label>
+                );
+              }
               return (
                 <label key={String(field.key)} className={`block ${spanClass}`}>
                   <span className="mb-1.5 block text-xs font-medium text-slate-600">
                     {field.label}
+                    {lockedByJubilado ? ' (no aplica)' : ''}
                   </span>
                   {field.input === 'select' ? (
                     <select
-                      disabled={disabled}
+                      disabled={fieldDisabled}
                       value={current}
                       onChange={(e) => setField(field.key, e.target.value)}
                       className={inputClassName}
@@ -185,7 +242,7 @@ export const ComplementaryFichaForm: React.FC<ComplementaryFichaFormProps> = ({
                   ) : (
                     <input
                       type={field.input ?? 'text'}
-                      disabled={disabled}
+                      disabled={fieldDisabled}
                       value={current}
                       onChange={(e) => setField(field.key, e.target.value)}
                       placeholder={field.placeholder}

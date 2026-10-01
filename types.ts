@@ -1085,6 +1085,8 @@ export interface WorkerSnapshotComplementary {
   /** CCI / cuenta interbancaria si el trabajador ya tiene cuenta. */
   cuentaCci?: string;
   bancoCts?: string;
+  /** Jubilado: no aplica afiliación AFP. Desactiva las opciones de pensiones. */
+  jubilado?: boolean | null;
   sistemaPensionesAnterior?: string;
   sistemaPensionesDeseado?: string;
   /** ¿Cómo se enteró del empleo? (ATS: Fuente / source) */

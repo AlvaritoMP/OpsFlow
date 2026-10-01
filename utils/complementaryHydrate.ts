@@ -11,6 +11,14 @@ function asText(value: unknown): string {
   return text;
 }
 
+/** True cuando la ficha marca al trabajador como jubilado (no aplica AFP). */
+export function isComplementaryJubilado(value: unknown): boolean {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+  const text = String(value).trim().toLowerCase();
+  return text === 'si' || text === 'sí' || text === 'true' || text === '1' || text === 'yes';
+}
+
 function pickText(...values: unknown[]): string | undefined {
   for (const value of values) {
     const text = asText(value);

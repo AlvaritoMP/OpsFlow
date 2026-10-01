@@ -110,8 +110,13 @@ const InventoryShell = () => {
         <div className="flex-1 overflow-y-auto p-4 md:p-6">
           {loading && <p className="text-slate-500">Cargando inventario...</p>}
           {error && (
-            <div className="mb-4 p-3 rounded-lg bg-amber-50 text-amber-800 text-sm">
-              {error}. Ejecute en Supabase <code>migrations/MIGRATION_INVENTORY.sql</code> y luego <code>migrations/MIGRATION_INVENTORY_CONSUMPTION.sql</code> si las tablas aún no existen.
+            <div className="mb-4 p-3 rounded-lg bg-amber-50 text-amber-800 text-sm whitespace-pre-line">
+              {error}
+              {/relation|does not exist|schema cache|PGRST205|42P01/i.test(error) && (
+                <>
+                  {' '}Ejecute en Supabase <code>migrations/MIGRATION_INVENTORY.sql</code> y luego <code>migrations/MIGRATION_INVENTORY_CONSUMPTION.sql</code> si las tablas aún no existen.
+                </>
+              )}
             </div>
           )}
           {!loading && render()}
