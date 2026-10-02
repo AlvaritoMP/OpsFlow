@@ -568,6 +568,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   
   const [showRenewContractModal, setShowRenewContractModal] = useState(false);
   const [selectedWorkerForRenewal, setSelectedWorkerForRenewal] = useState<Resource | null>(null);
+  const [editingContract, setEditingContract] = useState<ContractHistory | null>(null);
   const [renewContractForm, setRenewContractForm] = useState<{ startDate: string; endDate: string; notes: string; monthlySalary?: number; workConditionAmount?: number }>({ startDate: '', endDate: '', notes: '', monthlySalary: undefined, workConditionAmount: undefined });
   const [isRenewingContract, setIsRenewingContract] = useState(false);
   const [contractHistory, setContractHistory] = useState<Record<string, ContractHistory[]>>({});
@@ -3130,6 +3131,129 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       } catch (error) {
         console.error('Error al cargar incrementos salariales:', error);
       }
+    }
+  };
+
+  const emptyRenewContractForm = { startDate: '', endDate: '', notes: '', monthlySalary: undefined as number | undefined, workConditionAmount: undefined as number | undefined };
+
+  const closeRenewContractModal = () => {
+    setShowRenewContractModal(false);
+    setSelectedWorkerForRenewal(null);
+    setEditingContract(null);
+    setRenewContractForm(emptyRenewContractForm);
+  };
+
+  const openEditContractModal = (worker: Resource, contract: ContractHistory) => {
+    setSelectedWorkerForRenewal(worker);
+    setEditingContract(contract);
+    setRenewContractForm({
+      startDate: String(contract.startDate || '').slice(0, 10),
+      endDate: String(contract.endDate || '').slice(0, 10),
+      notes: contract.notes || '',
+      monthlySalary: contract.monthlySalary,
+      workConditionAmount: contract.workConditionAmount,
+    });
+    setShowRenewContractModal(true);
+  };
+
+  const handleSaveContractForm = async () => {
+    if (!selectedWorkerForRenewal || !onUpdate || !renewContractForm.startDate || !renewContractForm.endDate) return;
+
+    if (renewContractForm.endDate < renewContractForm.startDate) {
+      setNotification({ type: 'error', message: 'La fecha de fin debe ser posterior a la fecha de inicio' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    setIsRenewingContract(true);
+    try {
+      const { contractService } = await import('../services/contractService');
+      const { resourcesService } = await import('../services/resourcesService');
+      const workerId = selectedWorkerForRenewal.id;
+
+      if (editingContract) {
+        await contractService.updateContract(editingContract.id, {
+          startDate: renewContractForm.startDate,
+          endDate: renewContractForm.endDate,
+          notes: renewContractForm.notes || undefined,
+          monthlySalary: renewContractForm.monthlySalary ?? null,
+          workConditionAmount: renewContractForm.workConditionAmount ?? null,
+        });
+
+        const historyBefore = contractHistory[workerId] || [];
+        const firstContract = [...historyBefore].sort((a, b) => a.contractNumber - b.contractNumber)[0];
+        const isFirstContract = !!firstContract && firstContract.id === editingContract.id;
+        const isActiveContract = editingContract.status === 'activo';
+        const resourcePatch: Partial<Resource> = { type: ResourceType.PERSONNEL };
+        if (isFirstContract) resourcePatch.startDate = renewContractForm.startDate;
+        if (isActiveContract) {
+          resourcePatch.endDate = renewContractForm.endDate;
+          const salaryChanged = (renewContractForm.monthlySalary ?? null) !== (editingContract.monthlySalary ?? null);
+          const conditionChanged = (renewContractForm.workConditionAmount ?? null) !== (editingContract.workConditionAmount ?? null);
+          if (salaryChanged) {
+            resourcePatch.monthlySalary = renewContractForm.monthlySalary ?? (null as unknown as number);
+          }
+          if (conditionChanged) {
+            resourcePatch.workConditionAmount = renewContractForm.workConditionAmount ?? (null as unknown as number);
+          }
+        }
+        if (isFirstContract || isActiveContract) {
+          await resourcesService.update(workerId, resourcePatch);
+        }
+      } else {
+        await contractService.createContract(
+          workerId,
+          renewContractForm.startDate,
+          renewContractForm.endDate,
+          renewContractForm.notes || undefined,
+          {
+            isRenewal: true,
+            monthlySalary: renewContractForm.monthlySalary,
+            workConditionAmount: renewContractForm.workConditionAmount
+          }
+        );
+
+        // Solo actualizar fin del último contrato en el recurso; el inicio de la relación laboral
+        // permanece como el primer contrato (no se sobrescribe en renovaciones).
+        await resourcesService.update(workerId, {
+          endDate: renewContractForm.endDate,
+          monthlySalary: renewContractForm.monthlySalary,
+          workConditionAmount: renewContractForm.workConditionAmount,
+          personnelStatus: 'activo',
+          archived: false,
+          terminationReason: null,
+        });
+      }
+
+      const history = await contractService.getContractHistory(workerId);
+      setContractHistory(prev => ({
+        ...prev,
+        [workerId]: history
+      }));
+
+      const { unitsService } = await import('../services/unitsService');
+      const refreshedUnit = await unitsService.getById(unit.id);
+      if (refreshedUnit) {
+        onUpdate(refreshedUnit);
+      }
+
+      setNotification({
+        type: 'success',
+        message: editingContract ? 'Contrato actualizado correctamente' : 'Contrato renovado correctamente',
+      });
+      setTimeout(() => setNotification(null), 3000);
+      closeRenewContractModal();
+    } catch (error) {
+      console.error(editingContract ? 'Error al editar contrato:' : 'Error al renovar contrato:', error);
+      setNotification({
+        type: 'error',
+        message: editingContract
+          ? 'Error al guardar los cambios del contrato. Por favor, intente nuevamente.'
+          : 'Error al renovar el contrato. Por favor, intente nuevamente.',
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsRenewingContract(false);
     }
   };
   
@@ -7517,6 +7641,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 {canEditPersonnel && worker.personnelStatus === 'activo' && (
                                     <button 
                                         onClick={() => {
+                                            setEditingContract(null);
                                             setSelectedWorkerForRenewal(worker);
                                             const activeContract = contractHistory[worker.id]?.find((c: any) => c.status === 'activo');
                                             setRenewContractForm({ 
@@ -7535,9 +7660,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 )}
                             </div>
                             <div className="space-y-2 max-h-48 overflow-y-auto">
-                                {(contractHistory[worker.id] || []).length > 0 ? (contractHistory[worker.id] || []).map((contract: any) => (
-                                    <div key={contract.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 bg-blue-50/50 p-2 rounded">
-                                        <div className="flex-1">
+                                {(contractHistory[worker.id] || []).length > 0 ? (contractHistory[worker.id] || []).map((contract: ContractHistory) => (
+                                    <div key={contract.id} className="flex justify-between items-start text-sm border-b border-slate-50 last:border-0 pb-2 last:pb-0 bg-blue-50/50 p-2 rounded gap-2">
+                                        <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <FileText size={12} className="text-blue-600" />
                                                 <p className="font-medium text-slate-700">
@@ -7563,6 +7688,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                               </p>
                                             )}
                                         </div>
+                                        {canEditPersonnel && (
+                                          <button
+                                            type="button"
+                                            onClick={() => openEditContractModal(worker, contract)}
+                                            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded shrink-0"
+                                            title="Editar contrato"
+                                          >
+                                            <Edit2 size={14} />
+                                          </button>
+                                        )}
                                     </div>
                                 )) : <p className="text-xs text-slate-400 italic">Sin registro de contratos. El contrato inicial se creará automáticamente al renovar.</p>}
                             </div>
@@ -11966,19 +12101,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         </div>
       )}
 
-      {/* Modal de Renovación de Contrato */}
+      {/* Modal de Renovación / edición de Contrato */}
       {showRenewContractModal && selectedWorkerForRenewal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-800">Renovar Contrato</h3>
+              <h3 className="text-lg font-semibold text-slate-800">
+                {editingContract ? `Editar contrato #${editingContract.contractNumber}` : 'Renovar Contrato'}
+              </h3>
               <button
-                onClick={() => {
-                  setShowRenewContractModal(false);
-                  setSelectedWorkerForRenewal(null);
-                  setRenewContractForm({ startDate: '', endDate: '', notes: '', monthlySalary: undefined, workConditionAmount: undefined });
-                }}
+                onClick={closeRenewContractModal}
                 className="text-slate-400 hover:text-slate-600"
+                disabled={isRenewingContract}
               >
                 <X size={20} />
               </button>
@@ -11986,7 +12120,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             
             <div className="mb-4">
               <p className="text-sm text-slate-600 mb-4">
-                Renovar contrato de <strong>{selectedWorkerForRenewal.name}</strong>
+                {editingContract ? (
+                  <>
+                    Ajustar el contrato #{editingContract.contractNumber} de <strong>{selectedWorkerForRenewal.name}</strong>.
+                    {editingContract.status === 'activo'
+                      ? ' Al ser el contrato vigente, el fin, el salario y la condición de trabajo también se actualizan en la ficha.'
+                      : ' Este registro ya no es el vigente, así que el cambio queda en el historial.'}
+                    {(() => {
+                      const history = contractHistory[selectedWorkerForRenewal.id] || [];
+                      const first = [...history].sort((a, b) => a.contractNumber - b.contractNumber)[0];
+                      return first?.id === editingContract.id
+                        ? ' La fecha de inicio de este contrato actualiza el inicio de la relación laboral.'
+                        : '';
+                    })()}
+                  </>
+                ) : (
+                  <>Renovar contrato de <strong>{selectedWorkerForRenewal.name}</strong></>
+                )}
               </p>
               
               {/* Mostrar historial de contratos */}
@@ -12020,7 +12170,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Fecha de inicio del nuevo contrato *
+                    {editingContract ? 'Fecha de inicio *' : 'Fecha de inicio del nuevo contrato *'}
                   </label>
                   <DateInput
                     value={renewContractForm.startDate}
@@ -12032,7 +12182,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Fecha de fin del nuevo contrato *
+                    {editingContract ? 'Fecha de fin *' : 'Fecha de fin del nuevo contrato *'}
                   </label>
                   <DateInput
                     value={renewContractForm.endDate}
@@ -12090,87 +12240,20 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             
             <div className="flex gap-3">
               <button
-                onClick={() => {
-                  setShowRenewContractModal(false);
-                  setSelectedWorkerForRenewal(null);
-                  setRenewContractForm({ startDate: '', endDate: '', notes: '', monthlySalary: undefined, workConditionAmount: undefined });
-                }}
+                onClick={closeRenewContractModal}
                 className="flex-1 py-2 px-4 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
                 disabled={isRenewingContract}
               >
                 Cancelar
               </button>
               <button
-                onClick={async () => {
-                  if (!selectedWorkerForRenewal || !onUpdate || !renewContractForm.startDate || !renewContractForm.endDate) return;
-                  
-                  if (new Date(renewContractForm.endDate) < new Date(renewContractForm.startDate)) {
-                    setNotification({ type: 'error', message: 'La fecha de fin debe ser posterior a la fecha de inicio' });
-                    setTimeout(() => setNotification(null), 3000);
-                    return;
-                  }
-                  
-                  setIsRenewingContract(true);
-                  try {
-                    const { contractService } = await import('../services/contractService');
-                    const { resourcesService } = await import('../services/resourcesService');
-                    
-                    // Crear el nuevo contrato
-                    await contractService.createContract(
-                      selectedWorkerForRenewal.id,
-                      renewContractForm.startDate,
-                      renewContractForm.endDate,
-                      renewContractForm.notes || undefined,
-                      {
-                        isRenewal: true,
-                        monthlySalary: renewContractForm.monthlySalary,
-                        workConditionAmount: renewContractForm.workConditionAmount
-                      }
-                    );
-                    
-                    // Solo actualizar fin del último contrato en el recurso; el inicio de la relación laboral
-                    // permanece como el primer contrato (no se sobrescribe en renovaciones).
-                    await resourcesService.update(selectedWorkerForRenewal.id, {
-                      endDate: renewContractForm.endDate,
-                      monthlySalary: renewContractForm.monthlySalary,
-                      workConditionAmount: renewContractForm.workConditionAmount,
-                      personnelStatus: 'activo',
-                      archived: false,
-                      terminationReason: null,
-                    });
-                    
-                    // Recargar historial de contratos
-                    const history = await contractService.getContractHistory(selectedWorkerForRenewal.id);
-                    setContractHistory(prev => ({
-                      ...prev,
-                      [selectedWorkerForRenewal.id]: history
-                    }));
-                    
-                    // Recargar la unidad
-                    const { unitsService } = await import('../services/unitsService');
-                    const refreshedUnit = await unitsService.getById(unit.id);
-                    if (refreshedUnit) {
-                      onUpdate(refreshedUnit);
-                    }
-                    
-                    setNotification({ type: 'success', message: 'Contrato renovado correctamente' });
-                    setTimeout(() => setNotification(null), 3000);
-                    
-                    setShowRenewContractModal(false);
-                    setSelectedWorkerForRenewal(null);
-                    setRenewContractForm({ startDate: '', endDate: '', notes: '', monthlySalary: undefined, workConditionAmount: undefined });
-                  } catch (error) {
-                    console.error('Error al renovar contrato:', error);
-                    setNotification({ type: 'error', message: 'Error al renovar el contrato. Por favor, intente nuevamente.' });
-                    setTimeout(() => setNotification(null), 5000);
-                  } finally {
-                    setIsRenewingContract(false);
-                  }
-                }}
+                onClick={handleSaveContractForm}
                 className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isRenewingContract || !renewContractForm.startDate || !renewContractForm.endDate}
               >
-                {isRenewingContract ? 'Renovando...' : 'Renovar Contrato'}
+                {isRenewingContract
+                  ? (editingContract ? 'Guardando...' : 'Renovando...')
+                  : (editingContract ? 'Guardar cambios' : 'Renovar Contrato')}
               </button>
             </div>
           </div>

@@ -101,6 +101,39 @@ export const contractService = {
     }
   },
 
+  // Corregir un contrato ya creado (inicial o renovación) sin cambiar su número ni su estado.
+  async updateContract(
+    contractId: string,
+    updates: {
+      startDate: string;
+      endDate: string;
+      notes?: string;
+      monthlySalary?: number | null;
+      workConditionAmount?: number | null;
+    }
+  ): Promise<ContractHistory> {
+    try {
+      const { data, error } = await supabase
+        .from('contract_history')
+        .update({
+          start_date: updates.startDate,
+          end_date: updates.endDate,
+          notes: updates.notes?.trim() ? updates.notes.trim() : null,
+          monthly_salary: updates.monthlySalary ?? null,
+          work_condition_amount: updates.workConditionAmount ?? null,
+        })
+        .eq('id', contractId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return mapContractFromDB(data);
+    } catch (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+
   // Finalizar un contrato (marcar como finalizado)
   async finalizeContract(contractId: string): Promise<void> {
     try {
