@@ -26,8 +26,15 @@ import {
   BpoEducationLevel,
   BpoDependentRelationship,
   BpoPersonnelDocumentCategory,
+  ResourceInboundSourceData,
 } from '../types';
 import { bpoPersonnelService } from '../services/bpoPersonnelService';
+import { hydrateComplementaryFromSnapshot } from '../utils/complementaryHydrate';
+import {
+  complementaryHasExpedienteSource,
+  matchComplementaryDependents,
+  matchComplementaryToBpoProfile,
+} from '../utils/bpoComplementaryMatch';
 import { DateInput } from './DateInput';
 
 interface BpoPersonnelProfilePanelProps {
@@ -35,6 +42,7 @@ interface BpoPersonnelProfilePanelProps {
   unitId: string;
   workerName: string;
   canEdit: boolean;
+  inboundSourceData?: ResourceInboundSourceData;
 }
 
 const MARITAL_LABELS: Record<BpoMaritalStatus, string> = {
@@ -183,9 +191,12 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
   unitId,
   workerName,
   canEdit,
+  inboundSourceData,
 }) => {
+  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [profile, setProfile] = useState<Partial<BpoPersonnelProfile>>(EMPTY_PROFILE);
   const [dependents, setDependents] = useState<BpoPersonnelDependent[]>([]);
   const [documents, setDocuments] = useState<BpoPersonnelDocument[]>([]);
@@ -247,6 +258,84 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSyncFromComplementary = async () => {
+    if (!canEdit) return;
+    setSyncing(true);
+    setMessage(null);
+    try {
+      const snapshot = inboundSourceData?.workerSnapshot;
+      const complementary = hydrateComplementaryFromSnapshot(
+        snapshot,
+        snapshot?.complementary ?? null,
+      );
+      if (!complementaryHasExpedienteSource(complementary)) {
+        setMessage({
+          type: 'err',
+          text: 'Este trabajador no tiene ficha complementaria de OpsFlow con datos que coincidan con el expediente.',
+        });
+        return;
+      }
+
+      const profilePatch = matchComplementaryToBpoProfile(complementary, profile);
+      const filledKeys = Object.keys(profilePatch);
+      const dependentDrafts = matchComplementaryDependents(
+        complementary,
+        dependents.map((dep) => dep.fullName),
+      );
+
+      if (filledKeys.length > 0) {
+        setProfile((prev) => ({ ...prev, ...profilePatch }));
+      }
+
+      let created = 0;
+      if (dependentDrafts.length > 0) {
+        const saved = [];
+        for (const draft of dependentDrafts) {
+          saved.push(
+            await bpoPersonnelService.createDependent(resourceId, unitId, {
+              relationship: draft.relationship,
+              fullName: draft.fullName,
+              isDependent: true,
+              notes: draft.notes,
+            }),
+          );
+          created += 1;
+        }
+        setDependents((prev) =>
+          [...prev, ...saved].sort((a, b) => a.fullName.localeCompare(b.fullName, 'es')),
+        );
+      }
+
+      if (filledKeys.length === 0 && created === 0) {
+        setMessage({
+          type: 'ok',
+          text: 'La ficha complementaria no agregó campos nuevos: el expediente ya tiene esos datos.',
+        });
+        return;
+      }
+
+      const parts: string[] = [];
+      if (filledKeys.length > 0) {
+        parts.push(
+          `Se completaron ${filledKeys.length} campo${filledKeys.length === 1 ? '' : 's'} vacío${filledKeys.length === 1 ? '' : 's'}. Pulse Guardar expediente para conservarlos.`,
+        );
+      }
+      if (created > 0) {
+        parts.push(
+          `Se agregaron ${created} familiar${created === 1 ? '' : 'es'} que no estaban en el expediente.`,
+        );
+      }
+      setMessage({ type: 'ok', text: parts.join(' ') });
+    } catch (error) {
+      setMessage({
+        type: 'err',
+        text: getErrorMessage(error, 'No se pudo traer la información de la ficha complementaria.'),
+      });
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -397,37 +486,75 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
     </div>
   );
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-8 text-slate-400 text-sm">
-        <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Cargando expediente BPO…
-      </div>
-    );
-  }
+  const filledProfileFields = [
+    profile.nationality,
+    profile.address,
+    profile.maritalStatus,
+    profile.gender,
+    profile.afpName,
+    profile.afpAffiliationDate,
+    profile.afpEmail,
+    profile.afpCuspp,
+    profile.emergencyContactName,
+    profile.emergencyContactPhone,
+    profile.emergencyContactRelationship,
+    profile.educationLevel,
+    profile.educationInstitution,
+    profile.educationCareer,
+    profile.educationCompletionYear,
+    profile.notes,
+  ].filter((value) => value !== undefined && value !== null && String(value).trim() !== '').length;
+
+  const summary = loading
+    ? 'Cargando expediente…'
+    : filledProfileFields > 0 || dependents.length > 0 || documents.length > 0
+      ? `Expediente con datos (${filledProfileFields} campos${dependents.length ? `, ${dependents.length} familiar${dependents.length === 1 ? '' : 'es'}` : ''})`
+      : 'Sin datos — puede traerlos de la ficha complementaria';
 
   return (
-    <div className="bg-violet-50/40 border border-violet-200 rounded-xl p-4 space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h5 className="text-sm font-bold text-violet-900 flex items-center gap-2">
-            <FolderOpen size={16} /> Expediente BPO — {workerName}
-          </h5>
-          <p className="text-xs text-violet-600 mt-0.5">
-            Puede guardar con los campos que tenga disponibles y completar el resto después.
-          </p>
+    <div className="overflow-hidden rounded-xl border border-violet-200 bg-violet-50/40">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full min-h-[48px] items-center justify-between gap-3 px-4 py-3 text-left hover:bg-violet-50"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <FolderOpen size={16} className="shrink-0 text-violet-600" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-violet-900">Expediente BPO — {workerName}</p>
+            <p className="text-xs text-violet-600">{summary}</p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={loadAll}
-            className="p-2 text-violet-600 hover:bg-violet-100 rounded-lg"
-            title="Actualizar"
-          >
-            <RefreshCw size={16} />
-          </button>
+        {open ? (
+          <ChevronUp size={18} className="shrink-0 text-violet-400" />
+        ) : (
+          <ChevronDown size={18} className="shrink-0 text-violet-400" />
+        )}
+      </button>
+
+      {open && (
+      <div className="space-y-4 border-t border-violet-100 px-4 py-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-xs text-violet-600">
+          Puede guardar con los campos que tenga. Desde ficha completa los vacíos que coincidan con la ficha complementaria de OpsFlow.
+        </p>
+        <div className="flex gap-2 shrink-0">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => void handleSyncFromComplementary()}
+              disabled={syncing || saving}
+              className="flex items-center gap-2 px-3 py-2 border border-violet-200 text-violet-700 rounded-lg text-sm font-medium hover:bg-violet-100 disabled:opacity-50"
+              title="Completar con los campos que coincidan en la ficha complementaria"
+            >
+              <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Buscando…' : 'Desde ficha'}
+            </button>
+          )}
           {canEdit && (
             <button
               onClick={handleSaveProfile}
-              disabled={saving}
+              disabled={saving || syncing}
               className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50"
             >
               <Save size={16} />
@@ -436,6 +563,13 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
           )}
         </div>
       </div>
+      {loading && (
+        <div className="flex items-center justify-center py-8 text-slate-400 text-sm">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Cargando expediente BPO…
+        </div>
+      )}
+      {!loading && (
+      <>
 
       {message && (
         <div
@@ -636,6 +770,11 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
           </div>
         )}
       </Section>
+
+      </>
+      )}
+      </div>
+      )}
 
       {showDependentModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">

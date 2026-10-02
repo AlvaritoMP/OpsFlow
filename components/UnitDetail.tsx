@@ -7818,6 +7818,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                               unitId={unit.id}
                               workerName={worker.name}
                               canEdit={canEditPersonnel}
+                              inboundSourceData={worker.inboundSourceData}
                             />
                           </div>
                         )}
