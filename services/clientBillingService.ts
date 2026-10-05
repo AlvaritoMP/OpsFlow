@@ -134,11 +134,12 @@ export async function prepareBillingDraft(
   periodMonth: string,
   options: { copyPreviousCosts: boolean }
 ): Promise<ClientBillingModel> {
-  const [profile, previous, people, compensations] = await Promise.all([
+  const [profile, previous, people, compensations, absences] = await Promise.all([
     loadProfile(unit.id),
     loadPrevious(unit.id, periodMonth),
     loadPersonnel(unit.id),
     variableCompensationsService.getByUnitAndMonth(unit.id, periodMonth).catch(() => []),
+    loadAbsenceDeductions(unit.id, periodMonth),
   ]);
 
   const rates: BillingRates = {
@@ -160,8 +161,8 @@ export async function prepareBillingDraft(
   });
 
   model.workers = people
-    .map((person) => workerFromPersonnel(person, periodMonth, rates, bonuses.get(person.id)))
-    .filter((worker) => worker.daysWorked > 0)
+    .map((person) => workerFromPersonnel(person, periodMonth, rates, bonuses.get(person.id), absences.get(person.id)))
+    .filter((worker) => (worker.calendarDays || 0) > 0 || worker.daysWorked > 0)
     .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
   if (options.copyPreviousCosts && previous) {
@@ -181,9 +182,10 @@ export async function refreshWorkersFromUnit(
   periodMonth: string,
   model: ClientBillingModel
 ): Promise<ClientBillingModel> {
-  const [people, compensations] = await Promise.all([
+  const [people, compensations, absences] = await Promise.all([
     loadPersonnel(unitId),
     variableCompensationsService.getByUnitAndMonth(unitId, periodMonth).catch(() => []),
+    loadAbsenceDeductions(unitId, periodMonth),
   ]);
   const bonuses = new Map<string, { amount: number; concept: string[] }>();
   compensations.forEach((item) => {
@@ -198,8 +200,8 @@ export async function refreshWorkersFromUnit(
   const seen = new Set<string>();
 
   people.forEach((person) => {
-    const fresh = workerFromPersonnel(person, periodMonth, model.rates, bonuses.get(person.id));
-    if (fresh.daysWorked <= 0 && fresh.suggested?.daysWorked === 0) return;
+    const fresh = workerFromPersonnel(person, periodMonth, model.rates, bonuses.get(person.id), absences.get(person.id));
+    if ((fresh.calendarDays || 0) <= 0 && fresh.daysWorked <= 0) return;
     seen.add(person.id);
     const current = byResource.get(person.id);
     if (!current) {
@@ -209,7 +211,10 @@ export async function refreshWorkersFromUnit(
     const previousSuggestion = current.suggested;
     if (previousSuggestion) {
       if (same(current.contractualSalary, previousSuggestion.contractualSalary)) current.contractualSalary = fresh.contractualSalary;
-      if (same(current.daysWorked, previousSuggestion.daysWorked)) current.daysWorked = fresh.daysWorked;
+      if (same(current.daysWorked, previousSuggestion.daysWorked)) {
+        current.daysWorked = fresh.daysWorked;
+        current.included = fresh.included;
+      }
       if (same(current.familyAllowance, previousSuggestion.familyAllowance)) current.familyAllowance = fresh.familyAllowance;
       if (same(current.workCondition, previousSuggestion.workCondition)) current.workCondition = fresh.workCondition;
       if (same(current.bonus, previousSuggestion.bonus)) {
@@ -218,6 +223,9 @@ export async function refreshWorkersFromUnit(
       }
     }
     if (!current.socialBaseManual) current.socialBase = current.contractualSalary;
+    current.calendarDays = fresh.calendarDays;
+    current.absenceDays = fresh.absenceDays;
+    current.absenceDetail = fresh.absenceDetail;
     current.suggested = fresh.suggested;
     current.missingFromUnit = false;
     current.name = current.name || fresh.name;
@@ -382,15 +390,173 @@ async function loadPersonnel(unitId: string): Promise<PersonnelRow[]> {
   return ((data || []) as PersonnelRow[]).filter((row) => row.archived !== true && row.personnel_status !== 'archivado');
 }
 
+interface AbsenceDeduction {
+  days: number;
+  detail: string;
+}
+
+type AbsenceSlot = { kind: 'falta' | 'covered'; days: number; sources: string[] };
+
+/** Faltas del mes por trabajador. El mismo día no se descuenta dos veces. */
+async function loadAbsenceDeductions(unitId: string, periodMonth: string): Promise<Map<string, AbsenceDeduction>> {
+  const { from, to } = periodBounds(periodMonth);
+  const byWorker = new Map<string, Map<string, AbsenceSlot>>();
+
+  const slotFor = (resourceId: string, day: string) => {
+    let days = byWorker.get(resourceId);
+    if (!days) {
+      days = new Map();
+      byWorker.set(resourceId, days);
+    }
+    return days;
+  };
+
+  const markFalta = (resourceId: string, day: string, source: string, amount = 1) => {
+    if (!resourceId || !day) return;
+    const days = slotFor(resourceId, day);
+    const current = days.get(day);
+    if (current?.kind === 'covered') return;
+    const nextDays = Math.max(current?.days || 0, amount || 1);
+    const sources = current?.sources ? Array.from(new Set([...current.sources, source])) : [source];
+    days.set(day, { kind: 'falta', days: nextDays, sources });
+  };
+
+  const markCovered = (resourceId: string, day: string) => {
+    if (!resourceId || !day) return;
+    const days = slotFor(resourceId, day);
+    if (days.get(day)?.kind === 'falta') return;
+    days.set(day, { kind: 'covered', days: 0, sources: [] });
+  };
+
+  try {
+    const { data: keys } = await db.from('attendance_tareo_keys').select('id, payroll_field, value_amount, value_kind');
+    const keyById = new Map<string, { payrollField: string; amount: number }>();
+    (keys || []).forEach((key: any) => {
+      keyById.set(key.id, { payrollField: key.payroll_field, amount: Number(key.value_amount) || 1 });
+    });
+    const { data: novedades } = await db
+      .from('attendance_tareo_novedades')
+      .select('resource_id, day, day_key_id')
+      .eq('unit_id', unitId)
+      .gte('day', from)
+      .lte('day', to);
+    (novedades || []).forEach((row: any) => {
+      const key = row.day_key_id ? keyById.get(row.day_key_id) : undefined;
+      const day = String(row.day || '').slice(0, 10);
+      if (!key) return;
+      if (key.payrollField === 'faltas') markFalta(row.resource_id, day, 'Tareo', key.amount);
+      else if (key.payrollField === 'licencia_sin_goce') markFalta(row.resource_id, day, 'Licencia sin goce', key.amount);
+      else markCovered(row.resource_id, day);
+    });
+  } catch {
+    /* sin tareo no se bloquea la facturación */
+  }
+
+  try {
+    const { data: incidents } = await db
+      .from('payroll_attendance_incidents')
+      .select('employee_id, incident_date, incident_type, status')
+      .eq('unit_id', unitId)
+      .gte('incident_date', from)
+      .lte('incident_date', to);
+    (incidents || []).forEach((row: any) => {
+      if (!countsAsDiscountedAbsence(row.incident_type, row.status)) return;
+      markFalta(row.employee_id, String(row.incident_date || '').slice(0, 10), 'Mattermost', 1);
+    });
+  } catch {
+    /* sin incidencias no se bloquea la facturación */
+  }
+
+  try {
+    const { data: imports } = await db
+      .from('attendance_report_imports')
+      .select('id, report_date')
+      .eq('unit_id', unitId)
+      .gte('report_date', from)
+      .lte('report_date', to);
+    const importDate = new Map<string, string>();
+    const ids: string[] = [];
+    (imports || []).forEach((row: any) => {
+      ids.push(row.id);
+      importDate.set(row.id, String(row.report_date || '').slice(0, 10));
+    });
+    if (ids.length) {
+      const { data: rows } = await db
+        .from('attendance_report_rows')
+        .select('import_id, matched_resource_id, attendance_status, mark_date')
+        .in('import_id', ids);
+      const present = new Set<string>();
+      const faltas: { resourceId: string; day: string }[] = [];
+      (rows || []).forEach((row: any) => {
+        const resourceId = row.matched_resource_id;
+        if (!resourceId) return;
+        const mark = String(row.mark_date || importDate.get(row.import_id) || '').slice(0, 10);
+        if (!mark || mark < from || mark > to) return;
+        const kind = reportDayKind(row.attendance_status);
+        const token = `${resourceId}|${mark}`;
+        if (kind === 'present') present.add(token);
+        else if (kind === 'falta') faltas.push({ resourceId, day: mark });
+      });
+      faltas.forEach((hit) => {
+        if (present.has(`${hit.resourceId}|${hit.day}`)) return;
+        markFalta(hit.resourceId, hit.day, 'Asistencia', 1);
+      });
+    }
+  } catch {
+    /* sin reporte de asistencia no se bloquea la facturación */
+  }
+
+  const result = new Map<string, AbsenceDeduction>();
+  byWorker.forEach((days, resourceId) => {
+    let total = 0;
+    const sourceCount = new Map<string, number>();
+    days.forEach((slot) => {
+      if (slot.kind !== 'falta') return;
+      total += slot.days;
+      slot.sources.forEach((source) => sourceCount.set(source, (sourceCount.get(source) || 0) + 1));
+    });
+    if (total <= 0) return;
+    const detail = Array.from(sourceCount.entries())
+      .map(([source, count]) => `${count} ${source}`)
+      .join(', ');
+    result.set(resourceId, { days: total, detail });
+  });
+  return result;
+}
+
+function countsAsDiscountedAbsence(incidentType: string, status: string): boolean {
+  if (incidentType === 'TARDANZA') return false;
+  if (status === 'MEDICAL_REST' || status === 'LEAVE_OR_PERMIT') return false;
+  if (status === 'UNJUSTIFIED_ABSENCE') return true;
+  return incidentType === 'INASISTENCIA';
+}
+
+function reportDayKind(status: string | null): 'present' | 'falta' | 'ignore' {
+  const text = (status || '').toLowerCase();
+  if (text.includes('completa') || text.includes('incompleta')) return 'present';
+  if (text.includes('sin marcas') || /ausenc|inasist|falta/.test(text)) return 'falta';
+  return 'ignore';
+}
+
+function periodBounds(periodMonth: string): { from: string; to: string } {
+  const [year, month] = periodMonth.split('-').map(Number);
+  const last = new Date(year, month, 0).getDate();
+  const mm = String(month).padStart(2, '0');
+  return { from: `${year}-${mm}-01`, to: `${year}-${mm}-${String(last).padStart(2, '0')}` };
+}
+
 function workerFromPersonnel(
   person: PersonnelRow,
   periodMonth: string,
   rates: BillingRates,
-  bonus?: { amount: number; concept: string[] }
+  bonus?: { amount: number; concept: string[] },
+  absence?: AbsenceDeduction
 ): BillingWorkerInput {
   const salary = Number(person.monthly_salary) || 0;
-  let days = commercialDaysInPeriod(periodMonth, person.start_date, person.end_date, person.personnel_status);
-  if (person.personnel_status === 'cesado' && !person.end_date) days = 0;
+  let calendarDays = commercialDaysInPeriod(periodMonth, person.start_date, person.end_date, person.personnel_status);
+  if (person.personnel_status === 'cesado' && !person.end_date) calendarDays = 0;
+  const absenceDays = Math.min(calendarDays, absence?.days || 0);
+  const days = Math.max(0, calendarDays - absenceDays);
   const family = person.family_allowance ? rates.familyAllowanceAmount : 0;
   const workCondition = Number(person.work_condition_amount) || 0;
   const bonusAmount = bonus?.amount || 0;
@@ -417,6 +583,9 @@ function workerFromPersonnel(
     socialBaseManual: false,
     socialBase: salary,
     factor: 1,
+    calendarDays,
+    absenceDays,
+    absenceDetail: absence?.detail || undefined,
     suggested: {
       contractualSalary: salary,
       daysWorked: days,

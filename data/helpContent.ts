@@ -888,7 +888,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'Elija la unidad y el mes. OpsFlow carga el personal activo, el sueldo, la asignación familiar, la condición de trabajo y los bonos del mes. Usted completa días, horas extra, bono nocturno, materiales, gastos de estructura y la utilidad.',
         steps: [
           'Nueva facturación: unidad (no BPO), mes y, si aplica, copiar costos del mes anterior.',
-          'Personal: incluya o excluya personas y ajuste sueldo, días, bonos u horas. Lo que difiere de la ficha se marca como ajustado.',
+          'Personal: en la tabla horizontal revise sueldo, faltas y días. Las faltas de Mattermost, del tareo y de la asistencia ya se restan, sin contar dos veces el mismo día. Lo amarillo está ajustado a mano.',
           'Operativo: materiales, equipos y maquinaria.',
           'Administrativo: costo financiero (tasa anual y días), gestión de RRHH y otros ítems de estructura.',
           'Utilidad: margen sobre el precio (como la facturación de abril) o recargo sobre el costo.',

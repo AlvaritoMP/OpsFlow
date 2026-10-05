@@ -64,6 +64,11 @@ export interface BillingWorkerInput {
   socialBaseManual: boolean;
   socialBase: number;
   factor: number;
+  /** Días del mes antes de descontar faltas. */
+  calendarDays?: number;
+  /** Faltas de Mattermost, tareo o asistencia, sin contar dos veces el mismo día. */
+  absenceDays?: number;
+  absenceDetail?: string;
   notes?: string;
   suggested?: BillingWorkerSuggestion;
 }
@@ -223,6 +228,9 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   socialBaseManual: 'base de cargas manual',
   socialBase: 'base EsSalud/SCTR',
   factor: 'factor',
+  calendarDays: 'días del mes',
+  absenceDays: 'faltas descontadas',
+  absenceDetail: 'detalle de faltas',
   notes: 'nota',
 };
 

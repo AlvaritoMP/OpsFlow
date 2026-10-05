@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
-  ChevronDown,
   Download,
   FileSpreadsheet,
   History,
@@ -44,7 +43,6 @@ import {
   formatPeriodLabel,
   newBillingId,
   pen,
-  workerAdjustmentLabels,
 } from '../utils/clientBillingCalc';
 
 interface ClientBillingProps {
@@ -118,7 +116,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [tab, setTab] = useState<TabId>('labor');
   const [busy, setBusy] = useState<string | null>(null);
   const [workerQuery, setWorkerQuery] = useState('');
-  const [openWorkerId, setOpenWorkerId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createUnitId, setCreateUnitId] = useState('');
   const [createPeriod, setCreatePeriod] = useState(() => new Date().toISOString().slice(0, 7));
@@ -175,7 +172,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         issuedByName: record.issuedByName,
       });
       setTab('labor');
-      setOpenWorkerId(null);
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo abrir la liquidación.');
     } finally {
@@ -216,7 +212,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       });
       setShowCreate(false);
       setTab('labor');
-      setBanner('Borrador armado con el personal activo. Revise sueldos, días y costos antes de guardar.');
+      setBanner('Borrador armado con el personal activo. Los días ya descuentan las faltas de Mattermost y de la asistencia de la unidad.');
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo preparar la facturación.');
     } finally {
@@ -517,8 +513,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             setTab={setTab}
             workerQuery={workerQuery}
             setWorkerQuery={setWorkerQuery}
-            openWorkerId={openWorkerId}
-            setOpenWorkerId={setOpenWorkerId}
             onBack={() => {
               setEditor(null);
               setBanner(null);
@@ -562,8 +556,6 @@ function EditorView(props: {
   setTab: (tab: TabId) => void;
   workerQuery: string;
   setWorkerQuery: (value: string) => void;
-  openWorkerId: string | null;
-  setOpenWorkerId: (id: string | null) => void;
   onBack: () => void;
   onPatchModel: (patch: Partial<ClientBillingModel>) => void;
   onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
@@ -637,7 +629,7 @@ function EditorView(props: {
       )}
       {props.banner && <Banner tone="info" text={props.banner} />}
 
-      <div className="grid xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
+      <div className={props.tab === 'labor' ? 'space-y-4' : 'grid xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start'}>
         <div className="space-y-3 min-w-0">
           <div className="bg-white border border-slate-200 rounded-xl p-3 grid md:grid-cols-2 gap-3">
             <label className="text-sm text-slate-600">
@@ -686,7 +678,7 @@ function EditorView(props: {
               <div className="p-3 flex flex-col md:flex-row gap-2 md:items-center justify-between border-b border-slate-100">
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <Users size={16} />
-                  <span>El costo laboral usa el sueldo pactado, los días del mes y las cargas del método de facturación.</span>
+                  <span>Cada fila es un trabajador. Los días ya restan las faltas de Mattermost, del tareo y de la asistencia. Lo amarillo fue ajustado a mano.</span>
                 </div>
                 <div className="flex gap-2">
                   <input className={fieldClass} placeholder="Buscar trabajador" value={props.workerQuery} onChange={(event) => props.setWorkerQuery(event.target.value)} />
@@ -710,6 +702,8 @@ function EditorView(props: {
                                 origin: 'manual',
                                 contractualSalary: 0,
                                 daysWorked: 30,
+                                calendarDays: 30,
+                                absenceDays: 0,
                                 familyAllowance: 0,
                                 workCondition: 0,
                                 bonus: 0,
@@ -725,7 +719,6 @@ function EditorView(props: {
                               },
                             ],
                           });
-                          props.setOpenWorkerId(id);
                         }}
                         className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm whitespace-nowrap"
                       >
@@ -735,47 +728,13 @@ function EditorView(props: {
                   )}
                 </div>
               </div>
-              <div className="divide-y divide-slate-100">
-                {filteredWorkers.map((worker) => {
-                  const line = workerMap.get(worker.id);
-                  const open = props.openWorkerId === worker.id;
-                  const adjustments = workerAdjustmentLabels(worker);
-                  return (
-                    <div key={worker.id} className={worker.included ? '' : 'bg-slate-50 opacity-80'}>
-                      <button type="button" onClick={() => props.setOpenWorkerId(open ? null : worker.id)} className="w-full text-left px-3 py-3 flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={worker.included}
-                          disabled={locked}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) => props.onPatchWorker(worker.id, { included: event.target.checked })}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium text-slate-900 truncate">{worker.name || 'Trabajador sin nombre'}</div>
-                          <div className="text-xs text-slate-500 truncate">
-                            {worker.position || 'Sin puesto'}
-                            {worker.origin === 'manual' ? ' · agregado manualmente' : ''}
-                            {worker.missingFromUnit ? ' · ya no está en la unidad' : ''}
-                            {worker.contractualSalary <= 0 ? ' · sin sueldo en ficha' : ''}
-                          </div>
-                        </div>
-                        {adjustments.length > 0 && (
-                          <span className="hidden md:inline text-[11px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">Ajustado: {adjustments.slice(0, 3).join(', ')}</span>
-                        )}
-                        <div className="text-right">
-                          <div className="font-semibold text-slate-900">{pen(line?.totalCost || 0)}</div>
-                          <div className="text-[11px] text-slate-400">{worker.daysWorked} días</div>
-                        </div>
-                        <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
-                      </button>
-                      {open && line && (
-                        <WorkerDetail worker={worker} line={line} rates={editor.model.rates} locked={locked} onPatch={(patch) => props.onPatchWorker(worker.id, patch)} onRemove={worker.origin === 'manual' ? () => props.onPatchModel({ workers: editor.model.workers.filter((item) => item.id !== worker.id) }) : undefined} />
-                      )}
-                    </div>
-                  );
-                })}
-                {filteredWorkers.length === 0 && <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>}
-              </div>
+              <LaborSheet
+                workers={filteredWorkers}
+                lines={workerMap}
+                locked={locked}
+                onPatchWorker={props.onPatchWorker}
+                onRemove={(id) => props.onPatchModel({ workers: editor.model.workers.filter((item) => item.id !== id) })}
+              />
             </section>
           )}
 
@@ -881,154 +840,158 @@ function EditorView(props: {
   );
 }
 
-function WorkerDetail(props: {
-  worker: BillingWorkerInput;
-  line: ComputedWorker;
-  rates: BillingRates;
+function LaborSheet(props: {
+  workers: BillingWorkerInput[];
+  lines: Map<string, ComputedWorker>;
   locked: boolean;
-  onPatch: (patch: Partial<BillingWorkerInput>) => void;
-  onRemove?: () => void;
+  onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
+  onRemove: (id: string) => void;
 }) {
-  const { worker, line, locked, onPatch } = props;
-  const salaryChanged = (value: number) => onPatch(worker.socialBaseManual ? { contractualSalary: value } : { contractualSalary: value, socialBase: value });
+  const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-right px-1.5 py-2 whitespace-nowrap border-b border-slate-200';
+  const headLeft = `${head} text-left`;
+  if (props.workers.length === 0) {
+    return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
+  }
   return (
-    <div className="px-3 pb-4 space-y-3">
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
-        <Field label="Nombre" adjusted={false}>
-          <input className={fieldClass} disabled={locked} value={worker.name} onChange={(event) => onPatch({ name: event.target.value })} />
-        </Field>
-        <Field label="Puesto" adjusted={false}>
-          <input className={fieldClass} disabled={locked} value={worker.position} onChange={(event) => onPatch({ position: event.target.value })} />
-        </Field>
-        <Field label="Sueldo mensual" hint={hint(worker, 'contractualSalary')} adjusted={isAdjusted(worker, 'contractualSalary')}>
-          <input className={fieldClass} type="number" step="0.01" disabled={locked} value={worker.contractualSalary} onChange={(event) => salaryChanged(Number(event.target.value) || 0)} />
-        </Field>
-        <Field label="Días trabajados" hint={hint(worker, 'daysWorked')} adjusted={isAdjusted(worker, 'daysWorked')}>
-          <input className={fieldClass} type="number" step="1" disabled={locked} value={worker.daysWorked} onChange={(event) => onPatch({ daysWorked: Number(event.target.value) || 0 })} />
-        </Field>
-        <Field label="Asignación familiar" hint={hint(worker, 'familyAllowance')} adjusted={isAdjusted(worker, 'familyAllowance')}>
-          <input className={fieldClass} type="number" step="0.01" disabled={locked} value={worker.familyAllowance} onChange={(event) => onPatch({ familyAllowance: Number(event.target.value) || 0 })} />
-        </Field>
-        <Field label="Condición de trabajo" hint={hint(worker, 'workCondition')} adjusted={isAdjusted(worker, 'workCondition')}>
-          <input className={fieldClass} type="number" step="0.01" disabled={locked} value={worker.workCondition} onChange={(event) => onPatch({ workCondition: Number(event.target.value) || 0 })} />
-        </Field>
-        <Field label="Bonos / premios" hint={worker.bonusConcept || hint(worker, 'bonus')} adjusted={isAdjusted(worker, 'bonus')}>
-          <input className={fieldClass} type="number" step="0.01" disabled={locked} value={worker.bonus} onChange={(event) => onPatch({ bonus: Number(event.target.value) || 0 })} />
-        </Field>
-        <Field label="Factor" hint="1 = una persona. Úselo si esta fila representa varios puestos iguales." adjusted={!same(worker.factor, 1)}>
-          <input className={fieldClass} type="number" step="0.01" disabled={locked} value={worker.factor} onChange={(event) => onPatch({ factor: Number(event.target.value) || 0 })} />
-        </Field>
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-3">
-        <HourBox
-          title="Hora extra 25%"
-          formula={`(sueldo / 30 / 8) × ${props.rates.he25Factor} × horas`}
-          hours={worker.he25Hours}
-          manual={worker.he25Manual}
-          amount={line.he25}
-          locked={locked}
-          onHours={(he25Hours) => onPatch({ he25Hours, he25Manual: null })}
-          onManual={(he25Manual) => onPatch({ he25Manual })}
-        />
-        <HourBox
-          title="Hora extra 35%"
-          formula={`(sueldo / 30 / 8) × ${props.rates.he35Factor} × horas`}
-          hours={worker.he35Hours}
-          manual={worker.he35Manual}
-          amount={line.he35}
-          locked={locked}
-          onHours={(he35Hours) => onPatch({ he35Hours, he35Manual: null })}
-          onManual={(he35Manual) => onPatch({ he35Manual })}
-        />
-        <HourBox
-          title="Bono nocturno"
-          formula={`(sueldo / 30 / 8) × ${Math.round(props.rates.nightPremiumRate * 100)}% × horas`}
-          hours={worker.nightHours}
-          manual={worker.nightManual}
-          amount={line.night}
-          locked={locked}
-          onHours={(nightHours) => onPatch({ nightHours, nightManual: null })}
-          onManual={(nightManual) => onPatch({ nightManual })}
-        />
-      </div>
-
-      <div className="grid sm:grid-cols-2 gap-2">
-        <Field label="Base para EsSalud y SCTR" hint={worker.socialBaseManual ? 'Ajustada a mano. Por defecto es el sueldo completo, no el proporcional a los días.' : 'Sueldo contractual completo, como en la facturación de abril.'} adjusted={worker.socialBaseManual}>
-          <input
-            className={fieldClass}
-            type="number"
-            step="0.01"
-            disabled={locked}
-            value={worker.socialBaseManual ? worker.socialBase : worker.contractualSalary}
-            onChange={(event) => onPatch({ socialBaseManual: true, socialBase: Number(event.target.value) || 0 })}
-          />
-        </Field>
-        <Field label="Nota de este trabajador" adjusted={false}>
-          <input className={fieldClass} disabled={locked} value={worker.notes || ''} onChange={(event) => onPatch({ notes: event.target.value })} />
-        </Field>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-        <Charge label="Rem. básica" value={line.basic} />
-        <Charge label="Rem. para cargas" value={line.remLlss} />
-        <Charge label="Rem. total" value={line.remTotal} />
-        <Charge label="Vacaciones" value={line.vacation} />
-        <Charge label="Gratificación" value={line.gratification} />
-        <Charge label="CTS" value={line.cts} />
-        <Charge label="Feriados" value={line.feria} />
-        <Charge label="EsSalud" value={line.essalud} />
-        <Charge label="Vida Ley" value={line.vidaLey} />
-        <Charge label="SCTR" value={line.sctr} />
-        <Charge label="Costo del mes" value={line.monthlyCost} />
-        <Charge label="Costo × factor" value={line.totalCost} strong />
-      </div>
-      {props.onRemove && !locked && (
-        <button type="button" onClick={props.onRemove} className="text-xs text-red-600 inline-flex items-center gap-1">
-          <Trash2 size={12} /> Quitar persona agregada
-        </button>
-      )}
+    <div className="overflow-auto max-h-[72vh]">
+      <table className="min-w-max border-separate border-spacing-0 text-xs">
+        <thead>
+          <tr>
+            <th className={`${headLeft} sticky left-0 z-30 w-8`} />
+            <th className={`${headLeft} sticky left-8 z-30 min-w-[180px] bg-slate-100`}>Trabajador</th>
+            <th className={headLeft}>Puesto</th>
+            <th className={head}>Sueldo</th>
+            <th className={head}>Días mes</th>
+            <th className={head}>Faltas</th>
+            <th className={head}>Días</th>
+            <th className={head}>Asig. fam.</th>
+            <th className={head}>HE 25 h</th>
+            <th className={head}>HE 25 S/</th>
+            <th className={head}>HE 35 h</th>
+            <th className={head}>HE 35 S/</th>
+            <th className={head}>Noc. h</th>
+            <th className={head}>Noc. S/</th>
+            <th className={head}>Cond. trab.</th>
+            <th className={head}>Bonos</th>
+            <th className={head}>Factor</th>
+            <th className={head}>Base EsSalud</th>
+            <th className={head}>Rem. básica</th>
+            <th className={head}>Rem. cargas</th>
+            <th className={head}>Vacaciones</th>
+            <th className={head}>Gratific.</th>
+            <th className={head}>CTS</th>
+            <th className={head}>EsSalud</th>
+            <th className={head}>Vida Ley</th>
+            <th className={head}>SCTR</th>
+            <th className={head}>Costo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {props.workers.map((worker) => {
+            const line = props.lines.get(worker.id);
+            const salary = (value: number) =>
+              props.onPatchWorker(worker.id, worker.socialBaseManual ? { contractualSalary: value } : { contractualSalary: value, socialBase: value });
+            const dim = worker.included ? '' : 'opacity-50';
+            return (
+              <tr key={worker.id} className={`border-t border-slate-100 ${dim}`}>
+                <td className="sticky left-0 z-20 bg-white px-1.5 py-1 align-middle">
+                  <input type="checkbox" checked={worker.included} disabled={props.locked} onChange={(event) => props.onPatchWorker(worker.id, { included: event.target.checked })} />
+                </td>
+                <td className="sticky left-8 z-20 bg-white px-1.5 py-1 min-w-[180px] align-middle">
+                  <input className={gridText} disabled={props.locked} value={worker.name} placeholder="Nombre" onChange={(event) => props.onPatchWorker(worker.id, { name: event.target.value })} />
+                  <div className="flex items-center gap-1 text-[10px] text-slate-400 truncate">
+                    <span className="truncate">{worker.origin === 'manual' ? 'Manual' : worker.missingFromUnit ? 'Ya no está en la unidad' : worker.contractualSalary <= 0 ? 'Sin sueldo en ficha' : ''}</span>
+                    {worker.origin === 'manual' && !props.locked && (
+                      <button type="button" className="text-red-500 shrink-0" onClick={() => props.onRemove(worker.id)} title="Quitar">
+                        <Trash2 size={11} />
+                      </button>
+                    )}
+                  </div>
+                </td>
+                <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>
+                <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'contractualSalary')} title={hint(worker, 'contractualSalary')} disabled={props.locked} value={worker.contractualSalary} onChange={salary} /></td>
+                <td className="px-1.5 py-1 text-right tabular-nums text-slate-500">{worker.calendarDays ?? '—'}</td>
+                <td className={`px-1.5 py-1 text-right tabular-nums font-medium ${worker.absenceDays ? 'text-red-700' : 'text-slate-400'}`} title={worker.absenceDetail || 'Sin faltas en el mes'}>
+                  {worker.absenceDays || 0}
+                </td>
+                <td className="px-1 py-1">
+                  <GridNum
+                    step="1"
+                    amber={isAdjusted(worker, 'daysWorked')}
+                    title={worker.absenceDays ? `Mes ${worker.calendarDays ?? '—'} − faltas ${worker.absenceDays}${worker.absenceDetail ? ` (${worker.absenceDetail})` : ''}` : hint(worker, 'daysWorked')}
+                    disabled={props.locked}
+                    value={worker.daysWorked}
+                    onChange={(daysWorked) => props.onPatchWorker(worker.id, { daysWorked })}
+                  />
+                </td>
+                <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'familyAllowance')} title={hint(worker, 'familyAllowance')} disabled={props.locked} value={worker.familyAllowance} onChange={(familyAllowance) => props.onPatchWorker(worker.id, { familyAllowance })} /></td>
+                <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.he25Hours} onChange={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })} /></td>
+                <td className="px-1 py-1"><GridNum amber={worker.he25Manual !== null} title={worker.he25Manual !== null ? 'Monto escrito a mano' : 'Calculado por horas'} disabled={props.locked} value={worker.he25Manual !== null ? worker.he25Manual : roundShown(line?.he25)} onChange={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })} /></td>
+                <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.he35Hours} onChange={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })} /></td>
+                <td className="px-1 py-1"><GridNum amber={worker.he35Manual !== null} disabled={props.locked} value={worker.he35Manual !== null ? worker.he35Manual : roundShown(line?.he35)} onChange={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })} /></td>
+                <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.nightHours} onChange={(nightHours) => props.onPatchWorker(worker.id, { nightHours, nightManual: null })} /></td>
+                <td className="px-1 py-1"><GridNum amber={worker.nightManual !== null} disabled={props.locked} value={worker.nightManual !== null ? worker.nightManual : roundShown(line?.night)} onChange={(nightManual) => props.onPatchWorker(worker.id, { nightManual })} /></td>
+                <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'workCondition')} title={hint(worker, 'workCondition')} disabled={props.locked} value={worker.workCondition} onChange={(workCondition) => props.onPatchWorker(worker.id, { workCondition })} /></td>
+                <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'bonus')} title={worker.bonusConcept || hint(worker, 'bonus')} disabled={props.locked} value={worker.bonus} onChange={(bonus) => props.onPatchWorker(worker.id, { bonus })} /></td>
+                <td className="px-1 py-1"><GridNum amber={!same(worker.factor, 1)} disabled={props.locked} value={worker.factor} onChange={(factor) => props.onPatchWorker(worker.id, { factor })} /></td>
+                <td className="px-1 py-1">
+                  <GridNum
+                    amber={worker.socialBaseManual}
+                    title="Sueldo completo para EsSalud y SCTR. No se prorratea por días."
+                    disabled={props.locked}
+                    value={worker.socialBaseManual ? worker.socialBase : worker.contractualSalary}
+                    onChange={(socialBase) => props.onPatchWorker(worker.id, { socialBaseManual: true, socialBase })}
+                  />
+                </td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.basic} /></td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.remLlss} /></td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.vacation} /></td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.gratification} /></td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.cts} /></td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.essalud} /></td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.vidaLey} /></td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.sctr} /></td>
+                <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function HourBox(props: {
-  title: string;
-  formula: string;
-  hours: number;
-  manual: number | null;
-  amount: number;
-  locked: boolean;
-  onHours: (hours: number) => void;
-  onManual: (amount: number | null) => void;
+function GridNum(props: {
+  value: number;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+  amber?: boolean;
+  title?: string;
+  step?: string;
 }) {
   return (
-    <div className="border border-slate-200 rounded-lg p-3 space-y-2">
-      <div className="text-sm font-medium text-slate-800">{props.title}</div>
-      <p className="text-[11px] text-slate-500">{props.formula}</p>
-      <label className="text-xs text-slate-500 block">
-        Horas
-        <input className={fieldClass} type="number" step="0.5" disabled={props.locked} value={props.hours} onChange={(event) => props.onHours(Number(event.target.value) || 0)} />
-      </label>
-      <label className="text-xs text-slate-500 block">
-        Monto {props.manual !== null ? '(manual)' : '(calculado)'}
-        <input
-          className={fieldClass}
-          type="number"
-          step="0.01"
-          disabled={props.locked}
-          value={props.manual !== null ? props.manual : Number(props.amount.toFixed(2))}
-          onChange={(event) => props.onManual(Number(event.target.value) || 0)}
-        />
-      </label>
-      {props.manual !== null && !props.locked && (
-        <button type="button" onClick={() => props.onManual(null)} className="text-[11px] text-blue-700">
-          Volver al cálculo por horas
-        </button>
-      )}
-    </div>
+    <input
+      type="number"
+      step={props.step || '0.01'}
+      title={props.title}
+      disabled={props.disabled}
+      value={Number.isFinite(props.value) ? props.value : 0}
+      onChange={(event) => props.onChange(event.target.value === '' ? 0 : Number(event.target.value))}
+      className={`w-[4.4rem] rounded border px-1 py-0.5 text-right text-[11px] tabular-nums disabled:bg-slate-50 ${props.amber ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}
+    />
   );
 }
+
+function GridMoney({ value, strong }: { value?: number; strong?: boolean }) {
+  const amount = Number.isFinite(value) ? (value as number) : 0;
+  return <span className={`block text-right tabular-nums whitespace-nowrap ${strong ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>{amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>;
+}
+
+function roundShown(value: number | undefined): number {
+  return Number((value || 0).toFixed(2));
+}
+
+const gridText = 'w-full rounded border border-slate-200 px-1 py-0.5 text-[11px] disabled:bg-slate-50';
 
 function LinesEditor(props: {
   title: string;
@@ -1291,15 +1254,6 @@ function Field(props: { label: string; hint?: string; adjusted: boolean; childre
   );
 }
 
-function Charge({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
-  return (
-    <div className={`rounded-lg px-2 py-1.5 ${strong ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-600'}`}>
-      <div className={strong ? 'text-slate-300' : ''}>{label}</div>
-      <div className={`font-medium ${strong ? 'text-white' : 'text-slate-900'}`}>{pen(value)}</div>
-    </div>
-  );
-}
-
 const fieldClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
 
 function isAdjusted(worker: BillingWorkerInput, field: keyof NonNullable<BillingWorkerInput['suggested']>): boolean {
@@ -1339,7 +1293,7 @@ function exportExcel(editor: EditorState, computed: BillingComputation) {
     [editor.clientName, editor.unitName, formatPeriodLabel(editor.periodMonth)],
     [editor.model.serviceLabel],
     [],
-    ['Trabajador', 'Puesto', 'Incluido', 'Sueldo', 'Días', 'Asig. familiar', 'HE 25%', 'HE 35%', 'Bono nocturno', 'Cond. trabajo', 'Bonos', 'Rem. cargas', 'Vacaciones', 'Gratificación', 'CTS', 'EsSalud', 'Vida Ley', 'SCTR', 'Factor', 'Costo mensual'],
+    ['Trabajador', 'Puesto', 'Incluido', 'Sueldo', 'Días mes', 'Faltas', 'Días', 'Asig. familiar', 'HE 25%', 'HE 35%', 'Bono nocturno', 'Cond. trabajo', 'Bonos', 'Rem. cargas', 'Vacaciones', 'Gratificación', 'CTS', 'EsSalud', 'Vida Ley', 'SCTR', 'Factor', 'Costo mensual'],
   ];
   computed.workers.forEach((line) => {
     const worker = workerById.get(line.id);
@@ -1349,6 +1303,8 @@ function exportExcel(editor: EditorState, computed: BillingComputation) {
       worker.position,
       worker.included ? 'Sí' : 'No',
       worker.contractualSalary,
+      worker.calendarDays ?? '',
+      worker.absenceDays ?? 0,
       worker.daysWorked,
       worker.familyAllowance,
       line.he25,
