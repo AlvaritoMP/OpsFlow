@@ -112,6 +112,38 @@ export async function updateIncidentPost(id, fields) {
   return data;
 }
 
+export async function getIncidentById(id) {
+  if (!id) return null;
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('payroll_attendance_incidents')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateIncidentDetails(id, fields) {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('payroll_attendance_incidents')
+    .update({
+      unit_id: fields.unitId,
+      employee_id: fields.employeeId,
+      incident_type: fields.incidentType,
+      incident_reason: fields.incidentReason,
+      has_coverage: fields.hasCoverage,
+      incident_date: fields.incidentDate,
+      observations: fields.observations,
+    })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function findIncidentByPostId(postId) {
   if (!postId) return null;
   const supabase = getSupabaseAdmin();

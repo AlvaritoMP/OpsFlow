@@ -1,6 +1,7 @@
 /** Catálogos fijos del modal /falta — solo opciones predefinidas. */
 
 export const DIALOG_CALLBACK_ID = 'falta_attendance_v1';
+export const EDIT_DIALOG_CALLBACK_ID = 'dialog-edit-submit';
 export const UNIT_PICKER_ACTION = 'open_falta_dialog';
 export const UNIT_CONTINUE_ACTION = 'continue_falta_dialog';
 export const FORM_ACTIONS = {
@@ -46,6 +47,10 @@ const TYPE_SET = new Set(INCIDENT_TYPES.map((o) => o.value));
 const REASON_SET = new Set(INCIDENT_REASONS.map((o) => o.value));
 const COVERAGE_SET = new Set(COVERAGE_OPTIONS.map((o) => o.value));
 const STATUS_SET = new Set(INCIDENT_STATUSES.map((o) => o.value));
+
+/** Estados que RRHH ya clasificó: la novedad deja de poder editarse desde Mattermost. */
+export const FINAL_INCIDENT_STATUSES = ['MEDICAL_REST', 'LEAVE_OR_PERMIT', 'UNJUSTIFIED_ABSENCE'];
+const FINAL_STATUS_SET = new Set(FINAL_INCIDENT_STATUSES);
 
 export function labelOf(options, value, fallback = value) {
   const found = options.find((o) => o.value === value);
@@ -100,6 +105,26 @@ export function validateSubmission(submission) {
 
 export function isValidStatus(value) {
   return STATUS_SET.has(asText(value));
+}
+
+export function isFinalIncidentStatus(value) {
+  return FINAL_STATUS_SET.has(asText(value));
+}
+
+export function validateIncidentDate(value) {
+  const text = asText(value);
+  if (!text) return 'Indique la fecha (AAAA-MM-DD).';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return 'La fecha debe tener formato AAAA-MM-DD.';
+  const [year, month, day] = text.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return 'La fecha no es válida.';
+  }
+  return '';
 }
 
 export function limaTodayIso() {

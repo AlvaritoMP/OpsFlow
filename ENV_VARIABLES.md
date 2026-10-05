@@ -130,6 +130,7 @@ Ejecuta en Supabase SQL Editor:
 | `MATTERMOST_SLASH_TOKEN` | Token del Slash Command `/falta` |
 | `MATTERMOST_OUTGOING_TOKEN` | Token del Outgoing Webhook de adjuntos (opcional si usas el poller) |
 | `MATTERMOST_TEAM_NAME` | Slug del equipo, para el permalink del hilo (ej. `operaciones`) |
+| `ALLOWED_INCIDENTS_CHANNEL_ID` | Canal único donde funciona `/falta`. Acepta el `channel_id` de Mattermost o el nombre del canal (sin `#`, ej. `novedades`). Fuera de ese canal el comando responde en efímero y no abre el formulario. |
 | `APP_BASE_URL` | URL pública absoluta de OpsFlow, **sin slash final**. Se inyecta en `integration.url` del botón Continuar. Ejemplo: `https://opalo-opsflow.bouasv.easypanel.host` |
 | `OPS_FLOW_PUBLIC_URL` | Alias de `APP_BASE_URL` (si no defines `APP_BASE_URL`) |
 | `SUPABASE_URL` | URL del proyecto (puede repetir `VITE_SUPABASE_URL`) |

@@ -63,6 +63,14 @@ export async function patchPost(postId, patch) {
   });
 }
 
+export async function updatePost(postId, post) {
+  if (!postId) throw new Error('Falta post_id para actualizar el mensaje');
+  return mattermostFetch(`/api/v4/posts/${encodeURIComponent(postId)}`, {
+    method: 'PUT',
+    body: { id: postId, ...post },
+  });
+}
+
 export async function createPost(post) {
   return mattermostFetch('/api/v4/posts', { method: 'POST', body: post });
 }
@@ -92,6 +100,16 @@ export async function downloadFile(fileId) {
 
 export async function getTeam(teamId) {
   return mattermostFetch(`/api/v4/teams/${encodeURIComponent(teamId)}`);
+}
+
+export async function getUser(userId) {
+  return mattermostFetch(`/api/v4/users/${encodeURIComponent(userId)}`);
+}
+
+export async function getTeamMember(teamId, userId) {
+  return mattermostFetch(
+    `/api/v4/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
+  );
 }
 
 export function buildPermalink(teamName, postId) {

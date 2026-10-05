@@ -54,6 +54,14 @@ export function mattermostDialogSubmitUrl() {
   return `${opsFlowPublicBase()}/api/webhooks/mattermost/dialog-submit`;
 }
 
+export function mattermostIncidentActionUrl() {
+  return `${opsFlowPublicBase()}/api/webhooks/mattermost/incident-action`;
+}
+
+export function mattermostDialogEditSubmitUrl() {
+  return `${opsFlowPublicBase()}/api/webhooks/mattermost/dialog-edit-submit`;
+}
+
 export function loadConfig() {
   const mattermostUrl = firstAbsoluteHttpUrl(
     process.env.MATTERMOST_URL,
@@ -76,7 +84,25 @@ export function loadConfig() {
     hasServiceRole: Boolean(serviceKey),
     stateSecret: trimEnv('MATTERMOST_STATE_SECRET') || trimEnv('MATTERMOST_SLASH_TOKEN', 'MATTERMOST_COMMAND_TOKEN') || trimEnv('MATTERMOST_BOT_TOKEN'),
     pollIntervalMs: Number(trimEnv('MATTERMOST_THREAD_POLL_MS') || '20000') || 20000,
+    adminUserIds: trimEnv('MATTERMOST_ADMIN_USER_IDS')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean),
+    /** ID o nombre (sin #) del único canal donde puede ejecutarse /falta. */
+    allowedIncidentsChannel: trimEnv('ALLOWED_INCIDENTS_CHANNEL_ID', 'ALLOWED_INCIDENTS_CHANNEL_NAME'),
   };
+}
+
+/** El valor de ALLOWED_INCIDENTS_CHANNEL_ID puede ser el channel_id o el nombre del canal. */
+export function isAllowedIncidentsChannel(channelId, channelName) {
+  const allowed = loadConfig().allowedIncidentsChannel;
+  if (!allowed) return false;
+  const incomingId = String(channelId || '').trim();
+  const incomingName = String(channelName || '').trim().replace(/^#/, '').toLowerCase();
+  const allowedName = allowed.replace(/^#/, '').toLowerCase();
+  if (incomingId && incomingId === allowed) return true;
+  if (incomingName && incomingName === allowedName) return true;
+  return false;
 }
 
 let cachedAdmin = null;
@@ -105,8 +131,11 @@ export function configStatus() {
     serviceRole: cfg.hasServiceRole,
     publicUrl: Boolean(cfg.publicUrl),
     publicUrlValue: cfg.publicUrl || null,
+    allowedIncidentsChannel: Boolean(cfg.allowedIncidentsChannel),
     actionUrl: mattermostActionUrl(),
     dialogSubmitUrl: mattermostDialogSubmitUrl(),
+    incidentActionUrl: mattermostIncidentActionUrl(),
+    dialogEditSubmitUrl: mattermostDialogEditSubmitUrl(),
   };
 }
 
