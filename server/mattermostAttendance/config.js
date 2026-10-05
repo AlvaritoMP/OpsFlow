@@ -93,16 +93,33 @@ export function loadConfig() {
   };
 }
 
-/** El valor de ALLOWED_INCIDENTS_CHANNEL_ID puede ser el channel_id o el nombre del canal. */
-export function isAllowedIncidentsChannel(channelId, channelName) {
-  const allowed = loadConfig().allowedIncidentsChannel;
-  if (!allowed) return false;
-  const incomingId = String(channelId || '').trim();
-  const incomingName = String(channelName || '').trim().replace(/^#/, '').toLowerCase();
-  const allowedName = allowed.replace(/^#/, '').toLowerCase();
-  if (incomingId && incomingId === allowed) return true;
-  if (incomingName && incomingName === allowedName) return true;
+/** Nombre visible o slug del canal de novedades. No depende de mayúsculas, tildes ni del channel_id. */
+export function normalizeChannelKey(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '')
+    .replace(/^#/, '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+}
+
+/**
+ * /falta corre en Novedades (slug o nombre visible) y, si está configurado,
+ * también en el canal indicado por id o nombre en ALLOWED_INCIDENTS_CHANNEL_ID.
+ */
+export function channelMatchesAllowed(channelId, channelName, displayName, allowedRaw) {
+  const candidates = [channelId, channelName, displayName].map(normalizeChannelKey).filter(Boolean);
+  if (candidates.includes('novedades')) return true;
+  const allowed = normalizeChannelKey(allowedRaw);
+  if (allowed && candidates.includes(allowed)) return true;
   return false;
+}
+
+/** El valor de ALLOWED_INCIDENTS_CHANNEL_ID puede ser el channel_id o el nombre del canal. */
+export function isAllowedIncidentsChannel(channelId, channelName, displayName = '') {
+  return channelMatchesAllowed(channelId, channelName, displayName, loadConfig().allowedIncidentsChannel);
 }
 
 let cachedAdmin = null;

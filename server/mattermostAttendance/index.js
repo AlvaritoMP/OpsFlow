@@ -49,6 +49,7 @@ import {
   createPost,
   downloadFile,
   getFileInfo,
+  getChannel,
   getPost,
   getPostThread,
   getTeam,
@@ -621,6 +622,21 @@ async function handleInteractiveAction(req, res, body) {
   sendJson(res, 200, formUpdateResponse(form));
 }
 
+async function resolveIncidentsChannel(channelId, channelName) {
+  if (isAllowedIncidentsChannel(channelId, channelName)) return true;
+  if (!channelId) return false;
+  try {
+    const channel = await getChannel(channelId);
+    return isAllowedIncidentsChannel(channel?.id || channelId, channel?.name || channelName, channel?.display_name);
+  } catch (err) {
+    console.warn(
+      '⚠️  No se pudo leer el canal de Mattermost para /falta:',
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
+
 async function handleCommand(req, res, body) {
   if (
     body.type === 'dialog_submission' ||
@@ -643,10 +659,11 @@ async function handleCommand(req, res, body) {
 
   const channelId = body.channel_id;
   const channelName = body.channel_name;
-  if (!isAllowedIncidentsChannel(channelId, channelName)) {
+  const allowedChannel = await resolveIncidentsChannel(channelId, channelName);
+  if (!allowedChannel) {
     console.warn(
       '⚠️  /falta rechazado fuera del canal autorizado',
-      channelId || channelName || '(sin canal)',
+      JSON.stringify({ channelId: channelId || null, channelName: channelName || null }),
     );
     sendJson(res, 200, {
       response_type: 'ephemeral',

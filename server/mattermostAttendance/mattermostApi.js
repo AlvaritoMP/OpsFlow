@@ -102,6 +102,10 @@ export async function getTeam(teamId) {
   return mattermostFetch(`/api/v4/teams/${encodeURIComponent(teamId)}`);
 }
 
+export async function getChannel(channelId) {
+  return mattermostFetch(`/api/v4/channels/${encodeURIComponent(channelId)}`);
+}
+
 export async function getUser(userId) {
   return mattermostFetch(`/api/v4/users/${encodeURIComponent(userId)}`);
 }
