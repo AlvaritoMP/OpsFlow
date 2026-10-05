@@ -1,5 +1,5 @@
 import { supabase, handleSupabaseError } from './supabase';
-import { Unit, UnitStatus, UnitClass } from '../types';
+import { Unit, UnitStatus, UnitClass, RequiredPosition } from '../types';
 import { resourcesService } from './resourcesService';
 import { logsService } from './logsService';
 import { requestsService } from './requestsService';
@@ -496,6 +496,21 @@ export const unitsService = {
       }
 
       return updatedUnit;
+    } catch (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+
+  /** Solo la columna required_positions. No reescribe personal, imágenes ni staff. */
+  async updateRequiredPositions(id: string, requiredPositions: RequiredPosition[]): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('units')
+        .update({ required_positions: requiredPositions } as any)
+        .eq('id', id);
+
+      if (error) throw error;
     } catch (error) {
       handleSupabaseError(error);
       throw error;

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 're
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation, User } from '../types';
 import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2, BookOpen, ArrowLeftRight } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
+import { unitsService } from '../services/unitsService';
 import { checkPermission, canDeleteAttendanceIncidents } from '../services/permissionService';
 import { nightSupervisionService } from '../services/nightSupervisionService';
 import { requestsService, requestCommentIsFromViewer } from '../services/requestsService';
@@ -877,7 +878,114 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [positions, setPositions] = useState<Position[]>([]);
   const [showRequiredPositionsModal, setShowRequiredPositionsModal] = useState(false);
   const [editingRequiredPosition, setEditingRequiredPosition] = useState<RequiredPosition | null>(null);
+  const [editingRequiredPositionIndex, setEditingRequiredPositionIndex] = useState<number | null>(null);
   const [requiredPositionForm, setRequiredPositionForm] = useState({ positionId: '', quantity: 1, shift: '' as string | undefined });
+  const [savingRequiredPosition, setSavingRequiredPosition] = useState(false);
+  const savingRequiredPositionRef = useRef(false);
+  const [requiredPositionError, setRequiredPositionError] = useState<string | null>(null);
+
+  const openRequiredPositionModal = (reqPos?: RequiredPosition, index?: number) => {
+    setRequiredPositionError(null);
+    if (reqPos && index !== undefined) {
+      setEditingRequiredPosition(reqPos);
+      setEditingRequiredPositionIndex(index);
+      setRequiredPositionForm({
+        positionId: reqPos.positionId,
+        quantity: reqPos.quantity,
+        shift: reqPos.shift,
+      });
+    } else {
+      setEditingRequiredPosition(null);
+      setEditingRequiredPositionIndex(null);
+      setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
+    }
+    setShowRequiredPositionsModal(true);
+  };
+
+  const closeRequiredPositionModal = () => {
+    if (savingRequiredPosition) return;
+    setShowRequiredPositionsModal(false);
+    setEditingRequiredPosition(null);
+    setEditingRequiredPositionIndex(null);
+    setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
+    setRequiredPositionError(null);
+  };
+
+  const persistRequiredPositions = async (updated: RequiredPosition[], successMessage: string) => {
+    if (savingRequiredPositionRef.current) return;
+    savingRequiredPositionRef.current = true;
+    setSavingRequiredPosition(true);
+    setRequiredPositionError(null);
+    pauseUnitsBackgroundRefresh();
+    try {
+      await unitsService.updateRequiredPositions(unit.id, updated);
+      replaceUnitInState?.({ ...unit, requiredPositions: updated });
+      setNotification({ type: 'success', message: successMessage });
+      setTimeout(() => setNotification(null), 3000);
+      setShowRequiredPositionsModal(false);
+      setEditingRequiredPosition(null);
+      setEditingRequiredPositionIndex(null);
+      setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
+    } catch (error: any) {
+      const message = error?.message || 'No se pudo guardar el puesto requerido. Intente nuevamente.';
+      setRequiredPositionError(message);
+      setNotification({ type: 'error', message });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      resumeUnitsBackgroundRefresh();
+      savingRequiredPositionRef.current = false;
+      setSavingRequiredPosition(false);
+    }
+  };
+
+  const handleSaveRequiredPosition = async () => {
+    const quantity = Math.floor(Number(requiredPositionForm.quantity));
+    if (!requiredPositionForm.positionId || !Number.isFinite(quantity) || quantity < 1) {
+      setRequiredPositionError('Complete el puesto y una cantidad requerida de al menos 1.');
+      return;
+    }
+
+    const currentRequired = unit.requiredPositions || [];
+    const editingIndex = editingRequiredPositionIndex;
+    const previous = editingIndex !== null ? currentRequired[editingIndex] : undefined;
+    const catalogPosition = positions.find(p => p.id === requiredPositionForm.positionId);
+    const positionName = catalogPosition?.name
+      || (previous && previous.positionId === requiredPositionForm.positionId ? previous.positionName : undefined);
+
+    if (!positionName) {
+      setRequiredPositionError('No se encontró el puesto seleccionado. Recargue la página e intente de nuevo.');
+      return;
+    }
+
+    const shift = requiredPositionForm.shift || undefined;
+    const nextItem: RequiredPosition = {
+      positionId: requiredPositionForm.positionId,
+      positionName,
+      quantity,
+      shift,
+    };
+
+    const duplicate = currentRequired.some((row, index) => {
+      if (editingIndex !== null && index === editingIndex) return false;
+      return row.positionId === nextItem.positionId && (row.shift || undefined) === (nextItem.shift || undefined);
+    });
+    if (duplicate) {
+      const shiftText = shift
+        ? ` en turno ${shift === 'Day' ? 'Mañana' : shift === 'Afternoon' ? 'Tarde' : 'Noche'}`
+        : '';
+      setRequiredPositionError(`Este puesto${shiftText} ya está en la lista de requeridos.`);
+      return;
+    }
+
+    const updated = editingIndex !== null && editingIndex >= 0 && editingIndex < currentRequired.length
+      ? currentRequired.map((row, index) => (index === editingIndex ? nextItem : row))
+      : [...currentRequired, nextItem];
+
+    await persistRequiredPositions(
+      updated,
+      editingIndex !== null ? 'Puesto requerido actualizado' : 'Puesto requerido agregado'
+    );
+  };
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
   const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; email?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number; familyAllowance?: boolean }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
@@ -6591,11 +6699,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                </h3>
                {canEditGeneral && (
                  <button
-                   onClick={() => {
-                     setShowRequiredPositionsModal(true);
-                     setEditingRequiredPosition(null);
-                     setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
-                   }}
+                   type="button"
+                   onClick={() => openRequiredPositionModal()}
                    className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
                  >
                    <Plus size={14} className="mr-1.5" /> Agregar Puesto
@@ -6614,11 +6719,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                      <p className="text-sm">No hay puestos requeridos definidos</p>
                      {canEditGeneral && (
                        <button
-                         onClick={() => {
-                           setShowRequiredPositionsModal(true);
-                           setEditingRequiredPosition(null);
-                           setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
-                         }}
+                         type="button"
+                         onClick={() => openRequiredPositionModal()}
                          className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
                        >
                          Agregar el primer puesto requerido
@@ -6705,29 +6807,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                            {canEditGeneral && (
                              <div className="flex items-center space-x-2">
                                <button
-                                 onClick={() => {
-                                   setEditingRequiredPosition(reqPos);
-                                  setRequiredPositionForm({
-                                    positionId: reqPos.positionId,
-                                    quantity: reqPos.quantity,
-                                    shift: reqPos.shift,
-                                  });
-                                   setShowRequiredPositionsModal(true);
-                                 }}
+                                 type="button"
+                                 onClick={() => openRequiredPositionModal(reqPos, index)}
                                  className="text-blue-600 hover:text-blue-800 p-1"
                                  title="Editar"
                                >
                                  <Edit2 size={16} />
                                </button>
                                <button
-                                 onClick={async () => {
+                                 type="button"
+                                 onClick={() => {
                                    if (confirm(`¿Eliminar el puesto requerido "${positionName}"?`)) {
                                      const updated = (unit.requiredPositions || []).filter((_, i) => i !== index);
-                                     if (onUpdate) {
-                                       await onUpdate({ ...unit, requiredPositions: updated });
-                                       setNotification({ type: 'success', message: 'Puesto requerido eliminado' });
-                                       setTimeout(() => setNotification(null), 3000);
-                                     }
+                                     void persistRequiredPositions(updated, 'Puesto requerido eliminado');
                                    }
                                  }}
                                  className="text-red-600 hover:text-red-800 p-1"
@@ -6942,7 +7034,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Notification Toast */}
       {notification && (
-        <div className={`fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
+        <div className={`fixed top-4 right-4 z-[300] p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
           notification.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 
           notification.type === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
           'bg-blue-50 border border-blue-200 text-blue-800'
@@ -11419,7 +11511,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <Briefcase className="mr-2" size={20} />
                 {editingRequiredPosition ? 'Editar Puesto Requerido' : 'Agregar Puesto Requerido'}
               </h3>
-              <button onClick={() => setShowRequiredPositionsModal(false)} className="text-white/80 hover:text-white">
+              <button type="button" onClick={closeRequiredPositionModal} className="text-white/80 hover:text-white">
                 <X size={20} />
               </button>
             </div>
@@ -11431,8 +11523,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <select
                   className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
                   value={requiredPositionForm.positionId}
+                  disabled={savingRequiredPosition}
                   onChange={(e) => {
-                    const position = positions.find(p => p.id === e.target.value);
+                    setRequiredPositionError(null);
                     setRequiredPositionForm({
                       ...requiredPositionForm,
                       positionId: e.target.value,
@@ -11440,7 +11533,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   }}
                 >
                   <option value="">Seleccionar puesto...</option>
-                  {positions.filter(p => p.isActive).map(position => (
+                  {requiredPositionForm.positionId && !positions.some(p => p.id === requiredPositionForm.positionId) && (
+                    <option value={requiredPositionForm.positionId}>
+                      {editingRequiredPosition?.positionName || 'Puesto actual'}
+                    </option>
+                  )}
+                  {positions.filter(p => p.isActive || p.id === requiredPositionForm.positionId).map(position => (
                     <option key={position.id} value={position.id}>{position.name}</option>
                   ))}
                 </select>
@@ -11463,12 +11561,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <input
                   type="number"
                   min="1"
+                  disabled={savingRequiredPosition}
                   className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
                   value={requiredPositionForm.quantity}
-                  onChange={(e) => setRequiredPositionForm({
-                    ...requiredPositionForm,
-                    quantity: parseInt(e.target.value) || 1,
-                  })}
+                  onChange={(e) => {
+                    setRequiredPositionError(null);
+                    const parsed = parseInt(e.target.value, 10);
+                    setRequiredPositionForm({
+                      ...requiredPositionForm,
+                      quantity: Number.isFinite(parsed) ? parsed : 1,
+                    });
+                  }}
                 />
               </div>
               <div>
@@ -11478,10 +11581,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <select
                   className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500"
                   value={requiredPositionForm.shift || ''}
-                  onChange={(e) => setRequiredPositionForm({
-                    ...requiredPositionForm,
-                    shift: e.target.value || undefined,
-                  })}
+                  disabled={savingRequiredPosition}
+                  onChange={(e) => {
+                    setRequiredPositionError(null);
+                    setRequiredPositionForm({
+                      ...requiredPositionForm,
+                      shift: e.target.value || undefined,
+                    });
+                  }}
                 >
                   <option value="">Todos los turnos</option>
                   <option value="Day">Mañana (Day)</option>
@@ -11492,104 +11599,29 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   Si se especifica un turno, solo se contarán trabajadores asignados a ese turno para cubrir este requerimiento.
                 </p>
               </div>
+              {requiredPositionError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {requiredPositionError}
+                </div>
+              )}
             </div>
             <div className="px-6 py-4 border-t border-slate-200 flex justify-end space-x-3">
               <button
-                onClick={() => setShowRequiredPositionsModal(false)}
-                className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                type="button"
+                onClick={closeRequiredPositionModal}
+                disabled={savingRequiredPosition}
+                className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-60"
               >
                 Cancelar
               </button>
               <button
-                onClick={async () => {
-                  if (!requiredPositionForm.positionId || !requiredPositionForm.quantity || requiredPositionForm.quantity < 1) {
-                    setNotification({ type: 'error', message: 'Por favor, complete todos los campos requeridos' });
-                    setTimeout(() => setNotification(null), 3000);
-                    return;
-                  }
-
-                  const position = positions.find(p => p.id === requiredPositionForm.positionId);
-                  if (!position) {
-                    setNotification({ type: 'error', message: 'Puesto no encontrado' });
-                    setTimeout(() => setNotification(null), 3000);
-                    return;
-                  }
-
-                  const currentRequired = unit.requiredPositions || [];
-                  let updated: RequiredPosition[];
-
-                  if (editingRequiredPosition) {
-                    // Editar existente
-                    updated = currentRequired.map((req, index) => {
-                      const existingIndex = currentRequired.findIndex(
-                        r => r.positionId === editingRequiredPosition.positionId
-                      );
-                      if (index === existingIndex) {
-                        return {
-                          positionId: requiredPositionForm.positionId,
-                          positionName: position.name,
-                          quantity: requiredPositionForm.quantity,
-                          shift: requiredPositionForm.shift,
-                        };
-                      }
-                      return req;
-                    });
-                  } else {
-                    // Verificar si ya existe (mismo puesto Y mismo turno, o mismo puesto sin turno)
-                    const exists = currentRequired.some(r => {
-                      const samePosition = r.positionId === requiredPositionForm.positionId;
-                      const sameShift = (r.shift || undefined) === (requiredPositionForm.shift || undefined);
-                      return samePosition && sameShift;
-                    });
-                    if (exists) {
-                      const shiftText = requiredPositionForm.shift ? ` en turno ${requiredPositionForm.shift === 'Day' ? 'Mañana' : requiredPositionForm.shift === 'Afternoon' ? 'Tarde' : 'Noche'}` : '';
-                      setNotification({ type: 'error', message: `Este puesto${shiftText} ya está en la lista de requeridos` });
-                      setTimeout(() => setNotification(null), 3000);
-                      return;
-                    }
-                    // Agregar nuevo
-                    console.log('🔄 Agregando nuevo puesto requerido:', {
-                      positionId: requiredPositionForm.positionId,
-                      positionName: position.name,
-                      quantity: requiredPositionForm.quantity,
-                      shift: requiredPositionForm.shift
-                    });
-                    updated = [
-                      ...currentRequired,
-                      {
-                        positionId: requiredPositionForm.positionId,
-                        positionName: position.name,
-                        quantity: requiredPositionForm.quantity,
-                        shift: requiredPositionForm.shift,
-                      },
-                    ];
-                    console.log('✅ Lista actualizada de puestos requeridos:', updated);
-                  }
-
-                  if (onUpdate) {
-                    console.log('🔄 Llamando a onUpdate con requiredPositions:', updated);
-                    try {
-                      await onUpdate({ ...unit, requiredPositions: updated });
-                      console.log('✅ onUpdate completado exitosamente');
-                      setNotification({ type: 'success', message: editingRequiredPosition ? 'Puesto requerido actualizado' : 'Puesto requerido agregado' });
-                      setTimeout(() => setNotification(null), 3000);
-                      setShowRequiredPositionsModal(false);
-                      setEditingRequiredPosition(null);
-                      setRequiredPositionForm({ positionId: '', quantity: 1, shift: undefined });
-                    } catch (error) {
-                      console.error('❌ Error al actualizar requiredPositions:', error);
-                      setNotification({ type: 'error', message: 'Error al guardar. Por favor, intente nuevamente.' });
-                      setTimeout(() => setNotification(null), 5000);
-                    }
-                  } else {
-                    console.error('❌ onUpdate no está disponible');
-                    setNotification({ type: 'error', message: 'Error: No se puede actualizar la unidad' });
-                    setTimeout(() => setNotification(null), 5000);
-                  }
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+                type="button"
+                onClick={() => { void handleSaveRequiredPosition(); }}
+                disabled={savingRequiredPosition}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center disabled:opacity-60"
               >
-                <Save size={16} className="mr-2" /> {editingRequiredPosition ? 'Guardar Cambios' : 'Agregar'}
+                {savingRequiredPosition ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Save size={16} className="mr-2" />}
+                {savingRequiredPosition ? 'Guardando...' : editingRequiredPosition ? 'Guardar Cambios' : 'Agregar'}
               </button>
             </div>
           </div>
