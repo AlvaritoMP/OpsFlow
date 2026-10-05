@@ -27,6 +27,7 @@ import {
   signState,
   verifyState,
 } from './config.js';
+import { syncIncidentToAttendance } from './attendanceSync.js';
 import {
   attachmentExists,
   createIncident,
@@ -775,6 +776,12 @@ async function saveAndPublishFalta({ submission, channelId, userId, teamId, user
     return { ok: false, error: `No se pudo guardar la incidencia en OpsFlow: ${err instanceof Error ? err.message : String(err)}` };
   }
 
+  try {
+    await syncIncidentToAttendance(incident);
+  } catch (err) {
+    console.error('❌ No se reflejó la falta en la asistencia:', err);
+  }
+
   const reporter = userName ? `@${userName}` : 'supervisor';
   const attachment = incidentCardAttachment({
     incidentId: incident.id,
@@ -1313,10 +1320,21 @@ async function handleDialogEditSubmit(req, res, body) {
   const reporter = incident.reported_by || actor;
 
   if (!updated.mattermost_post_id) {
+    try {
+      await syncIncidentToAttendance(updated);
+    } catch (syncErr) {
+      console.error('❌ No se reflejó la falta en la asistencia:', syncErr);
+    }
     sendJson(res, 200, {
       error: 'La novedad se actualizó en OpsFlow, pero no tiene tarjeta de Mattermost para modificar.',
     });
     return;
+  }
+
+  try {
+    await syncIncidentToAttendance(updated);
+  } catch (syncErr) {
+    console.error('❌ No se reflejó la falta en la asistencia:', syncErr);
   }
 
   try {
@@ -1330,6 +1348,18 @@ async function handleDialogEditSubmit(req, res, body) {
     console.error('❌ Actualizar tarjeta Mattermost:', err);
     try {
       await updateIncidentDetails(incident.id, previous);
+      await syncIncidentToAttendance({
+        id: incident.id,
+        unit_id: previous.unitId,
+        employee_id: previous.employeeId,
+        incident_type: previous.incidentType,
+        incident_reason: previous.incidentReason,
+        has_coverage: previous.hasCoverage,
+        status: incident.status,
+        incident_date: previous.incidentDate,
+        observations: previous.observations,
+        reported_by: incident.reported_by,
+      });
     } catch (revertErr) {
       console.error('❌ Revertir novedad:', revertErr);
     }

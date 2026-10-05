@@ -85,6 +85,119 @@ function mapIncident(row: Record<string, any>): PayrollAttendanceIncident {
   };
 }
 
+function mattermostAttendanceTag(incidentId: string) {
+  return `[mm:${incidentId}]`;
+}
+
+function attendanceKeyCode(status: string, incidentType: string) {
+  if (status === 'MEDICAL_REST') return 'DM';
+  if (status === 'LEAVE_OR_PERMIT') return 'LSG';
+  if (status === 'UNJUSTIFIED_ABSENCE') return 'F';
+  if (incidentType === 'DESCANSO_MEDICO_INICIAL') return 'DM';
+  if (incidentType === 'PERMISO_LICENCIA') return 'LSG';
+  return 'F';
+}
+
+function attendanceComment(row: Record<string, any>) {
+  const typeLabel = PAYROLL_INCIDENT_TYPE_LABELS[row.incident_type as PayrollAttendanceIncidentType] || 'Falta';
+  const status = String(row.status || '');
+  const statusLabel =
+    status && status !== 'PENDING_JUSTIFICATION'
+      ? PAYROLL_INCIDENT_STATUS_LABELS[status as PayrollAttendanceIncidentStatus] || ''
+      : '';
+  const detail = statusLabel ? `${typeLabel} · ${statusLabel}` : typeLabel;
+  return `Mattermost: ${detail} ${mattermostAttendanceTag(row.id)}`.slice(0, 500);
+}
+
+async function releaseOwnedAttendanceCells(incidentId: string, unitId: string, resourceId: string, day: string) {
+  const tag = mattermostAttendanceTag(incidentId);
+  const { data, error } = await supabase
+    .from('attendance_tareo_novedades')
+    .select('id, unit_id, resource_id, day, hours_key_id')
+    .ilike('comment', `%${tag}%`);
+  if (error) throw error;
+  for (const row of data || []) {
+    const same =
+      row.unit_id === unitId &&
+      row.resource_id === resourceId &&
+      String(row.day || '').slice(0, 10) === day;
+    if (same) continue;
+    if (row.hours_key_id) {
+      const { error: updateError } = await supabase
+        .from('attendance_tareo_novedades')
+        .update({ day_key_id: null, comment: null, updated_at: new Date().toISOString() })
+        .eq('id', row.id);
+      if (updateError) throw updateError;
+    } else {
+      const { error: deleteError } = await supabase.from('attendance_tareo_novedades').delete().eq('id', row.id);
+      if (deleteError) throw deleteError;
+    }
+  }
+}
+
+/** Misma regla que server/mattermostAttendance/attendanceSync.js */
+async function syncIncidentRowToAttendance(row: Record<string, any>) {
+  const day = String(row.incident_date || '').slice(0, 10);
+  if (!row.id || !row.unit_id || !row.employee_id || !day) return;
+  const code = attendanceKeyCode(String(row.status || ''), String(row.incident_type || ''));
+  const { data: key, error: keyError } = await supabase
+    .from('attendance_tareo_keys')
+    .select('id')
+    .eq('code', code)
+    .maybeSingle();
+  if (keyError) throw keyError;
+  if (!key?.id) return;
+
+  await releaseOwnedAttendanceCells(row.id, row.unit_id, row.employee_id, day);
+
+  const { data: existing, error: readError } = await supabase
+    .from('attendance_tareo_novedades')
+    .select('hours_key_id, hours_value')
+    .eq('unit_id', row.unit_id)
+    .eq('resource_id', row.employee_id)
+    .eq('day', day)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  const { error } = await supabase.from('attendance_tareo_novedades').upsert(
+    {
+      unit_id: row.unit_id,
+      resource_id: row.employee_id,
+      day,
+      day_key_id: key.id,
+      hours_key_id: existing?.hours_key_id || null,
+      hours_value: existing?.hours_key_id ? existing.hours_value : null,
+      comment: attendanceComment(row),
+      source: 'manual',
+      updated_by: row.reported_by || 'mattermost',
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'unit_id,resource_id,day' }
+  );
+  if (error) throw error;
+}
+
+async function clearIncidentAttendance(incidentId: string) {
+  const tag = mattermostAttendanceTag(incidentId);
+  const { data, error } = await supabase
+    .from('attendance_tareo_novedades')
+    .select('id, hours_key_id')
+    .ilike('comment', `%${tag}%`);
+  if (error) throw error;
+  for (const row of data || []) {
+    if (row.hours_key_id) {
+      const { error: updateError } = await supabase
+        .from('attendance_tareo_novedades')
+        .update({ day_key_id: null, comment: null, updated_at: new Date().toISOString() })
+        .eq('id', row.id);
+      if (updateError) throw updateError;
+    } else {
+      const { error: deleteError } = await supabase.from('attendance_tareo_novedades').delete().eq('id', row.id);
+      if (deleteError) throw deleteError;
+    }
+  }
+}
+
 export const attendanceIncidentService = {
   async listByUnit(unitId: string, limit = 80): Promise<PayrollAttendanceIncident[]> {
     try {
@@ -134,6 +247,20 @@ export const attendanceIncidentService = {
       .update({ status })
       .eq('id', id);
     if (error) handleSupabaseError(error);
+    const { data, error: readError } = await supabase
+      .from('payroll_attendance_incidents')
+      .select('id, unit_id, employee_id, incident_type, status, incident_date, reported_by')
+      .eq('id', id)
+      .maybeSingle();
+    if (readError) handleSupabaseError(readError);
+    if (data) {
+      try {
+        await syncIncidentRowToAttendance(data);
+      } catch (syncError) {
+        console.warn('No se reflejó la falta en la asistencia', syncError);
+        throw new Error('El estado se guardó, pero no se actualizó la asistencia del trabajador.');
+      }
+    }
   },
 
   async deleteById(id: string): Promise<void> {
@@ -155,6 +282,7 @@ export const attendanceIncidentService = {
         console.warn('No se pudieron borrar archivos de storage de la falta:', storageError.message);
       }
     }
+    await clearIncidentAttendance(id);
     const { error } = await supabase.from('payroll_attendance_incidents').delete().eq('id', id);
     if (error) handleSupabaseError(error);
   },

@@ -7,6 +7,7 @@ import {
   startMattermostThreadPoller,
 } from './server/mattermostAttendance/index.js';
 import { mattermostActionUrl } from './server/mattermostAttendance/config.js';
+import { backfillIncidentsToAttendance } from './server/mattermostAttendance/attendanceSync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -275,6 +276,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`📣 Webhooks Mattermost en /api/webhooks/mattermost/*`);
   console.log(`🔘 Mattermost integration.url: ${mattermostActionUrl()}`);
   startMattermostThreadPoller();
+  void backfillIncidentsToAttendance().catch((err) =>
+    console.warn('⚠️  No se pudieron reflejar faltas previas en asistencia:', err instanceof Error ? err.message : err),
+  );
   console.log(`✅ Servidor listo para recibir peticiones`);
 });
 

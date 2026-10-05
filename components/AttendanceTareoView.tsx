@@ -761,6 +761,7 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
                                     ? [
                                         dayKey ? `${dayKey.name} (${dayKey.valueAmount} d)` : null,
                                         hoursKey ? `${hoursKey.name} (${n?.hoursValue ?? 0} h)` : null,
+                                        (n?.comment || '').replace(/\s*\[mm:[0-9a-f-]+\]/gi, '').trim() || null,
                                       ]
                                         .filter(Boolean)
                                         .join('\n')
