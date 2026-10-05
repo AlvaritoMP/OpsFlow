@@ -19,7 +19,8 @@ export type AppHelpView =
   | 'ats-reception'
   | 'ats-presentations'
   | 'hr-opalosis'
-  | 'inventory';
+  | 'inventory'
+  | 'billing';
 
 export interface HelpSection {
   heading: string;
@@ -872,6 +873,32 @@ export const HELP_TOPICS: HelpTopic[] = [
       {
         heading: 'Cómo usarlo',
         body: 'Muestra el estado de las unidades vinculadas al cliente. La edición está limitada según permisos del rol CLIENT.',
+      },
+    ],
+  },
+  {
+    id: 'billing',
+    title: 'Facturación de clientes',
+    navLabel: 'Facturación',
+    summary:
+      'Elabora la facturación mensual de intermediación y tercerización: costo laboral, operativo, administrativo y utilidad, con historial de cada ajuste.',
+    sections: [
+      {
+        heading: 'Cómo se arma',
+        body: 'Elija la unidad y el mes. OpsFlow carga el personal activo, el sueldo, la asignación familiar, la condición de trabajo y los bonos del mes. Usted completa días, horas extra, bono nocturno, materiales, gastos de estructura y la utilidad.',
+        steps: [
+          'Nueva facturación: unidad (no BPO), mes y, si aplica, copiar costos del mes anterior.',
+          'Personal: incluya o excluya personas y ajuste sueldo, días, bonos u horas. Lo que difiere de la ficha se marca como ajustado.',
+          'Operativo: materiales, equipos y maquinaria.',
+          'Administrativo: costo financiero (tasa anual y días), gestión de RRHH y otros ítems de estructura.',
+          'Utilidad: margen sobre el precio (como la facturación de abril) o recargo sobre el costo.',
+          'Guarde el borrador y emita cuando el total esté cerrado. Reabrir o anular también queda registrado.',
+        ],
+        tips: [
+          'El total principal no incluye IGV. EsSalud y SCTR usan el sueldo contractual completo, no el proporcional a los días.',
+          'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
+          'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase.',
+        ],
       },
     ],
   },

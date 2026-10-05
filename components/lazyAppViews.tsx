@@ -100,6 +100,9 @@ export const AuditLogs = lazyView(() =>
 export const MattermostIncidents = lazyView(() =>
   import('./MattermostIncidents').then((m) => ({ default: m.MattermostIncidents }))
 );
+export const ClientBilling = lazyView(() =>
+  import('./ClientBilling').then((m) => ({ default: m.ClientBilling }))
+);
 
 export const ViewFallback: React.FC<{ message?: string }> = ({ message = 'Cargando sección...' }) => (
   <div className="flex items-center justify-center h-full min-h-[40vh]">

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes, Route } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes, Route, Receipt } from 'lucide-react';
 import { Login } from './components/Login';
 import {
   Dashboard,
@@ -23,6 +23,7 @@ import {
   InventoryManagement,
   AuditLogs,
   MattermostIncidents,
+  ClientBilling,
   KeepAlivePane,
   ViewFallback,
   ChunkLoadErrorBoundary,
@@ -69,7 +70,7 @@ const App: React.FC = () => {
   const authRequestRef = useRef(0);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'mattermost'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'mattermost' | 'billing'>('dashboard');
   const [mountedViews, setMountedViews] = useState<Set<string>>(() => new Set(['dashboard']));
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
@@ -1818,6 +1819,13 @@ const App: React.FC = () => {
             canEdit={checkPermission(currentUser.role, 'INVENTORY', 'edit')}
           />
         ))}
+        {renderCachedView('billing', (
+          <ClientBilling
+            units={operationalUnits}
+            currentUser={currentUser}
+            canEdit={checkPermission(currentUser.role, 'BILLING', 'edit')}
+          />
+        ), true)}
         {renderCachedView('headcount', (
           <Headcount
             units={operationalUnits}
@@ -3593,6 +3601,16 @@ const App: React.FC = () => {
                   >
                     <Boxes size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Inventario</span>
+                  </button>
+              )}
+
+              {checkPermission(currentUser.role, 'BILLING', 'view') && (
+                  <button
+                    onClick={() => { setCurrentView('billing'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'billing' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Receipt size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Facturación</span>
                   </button>
               )}
 

@@ -31,4 +31,5 @@ export * from './inboundWorkerHandoffService';
 export * from './attendanceTareoService';
 export * from './attendanceIncidentService';
 export * from './publicComplementaryFichaService';
+export * from './clientBillingService';
 

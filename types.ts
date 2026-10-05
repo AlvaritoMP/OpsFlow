@@ -103,7 +103,8 @@ export type AppFeature =
   | 'SETTINGS'
   | 'ATS_RECEPTION'
   | 'HR_OPALOSIS'
-  | 'MATTERMOST';
+  | 'MATTERMOST'
+  | 'BILLING';
 
 export interface PermissionRule {
   view: boolean;
