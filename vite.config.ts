@@ -17,6 +17,9 @@ export default defineConfig(({ mode }) => {
         strictPort: false,
       },
       plugins: [react()],
+      optimizeDeps: {
+        include: ['exceljs'],
+      },
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)

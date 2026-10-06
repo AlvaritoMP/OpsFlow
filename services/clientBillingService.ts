@@ -4,6 +4,8 @@ const db = supabase as unknown as {
   from: (table: string) => any;
 };
 import { variableCompensationsService } from './variableCompensationsService';
+import { classifyAttendanceStatus } from './attendanceReportService';
+import { formatNovedadMatrixCell, resolveKeyEmoji } from './attendanceTareoService';
 import {
   BillingChange,
   BillingCostLine,
@@ -13,15 +15,20 @@ import {
   DEFAULT_BILLING_RATES,
   AttendanceWindow,
   attendanceWindowError,
+  BillingDifferenceLine,
   cloneModel,
   commercialDaysInWindow,
   computeBilling,
+  defaultAdjustmentDescription,
   resolveAttendanceWindow,
   defaultAdministrativeLines,
   emptyBillingModel,
   formatPeriodLabel,
   newBillingId,
+  pen,
   round2,
+  snapshotFromSavedTotals,
+  subtractBillingSnapshots,
 } from '../utils/clientBillingCalc';
 
 export type BillingStatus = 'draft' | 'issued' | 'void';
@@ -297,10 +304,12 @@ export async function saveClientBilling(input: {
       .single();
     if (error) throw mapError(error);
     const record = mapRecord(data);
+    await tryRecordBillingRun(record, input.actor);
     await writeAudit(record.id, input.actor, 'created', 'Creó la liquidación', input.changes);
     return record;
   }
 
+  await trySnapshotExisting(input.id, input.actor);
   const { data, error } = await db
     .from('client_billings')
     .update(row)
@@ -309,6 +318,7 @@ export async function saveClientBilling(input: {
     .single();
   if (error) throw mapError(error);
   const record = mapRecord(data);
+  await tryRecordBillingRun(record, input.actor);
   if (input.changes.length > 0) {
     const summary = input.model.comment
       ? `Guardó ${input.changes.length} ajuste(s). ${input.model.comment}`
@@ -316,6 +326,242 @@ export async function saveClientBilling(input: {
     await writeAudit(record.id, input.actor, input.action || 'saved', summary, input.changes);
   }
   return record;
+}
+
+export type BillingNoteKind = 'credit' | 'debit';
+
+/** Un cálculo que se puede restar: el vigente de una liquidación o una corrida anterior. */
+export interface SavedBillingCalc {
+  id: string;
+  billingId: string;
+  runId?: string;
+  unitId: string;
+  clientName: string;
+  unitName: string;
+  periodMonth: string;
+  title: string;
+  status: BillingStatus;
+  version: 'current' | 'previous';
+  laborTotal: number;
+  operationalTotal: number;
+  adminTotal: number;
+  profitTotal: number;
+  grandTotal: number;
+  igvRate: number;
+  savedAt: string;
+  savedByName?: string;
+  comment?: string;
+}
+
+export interface ClientBillingRun {
+  id: string;
+  billingId: string;
+  unitId: string;
+  clientName: string;
+  unitName: string;
+  periodMonth: string;
+  title: string;
+  comment?: string;
+  billingStatus: BillingStatus;
+  laborTotal: number;
+  operationalTotal: number;
+  adminTotal: number;
+  profitTotal: number;
+  grandTotal: number;
+  igvRate: number;
+  createdByName?: string;
+  createdAt: string;
+}
+
+export interface ClientBillingNote {
+  id: string;
+  unitId?: string;
+  clientName: string;
+  unitName: string;
+  noteKind: BillingNoteKind;
+  status: BillingStatus;
+  title: string;
+  sourceBillingId?: string;
+  baseBillingId?: string;
+  sourceRunId?: string;
+  baseRunId?: string;
+  sourceLabel: string;
+  baseLabel: string;
+  itemDescription: string;
+  amount: number;
+  signedDifference: number;
+  breakdown: BillingDifferenceLine[];
+  createdByName?: string;
+  updatedByName?: string;
+  issuedAt?: string;
+  issuedByName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function buildSavedCalcs(records: ClientBillingRecord[], runs: ClientBillingRun[]): SavedBillingCalc[] {
+  const runsByBilling = new Map<string, ClientBillingRun[]>();
+  runs.forEach((run) => {
+    const list = runsByBilling.get(run.billingId) || [];
+    list.push(run);
+    runsByBilling.set(run.billingId, list);
+  });
+
+  const calcs: SavedBillingCalc[] = [];
+  const known = new Set<string>();
+  records.forEach((record) => {
+    known.add(record.id);
+    calcs.push(calcFromRecord(record));
+    const own = (runsByBilling.get(record.id) || []).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const hideLatest = own[0] ? sameSnapshot(own[0], record) : false;
+    own.forEach((run, index) => {
+      if (index === 0 && hideLatest) return;
+      calcs.push(calcFromRun(run));
+    });
+  });
+  runs.forEach((run) => {
+    if (!known.has(run.billingId)) calcs.push(calcFromRun(run));
+  });
+  return calcs.sort((a, b) => b.savedAt.localeCompare(a.savedAt) || a.unitName.localeCompare(b.unitName, 'es'));
+}
+
+export function defaultComparisonBase(calcs: SavedBillingCalc[], sourceId: string): string {
+  const source = calcs.find((calc) => calc.id === sourceId);
+  if (!source) return '';
+  const olderSameBilling = calcs
+    .filter((calc) => calc.billingId === source.billingId && calc.id !== source.id && calc.savedAt < source.savedAt)
+    .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  if (olderSameBilling[0]) return olderSameBilling[0].id;
+  const earlierPeriod = calcs
+    .filter(
+      (calc) =>
+        calc.unitId === source.unitId &&
+        calc.id !== source.id &&
+        calc.status !== 'void' &&
+        calc.version === 'current' &&
+        calc.periodMonth < source.periodMonth
+    )
+    .sort((a, b) => b.periodMonth.localeCompare(a.periodMonth) || b.savedAt.localeCompare(a.savedAt));
+  if (earlierPeriod[0]) return earlierPeriod[0].id;
+  const anySameUnit = calcs
+    .filter((calc) => calc.unitId === source.unitId && calc.id !== source.id && calc.status !== 'void')
+    .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  return anySameUnit[0]?.id || '';
+}
+
+export function calcOptionLabel(calc: SavedBillingCalc): string {
+  const when = new Date(calc.savedAt).toLocaleString('es-PE', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const version = calc.version === 'current' ? 'Cálculo vigente' : 'Corrida anterior';
+  const state = calc.status === 'void' ? ' · anulada' : calc.status === 'issued' && calc.version === 'current' ? ' · emitida' : '';
+  return `${version} · ${when} · ${pen(calc.grandTotal)}${state}`;
+}
+
+export async function listBillingRuns(): Promise<ClientBillingRun[]> {
+  const { data, error } = await db
+    .from('client_billing_runs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw mapError(error);
+  }
+  return (data || []).map(mapRun);
+}
+
+export async function listBillingNotes(): Promise<ClientBillingNote[]> {
+  const { data, error } = await db
+    .from('client_billing_notes')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) throw mapError(error);
+  return (data || []).map(mapNote);
+}
+
+export async function saveBillingNote(input: {
+  source: SavedBillingCalc;
+  base: SavedBillingCalc;
+  noteKind: BillingNoteKind;
+  itemDescription: string;
+  actor: BillingActor;
+}): Promise<ClientBillingNote> {
+  if (input.source.id === input.base.id) throw new Error('Elija dos cálculos distintos.');
+  const diff = subtractBillingSnapshots(snapshotOfCalc(input.source), snapshotOfCalc(input.base));
+  if (diff.absoluteGrand < 0.005) {
+    throw new Error('Los dos cálculos dan el mismo total sin IGV. No hay diferencia para una nota.');
+  }
+  const description = input.itemDescription.trim() || defaultAdjustmentDescription(input.source, input.base);
+  const kindLabel = input.noteKind === 'credit' ? 'Nota de crédito' : 'Nota de débito';
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from('client_billing_notes')
+    .insert({
+      unit_id: input.source.unitId || null,
+      client_name: input.source.clientName,
+      unit_name: input.source.unitName,
+      note_kind: input.noteKind,
+      status: 'draft',
+      title: `${kindLabel} · ${input.source.unitName} · ${formatPeriodLabel(input.source.periodMonth)}`,
+      source_billing_id: input.source.billingId,
+      base_billing_id: input.base.billingId,
+      source_run_id: input.source.runId || null,
+      base_run_id: input.base.runId || null,
+      source_label: calcOptionLabel(input.source),
+      base_label: calcOptionLabel(input.base),
+      item_description: description,
+      amount: diff.absoluteGrand,
+      signed_difference: diff.signedGrand,
+      breakdown: diff.lines,
+      created_by: input.actor.id || null,
+      created_by_name: input.actor.name,
+      updated_by: input.actor.id || null,
+      updated_by_name: input.actor.name,
+      created_at: now,
+      updated_at: now,
+    })
+    .select('*')
+    .single();
+  if (error) throw mapError(error);
+  const note = mapNote(data);
+  const summary = `Creó una ${kindLabel.toLowerCase()} por ${pen(note.amount)} al restar «${input.base.unitName} ${formatPeriodLabel(input.base.periodMonth)}» de «${input.source.unitName} ${formatPeriodLabel(input.source.periodMonth)}».`;
+  if (input.source.billingId) await writeAudit(input.source.billingId, input.actor, 'adjustment_note', summary, []);
+  return note;
+}
+
+export async function setBillingNoteStatus(
+  id: string,
+  status: BillingStatus,
+  actor: BillingActor,
+  summary: string
+): Promise<ClientBillingNote> {
+  const patch: Record<string, unknown> = {
+    status,
+    updated_by: actor.id || null,
+    updated_by_name: actor.name,
+    updated_at: new Date().toISOString(),
+  };
+  if (status === 'issued') {
+    patch.issued_at = new Date().toISOString();
+    patch.issued_by_name = actor.name;
+  }
+  if (status === 'draft') {
+    patch.issued_at = null;
+    patch.issued_by_name = null;
+  }
+  const { data, error } = await db.from('client_billing_notes').update(patch).eq('id', id).select('*').single();
+  if (error) throw mapError(error);
+  const note = mapNote(data);
+  if (note.sourceBillingId) {
+    await writeAudit(note.sourceBillingId, actor, 'adjustment_note', summary, []);
+  }
+  return note;
 }
 
 export async function setBillingStatus(
@@ -540,6 +786,198 @@ async function loadAbsenceDeductions(unitId: string, window: AttendanceWindow): 
   return result;
 }
 
+export interface BillingGlanceCell {
+  text: string;
+  title: string;
+  tone: 'ok' | 'warn' | 'bad' | 'muted';
+}
+
+export interface BillingGlanceLegendItem {
+  icon: string;
+  code: string;
+  name: string;
+}
+
+export interface BillingDayGlance {
+  days: string[];
+  attendance: Record<string, Record<string, BillingGlanceCell>>;
+  novedades: Record<string, Record<string, BillingGlanceCell>>;
+  legend: BillingGlanceLegendItem[];
+}
+
+function eachIsoDay(from: string, to: string): string[] {
+  const [ys, ms, ds] = from.slice(0, 10).split('-').map(Number);
+  const [ye, me, de] = to.slice(0, 10).split('-').map(Number);
+  const cursor = new Date(ys, (ms || 1) - 1, ds || 1);
+  const end = new Date(ye, (me || 1) - 1, de || 1);
+  const days: string[] = [];
+  while (cursor <= end && days.length <= 62) {
+    const y = cursor.getFullYear();
+    const m = String(cursor.getMonth() + 1).padStart(2, '0');
+    const d = String(cursor.getDate()).padStart(2, '0');
+    days.push(`${y}-${m}-${d}`);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
+function putCell(
+  bucket: Record<string, Record<string, BillingGlanceCell>>,
+  resourceId: string,
+  day: string,
+  cell: BillingGlanceCell
+) {
+  if (!resourceId || !day) return;
+  if (!bucket[resourceId]) bucket[resourceId] = {};
+  bucket[resourceId][day] = cell;
+}
+
+function attendanceRank(status: string | null): number {
+  const kind = classifyAttendanceStatus(status);
+  if (kind === 'complete') return 4;
+  if (kind === 'partial') return 3;
+  if (kind === 'none') return 2;
+  if (kind === 'other') return 1;
+  return 0;
+}
+
+function attendanceCell(status: string | null, extra?: string): BillingGlanceCell {
+  const kind = classifyAttendanceStatus(status);
+  const base = (status || '').trim();
+  const title = [base, extra].filter(Boolean).join(' · ') || 'Asistencia';
+  if (kind === 'complete') return { text: '✓', title, tone: 'ok' };
+  if (kind === 'partial') return { text: '½', title, tone: 'warn' };
+  if (kind === 'none') return { text: 'F', title: title || 'Sin marcas', tone: 'bad' };
+  return { text: (base || '·').slice(0, 4), title, tone: 'muted' };
+}
+
+function incidentLabel(incidentType: string, status: string): { text: string; title: string; tone: BillingGlanceCell['tone'] } | null {
+  if (incidentType === 'TARDANZA') return { text: 'T', title: 'Tardanza (Mattermost)', tone: 'warn' };
+  if (status === 'MEDICAL_REST') return { text: 'DM', title: 'Descanso médico (Mattermost)', tone: 'muted' };
+  if (status === 'LEAVE_OR_PERMIT') return { text: 'P', title: 'Permiso (Mattermost)', tone: 'muted' };
+  if (countsAsDiscountedAbsence(incidentType, status)) return { text: 'F', title: 'Falta (Mattermost)', tone: 'bad' };
+  if (!incidentType && !status) return null;
+  return { text: 'N', title: [incidentType, status].filter(Boolean).join(' · '), tone: 'muted' };
+}
+
+/** Asistencia importada y novedades de tareo del corte, por trabajador y día. Solo lectura. */
+export async function loadBillingDayGlance(unitId: string, from: string, to: string): Promise<BillingDayGlance> {
+  const days = eachIsoDay(from, to);
+  const attendance: Record<string, Record<string, BillingGlanceCell>> = {};
+  const novedades: Record<string, Record<string, BillingGlanceCell>> = {};
+  const attendanceRankByDay = new Map<string, number>();
+  const legend = new Map<string, BillingGlanceLegendItem>();
+
+  try {
+    const { data: keys } = await db.from('attendance_tareo_keys').select('id, code, name, icon, payroll_field');
+    const keyById = new Map<string, { code: string; name: string; icon: string; payrollField: string }>();
+    (keys || []).forEach((key: any) => {
+      keyById.set(key.id, {
+        code: key.code || '',
+        name: key.name || '',
+        icon: key.icon || '',
+        payrollField: key.payroll_field || 'none',
+      });
+    });
+    const { data: rows } = await db
+      .from('attendance_tareo_novedades')
+      .select('resource_id, day, day_key_id, hours_key_id, hours_value, comment')
+      .eq('unit_id', unitId)
+      .gte('day', from)
+      .lte('day', to);
+    (rows || []).forEach((row: any) => {
+      const day = String(row.day || '').slice(0, 10);
+      const resourceId = row.resource_id as string;
+      const dayKey = row.day_key_id ? keyById.get(row.day_key_id) : undefined;
+      const hoursKey = row.hours_key_id ? keyById.get(row.hours_key_id) : undefined;
+      if (!dayKey && !hoursKey) return;
+      const text = formatNovedadMatrixCell(
+        dayKey ? { icon: dayKey.icon } : null,
+        hoursKey ? { icon: hoursKey.icon } : null,
+        row.hours_value != null ? Number(row.hours_value) : null
+      );
+      if (!text || text === '—') return;
+      const title = [
+        dayKey ? `${resolveKeyEmoji(dayKey.icon)} ${dayKey.name}` : '',
+        hoursKey ? `${resolveKeyEmoji(hoursKey.icon)} ${hoursKey.name}${row.hours_value != null ? ` ${row.hours_value}h` : ''}` : '',
+        row.comment || '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const falta = dayKey?.payrollField === 'faltas' || dayKey?.payrollField === 'licencia_sin_goce';
+      putCell(novedades, resourceId, day, { text, title, tone: falta ? 'bad' : 'ok' });
+      [dayKey, hoursKey].forEach((key) => {
+        if (!key) return;
+        const id = `${key.code}|${key.name}`;
+        if (!legend.has(id)) legend.set(id, { icon: resolveKeyEmoji(key.icon), code: key.code, name: key.name });
+      });
+    });
+  } catch {
+    /* sin tareo el corte igual puede mostrar asistencia */
+  }
+
+  const incidentNote = new Map<string, string>();
+  try {
+    const { data: incidents } = await db
+      .from('payroll_attendance_incidents')
+      .select('employee_id, incident_date, incident_type, status')
+      .eq('unit_id', unitId)
+      .gte('incident_date', from)
+      .lte('incident_date', to);
+    (incidents || []).forEach((row: any) => {
+      const day = String(row.incident_date || '').slice(0, 10);
+      const resourceId = row.employee_id as string;
+      const label = incidentLabel(row.incident_type || '', row.status || '');
+      if (!label || !resourceId || !day) return;
+      const token = `${resourceId}|${day}`;
+      incidentNote.set(token, label.title);
+      if (!attendance[resourceId]?.[day]) {
+        putCell(attendance, resourceId, day, { text: label.text, title: label.title, tone: label.tone });
+        attendanceRankByDay.set(token, 1);
+      }
+    });
+  } catch {
+    /* sin incidencias no se bloquea la vista */
+  }
+
+  try {
+    const { data: imports } = await db
+      .from('attendance_report_imports')
+      .select('id, report_date')
+      .eq('unit_id', unitId)
+      .gte('report_date', from)
+      .lte('report_date', to);
+    const importDate = new Map<string, string>();
+    const ids: string[] = [];
+    (imports || []).forEach((row: any) => {
+      ids.push(row.id);
+      importDate.set(row.id, String(row.report_date || '').slice(0, 10));
+    });
+    if (ids.length) {
+      const { data: rows } = await db
+        .from('attendance_report_rows')
+        .select('import_id, matched_resource_id, attendance_status, mark_date')
+        .in('import_id', ids);
+      (rows || []).forEach((row: any) => {
+        const resourceId = row.matched_resource_id as string;
+        if (!resourceId) return;
+        const day = String(row.mark_date || importDate.get(row.import_id) || '').slice(0, 10);
+        if (!day || day < from || day > to) return;
+        const rank = attendanceRank(row.attendance_status);
+        const token = `${resourceId}|${day}`;
+        if (rank <= (attendanceRankByDay.get(token) || 0)) return;
+        const extra = incidentNote.get(token);
+        putCell(attendance, resourceId, day, attendanceCell(row.attendance_status, extra));
+        attendanceRankByDay.set(token, Math.max(rank, 2));
+      });
+    }
+  } catch {
+    /* sin reporte de asistencia no se bloquea la vista */
+  }
+
+  return { days, attendance, novedades, legend: Array.from(legend.values()) };
+}
+
 function countsAsDiscountedAbsence(incidentType: string, status: string): boolean {
   if (incidentType === 'TARDANZA') return false;
   if (status === 'MEDICAL_REST' || status === 'LEAVE_OR_PERMIT') return false;
@@ -627,6 +1065,194 @@ async function writeAudit(
   if (error) throw mapError(error);
 }
 
+function snapshotOfCalc(calc: SavedBillingCalc) {
+  return snapshotFromSavedTotals({
+    laborTotal: calc.laborTotal,
+    operationalTotal: calc.operationalTotal,
+    adminTotal: calc.adminTotal,
+    profitTotal: calc.profitTotal,
+    grandTotal: calc.grandTotal,
+    igvRate: calc.igvRate,
+  });
+}
+
+function sameSnapshot(run: ClientBillingRun, record: ClientBillingRecord): boolean {
+  return (
+    Math.abs(run.laborTotal - record.laborTotal) < 0.01 &&
+    Math.abs(run.operationalTotal - record.operationalTotal) < 0.01 &&
+    Math.abs(run.adminTotal - record.adminTotal) < 0.01 &&
+    Math.abs(run.profitTotal - record.profitTotal) < 0.01 &&
+    Math.abs(run.grandTotal - record.grandTotal) < 0.01
+  );
+}
+
+function calcFromRecord(record: ClientBillingRecord): SavedBillingCalc {
+  return {
+    id: `billing:${record.id}`,
+    billingId: record.id,
+    unitId: record.unitId,
+    clientName: record.clientName,
+    unitName: record.unitName,
+    periodMonth: record.periodMonth,
+    title: record.title,
+    status: record.status,
+    version: 'current',
+    laborTotal: record.laborTotal,
+    operationalTotal: record.operationalTotal,
+    adminTotal: record.adminTotal,
+    profitTotal: record.profitTotal,
+    grandTotal: record.grandTotal,
+    igvRate: record.model?.rates?.igvRate ?? DEFAULT_BILLING_RATES.igvRate,
+    savedAt: record.updatedAt || record.createdAt,
+    savedByName: record.updatedByName || record.createdByName,
+    comment: record.model?.comment || undefined,
+  };
+}
+
+function calcFromRun(run: ClientBillingRun): SavedBillingCalc {
+  return {
+    id: `run:${run.id}`,
+    billingId: run.billingId,
+    runId: run.id,
+    unitId: run.unitId,
+    clientName: run.clientName,
+    unitName: run.unitName,
+    periodMonth: run.periodMonth,
+    title: run.title,
+    status: run.billingStatus,
+    version: 'previous',
+    laborTotal: run.laborTotal,
+    operationalTotal: run.operationalTotal,
+    adminTotal: run.adminTotal,
+    profitTotal: run.profitTotal,
+    grandTotal: run.grandTotal,
+    igvRate: run.igvRate,
+    savedAt: run.createdAt,
+    savedByName: run.createdByName,
+    comment: run.comment,
+  };
+}
+
+async function trySnapshotExisting(id: string, actor: BillingActor): Promise<void> {
+  const { data: existingRuns, error: countError } = await db
+    .from('client_billing_runs')
+    .select('id')
+    .eq('billing_id', id)
+    .limit(1);
+  if (countError) {
+    if (isMissingTable(countError)) return;
+    throw mapError(countError);
+  }
+  if (existingRuns && existingRuns.length > 0) return;
+  const { data, error } = await db.from('client_billings').select('*').eq('id', id).maybeSingle();
+  if (error) throw mapError(error);
+  if (!data) return;
+  const previous = mapRecord(data);
+  await insertBillingRun(previous, { name: previous.updatedByName || previous.createdByName || actor.name }, previous.updatedAt);
+}
+
+async function tryRecordBillingRun(record: ClientBillingRecord, actor: BillingActor): Promise<void> {
+  const { data, error } = await db
+    .from('client_billing_runs')
+    .select('labor_total, operational_total, admin_total, profit_total, grand_total')
+    .eq('billing_id', record.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (isMissingTable(error)) return;
+    throw mapError(error);
+  }
+  if (
+    data &&
+    Math.abs((Number(data.labor_total) || 0) - record.laborTotal) < 0.01 &&
+    Math.abs((Number(data.operational_total) || 0) - record.operationalTotal) < 0.01 &&
+    Math.abs((Number(data.admin_total) || 0) - record.adminTotal) < 0.01 &&
+    Math.abs((Number(data.profit_total) || 0) - record.profitTotal) < 0.01 &&
+    Math.abs((Number(data.grand_total) || 0) - record.grandTotal) < 0.01
+  ) {
+    return;
+  }
+  await insertBillingRun(record, actor);
+}
+
+async function insertBillingRun(record: ClientBillingRecord, actor: BillingActor, createdAt?: string): Promise<void> {
+  const { error } = await db.from('client_billing_runs').insert({
+    billing_id: record.id,
+    unit_id: record.unitId,
+    client_name: record.clientName,
+    unit_name: record.unitName,
+    period_month: toPeriodDate(record.periodMonth),
+    title: record.title,
+    comment: record.model?.comment || null,
+    billing_status: record.status,
+    payload: { model: record.model },
+    labor_total: round2(record.laborTotal),
+    operational_total: round2(record.operationalTotal),
+    admin_total: round2(record.adminTotal),
+    profit_total: round2(record.profitTotal),
+    grand_total: round2(record.grandTotal),
+    igv_rate: record.model?.rates?.igvRate ?? DEFAULT_BILLING_RATES.igvRate,
+    created_by: actor.id || null,
+    created_by_name: actor.name,
+    created_at: createdAt || new Date().toISOString(),
+  });
+  if (error && !isMissingTable(error)) throw mapError(error);
+}
+
+function mapRun(row: any): ClientBillingRun {
+  const status = row.billing_status === 'issued' || row.billing_status === 'void' ? row.billing_status : 'draft';
+  return {
+    id: row.id,
+    billingId: row.billing_id,
+    unitId: row.unit_id,
+    clientName: row.client_name,
+    unitName: row.unit_name,
+    periodMonth: String(row.period_month).slice(0, 7),
+    title: row.title,
+    comment: row.comment || undefined,
+    billingStatus: status,
+    laborTotal: Number(row.labor_total) || 0,
+    operationalTotal: Number(row.operational_total) || 0,
+    adminTotal: Number(row.admin_total) || 0,
+    profitTotal: Number(row.profit_total) || 0,
+    grandTotal: Number(row.grand_total) || 0,
+    igvRate: Number(row.igv_rate) || DEFAULT_BILLING_RATES.igvRate,
+    createdByName: row.created_by_name || undefined,
+    createdAt: row.created_at,
+  };
+}
+
+function mapNote(row: any): ClientBillingNote {
+  const kind: BillingNoteKind = row.note_kind === 'debit' ? 'debit' : 'credit';
+  const status: BillingStatus = row.status === 'issued' || row.status === 'void' ? row.status : 'draft';
+  return {
+    id: row.id,
+    unitId: row.unit_id || undefined,
+    clientName: row.client_name,
+    unitName: row.unit_name,
+    noteKind: kind,
+    status,
+    title: row.title,
+    sourceBillingId: row.source_billing_id || undefined,
+    baseBillingId: row.base_billing_id || undefined,
+    sourceRunId: row.source_run_id || undefined,
+    baseRunId: row.base_run_id || undefined,
+    sourceLabel: row.source_label,
+    baseLabel: row.base_label,
+    itemDescription: row.item_description,
+    amount: Number(row.amount) || 0,
+    signedDifference: Number(row.signed_difference) || 0,
+    breakdown: Array.isArray(row.breakdown) ? row.breakdown : [],
+    createdByName: row.created_by_name || undefined,
+    updatedByName: row.updated_by_name || undefined,
+    issuedAt: row.issued_at || undefined,
+    issuedByName: row.issued_by_name || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapRecord(row: any): ClientBillingRecord {
   const model = (row.payload?.model || row.payload) as ClientBillingModel;
   return {
@@ -667,6 +1293,13 @@ function isMissingTable(error: any): boolean {
 
 function mapError(error: any): Error {
   if (isMissingTable(error)) {
+    const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+    if (/client_billing_notes|client_billing_runs/i.test(message)) {
+      return new BillingStorageError(
+        'missing_table',
+        'Falta la tabla de corridas y notas. Ejecute migrations/MIGRATION_CLIENT_BILLING_RUNS.sql en Supabase.'
+      );
+    }
     return new BillingStorageError(
       'missing_table',
       'Falta crear las tablas de facturación. Ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase.'

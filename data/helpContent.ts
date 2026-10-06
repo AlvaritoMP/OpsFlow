@@ -892,12 +892,24 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Operativo: materiales, equipos y maquinaria.',
           'Administrativo: costo financiero (tasa anual y días), gestión de RRHH y otros ítems de estructura.',
           'Utilidad: margen sobre el precio (como la facturación de abril) o recargo sobre el costo.',
-          'Guarde el borrador y emita cuando el total esté cerrado. Reabrir o anular también queda registrado.',
+          'Guarde el borrador y emita cuando el total esté cerrado. Emitir guarda los cambios, aplica el corte si cambió y bloquea la liquidación dentro de OpsFlow. No envía un comprobante a SUNAT. Reabrir o anular también queda registrado.',
+          'Excel: descarga la liquidación con formato, en horizontal y ajustada a una sola hoja A4. En Excel use Imprimir o Exportar a PDF.',
         ],
         tips: [
           'El total principal no incluye IGV. EsSalud y SCTR usan el sueldo contractual completo, no el proporcional a los días.',
           'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
-          'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase.',
+          'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase. Para corridas y notas, ejecute también migrations/MIGRATION_CLIENT_BILLING_RUNS.sql.',
+        ],
+      },
+      {
+        heading: 'Corridas entre cálculos',
+        body: 'Puede restar dos cálculos ya guardados: el vigente de una liquidación, una corrida anterior de la misma liquidación, el mes previo u otra unidad. La diferencia del total sin IGV se convierte en un ítem de nota de crédito o de nota de débito. Usted elige cuál de las dos es.',
+        steps: [
+          'Guarde la liquidación. Cada guardado deja una corrida. La primera vez que vuelva a guardar una liquidación antigua, OpsFlow conserva también el cálculo que ya estaba.',
+          'En el listado use «Corrida entre cálculos», o dentro de una liquidación use «Corrida».',
+          'Elija el cálculo y el cálculo a restar. La tabla muestra laboral, operativo, administrativo, utilidad y el total.',
+          'Elija nota de crédito si el cliente debe pagar menos, o nota de débito si debe pagar más. El ítem usa el valor absoluto del total sin IGV.',
+          'Emitir la nota la deja cerrada en OpsFlow, igual que una liquidación. Anularla saca el ítem de vigencia.',
         ],
       },
       {
@@ -906,6 +918,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Al crear la liquidación aparecen «Asistencia y novedades desde» y «hasta». Por defecto cubren el mes completo. Si cambia el mes, las fechas vuelven al primer y al último día de ese mes para que pueda ajustarlas.',
           'Dentro de la liquidación, el bloque «Corte de asistencia y novedades» está siempre visible. Al cambiar las fechas, pulse Recalcular faltas.',
+          'En Personal, junto a la tabla, use Asistencia o Novedades para ver el corte día por día de cada trabajador sin volver a la unidad. Costos regresa a los importes.',
           'Guardar o emitir también recalcula las faltas si el rango todavía no se había aplicado. Los días que usted ya ajustó a mano se conservan.',
           'El listado muestra el corte debajo del mes de facturación.',
         ],

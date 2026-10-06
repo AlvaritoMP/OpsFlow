@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes, Route, Receipt } from 'lucide-react';
 import { Login } from './components/Login';
 import {
@@ -54,6 +54,7 @@ import { inboundWorkerHandoffService } from './services/inboundWorkerHandoffServ
 import { UNIT_CLASS_DESCRIPTIONS, UNIT_CLASS_LABELS, getDefaultUnitDescription } from './utils/unitClassConfig';
 import { filterOperationalUnits, isUnitOperational } from './utils/unitStatus';
 import { unitBelongsToLinkedClients } from './utils/unitVisibility';
+import { patchUnitView, readUnitView } from './utils/unitViewMemory';
 import { HelpPanel, HelpTriggerButton } from './components/HelpPanel';
 
 /** Polling solo para badge de Presentaciones ATS (Recepción ATS quedó en archivo/consulta). */
@@ -408,6 +409,108 @@ const App: React.FC = () => {
     }
   }, [currentView, selectedUnitId, hydrateUnit]);
 
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const suspendUnitScrollSave = useRef(false);
+  const unitViewRestoredFor = useRef<string | null>(null);
+  const previousOpenUnitId = useRef<string | null>(null);
+
+  const rememberUnitsPosition = useCallback(() => {
+    if (currentView === 'units' && currentUser?.id && !suspendUnitScrollSave.current) {
+      const top = mainScrollRef.current?.scrollTop ?? 0;
+      if (selectedUnitId) {
+        patchUnitView(currentUser.id, { detailScroll: top, openUnitId: selectedUnitId, lastUnitId: selectedUnitId });
+      } else {
+        patchUnitView(currentUser.id, { listScroll: top, openUnitId: null });
+      }
+    }
+    suspendUnitScrollSave.current = true;
+    window.setTimeout(() => {
+      suspendUnitScrollSave.current = false;
+    }, 450);
+  }, [currentView, currentUser?.id, selectedUnitId]);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      unitViewRestoredFor.current = null;
+      previousOpenUnitId.current = null;
+      return;
+    }
+    if (unitViewRestoredFor.current !== currentUser.id) {
+      unitViewRestoredFor.current = currentUser.id;
+      const saved = readUnitView(currentUser.id);
+      previousOpenUnitId.current = saved?.openUnitId ?? null;
+      setSelectedUnitId(saved?.openUnitId ?? null);
+      return;
+    }
+    const saved = readUnitView(currentUser.id);
+    const switchingUnit = Boolean(
+      previousOpenUnitId.current && selectedUnitId && previousOpenUnitId.current !== selectedUnitId
+    );
+    previousOpenUnitId.current = selectedUnitId;
+    patchUnitView(currentUser.id, {
+      openUnitId: selectedUnitId,
+      ...(selectedUnitId
+        ? {
+            lastUnitId: selectedUnitId,
+            ...(switchingUnit || (saved?.lastUnitId && saved.lastUnitId !== selectedUnitId)
+              ? { detailScroll: 0, tab: 'overview' as const, personnelView: 'list' as const }
+              : {}),
+          }
+        : {}),
+    });
+  }, [selectedUnitId, currentUser?.id]);
+
+  useEffect(() => {
+    if (!selectedUnitId || unitsLoading) return;
+    if (units.some((unit) => unit.id === selectedUnitId)) return;
+    setSelectedUnitId(null);
+  }, [selectedUnitId, units, unitsLoading]);
+
+  useEffect(() => {
+    suspendUnitScrollSave.current = true;
+    const timer = window.setTimeout(() => {
+      suspendUnitScrollSave.current = false;
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [currentView, selectedUnitId]);
+
+  useEffect(() => {
+    const node = mainScrollRef.current;
+    if (!node) return;
+    let timer = 0;
+    const onScroll = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => rememberUnitsPosition(), 150);
+    };
+    node.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.clearTimeout(timer);
+      node.removeEventListener('scroll', onScroll);
+    };
+  }, [rememberUnitsPosition]);
+
+  const selectedUnitHydrated = !selectedUnitId || Boolean(units.find((unit) => unit.id === selectedUnitId)?.detailsHydrated);
+
+  useLayoutEffect(() => {
+    if (currentView !== 'units' || !currentUser?.id) return;
+    if (selectedUnitId && !selectedUnitHydrated) return;
+    const saved = readUnitView(currentUser.id);
+    if (!saved) return;
+    const top = selectedUnitId
+      ? saved.lastUnitId === selectedUnitId
+        ? saved.detailScroll
+        : 0
+      : saved.listScroll;
+    const node = mainScrollRef.current;
+    if (!node || top <= 0) return;
+    const apply = () => {
+      node.scrollTop = top;
+    };
+    apply();
+    const frame = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(frame);
+  }, [currentView, selectedUnitId, selectedUnitHydrated, currentUser?.id]);
+
   // Check screen size for responsive sidebar
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -575,10 +678,17 @@ const App: React.FC = () => {
   };
 
   const handleSelectUnit = useCallback((id: string) => {
+    if (currentView === 'units' && !selectedUnitId && currentUser?.id) {
+      patchUnitView(currentUser.id, { listScroll: mainScrollRef.current?.scrollTop ?? 0, openUnitId: null });
+    }
+    suspendUnitScrollSave.current = true;
+    window.setTimeout(() => {
+      suspendUnitScrollSave.current = false;
+    }, 450);
     setSelectedUnitId(id);
     setCurrentView('units');
     if (window.innerWidth < 768) setSidebarOpen(false);
-  }, []);
+  }, [currentView, selectedUnitId, currentUser?.id]);
 
   const handleDeleteUnit = async (unitId: string, unitName: string) => {
     if (!confirm(`¿Está seguro de eliminar la unidad "${unitName}"?\n\nEsta acción no se puede deshacer y eliminará todos los datos asociados (personal, equipos, eventos, documentos, etc.).`)) {
@@ -1884,7 +1994,10 @@ const App: React.FC = () => {
     if (currentView === 'units') {
       if (selectedUnitId) {
         const unit = units.find(u => u.id === selectedUnitId);
-        if (!unit) return <div className="p-8">Unidad no encontrada</div>;
+        if (!unit) {
+          if (unitsLoading) return <ViewFallback message="Cargando unidad..." />;
+          return <div className="p-8">Unidad no encontrada</div>;
+        }
         
         // Security check: Ensure user can see this unit
         const isLinked = unitBelongsToLinkedClients(unit.clientName, currentUser.linkedClientNames);
@@ -1905,7 +2018,18 @@ const App: React.FC = () => {
                   availableStaff={managementStaff}
                   currentUser={currentUser}
                   availableClients={clients.map(c => ({ id: c.id, name: c.name }))}
-                  onBack={() => setSelectedUnitId(null)} 
+                  onBack={() => {
+                    const top = mainScrollRef.current?.scrollTop ?? 0;
+                    if (currentUser?.id && selectedUnitId) {
+                      patchUnitView(currentUser.id, {
+                        detailScroll: top,
+                        lastUnitId: selectedUnitId,
+                        openUnitId: null,
+                      });
+                    }
+                    suspendUnitScrollSave.current = true;
+                    setSelectedUnitId(null);
+                  }} 
                   onUpdate={handleUpdateUnit}
                   replaceUnitInState={replaceUnitInState}
                   onPersonnelMoved={applyPersonnelUnitMove}
@@ -3481,7 +3605,7 @@ const App: React.FC = () => {
           {currentUser.role === 'CLIENT' ? (
             <>
               <button 
-                onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                onClick={() => { setCurrentView('dashboard'); rememberUnitsPosition(); setSidebarOpen(false); }}
                 className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
               >
                 <LayoutDashboard size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3490,7 +3614,7 @@ const App: React.FC = () => {
               
               {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
                 <button 
-                  onClick={() => { setCurrentView('units'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                  onClick={() => { setCurrentView('units'); rememberUnitsPosition(); setSidebarOpen(false); }}
                   className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                 >
                   <Building size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3500,7 +3624,7 @@ const App: React.FC = () => {
               
               {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
                 <button 
-                  onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                  onClick={() => { setCurrentView('control-center'); rememberUnitsPosition(); setSidebarOpen(false); }}
                   className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                 >
                   <LayoutList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3511,7 +3635,7 @@ const App: React.FC = () => {
               {/* Headcount - Visible for users with HEADCOUNT view permission */}
               {checkPermission(currentUser.role, 'HEADCOUNT', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('headcount'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Users size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3524,7 +3648,7 @@ const App: React.FC = () => {
               {/* Navegación para otros roles (ADMIN, OPERATIONS, etc.) */}
               {checkPermission(currentUser.role, 'DASHBOARD', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('dashboard'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <LayoutDashboard size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3534,7 +3658,7 @@ const App: React.FC = () => {
               
               {checkPermission(currentUser.role, 'CONTROL_CENTER', 'view') && (
                  <button 
-                    onClick={() => { setCurrentView('control-center'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('control-center'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'control-center' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <LayoutList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3544,7 +3668,7 @@ const App: React.FC = () => {
 
               {checkPermission(currentUser.role, 'UNIT_OVERVIEW', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('units'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('units'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'units' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Building size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3555,7 +3679,7 @@ const App: React.FC = () => {
               {/* New Reports Link */}
               {checkPermission(currentUser.role, 'REPORTS', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('reports'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('reports'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'reports' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <FileBarChart size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3566,7 +3690,7 @@ const App: React.FC = () => {
               {/* Operations Dashboard - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
               {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
-                    onClick={() => { setCurrentView('operations-dashboard'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('operations-dashboard'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'operations-dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Activity size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3577,7 +3701,7 @@ const App: React.FC = () => {
               {/* Retenes - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
               {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
-                    onClick={() => { setCurrentView('retenes'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('retenes'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'retenes' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3587,7 +3711,7 @@ const App: React.FC = () => {
 
               {checkPermission(currentUser.role, 'MATTERMOST', 'view') && (
                   <button
-                    onClick={() => { setCurrentView('mattermost'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('mattermost'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'mattermost' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <MessageCircle size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3597,7 +3721,7 @@ const App: React.FC = () => {
 
               {checkPermission(currentUser.role, 'INVENTORY', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('inventory'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('inventory'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'inventory' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Boxes size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3607,7 +3731,7 @@ const App: React.FC = () => {
 
               {checkPermission(currentUser.role, 'BILLING', 'view') && (
                   <button
-                    onClick={() => { setCurrentView('billing'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('billing'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'billing' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Receipt size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3618,7 +3742,7 @@ const App: React.FC = () => {
               {/* Headcount - Visible for users with HEADCOUNT view permission */}
               {checkPermission(currentUser.role, 'HEADCOUNT', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('headcount'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('headcount'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'headcount' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Users size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3631,8 +3755,8 @@ const App: React.FC = () => {
                   <button 
                     onClick={() => {
                       setVacationsNavTab(pendingVacationAuthCount > 0 ? 'approvals' : undefined);
+                      rememberUnitsPosition();
                       setCurrentView('vacations');
-                      setSelectedUnitId(null);
                       setSidebarOpen(false);
                     }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 relative ${currentView === 'vacations' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -3650,7 +3774,7 @@ const App: React.FC = () => {
               {/* Gestión de Trabajadores - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
               {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
-                    onClick={() => { setCurrentView('workers-management'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('workers-management'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'workers-management' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3661,7 +3785,7 @@ const App: React.FC = () => {
               {/* Recepción ATS (archivo / solo consulta) */}
               {checkPermission(currentUser.role, 'ATS_RECEPTION', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('ats-reception'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('ats-reception'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'ats-reception' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Inbox size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3675,7 +3799,7 @@ const App: React.FC = () => {
               {/* Presentaciones ATS (entrevista / ficha) */}
               {checkPermission(currentUser.role, 'ATS_RECEPTION', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('ats-presentations'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('ats-presentations'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'ats-presentations' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <ClipboardList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3691,7 +3815,7 @@ const App: React.FC = () => {
               {/* Envío Opalosis RRHH */}
               {checkPermission(currentUser.role, 'HR_OPALOSIS', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('hr-opalosis'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('hr-opalosis'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'hr-opalosis' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Send size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3702,7 +3826,7 @@ const App: React.FC = () => {
               {/* Archivo - Visible for users with ARCHIVE permission */}
               {checkPermission(currentUser.role, 'ARCHIVE', 'view') && (
                   <button 
-                    onClick={() => { setCurrentView('archive'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('archive'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'archive' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <ArchiveIcon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3712,7 +3836,7 @@ const App: React.FC = () => {
 
               {checkPermission(currentUser.role, 'SUPERVISION_PLANNING', 'view') && (
                   <button
-                    onClick={() => { setCurrentView('supervision-planning'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('supervision-planning'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'supervision-planning' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Route size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3723,7 +3847,7 @@ const App: React.FC = () => {
               {/* Supervisión Nocturna - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
               {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
                   <button 
-                    onClick={() => { setCurrentView('night-supervision'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('night-supervision'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'night-supervision' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <Moon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3760,7 +3884,7 @@ const App: React.FC = () => {
                     Administración
                   </div>
                   <button 
-                    onClick={() => { setCurrentView('audit-logs'); setSelectedUnitId(null); setSidebarOpen(false); }}
+                    onClick={() => { setCurrentView('audit-logs'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'audit-logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
                     <FileText size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
@@ -3866,7 +3990,7 @@ const App: React.FC = () => {
         </header>
 
         {/* Scrollable Content Area - FIXED LAYOUT for Control Center */}
-        <div className={`flex-1 relative ${currentView === 'control-center' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <div ref={mainScrollRef} className={`flex-1 relative ${currentView === 'control-center' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {pendingVacationAuthCount > 0 &&
             currentView !== 'vacations' &&
             canActAsVacationAuthorizer(currentUser.role) && (
@@ -3882,8 +4006,8 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setVacationsNavTab('approvals');
+                  rememberUnitsPosition();
                   setCurrentView('vacations');
-                  setSelectedUnitId(null);
                 }}
                 className="self-start sm:self-auto px-3 py-1 rounded-lg bg-white text-indigo-700 text-sm font-medium hover:bg-indigo-50"
               >

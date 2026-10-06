@@ -20,6 +20,7 @@ import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
 import { WorkerComplementaryPanel } from './WorkerComplementaryPanel';
 import { WORK_DAY_OPTIONS, REGIME_OPTIONS, jornadaOptionList } from './OpsflowIntakeForm';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
+import { patchUnitView, readUnitView } from '../utils/unitViewMemory';
 import {
   UnitDetailTab,
   resolveUnitClass,
@@ -485,9 +486,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   //   fixIncorrectlyCesadoWorkers();
   // }, [unit.id]); // Remover onUpdate de las dependencias para evitar loops
 
+  const rememberedUnitView = currentUser?.id ? readUnitView(currentUser.id) : null;
+  const rememberedForThisUnit = rememberedUnitView?.lastUnitId === unit.id ? rememberedUnitView : null;
+
   // Mantener el tab activo incluso cuando la unidad se actualiza
-  const [activeTab, setActiveTab] = useState<UnitDetailTab>('overview');
-  const activeTabRef = useRef<UnitDetailTab>('overview');
+  const [activeTab, setActiveTab] = useState<UnitDetailTab>(() => {
+    const saved = rememberedForThisUnit?.tab;
+    if (saved && isTabVisibleForUnitClass(saved, unit.unitClass)) return saved;
+    return 'overview';
+  });
+  const activeTabRef = useRef<UnitDetailTab>(activeTab);
   const previousUnitIdRef = useRef<string>(unit.id);
 
   // Estados para modal de supervisión nocturna
@@ -514,12 +522,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         setActiveTab(activeTabRef.current);
       }
     } else {
-      // Nueva unidad, resetear a overview
-      setActiveTab('overview');
-      activeTabRef.current = 'overview';
+      const saved = currentUser?.id ? readUnitView(currentUser.id) : null;
+      const nextTab =
+        saved?.lastUnitId === unit.id && saved.tab && isTabVisibleForUnitClass(saved.tab, unit.unitClass)
+          ? saved.tab
+          : 'overview';
+      setActiveTab(nextTab);
+      activeTabRef.current = nextTab;
       previousUnitIdRef.current = unit.id;
     }
-  }, [unit.id, activeTab]); // Solo cuando cambia el ID de la unidad
+  }, [unit.id, activeTab, currentUser?.id, unit.unitClass]);
 
   // Si el tab activo no aplica a la clase de unidad (ej. Logística en BPO), volver a General
   useEffect(() => {
@@ -539,7 +551,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [newZoneShifts, setNewZoneShifts] = useState<ShiftType[]>(['Day']);
 
   // Personnel State
-  const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>('list'); // New View Mode
+  const [personnelViewMode, setPersonnelViewMode] = useState<'list' | 'roster'>(
+    rememberedForThisUnit?.personnelView === 'roster' ? 'roster' : 'list'
+  );
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const saved = readUnitView(currentUser.id);
+    if (saved?.lastUnitId === unit.id) {
+      setPersonnelViewMode(saved.personnelView === 'roster' ? 'roster' : 'list');
+    } else {
+      setPersonnelViewMode('list');
+    }
+  }, [unit.id, currentUser?.id]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    patchUnitView(currentUser.id, { tab: activeTab, personnelView: personnelViewMode });
+  }, [activeTab, personnelViewMode, currentUser?.id]);
   const [expandedPersonnel, setExpandedPersonnel] = useState<string | null>(null);
   const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<string[]>([]);
   const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado

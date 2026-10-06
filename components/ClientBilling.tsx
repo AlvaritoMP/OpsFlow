@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowLeftRight,
   Check,
   Download,
   FileSpreadsheet,
@@ -10,27 +11,38 @@ import {
   HelpCircle,
   Plus,
   Receipt,
+  CalendarRange,
   RefreshCw,
   Save,
   Trash2,
   Users,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { Unit, User } from '../types';
 import {
   BillingActor,
+  BillingNoteKind,
   BillingStatus,
   ClientBillingAuditEntry,
+  ClientBillingNote,
   ClientBillingRecord,
+  ClientBillingRun,
+  SavedBillingCalc,
   findActiveBilling,
   getBillingAudit,
+  listBillingNotes,
+  listBillingRuns,
   listClientBillings,
   prepareBillingDraft,
   refreshWorkersFromUnit,
+  loadBillingDayGlance,
+  BillingDayGlance,
+  saveBillingNote,
   saveBillingProfile,
   saveClientBilling,
+  setBillingNoteStatus,
   setBillingStatus,
 } from '../services/clientBillingService';
+import { BillingRunCompare } from './BillingRunCompare';
 import {
   BillingComputation,
   BillingCostLine,
@@ -96,6 +108,7 @@ const ACTION_LABEL: Record<string, string> = {
   issued: 'Emisión',
   reopened: 'Reapertura',
   voided: 'Anulación',
+  adjustment_note: 'Nota de ajuste',
 };
 
 export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser, canEdit, onOpenHelp }) => {
@@ -115,6 +128,11 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   }, [billingUnits]);
 
   const [records, setRecords] = useState<ClientBillingRecord[]>([]);
+  const [runs, setRuns] = useState<ClientBillingRun[]>([]);
+  const [notes, setNotes] = useState<ClientBillingNote[]>([]);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
+  const [editorCompare, setEditorCompare] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -140,6 +158,18 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setStorageError(null);
     } catch (error) {
       setStorageError(error instanceof Error ? error.message : 'No se pudo cargar la facturación.');
+    }
+    try {
+      setRuns(await listBillingRuns());
+    } catch {
+      setRuns([]);
+    }
+    try {
+      setNotes(await listBillingNotes());
+      setNotesError(null);
+    } catch (error) {
+      setNotes([]);
+      setNotesError(error instanceof Error ? error.message : 'No se pudieron cargar las notas.');
     } finally {
       setLoadingList(false);
     }
@@ -183,6 +213,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         issuedByName: record.issuedByName,
       });
       setAppliedAttendanceKey(attendanceWindowKey(record.periodMonth, record.model.attendanceFrom, record.model.attendanceTo));
+      setEditorCompare(false);
       setTab('labor');
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo abrir la liquidación.');
@@ -369,6 +400,58 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
   };
 
+  const refreshOpenAudit = async () => {
+    if (!editor?.id) return;
+    const billingId = editor.id;
+    try {
+      const audit = await getBillingAudit(billingId);
+      setEditor((current) => (current && current.id === billingId ? { ...current, audit } : current));
+    } catch {
+      // La nota ya quedó guardada. La trazabilidad se vuelve a leer al abrir la liquidación.
+    }
+  };
+
+  const createAdjustmentNote = async (input: {
+    source: SavedBillingCalc;
+    base: SavedBillingCalc;
+    noteKind: BillingNoteKind;
+    itemDescription: string;
+  }) => {
+    setBusy('Guardando la nota');
+    setBanner(null);
+    try {
+      const saved = await saveBillingNote({ ...input, actor });
+      const kind = saved.noteKind === 'credit' ? 'nota de crédito' : 'nota de débito';
+      setBanner(`La diferencia quedó como ítem de una ${kind} por ${pen(saved.amount)}.`);
+      await loadList();
+      await refreshOpenAudit();
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo crear la nota.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const updateNoteStatus = async (id: string, status: BillingStatus) => {
+    const summaries: Record<BillingStatus, string> = {
+      issued: 'Emitió la nota. El ítem queda cerrado hasta que se reabra.',
+      draft: 'Reabrió la nota.',
+      void: 'Anuló la nota. El ítem dejó de estar vigente.',
+    };
+    setBusy(status === 'issued' ? 'Emitiendo la nota' : status === 'void' ? 'Anulando la nota' : 'Reabriendo la nota');
+    setBanner(null);
+    try {
+      await setBillingNoteStatus(id, status, actor, summaries[status]);
+      setBanner(summaries[status]);
+      await loadList();
+      await refreshOpenAudit();
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo actualizar la nota.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const reloadPersonnel = async () => {
     if (!editor || locked) return;
     setBusy('Recalculando faltas del corte');
@@ -409,21 +492,30 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <h1 className="text-2xl font-bold text-slate-900">Facturación de clientes</h1>
                 </div>
                 <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-                  Arma la facturación de intermediación y tercerización con el personal de la unidad, los costos operativos, los gastos administrativos y la utilidad. Cada ajuste queda registrado.
+                  Arma la facturación de intermediación y tercerización con el personal de la unidad, los costos operativos, los gastos administrativos y la utilidad. Cada ajuste queda registrado. También puede restar dos cálculos guardados y convertir la diferencia en un ítem de nota de crédito o de débito.
                 </p>
               </div>
-              {canEdit && (
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowCreate(true);
-                    setCreateUnitId(billingUnits[0]?.id || '');
-                  }}
-                  className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 shadow-sm"
+                  onClick={() => setShowCompare((open) => !open)}
+                  className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-4 py-2.5 rounded-lg hover:bg-slate-50 shadow-sm"
                 >
-                  <Plus size={18} /> Nueva facturación
+                  <ArrowLeftRight size={18} /> Corrida entre cálculos
                 </button>
-              )}
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreate(true);
+                      setCreateUnitId(billingUnits[0]?.id || '');
+                    }}
+                    className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 shadow-sm"
+                  >
+                    <Plus size={18} /> Nueva facturación
+                  </button>
+                )}
+              </div>
             </header>
 
             <section className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
@@ -435,6 +527,22 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
 
             {storageError && <Banner tone="danger" text={storageError} />}
             {banner && <Banner tone="info" text={banner} />}
+
+            {(showCompare || notes.length > 0) && (
+              <BillingRunCompare
+                records={records}
+                runs={runs}
+                notes={notes}
+                notesError={notesError}
+                canEdit={canEdit}
+                busy={!!busy}
+                showForm={showCompare}
+                onSave={(input) => void createAdjustmentNote(input)}
+                onIssue={(id) => void updateNoteStatus(id, 'issued')}
+                onReopen={(id) => void updateNoteStatus(id, 'draft')}
+                onVoid={(id) => void updateNoteStatus(id, 'void')}
+              />
+            )}
 
             {showCreate && (
               <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
@@ -585,6 +693,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             appliedAttendanceKey={appliedAttendanceKey}
             onBack={() => {
               setEditor(null);
+              setEditorCompare(false);
               setBanner(null);
             }}
             onPatchModel={patchModel}
@@ -602,6 +711,33 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onRemember={() => void rememberConditions()}
             onExport={() => exportExcel(editor, computed)}
             onOpenHelp={onOpenHelp}
+            onOpenCompare={() => {
+              if (!editor.id) {
+                setBanner('Guarde la liquidación antes de compararla con otro cálculo.');
+                return;
+              }
+              setEditorCompare((open) => !open);
+            }}
+            compareSlot={
+              editorCompare && editor.id ? (
+                <BillingRunCompare
+                  records={records}
+                  runs={runs}
+                  notes={notes}
+                  notesError={notesError}
+                  canEdit={canEdit}
+                  busy={!!busy}
+                  showForm
+                  presetSourceId={editor.id}
+                  contextUnitId={editor.unitId}
+                  unsavedWarning={pendingChanges.length > 0}
+                  onSave={(input) => void createAdjustmentNote(input)}
+                  onIssue={(id) => void updateNoteStatus(id, 'issued')}
+                  onReopen={(id) => void updateNoteStatus(id, 'draft')}
+                  onVoid={(id) => void updateNoteStatus(id, 'void')}
+                />
+              ) : null
+            }
           />
         )}
 
@@ -639,6 +775,8 @@ function EditorView(props: {
   onRemember: () => void;
   onExport: () => void;
   onOpenHelp?: () => void;
+  onOpenCompare: () => void;
+  compareSlot: React.ReactNode;
   appliedAttendanceKey: string;
 }) {
   const { editor, computed, locked } = props;
@@ -649,11 +787,40 @@ function EditorView(props: {
     return `${worker.name} ${worker.position} ${worker.dni || ''}`.toLowerCase().includes(q);
   });
   const includedCount = editor.model.workers.filter((worker) => worker.included).length;
+  const [sheetMode, setSheetMode] = useState<'costs' | 'attendance' | 'novedades'>('costs');
+  const [glance, setGlance] = useState<BillingDayGlance | null>(null);
+  const [glanceLoading, setGlanceLoading] = useState(false);
+  const [glanceError, setGlanceError] = useState<string | null>(null);
   const attendance = resolveAttendanceWindow(editor.periodMonth, editor.model.attendanceFrom, editor.model.attendanceTo);
   const attendanceError = attendanceWindowError(attendance.from, attendance.to);
   const attendanceStale = attendanceWindowKey(editor.periodMonth, attendance.from, attendance.to) !== props.appliedAttendanceKey;
   const attendanceDays = inclusiveDayCount(attendance.from, attendance.to);
   const crossesMonth = attendance.from.slice(0, 7) !== attendance.to.slice(0, 7);
+
+  useEffect(() => {
+    if (attendanceError && sheetMode !== 'costs') setSheetMode('costs');
+  }, [attendanceError, sheetMode]);
+
+  useEffect(() => {
+    if (sheetMode === 'costs') return;
+    if (attendanceError) return;
+    let cancelled = false;
+    setGlanceLoading(true);
+    setGlanceError(null);
+    loadBillingDayGlance(editor.unitId, attendance.from, attendance.to)
+      .then((data) => {
+        if (!cancelled) setGlance(data);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setGlanceError(error instanceof Error ? error.message : 'No se pudo leer la asistencia del corte.');
+      })
+      .finally(() => {
+        if (!cancelled) setGlanceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sheetMode, editor.unitId, attendance.from, attendance.to, attendanceError]);
 
   return (
     <div className="space-y-4">
@@ -676,9 +843,14 @@ function EditorView(props: {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={props.onExport} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50">
+          <button type="button" onClick={props.onExport} title="Descargar Excel listo para imprimir en una hoja horizontal" className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50">
             <Download size={16} /> Excel
           </button>
+          {editor.id && (
+            <button type="button" onClick={props.onOpenCompare} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50">
+              <ArrowLeftRight size={16} /> Corrida
+            </button>
+          )}
           {editor.status === 'issued' && props.canEdit && (
             <button type="button" onClick={props.onReopen} className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm">
               Reabrir para corregir
@@ -689,7 +861,13 @@ function EditorView(props: {
               <button type="button" onClick={props.onSave} disabled={!!props.busy} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-60">
                 <Save size={16} /> Guardar
               </button>
-              <button type="button" onClick={props.onIssue} disabled={!!props.busy} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-60">
+              <button
+                type="button"
+                onClick={props.onIssue}
+                disabled={!!props.busy}
+                title="Guarda los cambios pendientes, actualiza las faltas si el corte cambió y bloquea la liquidación. No envía un comprobante a SUNAT."
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-60"
+              >
                 <Check size={16} /> Emitir
               </button>
             </>
@@ -703,9 +881,10 @@ function EditorView(props: {
       </div>
 
       {editor.status === 'issued' && (
-        <Banner tone="info" text="Esta facturación está emitida. Para cambiar un sueldo, un costo o la utilidad hay que reabrirla; la reapertura y cada corrección quedan en la trazabilidad." />
+        <Banner tone="info" text="Emitir guardó el cálculo, aplicó el corte de asistencia si había cambiado y dejó esta liquidación bloqueada. No se envió un comprobante a SUNAT. Para cambiar un sueldo, un costo o la utilidad hay que reabrirla; la reapertura y cada corrección quedan en la trazabilidad." />
       )}
       {props.banner && <Banner tone="info" text={props.banner} />}
+      {props.compareSlot}
 
       <div className={props.tab === 'labor' ? 'space-y-4' : 'grid xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start'}>
         <div className="space-y-3 min-w-0">
@@ -802,12 +981,40 @@ function EditorView(props: {
           {props.tab === 'labor' && (
             <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               <div className="p-3 flex flex-col md:flex-row gap-2 md:items-center justify-between border-b border-slate-100">
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <Users size={16} />
-                  <span>Cada fila es un trabajador. Los días ya restan las faltas del corte. Lo amarillo fue ajustado a mano.</span>
+                <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
+                  <Users size={16} className="shrink-0" />
+                  <span>
+                    {sheetMode === 'costs'
+                      ? 'Cada fila es un trabajador. Los días ya restan las faltas del corte. Lo amarillo fue ajustado a mano.'
+                      : sheetMode === 'attendance'
+                        ? 'Asistencia del corte, por día. ✓ marcación completa, ½ incompleta, F falta o sin marcas, T tardanza.'
+                        : 'Novedades de tareo del corte, con la misma clave que en la unidad.'}
+                  </span>
                 </div>
-                <div className="flex gap-2">
-                  <input className={fieldClass} placeholder="Buscar trabajador" value={props.workerQuery} onChange={(event) => props.setWorkerQuery(event.target.value)} />
+                <div className="flex flex-wrap gap-2 items-center">
+                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                    {(
+                      [
+                        ['costs', 'Costos'],
+                        ['attendance', 'Asistencia'],
+                        ['novedades', 'Novedades'],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        disabled={id !== 'costs' && !!attendanceError}
+                        title={id !== 'costs' && attendanceError ? attendanceError : undefined}
+                        onClick={() => setSheetMode(id)}
+                        className={`px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap ${
+                          sheetMode === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                        } disabled:opacity-40`}
+                      >
+                        {id === 'costs' ? label : <span className="inline-flex items-center gap-1"><CalendarRange size={12} />{label}</span>}
+                      </button>
+                    ))}
+                  </div>
+                  <input className="w-44 max-w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800" placeholder="Buscar trabajador" value={props.workerQuery} onChange={(event) => props.setWorkerQuery(event.target.value)} />
                   {!locked && (
                     <>
                       <button type="button" onClick={props.onReload} className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm whitespace-nowrap">
@@ -854,13 +1061,23 @@ function EditorView(props: {
                   )}
                 </div>
               </div>
-              <LaborSheet
-                workers={filteredWorkers}
-                lines={workerMap}
-                locked={locked}
-                onPatchWorker={props.onPatchWorker}
-                onRemove={(id) => props.onPatchModel({ workers: editor.model.workers.filter((item) => item.id !== id) })}
-              />
+              {sheetMode === 'costs' ? (
+                <LaborSheet
+                  workers={filteredWorkers}
+                  lines={workerMap}
+                  locked={locked}
+                  onPatchWorker={props.onPatchWorker}
+                  onRemove={(id) => props.onPatchModel({ workers: editor.model.workers.filter((item) => item.id !== id) })}
+                />
+              ) : (
+                <DayGlanceSheet
+                  mode={sheetMode}
+                  workers={filteredWorkers}
+                  glance={glance}
+                  loading={glanceLoading}
+                  error={glanceError}
+                />
+              )}
             </section>
           )}
 
@@ -961,6 +1178,121 @@ function EditorView(props: {
             </div>
           </div>
         </aside>
+      </div>
+    </div>
+  );
+}
+
+const GLANCE_TONE: Record<string, string> = {
+  ok: 'bg-emerald-50 text-emerald-800',
+  warn: 'bg-amber-50 text-amber-800',
+  bad: 'bg-red-50 text-red-700',
+  muted: 'bg-slate-50 text-slate-600',
+};
+
+const GLANCE_WEEKDAYS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const GLANCE_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+function glanceDayParts(iso: string): { day: string; weekday: string; month: string } {
+  const [year, month, day] = iso.split('-').map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  return {
+    day: String(day || 0).padStart(2, '0'),
+    weekday: GLANCE_WEEKDAYS[date.getDay()] || '',
+    month: GLANCE_MONTHS[(month || 1) - 1] || '',
+  };
+}
+
+function DayGlanceSheet(props: {
+  mode: 'attendance' | 'novedades';
+  workers: BillingWorkerInput[];
+  glance: BillingDayGlance | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  if (props.loading && !props.glance) {
+    return (
+      <div className="p-8 text-sm text-slate-500 flex items-center justify-center gap-2">
+        <Loader2 size={16} className="animate-spin" /> Leyendo el corte…
+      </div>
+    );
+  }
+  if (props.error) {
+    return <div className="p-6 text-sm text-red-700">{props.error}</div>;
+  }
+  if (!props.glance) {
+    return <div className="p-6 text-sm text-slate-500">Elija Asistencia o Novedades para ver el corte.</div>;
+  }
+  if (props.workers.length === 0) {
+    return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro.</div>;
+  }
+  const cells = props.mode === 'attendance' ? props.glance.attendance : props.glance.novedades;
+  const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-center px-0.5 py-1 border-b border-slate-200';
+  return (
+    <div>
+      {props.mode === 'novedades' && props.glance.legend.length > 0 && (
+        <div className="px-3 py-2 flex flex-wrap gap-2 border-b border-slate-100 bg-slate-50/80">
+          {props.glance.legend.map((item) => (
+            <span key={`${item.code}-${item.name}`} className="inline-flex items-center gap-1 text-[11px] text-slate-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">
+              <span>{item.icon}</span>
+              <span className="font-medium">{item.code}</span>
+              <span className="text-slate-400">{item.name}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {props.loading && (
+        <div className="px-3 py-1.5 text-[11px] text-slate-500 border-b border-slate-100">Actualizando el corte…</div>
+      )}
+      <div className="overflow-auto max-h-[72vh]">
+        <table className="min-w-max border-separate border-spacing-0 text-[11px]">
+          <thead>
+            <tr>
+              <th className={`${head} sticky left-0 z-40 text-left min-w-[180px] px-2`}>Trabajador</th>
+              {props.glance.days.map((iso, index) => {
+                const parts = glanceDayParts(iso);
+                const showMonth = index === 0 || parts.day === '01';
+                return (
+                  <th key={iso} className={`${head} min-w-[2.1rem]`} title={iso}>
+                    <div className="font-normal normal-case text-slate-400">{parts.weekday}</div>
+                    <div>{parts.day}</div>
+                    {showMonth && <div className="font-normal normal-case text-slate-400">{parts.month}</div>}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {props.workers.map((worker) => {
+              const row = worker.resourceId ? cells[worker.resourceId] : undefined;
+              return (
+                <tr key={worker.id} className={worker.included ? '' : 'opacity-50'}>
+                  <td className="sticky left-0 z-20 bg-white px-2 py-1 border-t border-slate-100 min-w-[180px]">
+                    <div className="font-medium text-slate-800 truncate max-w-[200px]">{worker.name || 'Sin nombre'}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{worker.position || (worker.resourceId ? '' : 'Manual, sin ficha')}</div>
+                  </td>
+                  {props.glance.days.map((iso) => {
+                    const cell = row?.[iso];
+                    if (!worker.resourceId) {
+                      return <td key={iso} className="border-t border-slate-100 bg-slate-50/40" />;
+                    }
+                    return (
+                      <td key={iso} className="border-t border-slate-100 p-0.5 text-center align-middle" title={cell?.title || iso}>
+                        {cell ? (
+                          <span className={`inline-flex min-w-[1.7rem] justify-center rounded px-0.5 py-0.5 leading-none ${GLANCE_TONE[cell.tone] || ''}`}>
+                            {cell.text}
+                          </span>
+                        ) : (
+                          <span className="text-slate-200">·</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -1417,67 +1749,18 @@ function describeCreation(model: ClientBillingModel) {
   ];
 }
 
-function exportExcel(editor: EditorState, computed: BillingComputation) {
-  const workerById = new Map(editor.model.workers.map((worker) => [worker.id, worker]));
-  const rows: (string | number)[][] = [
-    [editor.model.title],
-    [editor.clientName, editor.unitName, formatPeriodLabel(editor.periodMonth), formatAttendanceRange(editor.model.attendanceFrom, editor.model.attendanceTo)],
-    [editor.model.serviceLabel],
-    [],
-    ['Trabajador', 'Puesto', 'Incluido', 'Sueldo', 'Días corte', 'Faltas', 'Días', 'Asig. familiar', 'HE 25%', 'HE 35%', 'Bono nocturno', 'Cond. trabajo', 'Bonos', 'Rem. cargas', 'Vacaciones', 'Gratificación', 'CTS', 'EsSalud', 'Vida Ley', 'SCTR', 'Factor', 'Costo mensual'],
-  ];
-  computed.workers.forEach((line) => {
-    const worker = workerById.get(line.id);
-    if (!worker) return;
-    rows.push([
-      worker.name,
-      worker.position,
-      worker.included ? 'Sí' : 'No',
-      worker.contractualSalary,
-      worker.calendarDays ?? '',
-      worker.absenceDays ?? 0,
-      worker.daysWorked,
-      worker.familyAllowance,
-      line.he25,
-      line.he35,
-      line.night,
-      worker.workCondition,
-      worker.bonus,
-      line.remLlss,
-      line.vacation,
-      line.gratification,
-      line.cts,
-      line.essalud,
-      line.vidaLey,
-      line.sctr,
-      worker.factor,
-      worker.included ? line.totalCost : 0,
-    ]);
-  });
-  rows.push([]);
-  rows.push(['Costo laboral', computed.laborTotal]);
-  editor.model.operational.forEach((line) => {
-    const amount = computed.operational.find((item) => item.id === line.id)?.amount || 0;
-    rows.push([`Operativo · ${line.description || line.kind}`, amount]);
-  });
-  rows.push(['Costo operativo', computed.operationalTotal]);
-  editor.model.administrative.forEach((line) => {
-    const amount = computed.administrative.find((item) => item.id === line.id)?.amount || 0;
-    rows.push([`Administrativo · ${line.description || line.kind}`, amount]);
-  });
-  rows.push(['Gastos administrativos', computed.adminTotal]);
-  rows.push(['Utilidad', computed.profitAmount]);
-  rows.push(['Total sin IGV', computed.grandTotal]);
-  rows.push(['IGV', computed.igvAmount]);
-  rows.push(['Total con IGV', computed.totalWithIgv]);
-  rows.push([]);
-  editor.model.considerations.split('\n').forEach((line) => rows.push([line]));
-  if (editor.model.comment) rows.push(['Comentario', editor.model.comment]);
-
-  const book = XLSX.utils.book_new();
-  const sheet = XLSX.utils.aoa_to_sheet(rows);
-  sheet['!cols'] = Array.from({ length: 20 }, () => ({ wch: 16 }));
-  XLSX.utils.book_append_sheet(book, sheet, 'Facturación');
-  const safeName = `${editor.unitName}-${editor.periodMonth}`.replace(/[^\w\-]+/g, '_');
-  XLSX.writeFile(book, `Facturacion_${safeName}.xlsx`);
+async function exportExcel(editor: EditorState, computed: BillingComputation) {
+  try {
+    const { downloadClientBillingExcel } = await import('../utils/clientBillingExcel');
+    await downloadClientBillingExcel({
+      clientName: editor.clientName,
+      unitName: editor.unitName,
+      periodMonth: editor.periodMonth,
+      model: editor.model,
+      computed,
+    });
+  } catch (error) {
+    console.error(error);
+    alert('No se pudo generar el Excel de la facturación.');
+  }
 }

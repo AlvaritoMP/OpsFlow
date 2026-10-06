@@ -619,6 +619,89 @@ function diffLines(changes: BillingChange[], group: string, before: BillingCostL
   });
 }
 
+export interface BillingMoneySnapshot {
+  laborTotal: number;
+  operationalTotal: number;
+  adminTotal: number;
+  profitTotal: number;
+  grandTotal: number;
+  igvAmount: number;
+  totalWithIgv: number;
+}
+
+export interface BillingDifferenceLine {
+  key: 'labor' | 'operational' | 'admin' | 'profit' | 'grand' | 'igv' | 'withIgv';
+  label: string;
+  source: number;
+  base: number;
+  difference: number;
+}
+
+const DIFFERENCE_FIELDS: { key: BillingDifferenceLine['key']; label: string; field: keyof BillingMoneySnapshot }[] = [
+  { key: 'labor', label: 'Costo laboral', field: 'laborTotal' },
+  { key: 'operational', label: 'Costo operativo', field: 'operationalTotal' },
+  { key: 'admin', label: 'Gastos administrativos', field: 'adminTotal' },
+  { key: 'profit', label: 'Utilidad', field: 'profitTotal' },
+  { key: 'grand', label: 'Total sin IGV', field: 'grandTotal' },
+  { key: 'igv', label: 'IGV', field: 'igvAmount' },
+  { key: 'withIgv', label: 'Total con IGV', field: 'totalWithIgv' },
+];
+
+/** Totales guardados de una liquidación. El IGV se informa aparte y no entra en el ítem de la nota. */
+export function snapshotFromSavedTotals(input: {
+  laborTotal: number;
+  operationalTotal: number;
+  adminTotal: number;
+  profitTotal: number;
+  grandTotal: number;
+  igvRate: number;
+}): BillingMoneySnapshot {
+  const grandTotal = round2(input.grandTotal);
+  const igvAmount = round2(grandTotal * num(input.igvRate));
+  return {
+    laborTotal: round2(input.laborTotal),
+    operationalTotal: round2(input.operationalTotal),
+    adminTotal: round2(input.adminTotal),
+    profitTotal: round2(input.profitTotal),
+    grandTotal,
+    igvAmount,
+    totalWithIgv: round2(grandTotal + igvAmount),
+  };
+}
+
+/** Resta el cálculo base del cálculo origen: diferencia = origen − base. */
+export function subtractBillingSnapshots(
+  source: BillingMoneySnapshot,
+  base: BillingMoneySnapshot
+): { lines: BillingDifferenceLine[]; signedGrand: number; absoluteGrand: number } {
+  const lines = DIFFERENCE_FIELDS.map((field) => ({
+    key: field.key,
+    label: field.label,
+    source: round2(source[field.field]),
+    base: round2(base[field.field]),
+    difference: round2(source[field.field] - base[field.field]),
+  }));
+  const signedGrand = lines.find((line) => line.key === 'grand')?.difference ?? 0;
+  return { lines, signedGrand, absoluteGrand: round2(Math.abs(signedGrand)) };
+}
+
+/** Si el cálculo nuevo es mayor, lo habitual es debitar; si es menor, acreditar. El usuario puede elegir lo contrario. */
+export function suggestedNoteKind(signedGrand: number): 'credit' | 'debit' | null {
+  if (signedGrand > 0.004) return 'debit';
+  if (signedGrand < -0.004) return 'credit';
+  return null;
+}
+
+export function defaultAdjustmentDescription(
+  source: { periodMonth: string; unitName: string },
+  base: { periodMonth: string; unitName: string }
+): string {
+  if (source.unitName === base.unitName) {
+    return `Diferencia entre ${formatPeriodLabel(source.periodMonth)} y ${formatPeriodLabel(base.periodMonth)} · ${source.unitName}`;
+  }
+  return `Diferencia entre ${formatPeriodLabel(source.periodMonth)} (${source.unitName}) y ${formatPeriodLabel(base.periodMonth)} (${base.unitName})`;
+}
+
 export function pen(value: number): string {
   return new Intl.NumberFormat('es-PE', {
     style: 'currency',
