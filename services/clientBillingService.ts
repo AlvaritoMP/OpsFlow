@@ -11,9 +11,12 @@ import {
   BillingWorkerInput,
   ClientBillingModel,
   DEFAULT_BILLING_RATES,
+  AttendanceWindow,
+  attendanceWindowError,
   cloneModel,
-  commercialDaysInPeriod,
+  commercialDaysInWindow,
   computeBilling,
+  resolveAttendanceWindow,
   defaultAdministrativeLines,
   emptyBillingModel,
   formatPeriodLabel,
@@ -132,14 +135,18 @@ export async function findActiveBilling(unitId: string, periodMonth: string): Pr
 export async function prepareBillingDraft(
   unit: BillingUnitRef,
   periodMonth: string,
-  options: { copyPreviousCosts: boolean }
+  options: { copyPreviousCosts: boolean; attendanceFrom?: string; attendanceTo?: string }
 ): Promise<ClientBillingModel> {
+  const window = resolveAttendanceWindow(periodMonth, options.attendanceFrom, options.attendanceTo);
+  const windowError = attendanceWindowError(window.from, window.to);
+  if (windowError) throw new Error(windowError);
+
   const [profile, previous, people, compensations, absences] = await Promise.all([
     loadProfile(unit.id),
     loadPrevious(unit.id, periodMonth),
     loadPersonnel(unit.id),
     variableCompensationsService.getByUnitAndMonth(unit.id, periodMonth).catch(() => []),
-    loadAbsenceDeductions(unit.id, periodMonth),
+    loadAbsenceDeductions(unit.id, window),
   ]);
 
   const rates: BillingRates = {
@@ -150,6 +157,8 @@ export async function prepareBillingDraft(
   const monthLabel = formatPeriodLabel(periodMonth);
   const serviceLabel = profile?.serviceLabel || previous?.model.serviceLabel || `Servicio de ${unit.name}`;
   const model = emptyBillingModel(`${serviceLabel} — ${monthLabel}`, serviceLabel, rates);
+  model.attendanceFrom = window.from;
+  model.attendanceTo = window.to;
   model.considerations = profile?.considerations || previous?.model.considerations || model.considerations;
 
   const bonuses = new Map<string, { amount: number; concept: string[] }>();
@@ -161,7 +170,7 @@ export async function prepareBillingDraft(
   });
 
   model.workers = people
-    .map((person) => workerFromPersonnel(person, periodMonth, rates, bonuses.get(person.id), absences.get(person.id)))
+    .map((person) => workerFromPersonnel(person, window, rates, bonuses.get(person.id), absences.get(person.id)))
     .filter((worker) => (worker.calendarDays || 0) > 0 || worker.daysWorked > 0)
     .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
@@ -182,10 +191,14 @@ export async function refreshWorkersFromUnit(
   periodMonth: string,
   model: ClientBillingModel
 ): Promise<ClientBillingModel> {
+  const window = resolveAttendanceWindow(periodMonth, model.attendanceFrom, model.attendanceTo);
+  const windowError = attendanceWindowError(window.from, window.to);
+  if (windowError) throw new Error(windowError);
+
   const [people, compensations, absences] = await Promise.all([
     loadPersonnel(unitId),
     variableCompensationsService.getByUnitAndMonth(unitId, periodMonth).catch(() => []),
-    loadAbsenceDeductions(unitId, periodMonth),
+    loadAbsenceDeductions(unitId, window),
   ]);
   const bonuses = new Map<string, { amount: number; concept: string[] }>();
   compensations.forEach((item) => {
@@ -196,12 +209,15 @@ export async function refreshWorkersFromUnit(
   });
 
   const next = cloneModel(model);
+  next.attendanceFrom = window.from;
+  next.attendanceTo = window.to;
   const byResource = new Map(next.workers.filter((worker) => worker.resourceId).map((worker) => [worker.resourceId as string, worker]));
   const seen = new Set<string>();
 
   people.forEach((person) => {
-    const fresh = workerFromPersonnel(person, periodMonth, model.rates, bonuses.get(person.id), absences.get(person.id));
-    if ((fresh.calendarDays || 0) <= 0 && fresh.daysWorked <= 0) return;
+    const fresh = workerFromPersonnel(person, window, model.rates, bonuses.get(person.id), absences.get(person.id));
+    const outsideCutoff = (fresh.calendarDays || 0) <= 0 && fresh.daysWorked <= 0;
+    if (outsideCutoff && !byResource.has(person.id)) return;
     seen.add(person.id);
     const current = byResource.get(person.id);
     if (!current) {
@@ -397,9 +413,9 @@ interface AbsenceDeduction {
 
 type AbsenceSlot = { kind: 'falta' | 'covered'; days: number; sources: string[] };
 
-/** Faltas del mes por trabajador. El mismo día no se descuenta dos veces. */
-async function loadAbsenceDeductions(unitId: string, periodMonth: string): Promise<Map<string, AbsenceDeduction>> {
-  const { from, to } = periodBounds(periodMonth);
+/** Faltas del corte por trabajador. El mismo día no se descuenta dos veces. */
+async function loadAbsenceDeductions(unitId: string, window: AttendanceWindow): Promise<Map<string, AbsenceDeduction>> {
+  const { from, to } = window;
   const byWorker = new Map<string, Map<string, AbsenceSlot>>();
 
   const slotFor = (resourceId: string, day: string) => {
@@ -538,22 +554,15 @@ function reportDayKind(status: string | null): 'present' | 'falta' | 'ignore' {
   return 'ignore';
 }
 
-function periodBounds(periodMonth: string): { from: string; to: string } {
-  const [year, month] = periodMonth.split('-').map(Number);
-  const last = new Date(year, month, 0).getDate();
-  const mm = String(month).padStart(2, '0');
-  return { from: `${year}-${mm}-01`, to: `${year}-${mm}-${String(last).padStart(2, '0')}` };
-}
-
 function workerFromPersonnel(
   person: PersonnelRow,
-  periodMonth: string,
+  window: AttendanceWindow,
   rates: BillingRates,
   bonus?: { amount: number; concept: string[] },
   absence?: AbsenceDeduction
 ): BillingWorkerInput {
   const salary = Number(person.monthly_salary) || 0;
-  let calendarDays = commercialDaysInPeriod(periodMonth, person.start_date, person.end_date, person.personnel_status);
+  let calendarDays = commercialDaysInWindow(window, person.start_date, person.end_date, person.personnel_status);
   if (person.personnel_status === 'cesado' && !person.end_date) calendarDays = 0;
   const absenceDays = Math.min(calendarDays, absence?.days || 0);
   const days = Math.max(0, calendarDays - absenceDays);

@@ -881,14 +881,14 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: 'Facturación de clientes',
     navLabel: 'Facturación',
     summary:
-      'Elabora la facturación mensual de intermediación y tercerización: costo laboral, operativo, administrativo y utilidad, con historial de cada ajuste.',
+      'Elabora la facturación de intermediación y tercerización con un corte de asistencia y novedades, que puede cruzar de un mes a otro.',
     sections: [
       {
         heading: 'Cómo se arma',
-        body: 'Elija la unidad y el mes. OpsFlow carga el personal activo, el sueldo, la asignación familiar, la condición de trabajo y los bonos del mes. Usted completa días, horas extra, bono nocturno, materiales, gastos de estructura y la utilidad.',
+        body: 'Elija la unidad y el mes de facturación. OpsFlow carga el personal activo, el sueldo, la asignación familiar, la condición de trabajo y los bonos del mes. Usted completa días, horas extra, bono nocturno, materiales, gastos de estructura y la utilidad.',
         steps: [
-          'Nueva facturación: unidad (no BPO), mes y, si aplica, copiar costos del mes anterior.',
-          'Personal: en la tabla horizontal revise sueldo, faltas y días. Las faltas de Mattermost, del tareo y de la asistencia ya se restan, sin contar dos veces el mismo día. Lo amarillo está ajustado a mano.',
+          'Nueva facturación: unidad (no BPO), mes de facturación y, si aplica, copiar costos del mes anterior.',
+          'Personal: en la tabla horizontal revise sueldo, faltas y días. Lo amarillo está ajustado a mano.',
           'Operativo: materiales, equipos y maquinaria.',
           'Administrativo: costo financiero (tasa anual y días), gestión de RRHH y otros ítems de estructura.',
           'Utilidad: margen sobre el precio (como la facturación de abril) o recargo sobre el costo.',
@@ -898,6 +898,30 @@ export const HELP_TOPICS: HelpTopic[] = [
           'El total principal no incluye IGV. EsSalud y SCTR usan el sueldo contractual completo, no el proporcional a los días.',
           'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
           'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase.',
+        ],
+      },
+      {
+        heading: 'Corte de asistencia y novedades',
+        body: 'El mes de facturación identifica la liquidación. El rango de fechas define de qué días se leen el tareo, las novedades de Mattermost y la asistencia, y cuántos días se facturan a cada trabajador. Ese corte puede empezar o terminar a mitad de mes, y puede incluir días de dos meses.',
+        steps: [
+          'Al crear la liquidación aparecen «Asistencia y novedades desde» y «hasta». Por defecto cubren el mes completo. Si cambia el mes, las fechas vuelven al primer y al último día de ese mes para que pueda ajustarlas.',
+          'Dentro de la liquidación, el bloque «Corte de asistencia y novedades» está siempre visible. Al cambiar las fechas, pulse Recalcular faltas.',
+          'Guardar o emitir también recalcula las faltas si el rango todavía no se había aplicado. Los días que usted ya ajustó a mano se conservan.',
+          'El listado muestra el corte debajo del mes de facturación.',
+        ],
+      },
+      {
+        heading: 'Cómo se cuentan los días',
+        body: 'Las faltas del tareo, de Mattermost y de la asistencia se leen solo entre el desde y el hasta. El mismo día no se descuenta dos veces. El corte puede tener como máximo 62 días.',
+        steps: [
+          'Quien trabaja todo un mes calendario sigue en 30 días comerciales.',
+          'Un corte más corto, por ejemplo del 16 al 30, factura esos días (15).',
+          'Un corte que cruza de mes, por ejemplo del 26 de marzo al 25 de abril, factura hasta 30 días, para no superar el sueldo mensual.',
+          'Quien ingresa o cesa dentro del corte se prorratea solo por los días que caen en ese rango.',
+        ],
+        tips: [
+          'Use Actualizar, junto a la tabla de personal, para volver a leer sueldos, bonos y faltas del corte.',
+          'Las unidades BPO no se facturan por este método.',
         ],
       },
     ],

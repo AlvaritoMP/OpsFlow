@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   History,
   Loader2,
+  HelpCircle,
   Plus,
   Receipt,
   RefreshCw,
@@ -37,18 +38,25 @@ import {
   BillingWorkerInput,
   ClientBillingModel,
   ComputedWorker,
+  attendanceWindowError,
+  attendanceWindowKey,
   cloneModel,
   computeBilling,
   diffBillingModels,
+  formatAttendanceRange,
   formatPeriodLabel,
+  inclusiveDayCount,
+  monthDateBounds,
   newBillingId,
   pen,
+  resolveAttendanceWindow,
 } from '../utils/clientBillingCalc';
 
 interface ClientBillingProps {
   units: Unit[];
   currentUser: User;
   canEdit: boolean;
+  onOpenHelp?: () => void;
 }
 
 interface EditorState {
@@ -90,7 +98,7 @@ const ACTION_LABEL: Record<string, string> = {
   voided: 'Anulación',
 };
 
-export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser, canEdit }) => {
+export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser, canEdit, onOpenHelp }) => {
   const actor: BillingActor = { id: currentUser.id, name: currentUser.name || currentUser.email };
   const billingUnits = useMemo(
     () => units.filter((unit) => unit.unitClass !== 'BPO').sort((a, b) => a.clientName.localeCompare(b.clientName, 'es') || a.name.localeCompare(b.name, 'es')),
@@ -119,7 +127,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [showCreate, setShowCreate] = useState(false);
   const [createUnitId, setCreateUnitId] = useState('');
   const [createPeriod, setCreatePeriod] = useState(() => new Date().toISOString().slice(0, 7));
+  const [createFrom, setCreateFrom] = useState(() => monthDateBounds(new Date().toISOString().slice(0, 7)).from);
+  const [createTo, setCreateTo] = useState(() => monthDateBounds(new Date().toISOString().slice(0, 7)).to);
   const [copyPrevious, setCopyPrevious] = useState(true);
+  const [appliedAttendanceKey, setAppliedAttendanceKey] = useState('');
 
   const loadList = async () => {
     setLoadingList(true);
@@ -171,6 +182,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         issuedAt: record.issuedAt,
         issuedByName: record.issuedByName,
       });
+      setAppliedAttendanceKey(attendanceWindowKey(record.periodMonth, record.model.attendanceFrom, record.model.attendanceTo));
       setTab('labor');
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo abrir la liquidación.');
@@ -183,6 +195,11 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     const unit = billingUnits.find((item) => item.id === createUnitId);
     if (!unit) {
       setBanner('Seleccione una unidad.');
+      return;
+    }
+    const windowError = attendanceWindowError(createFrom, createTo);
+    if (windowError) {
+      setBanner(windowError);
       return;
     }
     setBusy('Armando la liquidación con el personal de la unidad');
@@ -198,7 +215,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       const model = await prepareBillingDraft(
         { id: unit.id, name: unit.name, clientName: unit.clientName },
         createPeriod,
-        { copyPreviousCosts: copyPrevious }
+        { copyPreviousCosts: copyPrevious, attendanceFrom: createFrom, attendanceTo: createTo }
       );
       setEditor({
         unitId: unit.id,
@@ -210,9 +227,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         baseline: cloneModel(model),
         audit: [],
       });
+      setAppliedAttendanceKey(attendanceWindowKey(createPeriod, model.attendanceFrom, model.attendanceTo));
       setShowCreate(false);
       setTab('labor');
-      setBanner('Borrador armado con el personal activo. Los días ya descuentan las faltas de Mattermost y de la asistencia de la unidad.');
+      setBanner(`Borrador armado con el personal activo. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.`);
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo preparar la facturación.');
     } finally {
@@ -243,22 +261,39 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     );
   };
 
+  const syncAttendance = async (current: EditorState, force = false): Promise<EditorState> => {
+    const range = resolveAttendanceWindow(current.periodMonth, current.model.attendanceFrom, current.model.attendanceTo);
+    const windowError = attendanceWindowError(range.from, range.to);
+    if (windowError) throw new Error(windowError);
+    const key = `${range.from}|${range.to}`;
+    if (!force && key === appliedAttendanceKey) return current;
+    const model = await refreshWorkersFromUnit(current.unitId, current.periodMonth, {
+      ...current.model,
+      attendanceFrom: range.from,
+      attendanceTo: range.to,
+    });
+    setAppliedAttendanceKey(key);
+    return { ...current, model };
+  };
+
   const save = async () => {
     if (!editor || locked) return;
     setBusy('Guardando');
     setBanner(null);
     try {
+      const current = await syncAttendance(editor);
+      const changes = current.id ? diffBillingModels(current.baseline, current.model) : describeCreation(current.model);
       const saved = await saveClientBilling({
-        id: editor.id,
-        unit: { id: editor.unitId, name: editor.unitName, clientName: editor.clientName },
-        periodMonth: editor.periodMonth,
-        model: editor.model,
+        id: current.id,
+        unit: { id: current.unitId, name: current.unitName, clientName: current.clientName },
+        periodMonth: current.periodMonth,
+        model: current.model,
         actor,
-        changes: editor.id ? pendingChanges : describeCreation(editor.model),
+        changes,
       });
       const audit = await getBillingAudit(saved.id);
       setEditor({
-        ...editor,
+        ...current,
         id: saved.id,
         status: saved.status,
         model: cloneModel(saved.model),
@@ -267,7 +302,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         createdByName: saved.createdByName,
         updatedByName: saved.updatedByName,
       });
-      setBanner(pendingChanges.length || !editor.id ? 'Liquidación guardada. Los ajustes quedaron en la trazabilidad.' : 'No había cambios nuevos.');
+      setBanner(changes.length || !current.id ? 'Liquidación guardada. Los ajustes quedaron en la trazabilidad.' : 'No había cambios nuevos.');
       await loadList();
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo guardar.');
@@ -290,20 +325,21 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     setBusy(status === 'issued' ? 'Emitiendo' : status === 'void' ? 'Anulando' : 'Reabriendo');
     setBanner(null);
     try {
-      let billingId = editor.id;
       let issuedEditor = editor;
-      if (status === 'issued' && (!billingId || pendingChanges.length)) {
+      if (status === 'issued') issuedEditor = await syncAttendance(editor);
+      let billingId = issuedEditor.id;
+      if (status === 'issued' && (!billingId || diffBillingModels(issuedEditor.baseline, issuedEditor.model).length)) {
         const savedDraft = await saveClientBilling({
-          id: editor.id,
-          unit: { id: editor.unitId, name: editor.unitName, clientName: editor.clientName },
-          periodMonth: editor.periodMonth,
-          model: editor.model,
+          id: issuedEditor.id,
+          unit: { id: issuedEditor.unitId, name: issuedEditor.unitName, clientName: issuedEditor.clientName },
+          periodMonth: issuedEditor.periodMonth,
+          model: issuedEditor.model,
           actor,
-          changes: editor.id ? pendingChanges : describeCreation(editor.model),
+          changes: issuedEditor.id ? diffBillingModels(issuedEditor.baseline, issuedEditor.model) : describeCreation(issuedEditor.model),
         });
         billingId = savedDraft.id;
         issuedEditor = {
-          ...editor,
+          ...issuedEditor,
           id: savedDraft.id,
           model: cloneModel(savedDraft.model),
           baseline: cloneModel(savedDraft.model),
@@ -335,11 +371,12 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
 
   const reloadPersonnel = async () => {
     if (!editor || locked) return;
-    setBusy('Actualizando personal');
+    setBusy('Recalculando faltas del corte');
     try {
-      const model = await refreshWorkersFromUnit(editor.unitId, editor.periodMonth, editor.model);
-      setEditor({ ...editor, model });
-      setBanner('Se actualizó el personal. Los campos que usted ya había ajustado se conservaron.');
+      const next = await syncAttendance(editor, true);
+      setEditor(next);
+      const range = resolveAttendanceWindow(next.periodMonth, next.model.attendanceFrom, next.model.attendanceTo);
+      setBanner(`Se tomaron la asistencia y las novedades del ${formatAttendanceRange(range.from, range.to)}. Los campos que usted ya había ajustado se conservaron.`);
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo actualizar el personal.');
     } finally {
@@ -402,8 +439,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             {showCreate && (
               <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
                 <h2 className="font-semibold text-slate-800">Nueva liquidación</h2>
-                <div className="grid md:grid-cols-3 gap-3">
-                  <label className="text-sm text-slate-600 md:col-span-2">
+                <div className="grid md:grid-cols-2 gap-3">
+                  <label className="text-sm text-slate-600">
                     Unidad
                     <select className={fieldClass} value={createUnitId} onChange={(event) => setCreateUnitId(event.target.value)}>
                       <option value="">Seleccione</option>
@@ -421,15 +458,41 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                     </select>
                   </label>
                   <label className="text-sm text-slate-600">
-                    Mes
-                    <input className={fieldClass} type="month" value={createPeriod} onChange={(event) => setCreatePeriod(event.target.value)} />
+                    Mes de facturación
+                    <input
+                      className={fieldClass}
+                      type="month"
+                      value={createPeriod}
+                      onChange={(event) => {
+                        const period = event.target.value;
+                        setCreatePeriod(period);
+                        const bounds = monthDateBounds(period);
+                        setCreateFrom(bounds.from);
+                        setCreateTo(bounds.to);
+                      }}
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Asistencia y novedades desde
+                    <input className={fieldClass} type="date" value={createFrom} onChange={(event) => setCreateFrom(event.target.value)} />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Asistencia y novedades hasta
+                    <input className={fieldClass} type="date" value={createTo} onChange={(event) => setCreateTo(event.target.value)} />
                   </label>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={copyPrevious} onChange={(event) => setCopyPrevious(event.target.checked)} />
                   Copiar costos operativos y administrativos del mes anterior
                 </label>
-                <p className="text-xs text-slate-500">Las unidades BPO no se facturan por este método. El personal, el sueldo, la asignación familiar y los bonos del mes salen de OpsFlow; usted puede ajustarlos.</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-slate-500">El mes identifica la liquidación. El rango define la asistencia, las novedades y los días a facturar.</p>
+                  {onOpenHelp && (
+                    <button type="button" onClick={onOpenHelp} className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900">
+                      <HelpCircle size={14} /> Ayuda del corte
+                    </button>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => void startDraft()} disabled={!!busy} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
                     Armar liquidación
@@ -475,9 +538,14 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleRecords.map((record) => (
+                      {visibleRecords.map((record) => {
+                        const attendance = resolveAttendanceWindow(record.periodMonth, record.model?.attendanceFrom, record.model?.attendanceTo);
+                        return (
                         <tr key={record.id} className="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" onClick={() => void openRecord(record)}>
-                          <td className="px-4 py-3 font-medium text-slate-800">{formatPeriodLabel(record.periodMonth)}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">
+                            {formatPeriodLabel(record.periodMonth)}
+                            <div className="text-xs font-normal text-slate-500">{formatAttendanceRange(attendance.from, attendance.to)}</div>
+                          </td>
                           <td className="px-4 py-3">
                             <div className="text-slate-800">{record.clientName}</div>
                             <div className="text-xs text-slate-500">{record.unitName}</div>
@@ -491,7 +559,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                             <div className="text-xs">{new Date(record.updatedAt).toLocaleString('es-PE')}</div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -513,6 +582,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             setTab={setTab}
             workerQuery={workerQuery}
             setWorkerQuery={setWorkerQuery}
+            appliedAttendanceKey={appliedAttendanceKey}
             onBack={() => {
               setEditor(null);
               setBanner(null);
@@ -531,6 +601,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onReload={() => void reloadPersonnel()}
             onRemember={() => void rememberConditions()}
             onExport={() => exportExcel(editor, computed)}
+            onOpenHelp={onOpenHelp}
           />
         )}
 
@@ -567,6 +638,8 @@ function EditorView(props: {
   onReload: () => void;
   onRemember: () => void;
   onExport: () => void;
+  onOpenHelp?: () => void;
+  appliedAttendanceKey: string;
 }) {
   const { editor, computed, locked } = props;
   const workerMap = new Map(computed.workers.map((worker) => [worker.id, worker]));
@@ -576,6 +649,11 @@ function EditorView(props: {
     return `${worker.name} ${worker.position} ${worker.dni || ''}`.toLowerCase().includes(q);
   });
   const includedCount = editor.model.workers.filter((worker) => worker.included).length;
+  const attendance = resolveAttendanceWindow(editor.periodMonth, editor.model.attendanceFrom, editor.model.attendanceTo);
+  const attendanceError = attendanceWindowError(attendance.from, attendance.to);
+  const attendanceStale = attendanceWindowKey(editor.periodMonth, attendance.from, attendance.to) !== props.appliedAttendanceKey;
+  const attendanceDays = inclusiveDayCount(attendance.from, attendance.to);
+  const crossesMonth = attendance.from.slice(0, 7) !== attendance.to.slice(0, 7);
 
   return (
     <div className="space-y-4">
@@ -592,7 +670,7 @@ function EditorView(props: {
             )}
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            {editor.unitName} · {formatPeriodLabel(editor.periodMonth)}
+            {editor.unitName} · {formatPeriodLabel(editor.periodMonth)} · Corte {formatAttendanceRange(attendance.from, attendance.to)}
             {editor.updatedByName ? ` · Último guardado por ${editor.updatedByName}` : ''}
             {editor.issuedByName ? ` · Emitida por ${editor.issuedByName}` : ''}
           </p>
@@ -652,6 +730,54 @@ function EditorView(props: {
             </label>
           </div>
 
+          <div className={`bg-white border rounded-xl p-3 space-y-3 ${attendanceError || attendanceStale ? 'border-amber-300' : 'border-slate-200'}`}>
+            <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-slate-800">Corte de asistencia y novedades</p>
+                  {props.onOpenHelp && (
+                    <button type="button" onClick={props.onOpenHelp} title="Ayuda del corte" aria-label="Ayuda del corte" className="text-slate-500 hover:text-blue-700">
+                      <HelpCircle size={16} />
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {attendanceDays} días
+                  {crossesMonth ? ', cruzando de un mes a otro' : ''}. Pulse el botón de ayuda para ver cómo se cuentan las faltas y los días.
+                </p>
+              </div>
+              <label className="text-sm text-slate-600">
+                Desde
+                <input
+                  className={fieldClass}
+                  type="date"
+                  disabled={locked}
+                  value={attendance.from}
+                  onChange={(event) => props.onPatchModel({ attendanceFrom: event.target.value, attendanceTo: editor.model.attendanceTo || attendance.to })}
+                />
+              </label>
+              <label className="text-sm text-slate-600">
+                Hasta
+                <input
+                  className={fieldClass}
+                  type="date"
+                  disabled={locked}
+                  value={attendance.to}
+                  onChange={(event) => props.onPatchModel({ attendanceFrom: editor.model.attendanceFrom || attendance.from, attendanceTo: event.target.value })}
+                />
+              </label>
+              {!locked && (
+                <button type="button" onClick={props.onReload} disabled={!!props.busy} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm whitespace-nowrap disabled:opacity-60">
+                  <RefreshCw size={14} /> Recalcular faltas
+                </button>
+              )}
+            </div>
+            {attendanceError && <p className="text-xs text-red-700">{attendanceError}</p>}
+            {attendanceStale && !attendanceError && (
+              <p className="text-xs text-amber-800">El rango cambió. Recalcule las faltas para aplicar este corte a los días de cada trabajador.</p>
+            )}
+          </div>
+
           <div className="flex gap-1 overflow-x-auto">
             {(
               [
@@ -678,7 +804,7 @@ function EditorView(props: {
               <div className="p-3 flex flex-col md:flex-row gap-2 md:items-center justify-between border-b border-slate-100">
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <Users size={16} />
-                  <span>Cada fila es un trabajador. Los días ya restan las faltas de Mattermost, del tareo y de la asistencia. Lo amarillo fue ajustado a mano.</span>
+                  <span>Cada fila es un trabajador. Los días ya restan las faltas del corte. Lo amarillo fue ajustado a mano.</span>
                 </div>
                 <div className="flex gap-2">
                   <input className={fieldClass} placeholder="Buscar trabajador" value={props.workerQuery} onChange={(event) => props.setWorkerQuery(event.target.value)} />
@@ -861,7 +987,7 @@ function LaborSheet(props: {
             <th className={`${headLeft} sticky left-8 z-30 min-w-[180px] bg-slate-100`}>Trabajador</th>
             <th className={headLeft}>Puesto</th>
             <th className={head}>Sueldo</th>
-            <th className={head}>Días mes</th>
+            <th className={head} title="Días del corte, antes de restar faltas">Días corte</th>
             <th className={head}>Faltas</th>
             <th className={head}>Días</th>
             <th className={head}>Asig. fam.</th>
@@ -911,14 +1037,14 @@ function LaborSheet(props: {
                 <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'contractualSalary')} title={hint(worker, 'contractualSalary')} disabled={props.locked} value={worker.contractualSalary} onChange={salary} /></td>
                 <td className="px-1.5 py-1 text-right tabular-nums text-slate-500">{worker.calendarDays ?? '—'}</td>
-                <td className={`px-1.5 py-1 text-right tabular-nums font-medium ${worker.absenceDays ? 'text-red-700' : 'text-slate-400'}`} title={worker.absenceDetail || 'Sin faltas en el mes'}>
+                <td className={`px-1.5 py-1 text-right tabular-nums font-medium ${worker.absenceDays ? 'text-red-700' : 'text-slate-400'}`} title={worker.absenceDetail || 'Sin faltas en el corte'}>
                   {worker.absenceDays || 0}
                 </td>
                 <td className="px-1 py-1">
                   <GridNum
                     step="1"
                     amber={isAdjusted(worker, 'daysWorked')}
-                    title={worker.absenceDays ? `Mes ${worker.calendarDays ?? '—'} − faltas ${worker.absenceDays}${worker.absenceDetail ? ` (${worker.absenceDetail})` : ''}` : hint(worker, 'daysWorked')}
+                    title={worker.absenceDays ? `Corte ${worker.calendarDays ?? '—'} − faltas ${worker.absenceDays}${worker.absenceDetail ? ` (${worker.absenceDetail})` : ''}` : hint(worker, 'daysWorked')}
                     disabled={props.locked}
                     value={worker.daysWorked}
                     onChange={(daysWorked) => props.onPatchWorker(worker.id, { daysWorked })}
@@ -1283,6 +1409,11 @@ function describeCreation(model: ClientBillingModel) {
       before: '—',
       after: `${included} trabajador(es)`,
     },
+    {
+      label: 'Corte de asistencia y novedades',
+      before: '—',
+      after: formatAttendanceRange(model.attendanceFrom, model.attendanceTo),
+    },
   ];
 }
 
@@ -1290,10 +1421,10 @@ function exportExcel(editor: EditorState, computed: BillingComputation) {
   const workerById = new Map(editor.model.workers.map((worker) => [worker.id, worker]));
   const rows: (string | number)[][] = [
     [editor.model.title],
-    [editor.clientName, editor.unitName, formatPeriodLabel(editor.periodMonth)],
+    [editor.clientName, editor.unitName, formatPeriodLabel(editor.periodMonth), formatAttendanceRange(editor.model.attendanceFrom, editor.model.attendanceTo)],
     [editor.model.serviceLabel],
     [],
-    ['Trabajador', 'Puesto', 'Incluido', 'Sueldo', 'Días mes', 'Faltas', 'Días', 'Asig. familiar', 'HE 25%', 'HE 35%', 'Bono nocturno', 'Cond. trabajo', 'Bonos', 'Rem. cargas', 'Vacaciones', 'Gratificación', 'CTS', 'EsSalud', 'Vida Ley', 'SCTR', 'Factor', 'Costo mensual'],
+    ['Trabajador', 'Puesto', 'Incluido', 'Sueldo', 'Días corte', 'Faltas', 'Días', 'Asig. familiar', 'HE 25%', 'HE 35%', 'Bono nocturno', 'Cond. trabajo', 'Bonos', 'Rem. cargas', 'Vacaciones', 'Gratificación', 'CTS', 'EsSalud', 'Vida Ley', 'SCTR', 'Factor', 'Costo mensual'],
   ];
   computed.workers.forEach((line) => {
     const worker = workerById.get(line.id);

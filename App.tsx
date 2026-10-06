@@ -1824,6 +1824,7 @@ const App: React.FC = () => {
             units={operationalUnits}
             currentUser={currentUser}
             canEdit={checkPermission(currentUser.role, 'BILLING', 'edit')}
+            onOpenHelp={() => setShowHelp(true)}
           />
         ), true)}
         {renderCachedView('headcount', (

@@ -92,6 +92,15 @@ export interface ClientBillingModel {
   workers: BillingWorkerInput[];
   operational: BillingCostLine[];
   administrative: BillingCostLine[];
+  /** Inicio del corte del que se leen asistencia y novedades (YYYY-MM-DD). */
+  attendanceFrom?: string;
+  /** Fin del corte del que se leen asistencia y novedades (YYYY-MM-DD). */
+  attendanceTo?: string;
+}
+
+export interface AttendanceWindow {
+  from: string;
+  to: string;
 }
 
 export interface ComputedWorker {
@@ -228,7 +237,7 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   socialBaseManual: 'base de cargas manual',
   socialBase: 'base EsSalud/SCTR',
   factor: 'factor',
-  calendarDays: 'días del mes',
+  calendarDays: 'días del corte',
   absenceDays: 'faltas descontadas',
   absenceDetail: 'detalle de faltas',
   notes: 'nota',
@@ -248,9 +257,66 @@ export function formatPeriodLabel(periodMonth: string): string {
   return `${name} ${year || ''}`.trim();
 }
 
+const SHORT_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/** Un corte puede cruzar de un mes a otro; más de dos meses ya no es un periodo de facturación. */
+export const MAX_ATTENDANCE_WINDOW_DAYS = 62;
+
 export function currentPeriodMonth(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   return `${date.getFullYear()}-${month}`;
+}
+
+export function isIsoDate(value?: string | null): value is string {
+  return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value.slice(0, 10));
+}
+
+export function monthDateBounds(periodMonth: string): AttendanceWindow {
+  const [year, month] = periodMonth.split('-').map(Number);
+  if (!year || !month) return monthDateBounds(currentPeriodMonth());
+  const last = new Date(year, month, 0).getDate();
+  const mm = String(month).padStart(2, '0');
+  return { from: `${year}-${mm}-01`, to: `${year}-${mm}-${String(last).padStart(2, '0')}` };
+}
+
+export function resolveAttendanceWindow(periodMonth: string, from?: string | null, to?: string | null): AttendanceWindow {
+  const bounds = monthDateBounds(periodMonth);
+  return {
+    from: isIsoDate(from) ? from.slice(0, 10) : bounds.from,
+    to: isIsoDate(to) ? to.slice(0, 10) : bounds.to,
+  };
+}
+
+export function attendanceWindowKey(periodMonth: string, from?: string | null, to?: string | null): string {
+  const window = resolveAttendanceWindow(periodMonth, from, to);
+  return `${window.from}|${window.to}`;
+}
+
+export function inclusiveDayCount(from: string, to: string): number {
+  const start = parseIsoDate(from);
+  const end = parseIsoDate(to);
+  if (!start || !end || end < start) return 0;
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+export function attendanceWindowError(from: string, to: string): string | null {
+  if (!isIsoDate(from) || !isIsoDate(to)) return 'Indique la fecha de inicio y la de fin del corte.';
+  if (from.slice(0, 10) > to.slice(0, 10)) return 'La fecha de inicio del corte no puede ser posterior a la de fin.';
+  const days = inclusiveDayCount(from, to);
+  if (days > MAX_ATTENDANCE_WINDOW_DAYS) {
+    return `El corte puede cruzar de un mes a otro, con un máximo de ${MAX_ATTENDANCE_WINDOW_DAYS} días.`;
+  }
+  return null;
+}
+
+export function formatAttendanceDate(iso?: string | null): string {
+  if (!isIsoDate(iso)) return '—';
+  const [year, month, day] = iso.slice(0, 10).split('-').map(Number);
+  return `${day} ${SHORT_MONTHS[month - 1] || ''} ${year}`.replace(/\s+/g, ' ').trim();
+}
+
+export function formatAttendanceRange(from?: string | null, to?: string | null): string {
+  return `${formatAttendanceDate(from)} – ${formatAttendanceDate(to)}`;
 }
 
 export function commercialDaysInPeriod(
@@ -259,35 +325,50 @@ export function commercialDaysInPeriod(
   endDate?: string | null,
   status?: string | null
 ): number {
-  const [year, month] = periodMonth.split('-').map(Number);
-  if (!year || !month) return 30;
-  const monthStart = new Date(year, month - 1, 1);
-  const lastDay = new Date(year, month, 0).getDate();
-  const monthEnd = new Date(year, month - 1, lastDay);
+  return commercialDaysInWindow(monthDateBounds(periodMonth), startDate, endDate, status);
+}
 
-  const parse = (iso?: string | null) => {
-    if (!iso) return null;
-    const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
-    if (!y || !m || !d) return null;
-    return new Date(y, m - 1, d);
-  };
+/** Días a facturar dentro del corte. Un mes calendario completo sigue en 30 días comerciales. */
+export function commercialDaysInWindow(
+  window: AttendanceWindow,
+  startDate?: string | null,
+  endDate?: string | null,
+  status?: string | null
+): number {
+  const rangeStart = parseIsoDate(window.from);
+  const rangeEnd = parseIsoDate(window.to);
+  if (!rangeStart || !rangeEnd || rangeEnd < rangeStart) return 0;
 
-  const start = parse(startDate);
-  const end = parse(endDate);
-  if (start && start > monthEnd) return 0;
-  if ((status === 'cesado' || status === 'archivado') && end && end < monthStart) return 0;
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate);
+  if (start && start > rangeEnd) return 0;
+  if ((status === 'cesado' || status === 'archivado') && end && end < rangeStart) return 0;
   if (status === 'archivado' && !end && !start) return 0;
 
-  let from = monthStart;
-  let to = monthEnd;
-  if (start && start > monthStart && start <= monthEnd) from = start;
-  if (end && end >= monthStart && end < monthEnd) to = end;
+  let from = rangeStart;
+  let to = rangeEnd;
+  if (start && start > rangeStart && start <= rangeEnd) from = start;
+  if (end && end >= rangeStart && end < rangeEnd) to = end;
   if (to < from) return 0;
 
-  const fullMonth = from.getTime() === monthStart.getTime() && to.getTime() === monthEnd.getTime();
-  if (fullMonth) return 30;
+  const coversWindow = from.getTime() === rangeStart.getTime() && to.getTime() === rangeEnd.getTime();
+  if (coversWindow && isFullCalendarMonth(rangeStart, rangeEnd)) return 30;
   const calendarDays = Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1;
   return Math.min(30, Math.max(0, calendarDays));
+}
+
+function parseIsoDate(iso?: string | null): Date | null {
+  if (!isIsoDate(iso)) return null;
+  const [year, month, day] = iso.slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+}
+
+function isFullCalendarMonth(from: Date, to: Date): boolean {
+  if (from.getDate() !== 1) return false;
+  if (from.getFullYear() !== to.getFullYear() || from.getMonth() !== to.getMonth()) return false;
+  const last = new Date(from.getFullYear(), from.getMonth() + 1, 0).getDate();
+  return to.getDate() === last;
 }
 
 function hourly(salary: number, rates: BillingRates): number {
@@ -468,6 +549,8 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
   push('Servicio', before.serviceLabel, after.serviceLabel);
   push('Comentario', before.comment, after.comment);
   push('Consideraciones', before.considerations, after.considerations);
+  push('Inicio del corte de asistencia', formatAttendanceDate(before.attendanceFrom), formatAttendanceDate(after.attendanceFrom));
+  push('Fin del corte de asistencia', formatAttendanceDate(before.attendanceTo), formatAttendanceDate(after.attendanceTo));
 
   (Object.keys(RATE_LABELS) as (keyof BillingRates)[]).forEach((key) => {
     push(RATE_LABELS[key], before.rates[key], after.rates[key]);
