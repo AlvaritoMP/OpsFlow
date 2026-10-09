@@ -21,7 +21,15 @@ export interface BillingRates {
   applySctr: boolean;
   he25Factor: number;
   he35Factor: number;
+  /** La hora extra diurna suma la asignación familiar al sueldo. */
+  heDayIncludeFamily: boolean;
+  /** La hora extra nocturna suma la asignación familiar, sin recargarla. */
+  heNightIncludeFamily: boolean;
+  /** La hora extra nocturna suma el recargo nocturno sobre el sueldo. */
+  heNightApplyPremium: boolean;
   nightPremiumRate: number;
+  /** El bono nocturno incluye la asignación familiar en la base. */
+  nightBonusIncludeFamily: boolean;
   commercialMonthDays: number;
   hoursPerDay: number;
   financialAnnualRate: number;
@@ -171,7 +179,11 @@ export const DEFAULT_BILLING_RATES: BillingRates = {
   applySctr: true,
   he25Factor: 1.25,
   he35Factor: 1.35,
+  heDayIncludeFamily: true,
+  heNightIncludeFamily: true,
+  heNightApplyPremium: true,
   nightPremiumRate: 0.35,
+  nightBonusIncludeFamily: false,
   commercialMonthDays: 30,
   hoursPerDay: 8,
   financialAnnualRate: 0.2,
@@ -215,7 +227,11 @@ const RATE_LABELS: Record<keyof BillingRates, string> = {
   applySctr: 'Incluir SCTR',
   he25Factor: 'Factor hora extra 25%',
   he35Factor: 'Factor hora extra 35%',
+  heDayIncludeFamily: 'Asignación familiar en hora extra diurna',
+  heNightIncludeFamily: 'Asignación familiar en hora extra nocturna',
+  heNightApplyPremium: 'Recargo nocturno en hora extra nocturna',
   nightPremiumRate: 'Porcentaje de bono nocturno',
+  nightBonusIncludeFamily: 'Asignación familiar en bono nocturno',
   commercialMonthDays: 'Días comerciales del mes',
   hoursPerDay: 'Horas por día',
   financialAnnualRate: 'Tasa anual del costo financiero',
@@ -395,10 +411,52 @@ function extraAmount(salary: number, hours: number, factor: number, manual: numb
   return hourly(salary, rates) * factor * hours;
 }
 
-/** Sueldo para horas extra. El 35% nocturno recarga solo el sueldo; la asignación familiar entra plana. */
-function payBaseForOvertime(salary: number, family: number, includeNightBonus: boolean, rates: BillingRates): number {
-  const premium = includeNightBonus ? salary * (rates.nightPremiumRate || 0) : 0;
-  return salary + premium + family;
+/** Completa factores ausentes en liquidaciones guardadas antes de estas opciones. */
+export function normalizeBillingRates(rates: Partial<BillingRates> | undefined): BillingRates {
+  return { ...DEFAULT_BILLING_RATES, ...(rates || {}) };
+}
+
+/** Sueldo para horas extra. El recargo nocturno aplica solo al sueldo; la asignación familiar entra plana. */
+function payBaseForOvertime(
+  salary: number,
+  family: number,
+  includeFamily: boolean,
+  includeNightPremium: boolean,
+  rates: BillingRates
+): number {
+  const premium = includeNightPremium ? salary * (rates.nightPremiumRate || 0) : 0;
+  return salary + premium + (includeFamily ? family : 0);
+}
+
+export function describeOvertimeFormulas(rates: BillingRates): {
+  day25: string;
+  day35: string;
+  night25: string;
+  night35: string;
+  nightBonus: string;
+} {
+  const current = normalizeBillingRates(rates);
+  const days = current.commercialMonthDays || 30;
+  const hours = current.hoursPerDay || 8;
+  const dayParts = ['sueldo'];
+  if (current.heDayIncludeFamily) dayParts.push('asignación familiar');
+  const nightParts = ['sueldo'];
+  if (current.heNightApplyPremium) nightParts.push(`sueldo × ${formatRate(current.nightPremiumRate)}`);
+  if (current.heNightIncludeFamily) nightParts.push('asignación familiar');
+  const bonusParts = ['sueldo'];
+  if (current.nightBonusIncludeFamily) bonusParts.push('asignación familiar');
+  const hour = (parts: string[], factor: number) => `(${parts.join(' + ')}) / ${days} / ${hours} × ${formatRate(factor)} × horas`;
+  return {
+    day25: hour(dayParts, current.he25Factor),
+    day35: hour(dayParts, current.he35Factor),
+    night25: hour(nightParts, current.he25Factor),
+    night35: hour(nightParts, current.he35Factor),
+    nightBonus: hour(bonusParts, current.nightPremiumRate),
+  };
+}
+
+function formatRate(value: number): string {
+  return Number((Number.isFinite(value) ? value : 0).toFixed(4)).toString();
 }
 
 export function withWorkerDefaults(worker: BillingWorkerInput): BillingWorkerInput {
@@ -416,19 +474,21 @@ function manualOrNull(value: number | null | undefined): number | null {
   return value !== null && value !== undefined && Number.isFinite(value) ? value : null;
 }
 
-export function computeWorker(worker: BillingWorkerInput, rates: BillingRates): ComputedWorker {
+export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRates): ComputedWorker {
+  const rates = normalizeBillingRates(inputRates);
   const salary = num(worker.contractualSalary);
   const days = num(worker.daysWorked);
   const monthDays = rates.commercialMonthDays || 30;
   const basic = monthDays ? (salary / monthDays) * days : 0;
   const family = num(worker.familyAllowance);
-  const dayBase = payBaseForOvertime(salary, family, false, rates);
-  const nightOtBase = payBaseForOvertime(salary, family, true, rates);
+  const dayBase = payBaseForOvertime(salary, family, rates.heDayIncludeFamily, false, rates);
+  const nightOtBase = payBaseForOvertime(salary, family, rates.heNightIncludeFamily, rates.heNightApplyPremium, rates);
   const he25 = extraAmount(dayBase, num(worker.he25Hours), rates.he25Factor, worker.he25Manual, rates);
   const he35 = extraAmount(dayBase, num(worker.he35Hours), rates.he35Factor, worker.he35Manual, rates);
   const heNight25 = extraAmount(nightOtBase, num(worker.heNight25Hours), rates.he25Factor, worker.heNight25Manual, rates);
   const heNight35 = extraAmount(nightOtBase, num(worker.heNight35Hours), rates.he35Factor, worker.heNight35Manual, rates);
-  const night = extraAmount(salary, num(worker.nightHours), rates.nightPremiumRate, worker.nightManual, rates);
+  const nightBase = rates.nightBonusIncludeFamily ? salary + family : salary;
+  const night = extraAmount(nightBase, num(worker.nightHours), rates.nightPremiumRate, worker.nightManual, rates);
   const remLlss = basic + family + he25 + he35 + heNight25 + heNight35 + night;
   const remTotal = remLlss + num(worker.workCondition) + num(worker.bonus);
   const vacation = remLlss * rates.vacationRate;

@@ -25,6 +25,7 @@ import {
   emptyBillingModel,
   formatPeriodLabel,
   newBillingId,
+  normalizeBillingRates,
   pen,
   round2,
   snapshotFromSavedTotals,
@@ -1261,6 +1262,7 @@ function mapNote(row: any): ClientBillingNote {
 
 function mapRecord(row: any): ClientBillingRecord {
   const model = (row.payload?.model || row.payload) as ClientBillingModel;
+  model.rates = normalizeBillingRates(model.rates);
   model.workers = (model.workers || []).map(withWorkerDefaults);
   return {
     id: row.id,

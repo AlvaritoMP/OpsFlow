@@ -900,7 +900,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'El total principal no incluye IGV. EsSalud y SCTR usan el sueldo contractual completo, no el proporcional a los días.',
-          'Las horas extra diurnas usan sueldo + asignación familiar. Las cuatro columnas de hora extra nocturna usan las horas que usted ingrese: sueldo + 35% del sueldo + asignación familiar, y la asignación familiar no lleva el 35%.',
+          'En Parámetros puede cambiar los factores de hora extra, el recargo nocturno, los días y las horas, y si la asignación familiar entra en cada fórmula.',
           'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
           'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase. Para corridas y notas, ejecute también migrations/MIGRATION_CLIENT_BILLING_RUNS.sql.',
         ],

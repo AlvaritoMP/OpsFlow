@@ -60,6 +60,7 @@ import {
   inclusiveDayCount,
   monthDateBounds,
   newBillingId,
+  describeOvertimeFormulas,
   pen,
   resolveAttendanceWindow,
 } from '../utils/clientBillingCalc';
@@ -1070,6 +1071,7 @@ function EditorView(props: {
                 <LaborSheet
                   workers={filteredWorkers}
                   lines={workerMap}
+                  rates={editor.model.rates}
                   locked={locked}
                   onPatchWorker={props.onPatchWorker}
                   onRemove={(id) => props.onPatchModel({ workers: editor.model.workers.filter((item) => item.id !== id) })}
@@ -1306,12 +1308,14 @@ function DayGlanceSheet(props: {
 function LaborSheet(props: {
   workers: BillingWorkerInput[];
   lines: Map<string, ComputedWorker>;
+  rates: BillingRates;
   locked: boolean;
   onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
   onRemove: (id: string) => void;
 }) {
   const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-right px-1.5 py-2 whitespace-nowrap border-b border-slate-200';
   const headLeft = `${head} text-left`;
+  const formulas = describeOvertimeFormulas(props.rates);
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1329,15 +1333,15 @@ function LaborSheet(props: {
             <th className={head}>Días</th>
             <th className={head}>Asig. fam.</th>
             <th className={head}>HE día 25 h</th>
-            <th className={head} title="(sueldo + asignación familiar) / 30 / 8 × 1.25 × horas">HE día 25 S/</th>
+            <th className={head} title={formulas.day25}>HE día 25 S/</th>
             <th className={head}>HE día 35 h</th>
-            <th className={head} title="(sueldo + asignación familiar) / 30 / 8 × 1.35 × horas">HE día 35 S/</th>
-            <th className={head} title="Horas extra nocturnas al 25%. El monto usa las horas ingresadas aquí.">HE noche 25 h</th>
-            <th className={head} title="(sueldo + 35% del sueldo + asignación familiar) / 30 / 8 × 1.25 × horas. La asignación familiar no lleva el 35%.">HE noche 25 S/</th>
-            <th className={head} title="Horas extra nocturnas al 35%. El monto usa las horas ingresadas aquí.">HE noche 35 h</th>
-            <th className={head} title="(sueldo + 35% del sueldo + asignación familiar) / 30 / 8 × 1.35 × horas. La asignación familiar no lleva el 35%.">HE noche 35 S/</th>
-            <th className={head} title="Recargo del 35% sobre el sueldo, sin asignación familiar. No es hora extra.">Bono h</th>
-            <th className={head} title="Recargo del 35% sobre el sueldo, sin asignación familiar. No es hora extra.">Bono S/</th>
+            <th className={head} title={formulas.day35}>HE día 35 S/</th>
+            <th className={head} title={formulas.night25}>HE noche 25 h</th>
+            <th className={head} title={formulas.night25}>HE noche 25 S/</th>
+            <th className={head} title={formulas.night35}>HE noche 35 h</th>
+            <th className={head} title={formulas.night35}>HE noche 35 S/</th>
+            <th className={head} title={formulas.nightBonus}>Bono h</th>
+            <th className={head} title={formulas.nightBonus}>Bono S/</th>
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
@@ -1397,7 +1401,7 @@ function LaborSheet(props: {
                   manual={worker.he25Manual}
                   amount={line?.he25}
                   locked={props.locked}
-                  formula={dayOvertimeFormula(1.25)}
+                  formula={formulas.day25}
                   onHours={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })}
                   onManual={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })}
                 />
@@ -1406,7 +1410,7 @@ function LaborSheet(props: {
                   manual={worker.he35Manual}
                   amount={line?.he35}
                   locked={props.locked}
-                  formula={dayOvertimeFormula(1.35)}
+                  formula={formulas.day35}
                   onHours={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })}
                   onManual={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })}
                 />
@@ -1415,7 +1419,7 @@ function LaborSheet(props: {
                   manual={worker.heNight25Manual}
                   amount={line?.heNight25}
                   locked={props.locked}
-                  formula={nightOvertimeFormula(1.25)}
+                  formula={formulas.night25}
                   onHours={(heNight25Hours) => props.onPatchWorker(worker.id, { heNight25Hours, heNight25Manual: null })}
                   onManual={(heNight25Manual) => props.onPatchWorker(worker.id, { heNight25Manual })}
                 />
@@ -1424,7 +1428,7 @@ function LaborSheet(props: {
                   manual={worker.heNight35Manual}
                   amount={line?.heNight35}
                   locked={props.locked}
-                  formula={nightOvertimeFormula(1.35)}
+                  formula={formulas.night35}
                   onHours={(heNight35Hours) => props.onPatchWorker(worker.id, { heNight35Hours, heNight35Manual: null })}
                   onManual={(heNight35Manual) => props.onPatchWorker(worker.id, { heNight35Manual })}
                 />
@@ -1458,14 +1462,6 @@ function LaborSheet(props: {
       </table>
     </div>
   );
-}
-
-function dayOvertimeFormula(factor: number): string {
-  return `Hora extra diurna: (sueldo + asignación familiar) / 30 / 8 × ${factor} × horas.`;
-}
-
-function nightOvertimeFormula(factor: number): string {
-  return `Hora extra de 10pm a 6am: (sueldo + 35% del sueldo + asignación familiar) / 30 / 8 × ${factor} × horas. La asignación familiar no lleva el 35%.`;
 }
 
 function isManualAmount(value: number | null | undefined): boolean {
@@ -1661,6 +1657,50 @@ function ParametersPanel(props: {
         {percent('sctrRate', 'SCTR %', 'Base: sueldo contractual + gratificación')}
         {percent('igvRate', 'IGV %', 'Se muestra aparte. El total principal no lo incluye.')}
       </div>
+      <div className="border-t border-slate-100 pt-4 space-y-3">
+        <div>
+          <h3 className="font-semibold text-slate-900">Horas extra y bono nocturno</h3>
+          <p className="text-sm text-slate-500 mt-1">
+            Estos factores y bases se usan en la grilla. El recargo nocturno se suma solo al sueldo; la asignación familiar, cuando está incluida, entra sin ese recargo.
+          </p>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <label className="text-xs text-slate-500">
+            Factor hora extra 25%
+            <input className={fieldClass} type="number" step="0.01" disabled={props.locked} value={props.rates.he25Factor} onChange={(event) => props.onRates({ he25Factor: Number(event.target.value) || 0 })} />
+            <span className="block text-[11px] text-slate-400 mt-1">1.25 es el recargo del 25% sobre la hora.</span>
+          </label>
+          <label className="text-xs text-slate-500">
+            Factor hora extra 35%
+            <input className={fieldClass} type="number" step="0.01" disabled={props.locked} value={props.rates.he35Factor} onChange={(event) => props.onRates({ he35Factor: Number(event.target.value) || 0 })} />
+            <span className="block text-[11px] text-slate-400 mt-1">1.35 es el recargo del 35% sobre la hora.</span>
+          </label>
+          {percent('nightPremiumRate', 'Recargo nocturno %', '35% queda como 0.35 en el bono y en la base de la hora extra nocturna.')}
+          <label className="text-xs text-slate-500">
+            Días del mes
+            <input className={fieldClass} type="number" step="1" disabled={props.locked} value={props.rates.commercialMonthDays} onChange={(event) => props.onRates({ commercialMonthDays: Number(event.target.value) || 0 })} />
+          </label>
+          <label className="text-xs text-slate-500">
+            Horas por día
+            <input className={fieldClass} type="number" step="0.5" disabled={props.locked} value={props.rates.hoursPerDay} onChange={(event) => props.onRates({ hoursPerDay: Number(event.target.value) || 0 })} />
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" disabled={props.locked} checked={props.rates.heDayIncludeFamily} onChange={(event) => props.onRates({ heDayIncludeFamily: event.target.checked })} /> Asignación familiar en hora extra diurna
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" disabled={props.locked} checked={props.rates.heNightIncludeFamily} onChange={(event) => props.onRates({ heNightIncludeFamily: event.target.checked })} /> Asignación familiar en hora extra nocturna
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" disabled={props.locked} checked={props.rates.heNightApplyPremium} onChange={(event) => props.onRates({ heNightApplyPremium: event.target.checked })} /> Recargo nocturno sobre el sueldo en hora extra nocturna
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" disabled={props.locked} checked={props.rates.nightBonusIncludeFamily} onChange={(event) => props.onRates({ nightBonusIncludeFamily: event.target.checked })} /> Asignación familiar en el bono nocturno
+          </label>
+        </div>
+        <FormulaPreview rates={props.rates} />
+      </div>
       <div className="flex flex-wrap gap-4 text-sm text-slate-700">
         <label className="inline-flex items-center gap-2">
           <input type="checkbox" disabled={props.locked} checked={props.rates.applySctr} onChange={(event) => props.onRates({ applySctr: event.target.checked })} /> Incluir SCTR
@@ -1682,6 +1722,26 @@ function ParametersPanel(props: {
         </button>
       )}
     </section>
+  );
+}
+
+function FormulaPreview({ rates }: { rates: BillingRates }) {
+  const formulas = describeOvertimeFormulas(rates);
+  const rows: [string, string][] = [
+    ['Hora extra diurna 25%', formulas.day25],
+    ['Hora extra diurna 35%', formulas.day35],
+    ['Hora extra nocturna 25%', formulas.night25],
+    ['Hora extra nocturna 35%', formulas.night35],
+    ['Bono nocturno', formulas.nightBonus],
+  ];
+  return (
+    <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1">
+      {rows.map(([label, formula]) => (
+        <p key={label} className="text-xs text-slate-600">
+          <span className="font-medium text-slate-800">{label}:</span> {formula}
+        </p>
+      ))}
+    </div>
   );
 }
 
