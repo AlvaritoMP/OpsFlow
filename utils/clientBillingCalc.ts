@@ -389,8 +389,9 @@ export function computeWorker(worker: BillingWorkerInput, rates: BillingRates): 
   const monthDays = rates.commercialMonthDays || 30;
   const basic = monthDays ? (salary / monthDays) * days : 0;
   const family = num(worker.familyAllowance);
-  const he25 = extraAmount(salary, num(worker.he25Hours), rates.he25Factor, worker.he25Manual, rates);
-  const he35 = extraAmount(salary, num(worker.he35Hours), rates.he35Factor, worker.he35Manual, rates);
+  const overtimeBase = salary + family;
+  const he25 = extraAmount(overtimeBase, num(worker.he25Hours), rates.he25Factor, worker.he25Manual, rates);
+  const he35 = extraAmount(overtimeBase, num(worker.he35Hours), rates.he35Factor, worker.he35Manual, rates);
   const night = extraAmount(salary, num(worker.nightHours), rates.nightPremiumRate, worker.nightManual, rates);
   const remLlss = basic + family + he25 + he35 + night;
   const remTotal = remLlss + num(worker.workCondition) + num(worker.bonus);

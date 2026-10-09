@@ -1324,9 +1324,9 @@ function LaborSheet(props: {
             <th className={head}>Días</th>
             <th className={head}>Asig. fam.</th>
             <th className={head}>HE 25 h</th>
-            <th className={head}>HE 25 S/</th>
+            <th className={head} title="(sueldo + asignación familiar) / días del mes / horas por día × factor 1.25 × horas">HE 25 S/</th>
             <th className={head}>HE 35 h</th>
-            <th className={head}>HE 35 S/</th>
+            <th className={head} title="(sueldo + asignación familiar) / días del mes / horas por día × factor 1.35 × horas">HE 35 S/</th>
             <th className={head}>Noc. h</th>
             <th className={head}>Noc. S/</th>
             <th className={head}>Cond. trab.</th>
@@ -1384,9 +1384,9 @@ function LaborSheet(props: {
                 </td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'familyAllowance')} title={hint(worker, 'familyAllowance')} disabled={props.locked} value={worker.familyAllowance} onChange={(familyAllowance) => props.onPatchWorker(worker.id, { familyAllowance })} /></td>
                 <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.he25Hours} onChange={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })} /></td>
-                <td className="px-1 py-1"><GridNum amber={worker.he25Manual !== null} title={worker.he25Manual !== null ? 'Monto escrito a mano' : 'Calculado por horas'} disabled={props.locked} value={worker.he25Manual !== null ? worker.he25Manual : roundShown(line?.he25)} onChange={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })} /></td>
+                <td className="px-1 py-1"><GridNum amber={worker.he25Manual !== null} title={worker.he25Manual !== null ? 'Monto escrito a mano' : 'Calculado sobre sueldo + asignación familiar'} disabled={props.locked} value={worker.he25Manual !== null ? worker.he25Manual : roundShown(line?.he25)} onChange={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })} /></td>
                 <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.he35Hours} onChange={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })} /></td>
-                <td className="px-1 py-1"><GridNum amber={worker.he35Manual !== null} disabled={props.locked} value={worker.he35Manual !== null ? worker.he35Manual : roundShown(line?.he35)} onChange={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })} /></td>
+                <td className="px-1 py-1"><GridNum amber={worker.he35Manual !== null} title={worker.he35Manual !== null ? 'Monto escrito a mano' : 'Calculado sobre sueldo + asignación familiar'} disabled={props.locked} value={worker.he35Manual !== null ? worker.he35Manual : roundShown(line?.he35)} onChange={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })} /></td>
                 <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.nightHours} onChange={(nightHours) => props.onPatchWorker(worker.id, { nightHours, nightManual: null })} /></td>
                 <td className="px-1 py-1"><GridNum amber={worker.nightManual !== null} disabled={props.locked} value={worker.nightManual !== null ? worker.nightManual : roundShown(line?.night)} onChange={(nightManual) => props.onPatchWorker(worker.id, { nightManual })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'workCondition')} title={hint(worker, 'workCondition')} disabled={props.locked} value={worker.workCondition} onChange={(workCondition) => props.onPatchWorker(worker.id, { workCondition })} /></td>
