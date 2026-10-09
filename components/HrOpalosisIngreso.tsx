@@ -16,6 +16,7 @@ import { listHrFieldBlockers, listHrFieldWarnings, mergeHrFieldsWithSnapshot } f
 import { formatDateDisplay } from '../utils/dateFormat';
 import { DateInput } from './DateInput';
 import { HrOpalosisEditQueueItemModal } from './HrOpalosisEditQueueItemModal';
+import { OpalosisFlowGuide } from './StatusFlowGuide';
 import type {
   HrOutboundIngresoPackage,
   HrOutboundIngresoPackageWithItems,
@@ -590,6 +591,8 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
           {successMessage}
         </div>
       )}
+
+      <OpalosisFlowGuide />
 
       <div className="flex gap-2 border-b border-slate-200">
         <button

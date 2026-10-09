@@ -17,6 +17,7 @@ import {
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
 import { getPublicComplementaryFichaUrl } from '../services/publicComplementaryFichaService';
 import { RegisterHandoffWorkerModal } from './RegisterHandoffWorkerModal';
+import { AtsPresentationFlowGuide } from './StatusFlowGuide';
 import { ComplementaryFichaForm } from './ComplementaryFichaForm';
 import {
   OpsflowIntakeForm,
@@ -977,6 +978,10 @@ export const AtsPresentations: React.FC<AtsPresentationsProps> = ({
             Actualizar
           </button>
         </div>
+      </div>
+
+      <div className="mb-5">
+        <AtsPresentationFlowGuide />
       </div>
 
       <div className="-mx-3 mb-4 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
