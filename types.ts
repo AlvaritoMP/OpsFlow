@@ -349,6 +349,10 @@ export interface Resource {
   salaryIncrements?: SalaryIncrement[]; // Historial de incrementos salariales
   /** Unidad actual del recurso (FK resources.unit_id) */
   unitId?: string;
+  /** Ficha cesada o archivada de la que nace esta relación. Esa ficha no se modifica. */
+  rehiredFromResourceId?: string;
+  /** Motivo de la recontratación (nueva unidad, cambio de régimen o condiciones, u otro). */
+  rehireReason?: string | null;
 }
 
 export type WorkerUnitTransferMode = 'transfer' | 'swap';

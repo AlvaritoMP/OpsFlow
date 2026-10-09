@@ -1039,6 +1039,8 @@ function transformResourceFromDB(
           ? false
           : undefined,
     unitId: data.unit_id || undefined,
+    rehiredFromResourceId: data.rehired_from_resource_id || undefined,
+    rehireReason: data.rehire_reason || undefined,
   };
 }
 
@@ -1618,7 +1620,9 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
                              resource.jornadaType !== undefined ||
                              resource.laborRegime !== undefined ||
                              resource.mobilityBonus !== undefined ||
-                             resource.familyAllowance !== undefined;
+                             resource.familyAllowance !== undefined ||
+                             resource.rehiredFromResourceId !== undefined ||
+                             resource.rehireReason !== undefined;
   
   if (hasPersonnelFields) {
     if (resource.dni !== undefined) result.dni = resource.dni;
@@ -1660,6 +1664,12 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
           : resource.familyAllowance === false
             ? false
             : null;
+    }
+    if (resource.rehiredFromResourceId !== undefined) {
+      result.rehired_from_resource_id = resource.rehiredFromResourceId || null;
+    }
+    if (resource.rehireReason !== undefined) {
+      result.rehire_reason = resource.rehireReason?.trim() || null;
     }
   }
 

@@ -1983,6 +1983,7 @@ const App: React.FC = () => {
           <div className="w-full h-full">
             <Archive
               currentUserRole={currentUser?.role}
+              currentUserName={currentUser?.name || currentUser?.email}
               onRestoreWorker={loadUnits}
             />
           </div>

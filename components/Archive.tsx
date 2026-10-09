@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Unit, Resource, UserRole } from '../types';
 import { resourcesService } from '../services/resourcesService';
 import { unitsService } from '../services/unitsService';
-import { Archive as ArchiveIcon, User, Building, Calendar, Mail, Phone, FileText, RefreshCw, ArrowRight, Search, X, CheckCircle, AlertCircle, Edit2, Download } from 'lucide-react';
+import { Archive as ArchiveIcon, Building, RefreshCw, Search, X, CheckCircle, Edit2, Download, UserPlus } from 'lucide-react';
 import { SafeImage } from './SafeImage';
 import { checkPermission } from '../services/permissionService';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
@@ -16,9 +16,18 @@ import {
   isTerminationReasonComplete,
   splitTerminationReason,
 } from '../utils/terminationReason';
+import { RehireWorkerModal } from './RehireWorkerModal';
+import {
+  findActivePersonnelByDocument,
+  listRehireBadges,
+  rehirePersonnel,
+  RehirePersonnelInput,
+  WorkerRehireBadge,
+} from '../services/workerRehireService';
 
 interface ArchiveProps {
   currentUserRole?: UserRole;
+  currentUserName?: string;
   onRestoreWorker?: () => void; // Callback para refrescar unidades después de recuperar un trabajador
 }
 
@@ -27,7 +36,7 @@ interface ArchivedPersonnel extends Resource {
   originalUnitName: string;
 }
 
-export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWorker }) => {
+export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserName, onRestoreWorker }) => {
   const [archivedPersonnel, setArchivedPersonnel] = useState<ArchivedPersonnel[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +55,10 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
   const [terminationReasonOther, setTerminationReasonOther] = useState('');
   const [changingStatus, setChangingStatus] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showRehireModal, setShowRehireModal] = useState(false);
+  const [selectedPersonnelForRehire, setSelectedPersonnelForRehire] = useState<ArchivedPersonnel | null>(null);
+  const [rehiring, setRehiring] = useState(false);
+  const [rehireBadges, setRehireBadges] = useState<Record<string, WorkerRehireBadge>>({});
 
   const canView = checkPermission(currentUserRole || 'OPERATIONS', 'ARCHIVE', 'view');
   const canEdit = checkPermission(currentUserRole || 'OPERATIONS', 'ARCHIVE', 'edit');
@@ -65,6 +78,12 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
       ]);
       setArchivedPersonnel(archived);
       setUnits(allUnits);
+      const badges = await listRehireBadges(archived.map((person) => person.id));
+      const nextBadges: Record<string, WorkerRehireBadge> = {};
+      badges.forEach((badge, sourceId) => {
+        nextBadges[sourceId] = badge;
+      });
+      setRehireBadges(nextBadges);
     } catch (error) {
       console.error('Error al cargar datos del archivo:', error);
       alert('Error al cargar los datos del archivo');
@@ -82,9 +101,27 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
   const handleConfirmRestore = async () => {
     if (!selectedPersonnel || !selectedUnitId) return;
 
+    const activeSuccessor = rehireBadges[selectedPersonnel.id];
+    if (activeSuccessor?.successorActive) {
+      alert(
+        `No se puede recuperar: ${selectedPersonnel.name} ya tiene una recontratación activa (${activeSuccessor.successorName}). El cese de esta ficha se conserva.`,
+      );
+      return;
+    }
+
     setRestoring(true);
     try {
-      // Actualizar el recurso: desarchivar, cambiar estado a activo, y mover a la unidad seleccionada
+      if (selectedPersonnel.dni) {
+        const active = await findActivePersonnelByDocument(selectedPersonnel.dni);
+        if (active && active.id !== selectedPersonnel.id) {
+          alert(
+            `No se puede recuperar: el documento ${selectedPersonnel.dni} ya tiene una relación laboral activa (${active.name}).`,
+          );
+          return;
+        }
+      }
+
+      // Recuperar devuelve esta misma ficha, como estaba antes del cese.
       await resourcesService.update(
         selectedPersonnel.id,
         {
@@ -112,6 +149,43 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
       alert('Error al recuperar el trabajador. Por favor, intente nuevamente.');
     } finally {
       setRestoring(false);
+    }
+  };
+
+  const handleRehire = (personnel: ArchivedPersonnel) => {
+    setSelectedPersonnelForRehire(personnel);
+    setShowRehireModal(true);
+  };
+
+  const handleConfirmRehire = async (input: RehirePersonnelInput) => {
+    if (!selectedPersonnelForRehire) return;
+    const unit = units.find((item) => item.id === input.targetUnitId);
+    if (!unit) {
+      alert('Seleccione la unidad de la nueva relación laboral.');
+      return;
+    }
+
+    setRehiring(true);
+    try {
+      const result = await rehirePersonnel(selectedPersonnelForRehire, input, {
+        unit,
+        usuarioOf: currentUserName,
+      });
+      const enqueueNote = result.enqueued
+        ? 'Quedó en la cola de Envío Opalosis para que generen el nuevo contrato.'
+        : `La alta se creó, pero no se encoló en Opalosis: ${result.enqueueWarning || 'revise Envío Opalosis.'}`;
+      alert(
+        `✅ ${selectedPersonnelForRehire.name} fue recontratado en ${unit.name}.\n\nEl cese o archivo de la relación anterior se conserva en este archivo.\n\n${enqueueNote}`,
+      );
+      setShowRehireModal(false);
+      setSelectedPersonnelForRehire(null);
+      await loadData();
+      if (onRestoreWorker) onRestoreWorker();
+    } catch (error) {
+      console.error('Error al recontratar trabajador:', error);
+      alert(error instanceof Error ? error.message : 'Error al recontratar el trabajador.');
+    } finally {
+      setRehiring(false);
     }
   };
 
@@ -195,6 +269,8 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
         'Estado',
         'Motivo del Cese',
         'Fecha de Nacimiento',
+        'Recontratado',
+        'Motivo de recontratación',
       ];
 
       const data = filteredPersonnel.map((personnel) => {
@@ -211,6 +287,10 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
           'Estado': getPersonnelStatusLabel(personnel),
           'Motivo del Cese': personnel.terminationReason || '',
           'Fecha de Nacimiento': personnel.birthDate ? formatDateDisplay(personnel.birthDate) : '',
+          'Recontratado': rehireBadges[personnel.id]
+            ? (rehireBadges[personnel.id].successorActive ? 'Sí, relación activa' : 'Sí, esa relación también cerró')
+            : 'No',
+          'Motivo de recontratación': rehireBadges[personnel.id]?.rehireReason || '',
         };
       });
 
@@ -246,7 +326,9 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
           <ArchiveIcon className="mr-3" size={28} />
           Archivo de Personal
         </h1>
-        <p className="text-slate-600">Trabajadores cesados o archivados</p>
+        <p className="text-slate-600">
+          Trabajadores cesados o archivados. Recuperar devuelve la misma ficha. Recontratar abre otra relación laboral y deja el cese en este archivo.
+        </p>
       </div>
 
       {/* Barra de búsqueda y exportación */}
@@ -413,6 +495,12 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                       }`}>
                         {getPersonnelStatusLabel(personnel)}
                       </span>
+                      {rehireBadges[personnel.id] && (
+                        <div className="mt-1 text-[11px] leading-tight text-indigo-700 max-w-[10rem]">
+                          Recontratado
+                          {rehireBadges[personnel.id].successorActive ? ' · relación activa' : ' · esa relación cerró'}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600 max-w-xs">
                       {personnel.terminationReason ? (
@@ -436,11 +524,21 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                           </button>
                           <button
                             onClick={() => handleRestore(personnel)}
-                            className="text-green-600 hover:text-green-900 p-2 rounded hover:bg-green-50 transition-colors"
-                            title="Recuperar trabajador"
+                            className="inline-flex items-center gap-1 text-green-700 hover:text-green-900 px-2 py-1 rounded border border-green-200 hover:bg-green-50 transition-colors text-xs"
+                            title="Recuperar: devuelve esta misma ficha como estaba antes del cese. No genera un contrato nuevo."
                             disabled={restoring}
                           >
-                            <RefreshCw size={18} />
+                            <RefreshCw size={14} />
+                            Recuperar
+                          </button>
+                          <button
+                            onClick={() => handleRehire(personnel)}
+                            className="inline-flex items-center gap-1 text-indigo-700 hover:text-indigo-900 px-2 py-1 rounded border border-indigo-200 hover:bg-indigo-50 transition-colors text-xs"
+                            title="Recontratar: nueva relación laboral, en esta u otra unidad, y nuevo envío a Opalosis. El cese permanece."
+                            disabled={rehiring}
+                          >
+                            <UserPlus size={14} />
+                            Recontratar
                           </button>
                         </div>
                       </td>
@@ -554,15 +652,20 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                   >
                     <option value="">Seleccione una unidad...</option>
-                    {filterOperationalUnits(units).map((unit) => (
+                    {filterOperationalUnits<Unit>(units).map((unit) => (
                       <option key={unit.id} value={unit.id}>
                         {unit.name} {unit.id === selectedPersonnel.originalUnitId && '(Unidad de origen)'}
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-slate-500 mt-2">
-                    El trabajador será reactivado y asignado a la unidad seleccionada. No se listan unidades desactivadas.
+                    Recuperar reactiva esta misma ficha y quita el cese: vuelve como estaba antes. No cambia condiciones ni envía un contrato nuevo a Opalosis. Para otra relación laboral use Recontratar.
                   </p>
+                  {rehireBadges[selectedPersonnel.id]?.successorActive && (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+                      Ya existe una recontratación activa. Recuperar esta ficha dejaría dos relaciones abiertas, así que esta acción está bloqueada. El cese permanece.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -580,7 +683,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
                 </button>
                 <button
                   onClick={handleConfirmRestore}
-                  disabled={!selectedUnitId || restoring}
+                  disabled={!selectedUnitId || restoring || Boolean(rehireBadges[selectedPersonnel.id]?.successorActive)}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                 >
                   {restoring ? (
@@ -732,6 +835,21 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, onRestoreWork
             </div>
           </div>
         </div>
+      )}
+
+      {showRehireModal && selectedPersonnelForRehire && (
+        <RehireWorkerModal
+          personnel={selectedPersonnelForRehire}
+          units={units}
+          successor={rehireBadges[selectedPersonnelForRehire.id] || null}
+          submitting={rehiring}
+          onClose={() => {
+            if (rehiring) return;
+            setShowRehireModal(false);
+            setSelectedPersonnelForRehire(null);
+          }}
+          onConfirm={handleConfirmRehire}
+        />
       )}
     </div>
   );

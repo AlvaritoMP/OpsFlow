@@ -6,6 +6,10 @@ export function isUnitOperational(unit: Pick<Unit, 'status'> | null | undefined)
   return unit.status !== UnitStatus.DEACTIVATED;
 }
 
-export function filterOperationalUnits<T extends Pick<Unit, 'status'>>(units: T[]): T[] {
-  return units.filter(isUnitOperational);
+export function filterOperationalUnits<T extends Pick<Unit, 'status'>>(units: readonly T[]): T[] {
+  const operational: T[] = [];
+  for (const unit of units) {
+    if (isUnitOperational(unit)) operational.push(unit);
+  }
+  return operational;
 }

@@ -32,4 +32,5 @@ export * from './attendanceTareoService';
 export * from './attendanceIncidentService';
 export * from './publicComplementaryFichaService';
 export * from './clientBillingService';
+export * from './workerRehireService';
 
