@@ -55,10 +55,15 @@ export interface BillingWorkerInput {
   workCondition: number;
   bonus: number;
   bonusConcept?: string;
+  nightShift?: boolean;
   he25Hours: number;
   he25Manual: number | null;
   he35Hours: number;
   he35Manual: number | null;
+  heNight25Hours?: number;
+  heNight25Manual?: number | null;
+  heNight35Hours?: number;
+  heNight35Manual?: number | null;
   nightHours: number;
   nightManual: number | null;
   socialBaseManual: boolean;
@@ -108,6 +113,8 @@ export interface ComputedWorker {
   basic: number;
   he25: number;
   he35: number;
+  heNight25: number;
+  heNight35: number;
   night: number;
   remLlss: number;
   remTotal: number;
@@ -228,10 +235,15 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   familyAllowance: 'asignación familiar',
   workCondition: 'condición de trabajo',
   bonus: 'bonos',
-  he25Hours: 'horas extra 25%',
-  he25Manual: 'monto manual HE 25%',
-  he35Hours: 'horas extra 35%',
-  he35Manual: 'monto manual HE 35%',
+  nightShift: 'jornada nocturna',
+  he25Hours: 'horas extra diurnas 25%',
+  he25Manual: 'monto manual HE diurna 25%',
+  he35Hours: 'horas extra diurnas 35%',
+  he35Manual: 'monto manual HE diurna 35%',
+  heNight25Hours: 'horas extra nocturnas 25%',
+  heNight25Manual: 'monto manual HE nocturna 25%',
+  heNight35Hours: 'horas extra nocturnas 35%',
+  heNight35Manual: 'monto manual HE nocturna 35%',
   nightHours: 'horas de bono nocturno',
   nightManual: 'monto manual de bono nocturno',
   socialBaseManual: 'base de cargas manual',
@@ -377,10 +389,31 @@ function hourly(salary: number, rates: BillingRates): number {
   return salary / days / hours;
 }
 
-function extraAmount(salary: number, hours: number, factor: number, manual: number | null, rates: BillingRates): number {
+function extraAmount(salary: number, hours: number, factor: number, manual: number | null | undefined, rates: BillingRates): number {
   if (manual !== null && manual !== undefined && Number.isFinite(manual)) return manual;
   if (!hours) return 0;
   return hourly(salary, rates) * factor * hours;
+}
+
+/** Sueldo para horas extra. El 35% nocturno recarga solo el sueldo; la asignación familiar entra plana. */
+function payBaseForOvertime(salary: number, family: number, includeNightBonus: boolean, rates: BillingRates): number {
+  const premium = includeNightBonus ? salary * (rates.nightPremiumRate || 0) : 0;
+  return salary + premium + family;
+}
+
+export function withWorkerDefaults(worker: BillingWorkerInput): BillingWorkerInput {
+  return {
+    ...worker,
+    nightShift: Boolean(worker.nightShift),
+    heNight25Hours: num(worker.heNight25Hours),
+    heNight25Manual: manualOrNull(worker.heNight25Manual),
+    heNight35Hours: num(worker.heNight35Hours),
+    heNight35Manual: manualOrNull(worker.heNight35Manual),
+  };
+}
+
+function manualOrNull(value: number | null | undefined): number | null {
+  return value !== null && value !== undefined && Number.isFinite(value) ? value : null;
 }
 
 export function computeWorker(worker: BillingWorkerInput, rates: BillingRates): ComputedWorker {
@@ -389,11 +422,14 @@ export function computeWorker(worker: BillingWorkerInput, rates: BillingRates): 
   const monthDays = rates.commercialMonthDays || 30;
   const basic = monthDays ? (salary / monthDays) * days : 0;
   const family = num(worker.familyAllowance);
-  const overtimeBase = salary + family;
-  const he25 = extraAmount(overtimeBase, num(worker.he25Hours), rates.he25Factor, worker.he25Manual, rates);
-  const he35 = extraAmount(overtimeBase, num(worker.he35Hours), rates.he35Factor, worker.he35Manual, rates);
+  const dayBase = payBaseForOvertime(salary, family, false, rates);
+  const nightOtBase = payBaseForOvertime(salary, family, true, rates);
+  const he25 = extraAmount(dayBase, num(worker.he25Hours), rates.he25Factor, worker.he25Manual, rates);
+  const he35 = extraAmount(dayBase, num(worker.he35Hours), rates.he35Factor, worker.he35Manual, rates);
+  const heNight25 = extraAmount(nightOtBase, num(worker.heNight25Hours), rates.he25Factor, worker.heNight25Manual, rates);
+  const heNight35 = extraAmount(nightOtBase, num(worker.heNight35Hours), rates.he35Factor, worker.heNight35Manual, rates);
   const night = extraAmount(salary, num(worker.nightHours), rates.nightPremiumRate, worker.nightManual, rates);
-  const remLlss = basic + family + he25 + he35 + night;
+  const remLlss = basic + family + he25 + he35 + heNight25 + heNight35 + night;
   const remTotal = remLlss + num(worker.workCondition) + num(worker.bonus);
   const vacation = remLlss * rates.vacationRate;
   const gratification = remLlss * rates.gratiBonusFactor * rates.gratiRate;
@@ -410,6 +446,8 @@ export function computeWorker(worker: BillingWorkerInput, rates: BillingRates): 
     basic,
     he25,
     he35,
+    heNight25,
+    heNight35,
     night,
     remLlss,
     remTotal,
@@ -531,8 +569,10 @@ export function workerAdjustmentLabels(worker: BillingWorkerInput): string[] {
   if (worker.socialBaseManual && !sameNumber(worker.socialBase, worker.suggested.contractualSalary)) {
     labels.push('base EsSalud/SCTR');
   }
-  if (num(worker.he25Hours) || worker.he25Manual) labels.push('HE 25%');
-  if (num(worker.he35Hours) || worker.he35Manual) labels.push('HE 35%');
+  if (num(worker.he25Hours) || worker.he25Manual) labels.push('HE diurna 25%');
+  if (num(worker.he35Hours) || worker.he35Manual) labels.push('HE diurna 35%');
+  if (num(worker.heNight25Hours) || worker.heNight25Manual) labels.push('HE nocturna 25%');
+  if (num(worker.heNight35Hours) || worker.heNight35Manual) labels.push('HE nocturna 35%');
   if (num(worker.nightHours) || worker.nightManual) labels.push('bono nocturno');
   if (!sameNumber(worker.factor, 1)) labels.push('factor');
   return labels;

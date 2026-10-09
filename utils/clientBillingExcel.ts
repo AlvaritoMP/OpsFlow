@@ -50,6 +50,8 @@ interface WorkerRow {
   family: number;
   he25: number;
   he35: number;
+  heNight25: number;
+  heNight35: number;
   night: number;
   remLlss: number;
   condition: number;
@@ -333,8 +335,10 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
     { header: 'Faltas', width: 6, group: 'personal', kind: 'int', pick: (row) => row.absences },
     money('Rem. básica', 9, 'sueldo', (row) => row.basic),
     money('Asig. fam.', 8.5, 'sueldo', (row) => row.family),
-    money('HE 25%', 8.5, 'sueldo', (row) => row.he25),
-    money('HE 35%', 8.5, 'sueldo', (row) => row.he35),
+    money('HE día 25%', 9, 'sueldo', (row) => row.he25),
+    money('HE día 35%', 9, 'sueldo', (row) => row.he35),
+    money('HE noche 25%', 10, 'sueldo', (row) => row.heNight25),
+    money('HE noche 35%', 10, 'sueldo', (row) => row.heNight35),
     money('Bono noct.', 8.5, 'sueldo', (row) => row.night),
     money('Rem. cargas', 9.5, 'sueldo', (row) => row.remLlss),
     money('Cond. trab.', 8.5, 'sueldo', (row) => row.condition),
@@ -377,6 +381,8 @@ function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefine
     family: amount(worker.familyAllowance),
     he25: amount(line?.he25),
     he35: amount(line?.he35),
+    heNight25: amount(line?.heNight25),
+    heNight35: amount(line?.heNight35),
     night: amount(line?.night),
     remLlss: amount(line?.remLlss),
     condition: amount(worker.workCondition),

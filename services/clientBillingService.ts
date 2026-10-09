@@ -29,6 +29,7 @@ import {
   round2,
   snapshotFromSavedTotals,
   subtractBillingSnapshots,
+  withWorkerDefaults,
 } from '../utils/clientBillingCalc';
 
 export type BillingStatus = 'draft' | 'issued' | 'void';
@@ -1021,10 +1022,15 @@ function workerFromPersonnel(
     workCondition,
     bonus: bonusAmount,
     bonusConcept: bonus?.concept.filter(Boolean).join(', ') || undefined,
+    nightShift: false,
     he25Hours: 0,
     he25Manual: null,
     he35Hours: 0,
     he35Manual: null,
+    heNight25Hours: 0,
+    heNight25Manual: null,
+    heNight35Hours: 0,
+    heNight35Manual: null,
     nightHours: 0,
     nightManual: null,
     socialBaseManual: false,
@@ -1255,6 +1261,7 @@ function mapNote(row: any): ClientBillingNote {
 
 function mapRecord(row: any): ClientBillingRecord {
   const model = (row.payload?.model || row.payload) as ClientBillingModel;
+  model.workers = (model.workers || []).map(withWorkerDefaults);
   return {
     id: row.id,
     unitId: row.unit_id,

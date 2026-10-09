@@ -1040,10 +1040,15 @@ function EditorView(props: {
                                 familyAllowance: 0,
                                 workCondition: 0,
                                 bonus: 0,
+                                nightShift: false,
                                 he25Hours: 0,
                                 he25Manual: null,
                                 he35Hours: 0,
                                 he35Manual: null,
+                                heNight25Hours: 0,
+                                heNight25Manual: null,
+                                heNight35Hours: 0,
+                                heNight35Manual: null,
                                 nightHours: 0,
                                 nightManual: null,
                                 socialBaseManual: false,
@@ -1323,12 +1328,16 @@ function LaborSheet(props: {
             <th className={head}>Faltas</th>
             <th className={head}>Días</th>
             <th className={head}>Asig. fam.</th>
-            <th className={head}>HE 25 h</th>
-            <th className={head} title="(sueldo + asignación familiar) / días del mes / horas por día × factor 1.25 × horas">HE 25 S/</th>
-            <th className={head}>HE 35 h</th>
-            <th className={head} title="(sueldo + asignación familiar) / días del mes / horas por día × factor 1.35 × horas">HE 35 S/</th>
-            <th className={head}>Noc. h</th>
-            <th className={head}>Noc. S/</th>
+            <th className={head}>HE día 25 h</th>
+            <th className={head} title="(sueldo + asignación familiar) / 30 / 8 × 1.25 × horas">HE día 25 S/</th>
+            <th className={head}>HE día 35 h</th>
+            <th className={head} title="(sueldo + asignación familiar) / 30 / 8 × 1.35 × horas">HE día 35 S/</th>
+            <th className={head} title="Horas extra nocturnas al 25%. El monto usa las horas ingresadas aquí.">HE noche 25 h</th>
+            <th className={head} title="(sueldo + 35% del sueldo + asignación familiar) / 30 / 8 × 1.25 × horas. La asignación familiar no lleva el 35%.">HE noche 25 S/</th>
+            <th className={head} title="Horas extra nocturnas al 35%. El monto usa las horas ingresadas aquí.">HE noche 35 h</th>
+            <th className={head} title="(sueldo + 35% del sueldo + asignación familiar) / 30 / 8 × 1.35 × horas. La asignación familiar no lleva el 35%.">HE noche 35 S/</th>
+            <th className={head} title="Recargo del 35% sobre el sueldo, sin asignación familiar. No es hora extra.">Bono h</th>
+            <th className={head} title="Recargo del 35% sobre el sueldo, sin asignación familiar. No es hora extra.">Bono S/</th>
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
@@ -1383,10 +1392,42 @@ function LaborSheet(props: {
                   />
                 </td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'familyAllowance')} title={hint(worker, 'familyAllowance')} disabled={props.locked} value={worker.familyAllowance} onChange={(familyAllowance) => props.onPatchWorker(worker.id, { familyAllowance })} /></td>
-                <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.he25Hours} onChange={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })} /></td>
-                <td className="px-1 py-1"><GridNum amber={worker.he25Manual !== null} title={worker.he25Manual !== null ? 'Monto escrito a mano' : 'Calculado sobre sueldo + asignación familiar'} disabled={props.locked} value={worker.he25Manual !== null ? worker.he25Manual : roundShown(line?.he25)} onChange={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })} /></td>
-                <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.he35Hours} onChange={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })} /></td>
-                <td className="px-1 py-1"><GridNum amber={worker.he35Manual !== null} title={worker.he35Manual !== null ? 'Monto escrito a mano' : 'Calculado sobre sueldo + asignación familiar'} disabled={props.locked} value={worker.he35Manual !== null ? worker.he35Manual : roundShown(line?.he35)} onChange={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })} /></td>
+                <OvertimeCells
+                  hours={worker.he25Hours}
+                  manual={worker.he25Manual}
+                  amount={line?.he25}
+                  locked={props.locked}
+                  formula={dayOvertimeFormula(1.25)}
+                  onHours={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })}
+                  onManual={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })}
+                />
+                <OvertimeCells
+                  hours={worker.he35Hours}
+                  manual={worker.he35Manual}
+                  amount={line?.he35}
+                  locked={props.locked}
+                  formula={dayOvertimeFormula(1.35)}
+                  onHours={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })}
+                  onManual={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })}
+                />
+                <OvertimeCells
+                  hours={worker.heNight25Hours || 0}
+                  manual={worker.heNight25Manual}
+                  amount={line?.heNight25}
+                  locked={props.locked}
+                  formula={nightOvertimeFormula(1.25)}
+                  onHours={(heNight25Hours) => props.onPatchWorker(worker.id, { heNight25Hours, heNight25Manual: null })}
+                  onManual={(heNight25Manual) => props.onPatchWorker(worker.id, { heNight25Manual })}
+                />
+                <OvertimeCells
+                  hours={worker.heNight35Hours || 0}
+                  manual={worker.heNight35Manual}
+                  amount={line?.heNight35}
+                  locked={props.locked}
+                  formula={nightOvertimeFormula(1.35)}
+                  onHours={(heNight35Hours) => props.onPatchWorker(worker.id, { heNight35Hours, heNight35Manual: null })}
+                  onManual={(heNight35Manual) => props.onPatchWorker(worker.id, { heNight35Manual })}
+                />
                 <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.nightHours} onChange={(nightHours) => props.onPatchWorker(worker.id, { nightHours, nightManual: null })} /></td>
                 <td className="px-1 py-1"><GridNum amber={worker.nightManual !== null} disabled={props.locked} value={worker.nightManual !== null ? worker.nightManual : roundShown(line?.night)} onChange={(nightManual) => props.onPatchWorker(worker.id, { nightManual })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'workCondition')} title={hint(worker, 'workCondition')} disabled={props.locked} value={worker.workCondition} onChange={(workCondition) => props.onPatchWorker(worker.id, { workCondition })} /></td>
@@ -1416,6 +1457,46 @@ function LaborSheet(props: {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function dayOvertimeFormula(factor: number): string {
+  return `Hora extra diurna: (sueldo + asignación familiar) / 30 / 8 × ${factor} × horas.`;
+}
+
+function nightOvertimeFormula(factor: number): string {
+  return `Hora extra de 10pm a 6am: (sueldo + 35% del sueldo + asignación familiar) / 30 / 8 × ${factor} × horas. La asignación familiar no lleva el 35%.`;
+}
+
+function isManualAmount(value: number | null | undefined): boolean {
+  return value !== null && value !== undefined && Number.isFinite(value);
+}
+
+function OvertimeCells(props: {
+  hours: number;
+  manual: number | null | undefined;
+  amount: number | undefined;
+  locked: boolean;
+  formula: string;
+  onHours: (hours: number) => void;
+  onManual: (amount: number) => void;
+}) {
+  const written = isManualAmount(props.manual);
+  return (
+    <>
+      <td className="px-1 py-1">
+        <GridNum step="0.5" disabled={props.locked} value={props.hours} onChange={props.onHours} />
+      </td>
+      <td className="px-1 py-1">
+        <GridNum
+          amber={written}
+          title={written ? 'Monto escrito a mano' : props.formula}
+          disabled={props.locked}
+          value={written ? (props.manual as number) : roundShown(props.amount)}
+          onChange={props.onManual}
+        />
+      </td>
+    </>
   );
 }
 

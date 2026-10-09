@@ -888,7 +888,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     sections: [
       {
         heading: 'Cómo se arma',
-        body: 'Elija la unidad y el mes de facturación. OpsFlow carga el personal activo, el sueldo, la asignación familiar, la condición de trabajo y los bonos del mes. Usted completa días, horas extra, bono nocturno, materiales, gastos de estructura y la utilidad.',
+        body: 'Elija la unidad y el mes de facturación. OpsFlow carga el personal activo, el sueldo, la asignación familiar, la condición de trabajo y los bonos del mes. Usted completa días, horas extra diurnas y nocturnas al 25% y al 35%, bono nocturno, materiales, gastos de estructura y la utilidad.',
         steps: [
           'Nueva facturación: unidad (no BPO), mes de facturación y, si aplica, copiar costos del mes anterior.',
           'Personal: en la tabla horizontal revise sueldo, faltas y días. Lo amarillo está ajustado a mano.',
@@ -900,6 +900,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'El total principal no incluye IGV. EsSalud y SCTR usan el sueldo contractual completo, no el proporcional a los días.',
+          'Las horas extra diurnas usan sueldo + asignación familiar. Las cuatro columnas de hora extra nocturna usan las horas que usted ingrese: sueldo + 35% del sueldo + asignación familiar, y la asignación familiar no lleva el 35%.',
           'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
           'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase. Para corridas y notas, ejecute también migrations/MIGRATION_CLIENT_BILLING_RUNS.sql.',
         ],
