@@ -82,6 +82,12 @@ export interface BillingWorkerInput {
   /** Faltas de Mattermost, tareo o asistencia, sin contar dos veces el mismo día. */
   absenceDays?: number;
   absenceDetail?: string;
+  /** Fecha de inicio de la ficha (YYYY-MM-DD). */
+  startDate?: string;
+  /** Fecha de cese de la ficha (YYYY-MM-DD). Vacío si sigue vigente. */
+  endDate?: string;
+  /** Sigue activo en la unidad. Quien cesó entra solo si su relación pisa el corte. */
+  activeOnUnit?: boolean;
   notes?: string;
   suggested?: BillingWorkerSuggestion;
 }
@@ -268,6 +274,8 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   calendarDays: 'días del corte',
   absenceDays: 'faltas descontadas',
   absenceDetail: 'detalle de faltas',
+  startDate: 'fecha de inicio',
+  endDate: 'fecha de cese',
   notes: 'nota',
 };
 
@@ -345,6 +353,44 @@ export function formatAttendanceDate(iso?: string | null): string {
 
 export function formatAttendanceRange(from?: string | null, to?: string | null): string {
   return `${formatAttendanceDate(from)} – ${formatAttendanceDate(to)}`;
+}
+
+export function formatBillingDate(iso?: string | null): string {
+  if (!isIsoDate(iso)) return '';
+  const [year, month, day] = iso.slice(0, 10).split('-');
+  return `${day}/${month}/${year}`;
+}
+
+/** Activo en la unidad: no archivado y sin estado de cese. */
+export function isOpenPersonnelRecord(person: {
+  archived?: boolean | null;
+  personnel_status?: string | null;
+}): boolean {
+  const status = (person.personnel_status || '').toLowerCase();
+  return person.archived !== true && status !== 'cesado' && status !== 'archivado';
+}
+
+/**
+ * Entra a la facturación de la unidad: todo el personal vigente,
+ * más quien cesó o se archivó y su relación laboral pisa el corte.
+ */
+export function includePersonnelInBilling(
+  person: {
+    archived?: boolean | null;
+    personnel_status?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
+  },
+  window: AttendanceWindow
+): boolean {
+  if (isOpenPersonnelRecord(person)) return true;
+  const end = isIsoDate(person.end_date) ? person.end_date.slice(0, 10) : '';
+  const start = isIsoDate(person.start_date) ? person.start_date.slice(0, 10) : '';
+  const from = window.from.slice(0, 10);
+  const to = window.to.slice(0, 10);
+  if (!end || end < from) return false;
+  if (start && start > to) return false;
+  return true;
 }
 
 export function commercialDaysInPeriod(

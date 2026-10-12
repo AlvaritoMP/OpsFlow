@@ -56,6 +56,7 @@ import {
   computeBilling,
   diffBillingModels,
   formatAttendanceRange,
+  formatBillingDate,
   formatPeriodLabel,
   inclusiveDayCount,
   monthDateBounds,
@@ -262,7 +263,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setAppliedAttendanceKey(attendanceWindowKey(createPeriod, model.attendanceFrom, model.attendanceTo));
       setShowCreate(false);
       setTab('labor');
-      setBanner(`Borrador armado con el personal activo. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.`);
+      setBanner(`Borrador armado con el personal activo y con quien trabajó en el corte. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.`);
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo preparar la facturación.');
     } finally {
@@ -986,7 +987,7 @@ function EditorView(props: {
                   <Users size={16} className="shrink-0" />
                   <span>
                     {sheetMode === 'costs'
-                      ? 'Cada fila es un trabajador. Los días ya restan las faltas del corte. Lo amarillo fue ajustado a mano.'
+                      ? 'Cada fila es un trabajador activo o que trabajó en el corte. Inicio y cese salen de la ficha y prorratean los días; luego se restan las faltas. Lo amarillo fue ajustado a mano.'
                       : sheetMode === 'attendance'
                         ? 'Asistencia del corte, por día. ✓ marcación completa, ½ incompleta, F falta o sin marcas, T tardanza.'
                         : 'Novedades de tareo del corte, con la misma clave que en la unidad.'}
@@ -1200,6 +1201,17 @@ const GLANCE_TONE: Record<string, string> = {
 const GLANCE_WEEKDAYS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 const GLANCE_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
+function WorkerTenure(props: { worker: BillingWorkerInput }) {
+  if (props.worker.origin === 'manual' && !props.worker.startDate && !props.worker.endDate) return null;
+  return (
+    <div className="text-[10px] leading-tight tabular-nums text-slate-500 whitespace-nowrap">
+      Inicio {formatBillingDate(props.worker.startDate) || '—'}
+      <span className="mx-1 text-slate-300">·</span>
+      Cese {formatBillingDate(props.worker.endDate) || '—'}
+    </div>
+  );
+}
+
 function glanceDayParts(iso: string): { day: string; weekday: string; month: string } {
   const [year, month, day] = iso.split('-').map(Number);
   const date = new Date(year, (month || 1) - 1, day || 1);
@@ -1277,6 +1289,7 @@ function DayGlanceSheet(props: {
                   <td className="sticky left-0 z-20 bg-white px-2 py-1 border-t border-slate-100 min-w-[180px]">
                     <div className="font-medium text-slate-800 truncate max-w-[200px]">{worker.name || 'Sin nombre'}</div>
                     <div className="text-[10px] text-slate-400 truncate">{worker.position || (worker.resourceId ? '' : 'Manual, sin ficha')}</div>
+                    <WorkerTenure worker={worker} />
                   </td>
                   {props.glance.days.map((iso) => {
                     const cell = row?.[iso];
@@ -1326,6 +1339,8 @@ function LaborSheet(props: {
           <tr>
             <th className={`${headLeft} sticky left-0 z-30 w-8`} />
             <th className={`${headLeft} sticky left-8 z-30 min-w-[180px] bg-slate-100`}>Trabajador</th>
+            <th className={headLeft} title="Fecha de inicio en la ficha">Inicio</th>
+            <th className={headLeft} title="Fecha de cese en la ficha. Vacío si sigue activo">Cese</th>
             <th className={headLeft}>Puesto</th>
             <th className={head}>Sueldo</th>
             <th className={head} title="Días del corte, antes de restar faltas">Días corte</th>
@@ -1371,13 +1386,17 @@ function LaborSheet(props: {
                 <td className="sticky left-8 z-20 bg-white px-1.5 py-1 min-w-[180px] align-middle">
                   <input className={gridText} disabled={props.locked} value={worker.name} placeholder="Nombre" onChange={(event) => props.onPatchWorker(worker.id, { name: event.target.value })} />
                   <div className="flex items-center gap-1 text-[10px] text-slate-400 truncate">
-                    <span className="truncate">{worker.origin === 'manual' ? 'Manual' : worker.missingFromUnit ? 'Ya no está en la unidad' : worker.contractualSalary <= 0 ? 'Sin sueldo en ficha' : ''}</span>
+                    <span className="truncate">{worker.origin === 'manual' ? 'Manual' : worker.activeOnUnit === false ? 'Cesó; los días del corte llegan hasta su cese' : worker.missingFromUnit ? 'Ya no está en la unidad' : worker.contractualSalary <= 0 ? 'Sin sueldo en ficha' : ''}</span>
                     {worker.origin === 'manual' && !props.locked && (
                       <button type="button" className="text-red-500 shrink-0" onClick={() => props.onRemove(worker.id)} title="Quitar">
                         <Trash2 size={11} />
                       </button>
                     )}
                   </div>
+                </td>
+                <td className="px-1.5 py-1 whitespace-nowrap tabular-nums text-slate-600">{formatBillingDate(worker.startDate) || '—'}</td>
+                <td className="px-1.5 py-1 whitespace-nowrap tabular-nums text-slate-600" title={worker.endDate ? 'Los días del corte se cuentan hasta esta fecha' : 'Sigue sin fecha de cese'}>
+                  {formatBillingDate(worker.endDate) || '—'}
                 </td>
                 <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'contractualSalary')} title={hint(worker, 'contractualSalary')} disabled={props.locked} value={worker.contractualSalary} onChange={salary} /></td>

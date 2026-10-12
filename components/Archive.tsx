@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Unit, Resource, UserRole } from '../types';
 import { resourcesService } from '../services/resourcesService';
 import { unitsService } from '../services/unitsService';
-import { Archive as ArchiveIcon, Building, RefreshCw, Search, X, CheckCircle, Edit2, Download, UserPlus } from 'lucide-react';
+import { Archive as ArchiveIcon, Building, RefreshCw, Search, X, CheckCircle, Edit2, Download, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import { SafeImage } from './SafeImage';
 import { checkPermission } from '../services/permissionService';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
@@ -17,6 +17,7 @@ import {
   splitTerminationReason,
 } from '../utils/terminationReason';
 import { RehireWorkerModal } from './RehireWorkerModal';
+import { economicExportFields, formatPenAmount, familyAllowanceLabel, PersonnelEconomicSummary } from './PersonnelEconomicSummary';
 import {
   findActivePersonnelByDocument,
   listRehireBadges,
@@ -59,6 +60,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
   const [selectedPersonnelForRehire, setSelectedPersonnelForRehire] = useState<ArchivedPersonnel | null>(null);
   const [rehiring, setRehiring] = useState(false);
   const [rehireBadges, setRehireBadges] = useState<Record<string, WorkerRehireBadge>>({});
+  const [expandedEconomicId, setExpandedEconomicId] = useState<string | null>(null);
 
   const canView = checkPermission(currentUserRole || 'OPERATIONS', 'ARCHIVE', 'view');
   const canEdit = checkPermission(currentUserRole || 'OPERATIONS', 'ARCHIVE', 'edit');
@@ -269,6 +271,16 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
         'Estado',
         'Motivo del Cese',
         'Fecha de Nacimiento',
+        'Turno',
+        'Jornada',
+        'Régimen laboral',
+        'Salario bruto (S/)',
+        'Condición de trabajo (S/)',
+        'Bono (S/)',
+        'Asignación familiar',
+        'Días de trabajo',
+        'Horario',
+        'Total montos fijos (S/)',
         'Recontratado',
         'Motivo de recontratación',
       ];
@@ -287,6 +299,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
           'Estado': getPersonnelStatusLabel(personnel),
           'Motivo del Cese': personnel.terminationReason || '',
           'Fecha de Nacimiento': personnel.birthDate ? formatDateDisplay(personnel.birthDate) : '',
+          ...economicExportFields(personnel),
           'Recontratado': rehireBadges[personnel.id]
             ? (rehireBadges[personnel.id].successorActive ? 'Sí, relación activa' : 'Sí, esa relación también cerró')
             : 'No',
@@ -327,7 +340,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
           Archivo de Personal
         </h1>
         <p className="text-slate-600">
-          Trabajadores cesados o archivados. Recuperar devuelve la misma ficha. Recontratar abre otra relación laboral y deja el cese en este archivo.
+          Trabajadores cesados o archivados, con el salario, bono, asignación, turno y demás condiciones que formaban su ingreso antes del cese. Recuperar devuelve la misma ficha. Recontratar abre otra relación laboral y deja el cese en este archivo.
         </p>
       </div>
 
@@ -402,6 +415,10 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Trabajador</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">DNI</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Puesto</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Turno</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Salario</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Bono</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Asignación</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Unidad de Origen</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Fechas</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Fecha de Cese</th>
@@ -414,7 +431,8 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
                 {filteredPersonnel.map((personnel) => (
-                  <tr key={personnel.id} className="hover:bg-slate-50">
+                  <React.Fragment key={personnel.id}>
+                  <tr className="hover:bg-slate-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-100 flex-shrink-0 mr-4">
@@ -437,6 +455,14 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                               Cumpleaños: {formatDateDisplay(personnel.birthDate)}
                             </div>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => setExpandedEconomicId((current) => current === personnel.id ? null : personnel.id)}
+                            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-900"
+                          >
+                            {expandedEconomicId === personnel.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            {expandedEconomicId === personnel.id ? 'Ocultar condiciones' : 'Ver condiciones económicas'}
+                          </button>
                         </div>
                       </div>
                     </td>
@@ -445,6 +471,27 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                       {personnel.puesto || <span className="text-slate-300 italic">-</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                      {personnel.assignedShift?.trim() || <span className="text-slate-300 italic">-</span>}
+                      {personnel.jornadaType?.trim() && (
+                        <div className="text-[11px] text-slate-500">{personnel.jornadaType}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 text-right font-medium">
+                      {personnel.monthlySalary != null
+                        ? formatPenAmount(personnel.monthlySalary)
+                        : <span className="text-slate-300 italic font-normal">-</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700 text-right">
+                      {personnel.mobilityBonus != null
+                        ? formatPenAmount(personnel.mobilityBonus)
+                        : <span className="text-slate-300 italic">-</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-700">
+                      {personnel.familyAllowance == null
+                        ? <span className="text-slate-300 italic">-</span>
+                        : familyAllowanceLabel(personnel.familyAllowance)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center text-sm text-slate-600">
@@ -544,6 +591,17 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                       </td>
                     )}
                   </tr>
+                  {expandedEconomicId === personnel.id && (
+                    <tr className="bg-slate-50/80">
+                      <td colSpan={canEdit ? 13 : 12} className="px-6 pb-4">
+                        <PersonnelEconomicSummary
+                          person={personnel}
+                          tone={personnel.personnelStatus === 'cesado' ? 'terminated' : 'archive'}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

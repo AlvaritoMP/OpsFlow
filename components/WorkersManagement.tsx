@@ -8,6 +8,7 @@ import { SafeImage } from './SafeImage';
 import { DateInput } from './DateInput';
 import { checkPermission } from '../services/permissionService';
 import { TransferWorkerModal } from './TransferWorkerModal';
+import { PersonnelEconomicSummary } from './PersonnelEconomicSummary';
 import { TransferWorkerResult } from '../services/workerTransferService';
 
 interface WorkersManagementProps {
@@ -609,6 +610,12 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
               </div>
             </div>
             <div className="p-6 space-y-4">
+              {(selectedWorker.archived || selectedWorker.personnelStatus === 'cesado' || selectedWorker.personnelStatus === 'archivado') && (
+                <PersonnelEconomicSummary
+                  person={selectedWorker}
+                  tone={selectedWorker.personnelStatus === 'cesado' ? 'terminated' : 'archive'}
+                />
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-slate-700">Nombre</label>

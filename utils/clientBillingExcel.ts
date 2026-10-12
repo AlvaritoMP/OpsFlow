@@ -7,6 +7,7 @@ import {
   ClientBillingModel,
   ComputedWorker,
   formatAttendanceRange,
+  formatBillingDate,
   formatPeriodLabel,
   inclusiveDayCount,
   resolveAttendanceWindow,
@@ -44,6 +45,8 @@ type GroupId = 'personal' | 'sueldo' | 'cargas' | 'costo';
 interface WorkerRow {
   name: string;
   position: string;
+  startDate: string;
+  endDate: string;
   days: number;
   absences: number;
   basic: number;
@@ -331,6 +334,8 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
   const columns: SheetColumn[] = [
     { header: 'Trabajador', width: 18, group: 'personal', kind: 'text', pick: (row) => row.name },
     { header: 'Puesto', width: 14, group: 'personal', kind: 'text', pick: (row) => row.position },
+    { header: 'Inicio', width: 11, group: 'personal', kind: 'text', pick: (row) => row.startDate },
+    { header: 'Cese', width: 11, group: 'personal', kind: 'text', pick: (row) => row.endDate },
     { header: 'Días', width: 5.5, group: 'personal', kind: 'int', pick: (row) => row.days },
     { header: 'Faltas', width: 6, group: 'personal', kind: 'int', pick: (row) => row.absences },
     money('Rem. básica', 9, 'sueldo', (row) => row.basic),
@@ -375,6 +380,8 @@ function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefine
   return {
     name: worker.name.trim() || 'Sin nombre',
     position: worker.position.trim(),
+    startDate: formatBillingDate(worker.startDate),
+    endDate: formatBillingDate(worker.endDate),
     days: amount(worker.daysWorked),
     absences: amount(worker.absenceDays),
     basic: amount(line?.basic),

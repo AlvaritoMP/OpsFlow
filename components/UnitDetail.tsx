@@ -18,6 +18,7 @@ import { TransferWorkerModal } from './TransferWorkerModal';
 import { TransferWorkerResult } from '../services/workerTransferService';
 import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
 import { WorkerComplementaryPanel } from './WorkerComplementaryPanel';
+import { PersonnelEconomicSummary } from './PersonnelEconomicSummary';
 import { WORK_DAY_OPTIONS, REGIME_OPTIONS, jornadaOptionList } from './OpsflowIntakeForm';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import { patchUnitView, readUnitView } from '../utils/unitViewMemory';
@@ -6937,9 +6938,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             )}
           </h3>
           <p className="text-slate-500 text-sm">
-            {showArchivedPersonnel ? 'Personal archivado' : 
-             showCesadoPersonnel ? 'Personal cesado (no archivado)' : 
-             'Administración de colaboradores, asistencias y capacitaciones.'}
+            {showArchivedPersonnel
+              ? 'Personal archivado. Abajo de cada ficha están el salario, el bono, la asignación, el turno y las demás condiciones de ingreso anteriores al archivo.'
+              : showCesadoPersonnel
+              ? 'Personal cesado. Abajo de cada ficha están el salario, el bono, la asignación, el turno y las demás condiciones de ingreso anteriores al cese.'
+              : 'Administración de colaboradores, asistencias y capacitaciones.'}
           </p>
         </div>
         {canViewPersonnel && (
@@ -7315,7 +7318,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </div>
                     </div>
                     <div className="col-span-1 hidden lg:flex items-center justify-center text-sm text-slate-700 font-medium">
-                       {worker.monthlySalary ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-300 italic">-</span>}
+                       {worker.monthlySalary != null ? `S/ ${worker.monthlySalary.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-300 italic">-</span>}
                     </div>
                     <div className="col-span-1 hidden lg:flex items-center justify-center text-xs">
                        {(worker.assignedZones?.length ?? 0) > 0 ? (
@@ -7544,6 +7547,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         )}
                     </div>
                  </div>
+
+                 {(showArchivedPersonnel || showCesadoPersonnel) && (
+                   <div className="px-4 pb-4">
+                     <PersonnelEconomicSummary
+                       person={worker}
+                       tone={showCesadoPersonnel ? 'terminated' : 'archive'}
+                       title={showCesadoPersonnel ? 'Condiciones económicas antes del cese' : 'Condiciones económicas antes del archivo'}
+                     />
+                   </div>
+                 )}
 
                  {/* Expanded Details */}
                  {expandedPersonnel === worker.id && (

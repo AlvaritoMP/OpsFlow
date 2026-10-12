@@ -1020,9 +1020,15 @@ function transformResourceFromDB(
     inTraining: data.in_training || false,
     trainingStartDate: normalizeDateFromDB(data.training_start_date),
     contractGenerated: data.contract_generated || false,
-    // Campos de salario
-    monthlySalary: data.monthly_salary ? Number(data.monthly_salary) : undefined,
-    workConditionAmount: data.work_condition_amount ? Number(data.work_condition_amount) : undefined,
+    // Campos de salario (0 es un monto válido; no tratarlo como vacío)
+    monthlySalary:
+      data.monthly_salary !== null && data.monthly_salary !== undefined
+        ? Number(data.monthly_salary)
+        : undefined,
+    workConditionAmount:
+      data.work_condition_amount !== null && data.work_condition_amount !== undefined
+        ? Number(data.work_condition_amount)
+        : undefined,
     workDays: Array.isArray(data.work_days) ? data.work_days.filter(Boolean) : undefined,
     entryTime: data.entry_time || undefined,
     exitTime: data.exit_time || undefined,

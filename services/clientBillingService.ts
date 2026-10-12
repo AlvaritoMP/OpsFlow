@@ -19,6 +19,9 @@ import {
   cloneModel,
   commercialDaysInWindow,
   computeBilling,
+  includePersonnelInBilling,
+  isIsoDate,
+  isOpenPersonnelRecord,
   defaultAdjustmentDescription,
   resolveAttendanceWindow,
   defaultAdministrativeLines,
@@ -153,7 +156,7 @@ export async function prepareBillingDraft(
   const [profile, previous, people, compensations, absences] = await Promise.all([
     loadProfile(unit.id),
     loadPrevious(unit.id, periodMonth),
-    loadPersonnel(unit.id),
+    loadPersonnel(unit.id, window),
     variableCompensationsService.getByUnitAndMonth(unit.id, periodMonth).catch(() => []),
     loadAbsenceDeductions(unit.id, window),
   ]);
@@ -180,7 +183,7 @@ export async function prepareBillingDraft(
 
   model.workers = people
     .map((person) => workerFromPersonnel(person, window, rates, bonuses.get(person.id), absences.get(person.id)))
-    .filter((worker) => (worker.calendarDays || 0) > 0 || worker.daysWorked > 0)
+    .filter(keepBillingWorker)
     .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
   if (options.copyPreviousCosts && previous) {
@@ -205,7 +208,7 @@ export async function refreshWorkersFromUnit(
   if (windowError) throw new Error(windowError);
 
   const [people, compensations, absences] = await Promise.all([
-    loadPersonnel(unitId),
+    loadPersonnel(unitId, window),
     variableCompensationsService.getByUnitAndMonth(unitId, periodMonth).catch(() => []),
     loadAbsenceDeductions(unitId, window),
   ]);
@@ -225,7 +228,7 @@ export async function refreshWorkersFromUnit(
 
   people.forEach((person) => {
     const fresh = workerFromPersonnel(person, window, model.rates, bonuses.get(person.id), absences.get(person.id));
-    const outsideCutoff = (fresh.calendarDays || 0) <= 0 && fresh.daysWorked <= 0;
+    const outsideCutoff = !keepBillingWorker(fresh);
     if (outsideCutoff && !byResource.has(person.id)) return;
     seen.add(person.id);
     const current = byResource.get(person.id);
@@ -251,6 +254,9 @@ export async function refreshWorkersFromUnit(
     current.calendarDays = fresh.calendarDays;
     current.absenceDays = fresh.absenceDays;
     current.absenceDetail = fresh.absenceDetail;
+    current.startDate = fresh.startDate;
+    current.endDate = fresh.endDate;
+    current.activeOnUnit = fresh.activeOnUnit;
     current.suggested = fresh.suggested;
     current.missingFromUnit = false;
     current.name = current.name || fresh.name;
@@ -644,14 +650,18 @@ async function loadPrevious(unitId: string, periodMonth: string): Promise<Client
   return data ? mapRecord(data) : null;
 }
 
-async function loadPersonnel(unitId: string): Promise<PersonnelRow[]> {
+async function loadPersonnel(unitId: string, window: AttendanceWindow): Promise<PersonnelRow[]> {
   const { data, error } = await db
     .from('resources')
     .select('id,name,puesto,dni,monthly_salary,work_condition_amount,family_allowance,personnel_status,archived,start_date,end_date,type')
     .eq('unit_id', unitId)
     .eq('type', 'Personal');
   if (error) throw mapError(error);
-  return ((data || []) as PersonnelRow[]).filter((row) => row.archived !== true && row.personnel_status !== 'archivado');
+  return ((data || []) as PersonnelRow[]).filter((row) => includePersonnelInBilling(row, window));
+}
+
+function keepBillingWorker(worker: BillingWorkerInput): boolean {
+  return Boolean(worker.activeOnUnit) || (worker.calendarDays || 0) > 0 || worker.daysWorked > 0;
 }
 
 interface AbsenceDeduction {
@@ -1002,8 +1012,11 @@ function workerFromPersonnel(
   absence?: AbsenceDeduction
 ): BillingWorkerInput {
   const salary = Number(person.monthly_salary) || 0;
-  let calendarDays = commercialDaysInWindow(window, person.start_date, person.end_date, person.personnel_status);
-  if (person.personnel_status === 'cesado' && !person.end_date) calendarDays = 0;
+  const startDate = isIsoDate(person.start_date) ? person.start_date.slice(0, 10) : undefined;
+  const endDate = isIsoDate(person.end_date) ? person.end_date.slice(0, 10) : undefined;
+  const activeOnUnit = isOpenPersonnelRecord(person);
+  let calendarDays = commercialDaysInWindow(window, startDate, endDate, person.personnel_status);
+  if (!activeOnUnit && !endDate) calendarDays = 0;
   const absenceDays = Math.min(calendarDays, absence?.days || 0);
   const days = Math.max(0, calendarDays - absenceDays);
   const family = person.family_allowance ? rates.familyAllowanceAmount : 0;
@@ -1016,6 +1029,9 @@ function workerFromPersonnel(
     position: person.puesto || '',
     dni: person.dni || undefined,
     included: days > 0,
+    startDate,
+    endDate,
+    activeOnUnit,
     origin: 'unit',
     contractualSalary: salary,
     daysWorked: days,
