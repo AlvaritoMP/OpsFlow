@@ -88,6 +88,8 @@ export interface BillingWorkerInput {
   endDate?: string;
   /** Sigue activo en la unidad. Quien cesó entra solo si su relación pisa el corte. */
   activeOnUnit?: boolean;
+  /** El usuario editó Días. Ese valor no se reemplaza al recalcular. */
+  daysManual?: boolean;
   notes?: string;
   suggested?: BillingWorkerSuggestion;
 }
@@ -276,6 +278,7 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   absenceDetail: 'detalle de faltas',
   startDate: 'fecha de inicio',
   endDate: 'fecha de cese',
+  daysManual: 'días editados a mano',
   notes: 'nota',
 };
 
@@ -391,6 +394,21 @@ export function includePersonnelInBilling(
   if (!end || end < from) return false;
   if (start && start > to) return false;
   return true;
+}
+
+/**
+ * Días inclusive desde el Desde del corte hasta el cese.
+ * Null si no hay cese dentro del corte (cesó el mismo Hasta o después, o no hay fecha):
+ * en ese caso se usa el corte completo.
+ */
+export function payableDaysUntilCese(window: AttendanceWindow, endDate?: string | null): number | null {
+  if (!isIsoDate(endDate) || !isIsoDate(window.from) || !isIsoDate(window.to)) return null;
+  const from = window.from.slice(0, 10);
+  const to = window.to.slice(0, 10);
+  const end = endDate.slice(0, 10);
+  if (end < from) return 0;
+  if (end >= to) return null;
+  return inclusiveDayCount(from, end);
 }
 
 export function commercialDaysInPeriod(

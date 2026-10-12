@@ -22,6 +22,7 @@ import {
   includePersonnelInBilling,
   isIsoDate,
   isOpenPersonnelRecord,
+  payableDaysUntilCese,
   defaultAdjustmentDescription,
   resolveAttendanceWindow,
   defaultAdministrativeLines,
@@ -239,7 +240,7 @@ export async function refreshWorkersFromUnit(
     const previousSuggestion = current.suggested;
     if (previousSuggestion) {
       if (same(current.contractualSalary, previousSuggestion.contractualSalary)) current.contractualSalary = fresh.contractualSalary;
-      if (same(current.daysWorked, previousSuggestion.daysWorked)) {
+      if (!current.daysManual && same(current.daysWorked, previousSuggestion.daysWorked)) {
         current.daysWorked = fresh.daysWorked;
         current.included = fresh.included;
       }
@@ -1015,10 +1016,11 @@ function workerFromPersonnel(
   const startDate = isIsoDate(person.start_date) ? person.start_date.slice(0, 10) : undefined;
   const endDate = isIsoDate(person.end_date) ? person.end_date.slice(0, 10) : undefined;
   const activeOnUnit = isOpenPersonnelRecord(person);
-  let calendarDays = commercialDaysInWindow(window, startDate, endDate, person.personnel_status);
+  const untilCese = activeOnUnit ? null : payableDaysUntilCese(window, endDate);
+  let calendarDays = untilCese === null ? commercialDaysInWindow(window, startDate, endDate, person.personnel_status) : untilCese;
   if (!activeOnUnit && !endDate) calendarDays = 0;
   const absenceDays = Math.min(calendarDays, absence?.days || 0);
-  const days = Math.max(0, calendarDays - absenceDays);
+  const days = untilCese === null ? Math.max(0, calendarDays - absenceDays) : calendarDays;
   const family = person.family_allowance ? rates.familyAllowanceAmount : 0;
   const workCondition = Number(person.work_condition_amount) || 0;
   const bonusAmount = bonus?.amount || 0;

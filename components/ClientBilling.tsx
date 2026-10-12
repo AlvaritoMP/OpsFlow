@@ -987,7 +987,7 @@ function EditorView(props: {
                   <Users size={16} className="shrink-0" />
                   <span>
                     {sheetMode === 'costs'
-                      ? 'Cada fila es un trabajador activo o que trabajó en el corte. Inicio y cese salen de la ficha y prorratean los días; luego se restan las faltas. Lo amarillo fue ajustado a mano.'
+                      ? 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Lo amarillo fue ajustado a mano.'
                       : sheetMode === 'attendance'
                         ? 'Asistencia del corte, por día. ✓ marcación completa, ½ incompleta, F falta o sin marcas, T tardanza.'
                         : 'Novedades de tareo del corte, con la misma clave que en la unidad.'}
@@ -1407,11 +1407,11 @@ function LaborSheet(props: {
                 <td className="px-1 py-1">
                   <GridNum
                     step="1"
-                    amber={isAdjusted(worker, 'daysWorked')}
-                    title={worker.absenceDays ? `Corte ${worker.calendarDays ?? '—'} − faltas ${worker.absenceDays}${worker.absenceDetail ? ` (${worker.absenceDetail})` : ''}` : hint(worker, 'daysWorked')}
+                    amber={isAdjusted(worker, 'daysWorked') || Boolean(worker.daysManual)}
+                    title={daysHint(worker)}
                     disabled={props.locked}
                     value={worker.daysWorked}
-                    onChange={(daysWorked) => props.onPatchWorker(worker.id, { daysWorked })}
+                    onChange={(daysWorked) => props.onPatchWorker(worker.id, { daysWorked, daysManual: true })}
                   />
                 </td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'familyAllowance')} title={hint(worker, 'familyAllowance')} disabled={props.locked} value={worker.familyAllowance} onChange={(familyAllowance) => props.onPatchWorker(worker.id, { familyAllowance })} /></td>
@@ -1873,6 +1873,20 @@ function Field(props: { label: string; hint?: string; adjusted: boolean; childre
 }
 
 const fieldClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
+
+function daysHint(worker: BillingWorkerInput): string | undefined {
+  if (worker.daysManual) {
+    const calculated = worker.suggested?.daysWorked ?? worker.calendarDays;
+    return `Editado a mano. No se reemplaza al recalcular. El cálculo del corte es ${calculated ?? '—'}.`;
+  }
+  if (worker.activeOnUnit === false && worker.endDate && worker.calendarDays === worker.daysWorked) {
+    return `Desde el corte hasta el cese ${formatBillingDate(worker.endDate)}: ${worker.daysWorked} días.`;
+  }
+  if (worker.absenceDays) {
+    return `Corte ${worker.calendarDays ?? '—'} − faltas ${worker.absenceDays}${worker.absenceDetail ? ` (${worker.absenceDetail})` : ''}`;
+  }
+  return hint(worker, 'daysWorked');
+}
 
 function isAdjusted(worker: BillingWorkerInput, field: keyof NonNullable<BillingWorkerInput['suggested']>): boolean {
   if (!worker.suggested) return false;
