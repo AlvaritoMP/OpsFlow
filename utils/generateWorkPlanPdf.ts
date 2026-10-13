@@ -4,8 +4,10 @@ import {
   WEEKDAY_OPTIONS,
   appliesOnDay,
   audienceLabel,
+  formatPlanStamp,
   formatTimeRange,
   frequencyMeta,
+  planStatusLabel,
   weekdayShort,
 } from './workPlan';
 
@@ -297,8 +299,12 @@ export async function generateWorkPlanPdf(opts: { unit: Unit; plan: UnitWorkPlan
   const vigencia = plan.validFrom || plan.validUntil
     ? `${formatDateDisplay(plan.validFrom) || '…'} – ${formatDateDisplay(plan.validUntil) || '…'}`
     : 'Sin fechas de vigencia';
-  const status = plan.status === 'active' ? 'Vigente' : 'Borrador';
-  const subtitle = `${unitName}  ·  ${unit.clientName || ''}  ·  ${plan.title}  ·  ${vigencia}  ·  ${status}`;
+  const status = planStatusLabel(plan.status);
+  const authors = [
+    plan.createdByName ? `Creado por ${plan.createdByName}${plan.createdAt ? ` (${formatPlanStamp(plan.createdAt)})` : ''}` : '',
+    plan.updatedByName ? `Último ajuste por ${plan.updatedByName}${plan.updatedAt ? ` (${formatPlanStamp(plan.updatedAt)})` : ''}` : '',
+  ].filter(Boolean).join('  ·  ');
+  const subtitle = [unitName, unit.clientName || '', plan.title, vigencia, status, authors].filter(Boolean).join('  ·  ');
 
   let y = paintHeader(doc, 'PLAN DE TRABAJO', subtitle);
   if (unit.address) {

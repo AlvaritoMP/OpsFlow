@@ -31,11 +31,13 @@ import {
   emptyActivity,
   emptyPlan,
   exampleShifts,
+  formatPlanStamp,
   formatTimeRange,
   frequencyMeta,
   makeShift,
   makeSlot,
   newWorkPlanId,
+  planStatusLabel,
   sanitizePlan,
   semanalMissingDays,
   uniqueShiftName,
@@ -46,6 +48,7 @@ interface UnitWorkPlanTabProps {
   unit: Unit;
   canEdit: boolean;
   currentUserId?: string;
+  currentUserName?: string;
 }
 
 type Notice = { type: 'ok' | 'err'; text: string };
@@ -59,6 +62,9 @@ function isActivePersonnel(resource: Resource): boolean {
 
 function errorText(error: unknown): string {
   const raw = error instanceof Error ? error.message : 'No se pudo completar la acción.';
+  if (/created_by|updated_by_name/i.test(raw)) {
+    return 'Falta actualizar la tabla del plan de trabajo. Vuelva a ejecutar migrations/MIGRATION_UNIT_WORK_PLANS.sql en Supabase.';
+  }
   if (/unit_work_plans|schema cache|PGRST205|42P01/i.test(raw)) {
     return 'Falta crear la tabla del plan de trabajo. Ejecute migrations/MIGRATION_UNIT_WORK_PLANS.sql en Supabase y vuelva a abrir esta pestaña.';
   }
@@ -74,7 +80,23 @@ function NoticeBanner({ notice }: { notice: Notice | null }) {
   );
 }
 
-export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit, currentUserId }) => {
+function PlanTrail({ plan }: { plan: UnitWorkPlan }) {
+  if (!plan.id) {
+    return (
+      <p className="text-sm text-slate-500">
+        Al guardar el avance queda registrado quién lo crea. Cada ajuste posterior indica quién fue el último en modificarlo.
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700 space-y-1">
+      <p><span className="font-medium text-slate-900">Creado por</span> {plan.createdByName || 'sin registro'} · {formatPlanStamp(plan.createdAt)}</p>
+      <p><span className="font-medium text-slate-900">Último ajuste por</span> {plan.updatedByName || 'sin registro'} · {formatPlanStamp(plan.updatedAt)}</p>
+    </div>
+  );
+}
+
+export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit, currentUserId, currentUserName }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -143,11 +165,20 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
     }
     setSaving(true);
     try {
-      const saved = await unitWorkPlanService.save(sanitizePlan({ ...plan, unitId: unit.id }), currentUserId);
+      const saved = await unitWorkPlanService.save(sanitizePlan({ ...plan, unitId: unit.id }), {
+        id: currentUserId,
+        name: currentUserName,
+      });
       setDraft(saved);
       setDirty(false);
       setPlans(await unitWorkPlanService.listByUnit(unit.id));
-      setNotice({ type: 'ok', text: saved.status === 'active' ? 'Plan vigente guardado.' : 'Borrador guardado.' });
+      const wasSaved = Boolean(plan.id);
+      setNotice({
+        type: 'ok',
+        text: saved.status === 'active'
+          ? (wasSaved ? 'Versión final actualizada.' : 'Versión final guardada.')
+          : 'Avance guardado. Puede seguir editándolo hasta dejar la versión final.',
+      });
       return saved;
     } catch (error) {
       setNotice({ type: 'err', text: errorText(error) });
@@ -175,7 +206,11 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
   };
 
   const removePlan = async (plan: UnitWorkPlan) => {
-    if (!window.confirm(`¿Eliminar "${plan.title}"?`)) return;
+    const final = plan.status === 'active';
+    const question = final
+      ? `¿Eliminar la versión final "${plan.title}"? Esta acción no se puede deshacer.`
+      : `¿Eliminar "${plan.title}"? Esta acción no se puede deshacer.`;
+    if (!window.confirm(question)) return;
     if (!plan.id) {
       setDraft(null);
       setDirty(false);
@@ -200,7 +235,10 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
   const copyPlan = async (plan: UnitWorkPlan) => {
     setSaving(true);
     try {
-      const saved = await unitWorkPlanService.save(sanitizePlan(duplicatePlan({ ...plan, unitId: unit.id })), currentUserId);
+      const saved = await unitWorkPlanService.save(sanitizePlan(duplicatePlan({ ...plan, unitId: unit.id })), {
+        id: currentUserId,
+        name: currentUserName,
+      });
       setPlans(await unitWorkPlanService.listByUnit(unit.id));
       openPlan(saved);
       setNotice({ type: 'ok', text: 'Se creó una copia en borrador.' });
@@ -283,7 +321,7 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
                       </p>
                     </div>
                     <span className={`shrink-0 text-xs font-semibold px-2 py-1 rounded-full ${plan.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
-                      {plan.status === 'active' ? 'Vigente' : 'Borrador'}
+                      {planStatusLabel(plan.status)}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-2">
@@ -292,6 +330,8 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
                       : 'Sin vigencia'}
                     {plan.shifts.length ? ` · ${plan.shifts.map((shift) => shift.name).join(', ')}` : ''}
                   </p>
+                  <p className="text-xs text-slate-600 mt-2">Creado por {plan.createdByName || 'sin registro'}{plan.createdAt ? ` · ${formatPlanStamp(plan.createdAt)}` : ''}</p>
+                  <p className="text-xs text-slate-600">Último ajuste por {plan.updatedByName || 'sin registro'}{plan.updatedAt ? ` · ${formatPlanStamp(plan.updatedAt)}` : ''}</p>
                 </button>
                 <div className={`grid border-t border-slate-100 ${canEdit ? 'grid-cols-3' : 'grid-cols-1'}`}>
                   <button type="button" onClick={() => download(plan)} disabled={downloadingId === plan.id} className="h-11 text-sm font-medium text-slate-700 flex items-center justify-center gap-1.5">
@@ -327,8 +367,13 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-900 truncate">{draft.title || 'Plan de trabajo'}</p>
-            <p className="text-xs text-slate-500">{dirty ? 'Cambios sin guardar' : draft.status === 'active' ? 'Vigente' : 'Borrador'}</p>
+            <p className="text-xs text-slate-500">{dirty ? 'Cambios sin guardar' : planStatusLabel(draft.status)}</p>
           </div>
+          {canEdit && draft.id && (
+            <button type="button" onClick={() => removePlan(draft)} disabled={saving} className="h-10 w-10 rounded-full border border-red-200 text-red-600 flex items-center justify-center shrink-0" aria-label="Eliminar plan">
+              <Trash2 size={16} />
+            </button>
+          )}
         </div>
         <div className="mt-3 grid grid-cols-2 bg-slate-100 p-1 rounded-xl">
           <button type="button" onClick={() => setMode('edit')} className={`h-10 rounded-lg text-sm font-semibold ${mode === 'edit' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>
@@ -342,6 +387,7 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
 
       <div className="space-y-4 pt-4 pb-24">
         <NoticeBanner notice={notice} />
+        <PlanTrail plan={draft} />
 
         {mode === 'cronograma' ? (
           <CronogramaView plan={draft} day={cronogramaDay} onDay={setCronogramaDay} missing={missingDays} />
@@ -361,13 +407,17 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
                 <span className="text-sm font-medium text-slate-700">Estado</span>
                 <div className="mt-1 grid grid-cols-2 bg-slate-100 p-1 rounded-xl">
                   <button type="button" disabled={!canEdit} onClick={() => updateDraft((plan) => ({ ...plan, status: 'draft' }))} className={`h-10 rounded-lg text-sm font-semibold ${draft.status === 'draft' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}>
-                    Borrador
+                    En avance
                   </button>
                   <button type="button" disabled={!canEdit} onClick={() => updateDraft((plan) => ({ ...plan, status: 'active' }))} className={`h-10 rounded-lg text-sm font-semibold ${draft.status === 'active' ? 'bg-white shadow-sm text-emerald-800' : 'text-slate-500'}`}>
-                    Vigente
+                    Versión final
                   </button>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">Al guardar un plan vigente, los demás de esta unidad pasan a borrador.</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {draft.status === 'active'
+                    ? 'Puede seguir actualizando la versión final. Cada guardado registra quién hizo el ajuste. Las otras versiones de la unidad pasan a avance.'
+                    : 'Guarde el avance las veces que necesite. Cuando esté listo, márquelo como versión final.'}
+                </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -480,7 +530,7 @@ export const UnitWorkPlanTab: React.FC<UnitWorkPlanTabProps> = ({ unit, canEdit,
       <div className="sticky bottom-0 z-30 mt-4 -mx-6 md:-mx-8 px-6 md:px-8 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex gap-2">
         {canEdit && (
           <button type="button" onClick={() => draft && persist(draft)} disabled={saving} className="flex-1 h-12 rounded-xl bg-blue-600 text-white font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60">
-            {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} Guardar
+            {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} {draft.status === 'active' ? 'Actualizar' : 'Guardar avance'}
           </button>
         )}
         <button type="button" onClick={() => download(draft, true)} disabled={saving || downloadingId !== null} className="flex-1 h-12 rounded-xl border border-slate-300 bg-white text-slate-800 font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60">

@@ -562,7 +562,10 @@ export interface UnitWorkPlan {
   notes?: string;
   status: WorkPlanStatus;
   shifts: WorkPlanShift[];
+  createdBy?: string;
+  createdByName?: string;
   updatedBy?: string;
+  updatedByName?: string;
   createdAt: string;
   updatedAt: string;
 }

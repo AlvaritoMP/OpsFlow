@@ -220,10 +220,11 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Abra la unidad → Plan de trabajo → Crear plan.',
           'Agregue los turnos que esa unidad usa (mañana, tarde, noche, jornada u otro) o cargue un ejemplo y cambie las horas.',
-          'En cada turno agregue a las personas y, dentro de cada horario, las actividades.',
-          'Marque si la actividad es diaria, rutinaria, semanal (elija los días) o solo de esta semana.',
+          'En cada turno agregue a las personas y, dentro de cada horario, las actividades: diaria, rutinaria, semanal o de la semana.',
+          'Marque En avance mientras lo construye y pulse Guardar avance las veces que haga falta. El plan indica quién lo creó y quién hizo el último ajuste.',
+          'Cuando esté listo, márquelo como Versión final y guárdelo. Después puede seguir actualizándolo.',
           'Use Cronograma para ver el día. Pulse PDF para el formato listo: una hoja por turno y el cronograma semanal.',
-          'Marque Vigente y guarde. Solo un plan queda vigente por unidad.',
+          'Elimine un plan, en avance o final, con el ícono de papelera si ya no corresponde.',
         ],
         tips: [
           'Puede copiar un plan para la semana siguiente y cambiar solo lo que varía.',

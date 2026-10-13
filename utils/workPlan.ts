@@ -357,6 +357,10 @@ export function duplicatePlan(plan: UnitWorkPlan): UnitWorkPlan {
     title: `Copia de ${plan.title}`.slice(0, 140),
     status: 'draft',
     shifts: plan.shifts.map(remapShift),
+    createdBy: undefined,
+    createdByName: undefined,
+    updatedBy: undefined,
+    updatedByName: undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -386,6 +390,23 @@ function remapShift(shift: WorkPlanShift): WorkPlanShift {
       })),
     })),
   };
+}
+
+export function formatPlanStamp(iso?: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('es-PE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export function planStatusLabel(status: 'draft' | 'active'): string {
+  return status === 'active' ? 'Versión final' : 'En avance';
 }
 
 export function countActivities(plan: UnitWorkPlan): number {

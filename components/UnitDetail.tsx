@@ -9189,7 +9189,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           <UnitBookTab unit={unit} canEdit={canEditUnitBook} currentUserId={currentUser?.id} />
         )}
         {activeTab === 'workplan' && canViewWorkPlan && (
-          <UnitWorkPlanTab unit={unit} canEdit={canEditWorkPlan} currentUserId={currentUser?.id} />
+          <UnitWorkPlanTab unit={unit} canEdit={canEditWorkPlan} currentUserId={currentUser?.id} currentUserName={currentUser?.name} />
         )}
         {activeTab === 'attendance' && (
           <AttendanceReportsTab

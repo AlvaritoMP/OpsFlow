@@ -2,6 +2,12 @@ import { supabase, handleSupabaseError } from './supabase';
 import type { UnitWorkPlan } from '../types';
 import { parseShifts } from '../utils/workPlan';
 
+export type WorkPlanAuthor = { id?: string; name?: string };
+
+function textOrUndefined(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 function rowToPlan(data: Record<string, unknown>): UnitWorkPlan {
   return {
     id: String(data.id || ''),
@@ -12,14 +18,17 @@ function rowToPlan(data: Record<string, unknown>): UnitWorkPlan {
     notes: typeof data.notes === 'string' ? data.notes : '',
     status: data.status === 'active' ? 'active' : 'draft',
     shifts: parseShifts(data.shifts),
-    updatedBy: typeof data.updated_by === 'string' ? data.updated_by : undefined,
+    createdBy: textOrUndefined(data.created_by),
+    createdByName: textOrUndefined(data.created_by_name),
+    updatedBy: textOrUndefined(data.updated_by),
+    updatedByName: textOrUndefined(data.updated_by_name),
     createdAt: typeof data.created_at === 'string' ? data.created_at : new Date().toISOString(),
     updatedAt: typeof data.updated_at === 'string' ? data.updated_at : new Date().toISOString(),
   };
 }
 
-function payload(plan: UnitWorkPlan, userId?: string) {
-  return {
+function payload(plan: UnitWorkPlan, author?: WorkPlanAuthor, includeCreator = false) {
+  const body: Record<string, unknown> = {
     unit_id: plan.unitId,
     title: plan.title.trim(),
     valid_from: plan.validFrom || null,
@@ -27,9 +36,15 @@ function payload(plan: UnitWorkPlan, userId?: string) {
     notes: plan.notes?.trim() || null,
     status: plan.status,
     shifts: plan.shifts,
-    updated_by: userId || null,
+    updated_by: author?.id || null,
+    updated_by_name: author?.name?.trim() || null,
     updated_at: new Date().toISOString(),
   };
+  if (includeCreator) {
+    body.created_by = author?.id || null;
+    body.created_by_name = author?.name?.trim() || null;
+  }
+  return body;
 }
 
 async function clearOtherActive(unitId: string, keepId?: string) {
@@ -51,26 +66,25 @@ export const unitWorkPlanService = {
       .eq('unit_id', unitId)
       .order('updated_at', { ascending: false });
     if (error) handleSupabaseError(error);
-const plans = ((data || []) as unknown[]).map((row) => rowToPlan(row as Record<string, unknown>));
+    const plans = ((data || []) as unknown[]).map((row) => rowToPlan(row as Record<string, unknown>));
     return plans.sort((a, b) => {
       if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
       return b.updatedAt.localeCompare(a.updatedAt);
     });
   },
 
-  async save(plan: UnitWorkPlan, userId?: string): Promise<UnitWorkPlan> {
+  async save(plan: UnitWorkPlan, author?: WorkPlanAuthor): Promise<UnitWorkPlan> {
     if (plan.status === 'active') {
       await clearOtherActive(plan.unitId, plan.id || undefined);
     }
-    const body = payload(plan, userId);
     if (!plan.id) {
-      const { data, error } = await supabase.from('unit_work_plans').insert(body).select('*').single();
+      const { data, error } = await supabase.from('unit_work_plans').insert(payload(plan, author, true)).select('*').single();
       if (error) handleSupabaseError(error);
       return rowToPlan(data as unknown as Record<string, unknown>);
     }
     const { data, error } = await supabase
       .from('unit_work_plans')
-      .update(body)
+      .update(payload(plan, author, false))
       .eq('id', plan.id)
       .select('*')
       .single();

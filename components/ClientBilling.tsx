@@ -64,6 +64,7 @@ import {
   describeOvertimeFormulas,
   pen,
   resolveAttendanceWindow,
+  workerOverlapsBillingWindow,
 } from '../utils/clientBillingCalc';
 
 interface ClientBillingProps {
@@ -181,7 +182,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     void loadList();
   }, []);
 
-  const computed = useMemo(() => (editor ? computeBilling(editor.model) : null), [editor]);
+  const computed = useMemo(() => (editor ? computeBilling(modelInAttendanceWindow(editor.periodMonth, editor.model)) : null), [editor]);
   const pendingChanges = useMemo(
     () => (editor ? diffBillingModels(editor.baseline, editor.model) : []),
     [editor]
@@ -783,12 +784,13 @@ function EditorView(props: {
 }) {
   const { editor, computed, locked } = props;
   const workerMap = new Map(computed.workers.map((worker) => [worker.id, worker]));
-  const filteredWorkers = editor.model.workers.filter((worker) => {
+  const windowWorkers = workersInAttendanceWindow(editor.periodMonth, editor.model);
+  const filteredWorkers = windowWorkers.filter((worker) => {
     const q = props.workerQuery.trim().toLowerCase();
     if (!q) return true;
     return `${worker.name} ${worker.position} ${worker.dni || ''}`.toLowerCase().includes(q);
   });
-  const includedCount = editor.model.workers.filter((worker) => worker.included).length;
+  const includedCount = windowWorkers.filter((worker) => worker.included).length;
   const [sheetMode, setSheetMode] = useState<'costs' | 'attendance' | 'novedades'>('costs');
   const [glance, setGlance] = useState<BillingDayGlance | null>(null);
   const [glanceLoading, setGlanceLoading] = useState(false);
@@ -1907,6 +1909,18 @@ function share(part: number, total: number): number {
   return (part / total) * 100;
 }
 
+function workersInAttendanceWindow(periodMonth: string, model: ClientBillingModel): BillingWorkerInput[] {
+  const window = resolveAttendanceWindow(periodMonth, model.attendanceFrom, model.attendanceTo);
+  if (attendanceWindowError(window.from, window.to)) return model.workers;
+  return model.workers.filter((worker) => workerOverlapsBillingWindow(worker, window));
+}
+
+function modelInAttendanceWindow(periodMonth: string, model: ClientBillingModel): ClientBillingModel {
+  const workers = workersInAttendanceWindow(periodMonth, model);
+  if (workers.length === model.workers.length) return model;
+  return { ...model, workers };
+}
+
 function describeCreation(model: ClientBillingModel) {
   const included = model.workers.filter((worker) => worker.included).length;
   return [
@@ -1930,7 +1944,7 @@ async function exportExcel(editor: EditorState, computed: BillingComputation) {
       clientName: editor.clientName,
       unitName: editor.unitName,
       periodMonth: editor.periodMonth,
-      model: editor.model,
+      model: modelInAttendanceWindow(editor.periodMonth, editor.model),
       computed,
     });
   } catch (error) {

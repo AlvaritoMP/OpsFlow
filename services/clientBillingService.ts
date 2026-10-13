@@ -23,6 +23,7 @@ import {
   isIsoDate,
   isOpenPersonnelRecord,
   payableDaysUntilCese,
+  workerOverlapsBillingWindow,
   defaultAdjustmentDescription,
   resolveAttendanceWindow,
   defaultAdministrativeLines,
@@ -264,8 +265,12 @@ export async function refreshWorkersFromUnit(
     current.position = current.position || fresh.position;
   });
 
-  next.workers.forEach((worker) => {
-    if (worker.resourceId && !seen.has(worker.resourceId)) worker.missingFromUnit = true;
+  next.workers = next.workers.filter((worker) => {
+    if (worker.resourceId && !seen.has(worker.resourceId)) {
+      if (!workerOverlapsBillingWindow(worker, window)) return false;
+      worker.missingFromUnit = true;
+    }
+    return true;
   });
   next.workers.sort((a, b) => a.name.localeCompare(b.name, 'es'));
   return next;

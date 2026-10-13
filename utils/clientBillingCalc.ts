@@ -369,7 +369,7 @@ export function isOpenPersonnelRecord(person: {
   archived?: boolean | null;
   personnel_status?: string | null;
 }): boolean {
-  const status = (person.personnel_status || '').toLowerCase();
+  const status = (person.personnel_status || '').trim().toLowerCase();
   return person.archived !== true && status !== 'cesado' && status !== 'archivado';
 }
 
@@ -389,6 +389,23 @@ export function includePersonnelInBilling(
   if (isOpenPersonnelRecord(person)) return true;
   const end = isIsoDate(person.end_date) ? person.end_date.slice(0, 10) : '';
   const start = isIsoDate(person.start_date) ? person.start_date.slice(0, 10) : '';
+  const from = window.from.slice(0, 10);
+  const to = window.to.slice(0, 10);
+  if (!end || end < from) return false;
+  if (start && start > to) return false;
+  return true;
+}
+
+/** El cesado solo sigue en la planilla si su relación pisa el corte. El personal vigente y el manual se quedan. */
+export function workerOverlapsBillingWindow(
+  worker: { origin?: string; activeOnUnit?: boolean; startDate?: string | null; endDate?: string | null },
+  window: AttendanceWindow
+): boolean {
+  if (worker.origin === 'manual') return true;
+  if (worker.activeOnUnit !== false) return true;
+  if (!isIsoDate(window.from) || !isIsoDate(window.to) || window.from.slice(0, 10) > window.to.slice(0, 10)) return true;
+  const end = isIsoDate(worker.endDate) ? worker.endDate.slice(0, 10) : '';
+  const start = isIsoDate(worker.startDate) ? worker.startDate.slice(0, 10) : '';
   const from = window.from.slice(0, 10);
   const to = window.to.slice(0, 10);
   if (!end || end < from) return false;
