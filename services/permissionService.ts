@@ -24,6 +24,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     INVENTORY: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
     UNIT_BOOK: { view: true, edit: true },
+    WORK_PLAN: { view: true, edit: true },
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
     ATS_RECEPTION: { view: true, edit: true },
@@ -51,6 +52,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     INVENTORY: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
     UNIT_BOOK: { view: true, edit: true },
+    WORK_PLAN: { view: true, edit: true },
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: true, edit: true },
     ATS_RECEPTION: { view: true, edit: true },
@@ -78,6 +80,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     INVENTORY: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
     UNIT_BOOK: { view: true, edit: true },
+    WORK_PLAN: { view: true, edit: true },
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
     ATS_RECEPTION: { view: true, edit: true },
@@ -105,6 +108,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     INVENTORY: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
     UNIT_BOOK: { view: true, edit: true },
+    WORK_PLAN: { view: true, edit: true },
     ARCHIVE: { view: true, edit: true },
     SETTINGS: { view: false, edit: false },
     ATS_RECEPTION: { view: true, edit: true },
@@ -132,6 +136,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     INVENTORY: { view: false, edit: false },
     DOCUMENTS: { view: true, edit: false },
     UNIT_BOOK: { view: false, edit: false },
+    WORK_PLAN: { view: false, edit: false },
     ARCHIVE: { view: false, edit: false },
     SETTINGS: { view: false, edit: false },
     ATS_RECEPTION: { view: false, edit: false },
@@ -208,7 +213,7 @@ export const savePermissions = (config: PermissionConfig) => {
 };
 
 export const checkPermission = (role: UserRole, feature: AppFeature, action: 'view' | 'edit'): boolean => {
-  if (role === 'CLIENT' && feature === 'UNIT_BOOK') return false;
+  if (role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN')) return false;
   if (role === 'CLIENT' && feature === 'VACATIONS' && action === 'edit') return false;
 
   const config = getPermissions();
@@ -248,6 +253,7 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   INVENTORY: 'Inventario',
   DOCUMENTS: 'Documentos',
   UNIT_BOOK: 'Unit Book',
+  WORK_PLAN: 'Plan de trabajo',
   ARCHIVE: 'Archivo de Personal',
   SETTINGS: 'Configuración Sistema',
   ATS_RECEPTION: 'Recepción ATS',

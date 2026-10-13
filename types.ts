@@ -99,6 +99,7 @@ export type AppFeature =
   | 'INVENTORY'
   | 'DOCUMENTS'
   | 'UNIT_BOOK'
+  | 'WORK_PLAN'
   | 'ARCHIVE'
   | 'SETTINGS'
   | 'ATS_RECEPTION'
@@ -511,6 +512,57 @@ export interface UnitBookMember {
   colleagueMessage?: string;
   includeInBook: boolean;
   displayOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** diaria = cada día del turno; rutinaria = parte fija del servicio; semanal = días marcados; semana = solo mientras el plan esté vigente */
+export type WorkPlanFrequency = 'diaria' | 'rutinaria' | 'semanal' | 'semana';
+export type WorkPlanStatus = 'draft' | 'active';
+
+export interface WorkPlanActivity {
+  id: string;
+  text: string;
+  frequency: WorkPlanFrequency;
+  /** 0 domingo … 6 sábado. Solo aplica si frequency es semanal. */
+  weekdays: number[];
+  /** Vacío = todo el turno. Si hay ids, solo esas personas del turno. */
+  personIds: string[];
+  zone?: string;
+}
+
+export interface WorkPlanSlot {
+  id: string;
+  startTime: string;
+  endTime: string;
+  activities: WorkPlanActivity[];
+}
+
+export interface WorkPlanPerson {
+  id: string;
+  resourceId?: string;
+  name: string;
+  role?: string;
+}
+
+export interface WorkPlanShift {
+  id: string;
+  name: string;
+  people: WorkPlanPerson[];
+  slots: WorkPlanSlot[];
+}
+
+/** Plan de trabajo de una unidad. Los turnos y horarios los define cada unidad. */
+export interface UnitWorkPlan {
+  id: string;
+  unitId: string;
+  title: string;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  notes?: string;
+  status: WorkPlanStatus;
+  shifts: WorkPlanShift[];
+  updatedBy?: string;
   createdAt: string;
   updatedAt: string;
 }

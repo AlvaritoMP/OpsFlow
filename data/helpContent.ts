@@ -174,6 +174,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Plano: planos y ubicación.',
           'Requerimientos: solicitudes del cliente.',
           'Documentos: archivos de la unidad.',
+          'Plan de trabajo: turnos, horarios y actividades de la unidad, con cronograma y PDF.',
           'Unit Book: folleto de incorporación (objetivo, fotos, equipo) para candidatos nuevos.',
           'Contactos / Bancos: solo en unidades BPO.',
         ],
@@ -211,6 +212,23 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Una papeleta nueva entra al roster como sin cobertura hasta que usted elija lo contrario.',
           'El clic en Día/Tarde/Noche/OFF no muestra vacaciones: esas solo aparecen cuando el día ya es Vac por papeleta.',
           'Al volver de la pestaña Vacaciones a Personal, el roster recarga los turnos desde la base de datos para mostrar la papeleta.',
+        ],
+      },
+      {
+        heading: 'Plan de trabajo',
+        body: 'Cada unidad tiene su propio plan: los turnos, los horarios y las actividades no son iguales en todas. El supervisor lo arma desde el celular y descarga un PDF con formato fijo.',
+        steps: [
+          'Abra la unidad → Plan de trabajo → Crear plan.',
+          'Agregue los turnos que esa unidad usa (mañana, tarde, noche, jornada u otro) o cargue un ejemplo y cambie las horas.',
+          'En cada turno agregue a las personas y, dentro de cada horario, las actividades.',
+          'Marque si la actividad es diaria, rutinaria, semanal (elija los días) o solo de esta semana.',
+          'Use Cronograma para ver el día. Pulse PDF para el formato listo: una hoja por turno y el cronograma semanal.',
+          'Marque Vigente y guarde. Solo un plan queda vigente por unidad.',
+        ],
+        tips: [
+          'Puede copiar un plan para la semana siguiente y cambiar solo lo que varía.',
+          'Si el puesto rota, agregue un nombre o el puesto sin ligarlo a una ficha.',
+          'Si la unidad tiene zonas, puede indicar en cuál se hace cada actividad.',
         ],
       },
       {

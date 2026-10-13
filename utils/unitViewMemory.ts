@@ -14,6 +14,7 @@ const TABS: UnitDetailTab[] = [
   'contacts',
   'banks',
   'unitbook',
+  'workplan',
 ];
 
 export interface UnitViewMemory {

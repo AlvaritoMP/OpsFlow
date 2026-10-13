@@ -1649,7 +1649,7 @@ const App: React.FC = () => {
 
   // Permission Handlers
   const handlePermissionChange = (role: UserRole, feature: AppFeature, type: 'view' | 'edit', value: boolean) => {
-    if (role === 'CLIENT' && feature === 'UNIT_BOOK') return;
+    if (role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN')) return;
     if (role === 'CLIENT' && feature === 'VACATIONS' && type === 'edit') return;
     try {
       setPermissions(prev => {
@@ -2456,8 +2456,8 @@ const App: React.FC = () => {
                                         {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'].map(roleStr => {
                                             const role = roleStr as UserRole;
                                             const perm = permissions[role][feature];
-                                            const lockedForClient = role === 'CLIENT' && feature === 'UNIT_BOOK';
-                                            const lockedClientEdit = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'VACATIONS');
+                                            const lockedForClient = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN');
+                                            const lockedClientEdit = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN' || feature === 'VACATIONS');
                                             return (
                                                 <td key={role} className="px-4 py-3 text-center border-l border-slate-200">
                                                     <div className="flex flex-col items-center gap-2">

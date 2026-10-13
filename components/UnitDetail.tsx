@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { Unit, ResourceType, StaffStatus, Resource, UnitStatus, Training, OperationalLog, UserRole, AssignedAsset, UnitContact, ManagementStaff, ManagementRole, MaintenanceRecord, Zone, ClientRequest, RequestComment, ShiftType, DailyShift, NightSupervisionShift, NightSupervisionCall, NightSupervisionCameraReview, UnitDocument, Position, RequiredPosition, SalaryIncrement, ContractHistory, VariableCompensation, User } from '../types';
-import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2, BookOpen, ArrowLeftRight } from 'lucide-react';
+import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, CalendarClock, ShieldCheck, HardHat, Sparkles, BrainCircuit, Truck, Edit2, X, ChevronDown, ChevronUp, Award, Camera, Clock, PlusSquare, CheckSquare, Square, Plus, Trash2, Image as ImageIcon, Save, Users, PackagePlus, FileText, UserPlus, AlertCircle, Shirt, Smartphone, Laptop, Briefcase, Phone, Mail, BadgeCheck, Wrench, PenTool, History, RefreshCw, Link as LinkIcon, LayoutGrid, Maximize2, Move, GripHorizontal, Package, Share2, Maximize, Layers, MessageSquarePlus, CheckCircle, Clock3, Paperclip, Send, MessageCircle, ChevronLeft, ChevronRight, Table, Copy, Archive, Moon, Eye, XCircle, Upload, FileSpreadsheet, DollarSign, TrendingUp, Download, Search, Palmtree, Loader2, BookOpen, ArrowLeftRight } from 'lucide-react';
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { unitsService } from '../services/unitsService';
 import { checkPermission, canDeleteAttendanceIncidents } from '../services/permissionService';
@@ -14,6 +14,7 @@ import { Vacations } from './Vacations';
 import { BpoContactsTab } from './BpoContactsTab';
 import { BpoBanksTab } from './BpoBanksTab';
 import { UnitBookTab } from './UnitBookTab';
+import { UnitWorkPlanTab } from './UnitWorkPlanTab';
 import { TransferWorkerModal } from './TransferWorkerModal';
 import { TransferWorkerResult } from '../services/workerTransferService';
 import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
@@ -1148,6 +1149,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
   const canViewUnitBook = userRole !== 'CLIENT' && checkPermission(userRole, 'UNIT_BOOK', 'view');
   const canEditUnitBook = canViewUnitBook && checkPermission(userRole, 'UNIT_BOOK', 'edit');
+  const canViewWorkPlan = userRole !== 'CLIENT' && checkPermission(userRole, 'WORK_PLAN', 'view');
+  const canEditWorkPlan = canViewWorkPlan && checkPermission(userRole, 'WORK_PLAN', 'edit');
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
   const canEditLogs = checkPermission(userRole, 'LOGS', 'edit');
   const canEditBlueprint = checkPermission(userRole, 'BLUEPRINT', 'edit') || userRole === 'OPERATIONS' || userRole === 'OPERATIONS_SUPERVISOR';
@@ -1156,11 +1159,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
 
   useEffect(() => {
-    if (activeTab === 'unitbook' && !canViewUnitBook) {
+    if ((activeTab === 'unitbook' && !canViewUnitBook) || (activeTab === 'workplan' && !canViewWorkPlan)) {
       setActiveTab('overview');
       activeTabRef.current = 'overview';
     }
-  }, [activeTab, canViewUnitBook]);
+  }, [activeTab, canViewUnitBook, canViewWorkPlan]);
 
   /** Solo lista de requerimientos: evita `onUpdate` → persistir toda la unidad y re-guardar todos los recursos. */
   const applyUnitRequestsInUI = (requests: ClientRequest[]): void | Promise<void> => {
@@ -9135,6 +9138,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           {checkPermission(userRole, 'LOGS', 'view') && isTabVisibleForUnitClass('management', unit.unitClass) && (
               <button onClick={() => setActiveTab('management')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'management' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('management', unit.unitClass)}</button>
           )}
+          {canViewWorkPlan && isTabVisibleForUnitClass('workplan', unit.unitClass) && (
+              <button onClick={() => setActiveTab('workplan')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 flex items-center gap-1.5 ${activeTab === 'workplan' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                <CalendarClock size={14} className="text-blue-700" /> {getTabLabelForUnitClass('workplan', unit.unitClass)}
+              </button>
+          )}
           {checkPermission(userRole, 'BLUEPRINT', 'view') && isTabVisibleForUnitClass('blueprint', unit.unitClass) && (
               <button onClick={() => setActiveTab('blueprint')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap capitalize shrink-0 ${activeTab === 'blueprint' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{getTabLabelForUnitClass('blueprint', unit.unitClass)}</button>
           )}
@@ -9179,6 +9187,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'documents' && renderDocuments()}
         {activeTab === 'unitbook' && canViewUnitBook && (
           <UnitBookTab unit={unit} canEdit={canEditUnitBook} currentUserId={currentUser?.id} />
+        )}
+        {activeTab === 'workplan' && canViewWorkPlan && (
+          <UnitWorkPlanTab unit={unit} canEdit={canEditWorkPlan} currentUserId={currentUser?.id} />
         )}
         {activeTab === 'attendance' && (
           <AttendanceReportsTab
