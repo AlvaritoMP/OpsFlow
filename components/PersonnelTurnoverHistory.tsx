@@ -20,7 +20,7 @@ function TurnoverTooltip({ active, payload }: { active?: boolean; payload?: Arra
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
       <p className="mb-1 font-semibold text-slate-800">{row.label}</p>
-      <p className="text-slate-600">Personal al inicio: {row.inicio}</p>
+      <p className="text-slate-600">Activos al cierre: {row.inicio}</p>
       <p className="text-slate-600">Ingresos: {row.ingresos}</p>
       <p className="text-slate-600">Salidas: {row.salidas}</p>
       <p className="mt-1 text-emerald-700">Rotación: {formatRate(row.rotacion)}</p>
@@ -98,7 +98,7 @@ export const PersonnelTurnoverHistory: React.FC<PersonnelTurnoverHistoryProps> =
             <h3 className="text-base font-semibold text-slate-800 md:text-lg">Rotación histórica</h3>
           </div>
           <p className="mt-1 text-xs text-slate-500 md:text-sm">
-            Horizonte de 12 meses, con la misma fórmula que la tarjeta Rotación mensual: (nuevos + salidas) / personal al inicio.
+            Horizonte de 12 meses, con la misma fórmula que la tarjeta Rotación mensual: (nuevos + salidas) / activos al cierre del mes.
           </p>
           {archivedLoading && (
             <p className="mt-1 text-xs text-slate-400">Actualizando ceses archivados…</p>
@@ -185,7 +185,7 @@ export const PersonnelTurnoverHistory: React.FC<PersonnelTurnoverHistoryProps> =
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
                   <th className="px-2 py-2 font-medium">Mes</th>
-                  <th className="px-2 py-2 text-right font-medium">Inicio</th>
+                  <th className="px-2 py-2 text-right font-medium">Cierre</th>
                   <th className="px-2 py-2 text-right font-medium">Ingresos</th>
                   <th className="px-2 py-2 text-right font-medium">Salidas</th>
                   <th className="px-2 py-2 text-right font-medium">Rotación</th>
@@ -212,7 +212,7 @@ export const PersonnelTurnoverHistory: React.FC<PersonnelTurnoverHistoryProps> =
             </table>
           </div>
           <p className="mt-2 text-[10px] text-slate-400 md:text-xs">
-            El mes en curso está resaltado y coincide con la tarjeta cuando el filtro es todos los clientes. Los nuevos son personal activo con inicio en el mes, hasta hoy. Las salidas suman ceses de las unidades y archivados de todo el mes. El personal compartido se cuenta una vez.
+            El cierre es quien seguía activo el último día del mes. En el mes en curso, ese día es hoy. Ingresos y salidas incluyen a quien entró o cesó en el mes, aunque haya durado pocos días. El personal compartido se cuenta una vez. Con todos los clientes, la fila del mes coincide con la tarjeta.
           </p>
         </>
       )}

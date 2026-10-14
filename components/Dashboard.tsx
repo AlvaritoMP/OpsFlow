@@ -652,11 +652,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
           <div className="min-w-0">
             <p className="text-xs md:text-sm font-medium text-slate-500">Nuevos este Mes</p>
             <p className="text-xl md:text-2xl font-bold text-slate-800">{newWorkersThisMonth}</p>
+            <p className="text-[10px] text-slate-400">Ingresos hasta hoy</p>
           </div>
         </div>
         <div 
           className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
-          title={rotationDetails ? `Rotación: (${rotationDetails.nuevos} nuevos + ${rotationDetails.salidas} salidas) / ${rotationDetails.inicio} inicio = ${personnelRotation.toFixed(1)}%` : 'Cargando...'}
+          title={rotationDetails ? `Rotación: (${rotationDetails.nuevos} nuevos + ${rotationDetails.salidas} salidas) / ${rotationDetails.inicio} activos al cierre = ${personnelRotation.toFixed(1)}%` : 'Cargando...'}
         >
           <div className="p-2 md:p-3 bg-emerald-100 text-emerald-600 rounded-lg shrink-0">
             <TrendingUp size={20} className="md:w-6 md:h-6" />
@@ -666,12 +667,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
             <p className="text-xl md:text-2xl font-bold text-slate-800">
               {personnelRotation.toFixed(1)}%
             </p>
-            <p className="text-[10px] text-slate-400">(Nuevos + Salidas) / Inicio</p>
+            <p className="text-[10px] text-slate-400">(Nuevos + Salidas) / Cierre {rotationDetails ? rotationDetails.inicio : ''}</p>
           </div>
         </div>
         <div 
           className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
-          title={entryRateDetails ? `Tasa de ingreso: ${entryRateDetails.nuevos} nuevos / ${entryRateDetails.inicio} inicio = ${personnelEntryRate.toFixed(1)}%` : 'Cargando...'}
+          title={entryRateDetails ? `Tasa de ingreso: ${entryRateDetails.nuevos} nuevos / ${entryRateDetails.inicio} activos al cierre = ${personnelEntryRate.toFixed(1)}%` : 'Cargando...'}
         >
           <div className="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
             <UserPlus size={20} className="md:w-6 md:h-6" />
@@ -681,12 +682,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
             <p className="text-xl md:text-2xl font-bold text-slate-800">
               {personnelEntryRate.toFixed(1)}%
             </p>
-            <p className="text-[10px] text-slate-400">Nuevos / Inicio</p>
+            <p className="text-[10px] text-slate-400">Nuevos / Cierre {entryRateDetails ? entryRateDetails.inicio : ''}</p>
           </div>
         </div>
         <div 
           className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-3 md:space-x-4 cursor-help"
-          title={exitRateDetails ? `Tasa de salida: ${exitRateDetails.salidas} salidas (${exitRateDetails.deUnidades} de unidades + ${exitRateDetails.archivados} archivados) / ${exitRateDetails.inicio} inicio = ${personnelExitRate.toFixed(1)}%` : 'Cargando...'}
+          title={exitRateDetails ? `Tasa de salida: ${exitRateDetails.salidas} salidas (${exitRateDetails.deUnidades} de unidades + ${exitRateDetails.archivados} archivados) / ${exitRateDetails.inicio} activos al cierre = ${personnelExitRate.toFixed(1)}%` : 'Cargando...'}
         >
           <div className="p-2 md:p-3 bg-red-100 text-red-600 rounded-lg shrink-0">
             <UserMinus size={20} className="md:w-6 md:h-6" />
@@ -696,7 +697,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
             <p className="text-xl md:text-2xl font-bold text-slate-800">
               {personnelExitRate.toFixed(1)}%
             </p>
-            <p className="text-[10px] text-slate-400">Ceses / Inicio</p>
+            <p className="text-[10px] text-slate-400">Ceses / Cierre {exitRateDetails ? exitRateDetails.inicio : ''}</p>
           </div>
         </div>
         {!isClient && (
@@ -730,7 +731,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
             <p className="text-xl md:text-2xl font-bold text-slate-800">
               {workersExitedThisMonth}
             </p>
-            <p className="text-[10px] text-slate-400">Este mes</p>
+            <p className="text-[10px] text-slate-400">Ceses hasta hoy</p>
           </div>
         </div>
       </div>

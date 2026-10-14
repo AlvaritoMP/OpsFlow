@@ -1,14 +1,16 @@
 import { ResourceType } from '../types';
 
 /**
- * Misma fórmula que la tarjeta "Rotación mensual" del dashboard, aplicada a cada mes:
- * rotación = (nuevos + salidas) / personal al inicio × 100.
- * Tasa de ingreso = nuevos / inicio. Tasa de salida = salidas / inicio.
+ * Rotación mensual del dashboard y de la serie histórica.
+ * Rotación = (ingresos + salidas) / personal activo al cierre del mes × 100.
+ * Un ingreso o una salida cuenta si la fecha cae en el mes, aunque la persona
+ * haya durado pocos días o ya esté archivada.
  */
 export interface TurnoverMonthPoint {
   key: string;
   label: string;
   monthName: string;
+  /** Personal que seguía activo el último día del mes (hoy, si el mes no ha cerrado). */
   inicio: number;
   ingresos: number;
   ingresosUnicos: number;
@@ -57,15 +59,25 @@ function rate(part: number, base: number): number {
   return (part / base) * 100;
 }
 
-/** Misma lectura de fecha de cese que la tarjeta: calendario local, sin corrimiento UTC. */
-function endDateInMonth(value: string, firstDay: Date, lastDay: Date): boolean {
-  const dateOnly = value.split('T')[0];
-  const [year, month, day] = dateOnly.split('-').map(Number);
-  if (!year || !month || !day) return false;
-  const endDateOnly = new Date(year, month - 1, day);
-  const firstDayOnly = new Date(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate());
-  const lastDayOnly = new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate());
-  return endDateOnly >= firstDayOnly && endDateOnly <= lastDayOnly;
+/** Fecha de calendario local. Evita que YYYY-MM-DD se corra al día anterior por UTC. */
+function parseCalendarDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const match = value.trim().slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date;
+}
+
+function inInclusiveRange(date: Date, from: Date, to: Date): boolean {
+  return date >= from && date <= to;
+}
+
+function isCountedExit(resource: TurnoverResource): boolean {
+  return resource.personnelStatus === 'cesado' || resource.personnelStatus === 'archivado' || !!resource.archived;
 }
 
 function isPersonnel(resource: TurnoverResource): boolean {
@@ -106,27 +118,23 @@ function resourcesInScope(units: TurnoverUnit[], clients: string[] | null): Turn
 }
 
 function archivedInScope(units: TurnoverUnit[], archived: ArchivedTurnoverResource[], clients: string[] | null): ArchivedTurnoverResource[] {
-  if (clients == null) return archived;
-  const allowed = new Set(clients);
+  const allowed = clients == null ? null : new Set(clients);
   const clientByUnitId = new Map(units.map((unit) => [unit.id, clientLabel(unit.clientName)]));
   return archived.filter((person) => {
     if (!person.originalUnitId) return false;
     const client = clientByUnitId.get(person.originalUnitId);
-    return !!client && allowed.has(client);
+    if (!client) return false;
+    return allowed == null || allowed.has(client);
   });
 }
 
-function countArchivedExits(archived: ArchivedTurnoverResource[], firstDay: Date, lastDay: Date): number {
-  const seen = new Set<string>();
-  let count = 0;
-  archived.forEach((person) => {
-    if (!person.endDate || !endDateInMonth(person.endDate, firstDay, lastDay)) return;
-    const identifier = person.dni || person.id || person.name;
-    if (seen.has(identifier as string)) return;
-    seen.add(identifier as string);
-    count += 1;
-  });
-  return count;
+function employmentSpells(units: TurnoverUnit[], archived: ArchivedTurnoverResource[], clients: string[] | null): TurnoverResource[] {
+  const onUnits = resourcesInScope(units, clients);
+  const seenIds = new Set(onUnits.map((resource) => resource.id).filter((id): id is string => !!id));
+  const fromArchive = archivedInScope(units, archived, clients)
+    .filter((person) => !person.id || !seenIds.has(person.id))
+    .map((person) => ({ ...person, archived: true }));
+  return [...onUnits, ...fromArchive];
 }
 
 export function computePersonnelTurnoverHistory(
@@ -137,8 +145,10 @@ export function computePersonnelTurnoverHistory(
   months = 12
 ): TurnoverMonthPoint[] {
   const horizon = Math.max(1, months);
-  const personnel = resourcesInScope(units, clients);
-  const archivedScope = archivedInScope(units, archived, clients);
+  const personnel = employmentSpells(units, archived, clients);
+  const unitIds = new Set(
+    resourcesInScope(units, clients).map((resource) => resource.id).filter((id): id is string => !!id)
+  );
   const points: TurnoverMonthPoint[] = [];
 
   for (let offset = horizon - 1; offset >= 0; offset -= 1) {
@@ -148,31 +158,29 @@ export function computePersonnelTurnoverHistory(
     const firstDay = new Date(year, monthIndex, 1);
     const lastDay = new Date(year, monthIndex + 1, 0);
     const isCurrent = year === today.getFullYear() && monthIndex === today.getMonth();
-    const entryUntil = isCurrent ? today : lastDay;
+    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const entryUntil = isCurrent && todayDate < lastDay ? todayDate : lastDay;
 
+    const closeDate = entryUntil;
     const inicio = countPeople(personnel, (resource) => {
-      const startDate = resource.startDate ? new Date(resource.startDate) : null;
-      const endDate = resource.endDate ? new Date(resource.endDate) : null;
-      if (!startDate) return false;
-      if (startDate > firstDay) return false;
-      if (endDate && endDate <= firstDay) return false;
-      return true;
+      const startDate = parseCalendarDate(resource.startDate);
+      if (!startDate || startDate > closeDate) return false;
+      if (!isCountedExit(resource)) return true;
+      const endDate = parseCalendarDate(resource.endDate);
+      return !!endDate && endDate > closeDate;
     });
 
     const ingresos = countPeople(personnel, (resource) => {
-      if (resource.archived || resource.personnelStatus === 'cesado') return false;
-      if (!resource.startDate) return false;
-      const startDate = new Date(resource.startDate);
-      return startDate >= firstDay && startDate <= entryUntil;
+      const startDate = parseCalendarDate(resource.startDate);
+      return !!startDate && inInclusiveRange(startDate, firstDay, entryUntil);
     });
 
-    const salidasDeUnidades = countPeople(personnel, (resource) => {
-      const isCesadoOrArchivado = resource.personnelStatus === 'cesado' || resource.personnelStatus === 'archivado' || !!resource.archived;
-      if (!isCesadoOrArchivado || !resource.endDate) return false;
-      return endDateInMonth(resource.endDate, firstDay, lastDay);
-    }).total;
-
-    const salidasArchivados = countArchivedExits(archivedScope, firstDay, lastDay);
+    const leftInMonth = (resource: TurnoverResource) => {
+      const endDate = parseCalendarDate(resource.endDate);
+      return isCountedExit(resource) && !!endDate && inInclusiveRange(endDate, firstDay, closeDate);
+    };
+    const salidasDeUnidades = countPeople(personnel, (resource) => !!resource.id && unitIds.has(resource.id) && leftInMonth(resource)).total;
+    const salidasArchivados = countPeople(personnel, (resource) => (!resource.id || !unitIds.has(resource.id)) && leftInMonth(resource)).total;
     const salidas = salidasDeUnidades + salidasArchivados;
 
     points.push({
