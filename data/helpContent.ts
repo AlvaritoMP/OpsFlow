@@ -95,6 +95,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         heading: 'Cómo usarlo',
         steps: [
           'Revise las tarjetas superiores (unidades, personal, incidencias).',
+          'En Rotación histórica, filtre por uno o varios clientes para ver 12 meses de rotación, ingreso y salida.',
           'Use el mapa o listados para ir directo a una unidad (clic en la unidad).',
           'Pase el cursor sobre indicadores para ver el detalle del cálculo cuando esté disponible.',
         ],

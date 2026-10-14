@@ -3,6 +3,7 @@ import { Unit, UnitStatus, ResourceType, UserRole } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical, Star, UserX } from 'lucide-react';
 import { UnitsMap } from './UnitsMap';
+import { PersonnelTurnoverHistory } from './PersonnelTurnoverHistory';
 
 interface DashboardProps {
   units: Unit[];
@@ -25,6 +26,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
   const [mostUsedReten, setMostUsedReten] = useState<{ name: string; count: number } | null>(null);
   const [workersExitedThisMonth, setWorkersExitedThisMonth] = useState<number>(0);
   const [archivedPersonnel, setArchivedPersonnel] = useState<any[]>([]);
+  const [archivedLoading, setArchivedLoading] = useState(true);
   // Estados para almacenar valores intermedios de cálculos para tooltips
   const [totalWorkersBreakdown, setTotalWorkersBreakdown] = useState<{ unique: number; shared: number }>({ unique: 0, shared: 0 });
   const [workersAtStart, setWorkersAtStart] = useState<number>(0);
@@ -342,6 +344,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
         setArchivedPersonnel(archived);
       } catch (error) {
         console.error('Error al cargar trabajadores archivados:', error);
+      } finally {
+        setArchivedLoading(false);
       }
     };
     loadArchivedPersonnel();
@@ -904,6 +908,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
           </div>
         </div>
       </div>
+
+      <PersonnelTurnoverHistory
+        units={units}
+        archivedPersonnel={archivedPersonnel}
+        archivedLoading={archivedLoading}
+      />
 
       {/* Charts Area - Draggable */}
       <div className="space-y-4 md:space-y-6">
