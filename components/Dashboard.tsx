@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical, Star, UserX } from 'lucide-react';
 import { UnitsMap } from './UnitsMap';
 import { PersonnelTurnoverHistory } from './PersonnelTurnoverHistory';
+import { computePersonnelTurnoverHistory } from '../utils/personnelTurnoverHistory';
 
 interface DashboardProps {
   units: Unit[];
@@ -353,210 +354,35 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
 
   // Note: setLoadingMetrics(false) is now handled in loadShiftMetrics finally block
 
-  // Calculate new workers this month (sin duplicar compartidos)
-  const newWorkersCount = useMemo(() => {
-    const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const sharedNewWorkers = new Set<string>(); // Para trabajadores compartidos nuevos
-    let uniqueNewCount = 0;
-    let sharedNewCount = 0;
-    const monthName = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
-                      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][today.getMonth()];
-    
-    units.forEach(unit => {
-      unit.resources
-        .filter(r => {
-          if (r.type !== ResourceType.PERSONNEL || r.archived || r.personnelStatus === 'cesado') return false;
-          if (!r.startDate) return false;
-          const startDate = new Date(r.startDate);
-          return startDate >= firstDayOfMonth && startDate <= today;
-        })
-        .forEach(r => {
-          if (r.isShared) {
-            // Trabajador compartido: solo contar una vez
-            const identifier = r.dni || r.name;
-            if (!sharedNewWorkers.has(identifier)) {
-              sharedNewWorkers.add(identifier);
-              sharedNewCount++;
-            }
-          } else {
-            // Trabajador único: contar en cada unidad
-            uniqueNewCount++;
-          }
-        });
+  const turnoverSeries = useMemo(
+    () => computePersonnelTurnoverHistory(units, archivedPersonnel, null),
+    [units, archivedPersonnel]
+  );
+
+  useEffect(() => {
+    const current = turnoverSeries[turnoverSeries.length - 1];
+    if (!current) return;
+
+    setNewWorkersThisMonth(current.ingresos);
+    setNewWorkersBreakdown({
+      unique: current.ingresosUnicos,
+      shared: current.ingresosCompartidos,
+      month: current.monthName,
     });
-    
-    // Guardar breakdown para tooltip
-    setNewWorkersBreakdown({ unique: uniqueNewCount, shared: sharedNewCount, month: monthName });
-    
-    return uniqueNewCount + sharedNewCount;
-  }, [units]);
-
-  useEffect(() => {
-    setNewWorkersThisMonth(newWorkersCount);
-  }, [newWorkersCount]);
-
-  // Calculate personnel rotation metrics
-  useEffect(() => {
-    const calculatePersonnelRotation = () => {
-      const today = new Date();
-      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      
-      // Calculate total workers at the beginning of the month
-      // Workers that were active on the first day of the month (startDate <= firstDayOfMonth AND (endDate is null OR endDate > firstDayOfMonth))
-      const sharedWorkersAtStart = new Set<string>();
-      let uniqueWorkersAtStart = 0;
-      let sharedWorkersAtStartCount = 0;
-      
-      units.forEach(unit => {
-        unit.resources
-          .filter(r => {
-            if (r.type !== ResourceType.PERSONNEL) return false;
-            // Worker was active at the beginning of the month if:
-            // - Has startDate <= firstDayOfMonth (already started)
-            // - AND (no endDate OR endDate > firstDayOfMonth) (hadn't ended yet)
-            const startDate = r.startDate ? new Date(r.startDate) : null;
-            const endDate = r.endDate ? new Date(r.endDate) : null;
-            
-            if (!startDate) return false; // No start date means not active
-            if (startDate > firstDayOfMonth) return false; // Started after the month began
-            
-            // If has endDate, it must be after the first day of the month
-            if (endDate && endDate <= firstDayOfMonth) return false;
-            
-            return true;
-          })
-          .forEach(r => {
-            if (r.isShared) {
-              const identifier = r.dni || r.name;
-              if (!sharedWorkersAtStart.has(identifier)) {
-                sharedWorkersAtStart.add(identifier);
-                sharedWorkersAtStartCount++;
-              }
-            } else {
-              uniqueWorkersAtStart++;
-            }
-          });
-      });
-      
-      const totalWorkersAtStart = uniqueWorkersAtStart + sharedWorkersAtStartCount;
-      setWorkersAtStart(totalWorkersAtStart);
-      
-      // Calculate workers who left during the month (endDate in the current month OR archived/cesado this month)
-      const sharedWorkersExited = new Set<string>();
-      let uniqueWorkersExited = 0;
-      let sharedWorkersExitedCount = 0;
-      
-      units.forEach(unit => {
-        unit.resources
-          .filter(r => {
-            if (r.type !== ResourceType.PERSONNEL) return false;
-            
-            // Incluir trabajadores cesados o archivados
-            const isCesadoOrArchivado = r.personnelStatus === 'cesado' || r.personnelStatus === 'archivado' || r.archived;
-            
-            if (!isCesadoOrArchivado) return false;
-            if (!r.endDate) return false;
-            
-            // Parsear la fecha de forma segura
-            const endDateStr = r.endDate.split('T')[0]; // YYYY-MM-DD
-            const [year, month, day] = endDateStr.split('-').map(Number);
-            const endDate = new Date(year, month - 1, day);
-            
-            // Comparar solo las fechas (sin hora)
-            const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-            const firstDayOnly = new Date(firstDayOfMonth.getFullYear(), firstDayOfMonth.getMonth(), firstDayOfMonth.getDate());
-            const lastDayOnly = new Date(lastDayOfMonth.getFullYear(), lastDayOfMonth.getMonth(), lastDayOfMonth.getDate());
-            
-            // Worker left during the month if endDate is between firstDayOfMonth and lastDayOfMonth
-            return endDateOnly >= firstDayOnly && endDateOnly <= lastDayOnly;
-          })
-          .forEach(r => {
-            if (r.isShared) {
-              const identifier = r.dni || r.name;
-              if (!sharedWorkersExited.has(identifier)) {
-                sharedWorkersExited.add(identifier);
-                sharedWorkersExitedCount++;
-              }
-            } else {
-              uniqueWorkersExited++;
-            }
-          });
-      });
-      
-      // También contar trabajadores archivados que ya no están en unidades activas
-      // Usar las mismas fechas del mes que se calcularon arriba (firstDayOfMonth y lastDayOfMonth ya están definidas)
-      let archivedExitedThisMonth = 0;
-      const archivedWorkersSet = new Set<string>(); // Para evitar duplicados con trabajadores en unidades activas
-      
-      archivedPersonnel.forEach(personnel => {
-        if (personnel.endDate) {
-          // Parsear la fecha de forma segura
-          const endDateStr = personnel.endDate.split('T')[0]; // YYYY-MM-DD
-          const [year, month, day] = endDateStr.split('-').map(Number);
-          const endDate = new Date(year, month - 1, day);
-          
-          // Comparar solo las fechas (sin hora)
-          const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-          const firstDayOnly = new Date(firstDayOfMonth.getFullYear(), firstDayOfMonth.getMonth(), firstDayOfMonth.getDate());
-          const lastDayOnly = new Date(lastDayOfMonth.getFullYear(), lastDayOfMonth.getMonth(), lastDayOfMonth.getDate());
-          
-          // Contar si la fecha de cese está en el mes actual
-          if (endDateOnly >= firstDayOnly && endDateOnly <= lastDayOnly) {
-            // Usar DNI o nombre como identificador único para evitar duplicados
-            const identifier = personnel.dni || personnel.id || personnel.name;
-            if (!archivedWorkersSet.has(identifier)) {
-              archivedWorkersSet.add(identifier);
-              archivedExitedThisMonth++;
-            }
-          }
-        }
-      });
-      
-      const totalWorkersExited = uniqueWorkersExited + sharedWorkersExitedCount + archivedExitedThisMonth;
-      const workersExitedFromUnits = uniqueWorkersExited + sharedWorkersExitedCount;
-      
-      // Debug: mostrar conteo
-      console.log('📊 Trabajadores salientes calculados:', {
-        deUnidadesActivas: workersExitedFromUnits,
-        archivados: archivedExitedThisMonth,
-        total: totalWorkersExited,
-        mes: `${firstDayOfMonth.getFullYear()}-${String(firstDayOfMonth.getMonth() + 1).padStart(2, '0')}`,
-        rangoFechas: `${firstDayOfMonth.toISOString().split('T')[0]} a ${lastDayOfMonth.toISOString().split('T')[0]}`
-      });
-      
-      // Set workers exited this month
-      setWorkersExitedThisMonth(totalWorkersExited);
-      
-      // Calculate metrics
-      if (totalWorkersAtStart > 0) {
-        // Rotación mensual = (nuevos + salidas) / total a inicio de mes
-        const rotation = ((newWorkersCount + totalWorkersExited) / totalWorkersAtStart) * 100;
-        setPersonnelRotation(rotation);
-        setRotationDetails({ nuevos: newWorkersCount, salidas: totalWorkersExited, inicio: totalWorkersAtStart });
-        
-        // Tasa de ingreso = nuevos / total a inicio de mes
-        const entryRate = (newWorkersCount / totalWorkersAtStart) * 100;
-        setPersonnelEntryRate(entryRate);
-        setEntryRateDetails({ nuevos: newWorkersCount, inicio: totalWorkersAtStart });
-        
-        // Tasa de salida = ceses / total a inicio de mes
-        const exitRate = (totalWorkersExited / totalWorkersAtStart) * 100;
-        setPersonnelExitRate(exitRate);
-        setExitRateDetails({ salidas: totalWorkersExited, inicio: totalWorkersAtStart, deUnidades: workersExitedFromUnits, archivados: archivedExitedThisMonth });
-      } else {
-        setPersonnelRotation(0);
-        setPersonnelEntryRate(0);
-        setPersonnelExitRate(0);
-        setRotationDetails(null);
-        setEntryRateDetails(null);
-        setExitRateDetails(null);
-      }
-    };
-    
-    calculatePersonnelRotation();
-  }, [units, newWorkersCount, archivedPersonnel]);
+    setWorkersAtStart(current.inicio);
+    setWorkersExitedThisMonth(current.salidas);
+    setPersonnelRotation(current.rotacion);
+    setPersonnelEntryRate(current.tasaIngreso);
+    setPersonnelExitRate(current.tasaSalida);
+    setRotationDetails({ nuevos: current.ingresos, salidas: current.salidas, inicio: current.inicio });
+    setEntryRateDetails({ nuevos: current.ingresos, inicio: current.inicio });
+    setExitRateDetails({
+      salidas: current.salidas,
+      inicio: current.inicio,
+      deUnidades: current.salidasDeUnidades,
+      archivados: current.salidasArchivados,
+    });
+  }, [turnoverSeries]);
 
   // Calculate units activity (events and requests)
   useEffect(() => {

@@ -2,11 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChevronDown, TrendingUp } from 'lucide-react';
 import { Resource, Unit } from '../types';
-import {
-  TurnoverMonthPoint,
-  buildTurnoverSpells,
-  computePersonnelTurnoverHistory,
-} from '../utils/personnelTurnoverHistory';
+import { TurnoverMonthPoint, computePersonnelTurnoverHistory } from '../utils/personnelTurnoverHistory';
 
 interface PersonnelTurnoverHistoryProps {
   units: Unit[];
@@ -14,8 +10,8 @@ interface PersonnelTurnoverHistoryProps {
   archivedLoading?: boolean;
 }
 
-function formatRate(value: number | null): string {
-  return value == null ? '—' : `${value.toFixed(1)}%`;
+function formatRate(value: number): string {
+  return `${value.toFixed(1)}%`;
 }
 
 function TurnoverTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: TurnoverMonthPoint }> }) {
@@ -30,9 +26,6 @@ function TurnoverTooltip({ active, payload }: { active?: boolean; payload?: Arra
       <p className="mt-1 text-emerald-700">Rotación: {formatRate(row.rotacion)}</p>
       <p className="text-blue-700">Tasa de ingreso: {formatRate(row.tasaIngreso)}</p>
       <p className="text-rose-700">Tasa de salida: {formatRate(row.tasaSalida)}</p>
-      {row.inicio === 0 && (
-        <p className="mt-1 text-slate-400">Sin personal al inicio: las tasas no tienen base.</p>
-      )}
     </div>
   );
 }
@@ -47,15 +40,10 @@ export const PersonnelTurnoverHistory: React.FC<PersonnelTurnoverHistoryProps> =
   const [selected, setSelected] = useState<string[] | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const spells = useMemo(
-    () => buildTurnoverSpells(units, archivedPersonnel),
-    [units, archivedPersonnel]
-  );
-
   const clients = useMemo(() => {
-    const names = new Set(spells.map((spell) => spell.clientName));
+    const names = new Set(units.map((unit) => unit.clientName?.trim() || 'Sin cliente'));
     return [...names].sort((a, b) => a.localeCompare(b, 'es'));
-  }, [spells]);
+  }, [units]);
 
   useEffect(() => {
     if (selected == null) return;
@@ -73,8 +61,12 @@ export const PersonnelTurnoverHistory: React.FC<PersonnelTurnoverHistoryProps> =
   }, [open]);
 
   const series = useMemo(
-    () => computePersonnelTurnoverHistory(spells, selected && selected.length === clients.length ? null : selected),
-    [spells, selected, clients.length]
+    () => computePersonnelTurnoverHistory(
+      units,
+      archivedPersonnel,
+      selected && selected.length === clients.length ? null : selected
+    ),
+    [units, archivedPersonnel, selected, clients.length]
   );
 
   const allSelected = selected == null || (clients.length > 0 && selected.length === clients.length);
@@ -106,7 +98,7 @@ export const PersonnelTurnoverHistory: React.FC<PersonnelTurnoverHistoryProps> =
             <h3 className="text-base font-semibold text-slate-800 md:text-lg">Rotación histórica</h3>
           </div>
           <p className="mt-1 text-xs text-slate-500 md:text-sm">
-            Horizonte de 12 meses. Rotación = (ingresos + salidas) / personal al inicio. Tasa de ingreso = ingresos / inicio. Tasa de salida = ceses / inicio.
+            Horizonte de 12 meses, con la misma fórmula que la tarjeta Rotación mensual: (nuevos + salidas) / personal al inicio.
           </p>
           {archivedLoading && (
             <p className="mt-1 text-xs text-slate-400">Actualizando ceses archivados…</p>
@@ -220,7 +212,7 @@ export const PersonnelTurnoverHistory: React.FC<PersonnelTurnoverHistoryProps> =
             </table>
           </div>
           <p className="mt-2 text-[10px] text-slate-400 md:text-xs">
-            El mes en curso está resaltado. Sus ingresos llegan hasta hoy y sus salidas consideran todo el mes. El personal compartido se cuenta una vez. El fin de contrato de quien sigue activo no cuenta como salida. Los ceses archivados se atribuyen al cliente de su unidad.
+            El mes en curso está resaltado y coincide con la tarjeta cuando el filtro es todos los clientes. Los nuevos son personal activo con inicio en el mes, hasta hoy. Las salidas suman ceses de las unidades y archivados de todo el mes. El personal compartido se cuenta una vez.
           </p>
         </>
       )}
