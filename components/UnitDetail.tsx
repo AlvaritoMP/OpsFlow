@@ -56,6 +56,16 @@ import {
   overlayVacationDatesOnResources,
   resolveShiftWindow,
 } from '../utils/rosterHours';
+import {
+  countRosterShiftsForDate,
+  getRosterShiftGroup,
+  isProgrammedWorkShift,
+  rosterShiftGroupsMatch,
+  rosterShiftShortLabel,
+  toLocalDateStr,
+  workerCountLabel,
+  type RosterShiftGroupKey,
+} from '../utils/rosterGroups';
 
 interface UnitDetailProps {
   unit: Unit;
@@ -257,60 +267,6 @@ const getMonday = (d: Date) => {
   return new Date(date.setDate(diff));
 };
 
-const toLocalDateStr = (d: Date) => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-};
-
-const isProgrammedWorkShift = (type?: string) =>
-  type === 'Day' || type === 'Afternoon' || type === 'Night';
-
-const rosterShiftShortLabel = (type: string) =>
-  type === 'Day' ? 'Dia' : type === 'Afternoon' ? 'Tar' : type === 'Night' ? 'Noc' : type === 'Vacation' ? 'Vac' : type;
-
-type RosterShiftGroupKey = 'supervision' | 'day' | 'afternoon' | 'night' | 'other' | 'none';
-
-const normalizePuestoKey = (value?: string) =>
-  (value || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-/** Supervisor, similares (jefe de turno, coordinador) o superiores (gerente, director). */
-const isSupervisorOrHigherPuesto = (puesto?: string): boolean => {
-  const puestoKey = normalizePuestoKey(puesto);
-  if (!puestoKey) return false;
-  if (['auxiliar', 'asistente', 'ayudante', 'practicante'].some((word) => puestoKey.includes(word))) {
-    return false;
-  }
-  return ['supervisor', 'jefe', 'coordinador', 'gerente', 'superintendente', 'director'].some((word) =>
-    puestoKey.includes(word)
-  );
-};
-
-const getRosterShiftGroup = (
-  worker: Pick<Resource, 'assignedShift' | 'puesto'>
-): { key: RosterShiftGroupKey; label: string; order: number } => {
-  if (isSupervisorOrHigherPuesto(worker.puesto)) {
-    return { key: 'supervision', label: 'Supervisión', order: 0 };
-  }
-  const shift = (worker.assignedShift || '').trim().toLowerCase();
-  if (!shift) return { key: 'none', label: 'Sin turno', order: 5 };
-  if (shift.includes('diurno') || shift === 'day' || shift.includes('mañana') || shift.includes('manana')) {
-    return { key: 'day', label: 'Diurno', order: 1 };
-  }
-  if (shift.includes('tarde') || shift === 'afternoon') {
-    return { key: 'afternoon', label: 'Tarde', order: 2 };
-  }
-  if (shift.includes('nocturno') || shift === 'night' || shift.includes('noche')) {
-    return { key: 'night', label: 'Nocturno', order: 3 };
-  }
-  return { key: 'other', label: worker.assignedShift!.trim(), order: 4 };
-};
-
 const rosterShiftGroupRowClass: Record<RosterShiftGroupKey, string> = {
   supervision: 'bg-violet-50 text-violet-800',
   day: 'bg-blue-50 text-blue-800',
@@ -318,35 +274,6 @@ const rosterShiftGroupRowClass: Record<RosterShiftGroupKey, string> = {
   night: 'bg-indigo-50 text-indigo-800',
   other: 'bg-slate-100 text-slate-700',
   none: 'bg-slate-50 text-slate-500',
-};
-
-const rosterShiftGroupsMatch = (
-  a: { key: RosterShiftGroupKey; label: string },
-  b: { key: RosterShiftGroupKey; label: string }
-) => a.key === b.key && (a.key !== 'other' || a.label === b.label);
-
-const workerCountLabel = (n: number) => `${n} trabajador${n === 1 ? '' : 'es'}`;
-
-const countRosterShiftsForDate = (workers: Resource[], dateStr: string) => {
-  const counts = { programmed: 0, day: 0, afternoon: 0, night: 0, off: 0, vacation: 0 };
-  for (const worker of workers) {
-    const type = worker.workSchedule?.find((s) => s.date === dateStr)?.type || 'OFF';
-    if (type === 'Day') {
-      counts.day += 1;
-      counts.programmed += 1;
-    } else if (type === 'Afternoon') {
-      counts.afternoon += 1;
-      counts.programmed += 1;
-    } else if (type === 'Night') {
-      counts.night += 1;
-      counts.programmed += 1;
-    } else if (type === 'Vacation') {
-      counts.vacation += 1;
-    } else {
-      counts.off += 1;
-    }
-  }
-  return counts;
 };
 
 type RosterWeekCount = 1 | 2 | 4;
@@ -4060,6 +3987,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     } catch (error) {
       console.error('Error exportando roster PDF:', error);
       setNotification({ type: 'error', message: 'No se pudo generar el PDF de la programación.' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsExportingRoster(false);
+    }
+  };
+
+  const handleExportRosterExcel = async () => {
+    if (isExportingRoster) return;
+    setIsExportingRoster(true);
+    try {
+      const { downloadRosterExcel } = await import('../utils/rosterExcel');
+      await downloadRosterExcel({
+        unitName: unit.name,
+        dates: rosterDates,
+        weekCount: rosterWeekCount,
+        groupByShift: rosterGroupByShift,
+        selectedDate: rosterSelectedDate,
+        workers: rosterPersonnel,
+        hasUnsavedChanges: rosterHasUnsavedChanges,
+      });
+      setNotification({ type: 'success', message: 'Programación descargada en Excel' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error exportando roster Excel:', error);
+      setNotification({ type: 'error', message: 'No se pudo generar el Excel de la programación.' });
       setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsExportingRoster(false);
@@ -8045,6 +7997,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                         title="Descargar la programación visible como PDF"
                     >
                         <FileText size={14} className="mr-1.5"/> PDF
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleExportRosterExcel}
+                        disabled={isExportingRoster || personnel.length === 0}
+                        className="flex items-center bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+                        title="Descargar la programación visible en Excel, con la grilla de turnos y la cobertura por hora"
+                    >
+                        <FileSpreadsheet size={14} className="mr-1.5"/> Excel
                     </button>
                     {canEditPersonnel ? (
                         <>
