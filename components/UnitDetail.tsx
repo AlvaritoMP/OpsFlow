@@ -33,6 +33,7 @@ import {
   UNIT_CLASS_LABELS,
 } from '../utils/unitClassConfig';
 import { isUnitOperational } from '../utils/unitStatus';
+import { nextZoneLayout, withVisibleLayouts, zoneBelongsToLayer } from '../utils/blueprintLayout';
 import { formatDateDisplay } from '../utils/dateFormat';
 import { normalizeDocumentNumber } from '../utils/documentNumber';
 import { DateInput } from './DateInput';
@@ -1052,6 +1053,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null); // NEW: Manage layers
   const [gridRows, setGridRows] = useState(12); // Dynamic rows
+  const planRowsRef = useRef(12);
 
   // Drag & Resize State for Zones
   const gridRef = useRef<HTMLDivElement>(null);
@@ -1523,29 +1525,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const { zonesService } = await import('../services/zonesService');
       
       // Crear la zona en la base de datos inmediatamente
+      const existingZones = editForm.zones?.length ? editForm.zones : unit.zones;
       const newZone = await zonesService.create({
       name: zoneName,
         shifts: newZoneShifts, // Ya es un array de ShiftType
-      layout: { 
-          x: 1, y: 1, w: 2, h: 2, color: '#e2e8f0',
-          layerId: activeLayerId || undefined
-      }, 
+      layout: nextZoneLayout(existingZones, activeLayerId, unit.blueprintLayers || []),
       area: 0
       }, unit.id);
     
       // Actualizar el estado local con la zona creada (que tiene el ID real de la BD)
-    setEditForm({
-      ...editForm,
-      zones: [...editForm.zones, newZone]
-    });
-      
-      // Actualizar también el estado de la unidad directamente (sin llamar a onUpdate para evitar recargas)
-      // La zona ya está guardada en la BD, así que solo actualizamos el estado local
-      const updatedUnit = {
+    setEditForm(prev => ({
+      ...prev,
+      zones: [...(prev.zones || []), newZone]
+    }));
+
+      replaceUnitInState?.({
         ...unit,
-        zones: [...unit.zones, newZone]
-      };
-      // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
+        zones: [...unit.zones.filter(z => z.id !== newZone.id), newZone]
+      });
 
       setNewZoneName('');
       setNewZoneShifts(['Day']);
@@ -1580,18 +1577,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       await zonesService.delete(zoneId);
       
       // Actualizar el estado local
-    setEditForm({
-      ...editForm,
-      zones: editForm.zones.filter(z => z.id !== zoneId)
-    });
-      
-      // Actualizar también el estado de la unidad directamente (sin llamar a onUpdate para evitar recargas)
-      // La zona ya está eliminada en la BD, así que solo actualizamos el estado local
-      const updatedUnit = {
+      setEditForm(prev => ({
+      ...prev,
+      zones: (prev.zones || []).filter(z => z.id !== zoneId)
+    }));
+
+      replaceUnitInState?.({
         ...unit,
         zones: unit.zones.filter(z => z.id !== zoneId)
-      };
-      // No llamamos a onUpdate aquí para evitar recargas automáticas que interrumpen la edición
+      });
       
       setNotification({
         type: 'success',
@@ -2193,7 +2187,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       const gridRect = gridRef.current.getBoundingClientRect();
       const cellWidth = gridRect.width / 12; // 12 column grid
-      const cellHeight = gridRect.height / gridRows; // DYNAMIC row grid
+      const cellHeight = gridRect.height / planRowsRef.current; // DYNAMIC row grid
 
       // Calculate initial mouse grid position
       const startGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
@@ -2220,7 +2214,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       const gridRect = gridRef.current.getBoundingClientRect();
       const cellWidth = gridRect.width / 12;
-        const cellHeight = gridRect.height / gridRows;
+        const cellHeight = gridRect.height / planRowsRef.current;
       
       const currentGridX = Math.floor((e.clientX - gridRect.left) / cellWidth);
       const currentGridY = Math.floor((e.clientY - gridRect.top) / cellHeight);
@@ -2245,7 +2239,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           
           // Boundaries (12 columns, gridRows rows)
           newX = Math.max(1, Math.min(newX, 13 - baseLayout.w));
-              newY = Math.max(1, Math.min(newY, (gridRows + 1) - baseLayout.h));
+              newY = Math.max(1, Math.min(newY, (planRowsRef.current + 1) - baseLayout.h));
 
           zone.layout = { ...baseLayout, x: newX, y: newY };
 
@@ -2256,7 +2250,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
           // Min Size & Boundaries
           newW = Math.max(1, Math.min(newW, 13 - baseLayout.x));
-          newH = Math.max(1, Math.min(newH, (gridRows + 1) - baseLayout.y));
+          newH = Math.max(1, Math.min(newH, (planRowsRef.current + 1) - baseLayout.y));
 
           zone.layout = { ...baseLayout, w: newW, h: newH };
       }
@@ -5694,9 +5688,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     const totalEquipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT).length;
     const totalMaterials = unit.resources.filter(r => r.type === ResourceType.MATERIAL).length;
     
-    // Filter zones for current layer
+    // Filter zones for current layer. Zonas sin nivel, o con un nivel que ya no existe, se muestran en el primer nivel.
     const activeLayers = unit.blueprintLayers || [];
-    const currentZones = zonesToUse.filter(z => !activeLayerId || z.layout?.layerId === activeLayerId || (!z.layout?.layerId && activeLayers.length > 0 && activeLayerId === activeLayers[0].id));
+    const currentZones = zonesToUse.filter(z => zoneBelongsToLayer(z, activeLayerId, activeLayers));
+    const displayZones = withVisibleLayouts(currentZones);
+    const neededRows = displayZones.reduce((max, z) => Math.max(max, (z.layout?.y || 1) + (z.layout?.h || 1) - 1), 12);
+    const rowCount = Math.max(gridRows, neededRows);
+    planRowsRef.current = rowCount;
+    const hiddenCount = zonesToUse.length - currentZones.length;
+    const layerWithZones = activeLayers.find(layer => zonesToUse.some(z => z.layout?.layerId === layer.id));
 
     return (
     <div className="flex flex-col animate-in fade-in duration-300 pb-10">
@@ -5738,7 +5738,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
            <div className="flex justify-between items-center mb-4">
                <div>
                    <h3 className="font-bold text-slate-700 text-lg flex items-center"><LayoutGrid className="mr-2"/> Plano de Distribución</h3>
-                   <p className="text-xs text-slate-500">Distribución de zonas por niveles.</p>
+                   <p className="text-xs text-slate-500">
+                     {zonesToUse.length === 0
+                       ? 'Sin zonas cargadas. Usa Editar plano para agregarlas.'
+                       : currentZones.length === 0
+                         ? `Hay ${zonesToUse.length} zona(s), pero ninguna en este nivel.`
+                         : `${currentZones.length} zona(s) en este nivel${hiddenCount > 0 ? ` · ${hiddenCount} en otros niveles` : ''}.`}
+                   </p>
                </div>
                {canEditBlueprint && (
                    <button 
@@ -5792,6 +5798,31 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     </button>
                 )}
            </div>
+           {displayZones.length > 0 && (
+             <div className="flex flex-wrap gap-2 mt-3">
+               {displayZones.map(zone => (
+                 <button
+                   key={zone.id}
+                   type="button"
+                   onClick={() => setSelectedZoneId(zone.id)}
+                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${selectedZoneId === zone.id ? 'border-slate-800 text-slate-900 bg-slate-50' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                 >
+                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: zone.layout?.color || '#94a3b8' }} />
+                   {zone.name}
+                 </button>
+               ))}
+             </div>
+           )}
+           {currentZones.length === 0 && zonesToUse.length > 0 && (
+             <p className="text-xs text-amber-700 mt-3">
+               Las zonas ingresadas no aparecen en este nivel.
+               {layerWithZones && activeLayerId !== layerWithZones.id && (
+                 <button type="button" className="ml-2 underline font-semibold" onClick={() => setActiveLayerId(layerWithZones.id)}>
+                   Ver {layerWithZones.name}
+                 </button>
+               )}
+             </p>
+           )}
        </div>
 
        <div className="flex flex-col lg:flex-row gap-6 w-full">
@@ -5842,19 +5873,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       isMobile ? 'gap-0.5 p-1' : 'gap-2 p-2 md:p-8'
                     }`}
                     style={{ 
-                      gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`,
-                      // En móvil: altura 100% para llenar el contenedor cuadrado y mantener proporción
-                      // En desktop: altura mínima fija
-                      height: isMobile ? '100%' : 'auto',
-                      minHeight: isMobile ? '100%' : '600px',
+                      gridTemplateRows: `repeat(${rowCount}, minmax(52px, 1fr))`,
+                      height: isMobile ? '100%' : `${Math.max(600, rowCount * 56)}px`,
+                      minHeight: isMobile ? '100%' : undefined,
                       minWidth: '100%',
                       position: 'relative',
                       zIndex: 2,
-                      // Asegurar que el grid mantenga la proporción en móvil
                       aspectRatio: isMobile ? '1 / 1' : undefined
                     }}
                   >
-                      {currentZones.map(zone => {
+                      {displayZones.length === 0 && (
+                        <div className="col-span-12 row-span-3 flex items-center justify-center p-6">
+                          <p className="text-slate-300 text-sm text-center max-w-xs">
+                            {zonesToUse.length === 0
+                              ? 'No hay zonas en esta unidad.'
+                              : 'No hay zonas en este nivel.'}
+                          </p>
+                        </div>
+                      )}
+                      {displayZones.map(zone => {
                           // Count resources in this zone (checking inclusion in array)
                           const zP = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.assignedZones?.includes(zone.name)).length;
                           const zE = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT && r.assignedZones?.includes(zone.name)).length;
@@ -5863,7 +5900,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                             .filter(r => r.type === ResourceType.PERSONNEL && r.assignedZones?.includes(zone.name))
                             .reduce((count, r) => count + (r.assignedAssets || []).length, 0);
                           
-                          // Defaults if no layout
                           const layout = zone.layout || { x: 1, y: 1, w: 2, h: 2, color: '#94a3b8' };
                           const isSelected = selectedZoneId === zone.id;
                           

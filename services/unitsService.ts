@@ -5,6 +5,7 @@ import { logsService } from './logsService';
 import { requestsService } from './requestsService';
 import { zonesService } from './zonesService';
 import { auditService } from './auditService';
+import { zoneLayoutFromRow } from '../utils/blueprintLayout';
 
 // Tipos para la base de datos
 interface UnitRow {
@@ -786,14 +787,7 @@ function transformZoneFromDB(zone: any) {
     name: zone.name,
     shifts: [], // Se cargan por separado
     area: zone.area ? Number(zone.area) : undefined,
-    layout: zone.layout_x ? {
-      x: zone.layout_x,
-      y: zone.layout_y,
-      w: zone.layout_w,
-      h: zone.layout_h,
-      color: zone.layout_color,
-      layerId: zone.layout_layer_id,
-    } : undefined,
+    layout: zoneLayoutFromRow(zone),
   };
 }
 

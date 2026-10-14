@@ -1,5 +1,6 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { Zone } from '../types';
+import { zoneLayoutFromRow } from '../utils/blueprintLayout';
 
 // ============================================
 // CRUD PARA ZONES
@@ -148,14 +149,7 @@ function transformZoneFromDB(data: any): Zone {
     name: data.name,
     shifts: data.zone_shifts?.map((s: any) => s.shift_name) || [],
     area: data.area ? Number(data.area) : undefined,
-    layout: data.layout_x ? {
-      x: data.layout_x,
-      y: data.layout_y,
-      w: data.layout_w,
-      h: data.layout_h,
-      color: data.layout_color,
-      layerId: data.layout_layer_id,
-    } : undefined,
+    layout: zoneLayoutFromRow(data),
   };
 }
 
