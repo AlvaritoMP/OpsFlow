@@ -528,7 +528,8 @@ export interface WorkPlanActivity {
   weekdays: number[];
   /** Vacío = todo el turno. Si hay ids, solo esas personas del turno. */
   personIds: string[];
-  zone?: string;
+  /** Zonas de la unidad donde se hace la actividad. Puede haber varias. */
+  zones: string[];
 }
 
 export interface WorkPlanSlot {

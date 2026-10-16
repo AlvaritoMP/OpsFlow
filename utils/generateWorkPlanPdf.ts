@@ -5,6 +5,7 @@ import {
   appliesOnDay,
   audienceLabel,
   formatPlanStamp,
+  formatActivityZones,
   formatTimeRange,
   frequencyMeta,
   planStatusLabel,
@@ -47,7 +48,8 @@ function frequencyLine(activity: WorkPlanActivity): string {
 }
 
 function activityBlock(activity: WorkPlanActivity, who?: string): string {
-  const zone = activity.zone ? ` · ${activity.zone}` : '';
+  const zones = formatActivityZones(activity.zones);
+  const zone = zones ? ` · ${zones}` : '';
   const owner = who ? `${who}: ` : '';
   return `${owner}${activity.text}\n${frequencyLine(activity)}${zone}`;
 }
@@ -144,8 +146,8 @@ function assignedIds(shift: WorkPlanShift, activity: WorkPlanActivity): string[]
 function cellText(shift: WorkPlanShift, activities: WorkPlanActivity[], column: { personId?: string; shared?: boolean }): string {
   const mine = activities.filter((activity) => {
     const ids = assignedIds(shift, activity);
-    if (column.personId) return ids.length === 1 && ids[0] === column.personId;
-    return ids.length !== 1;
+    if (column.personId) return ids.includes(column.personId);
+    return ids.length === 0;
   });
   if (mine.length === 0) return '—';
   return mine
@@ -205,7 +207,7 @@ function drawActivityList(doc: PdfDoc, shift: WorkPlanShift, y: number, continua
         { text: activity ? audienceLabel(activity, shift.people) : '—', width: widths[1] },
         { text: activity?.text || '—', width: widths[2] },
         { text: activity ? frequencyLine(activity) : '—', width: widths[3] },
-        { text: activity?.zone || '—', width: widths[4] },
+        { text: activity ? (formatActivityZones(activity.zones) || '—') : '—', width: widths[4] },
       ];
       y = drawMeasuredRow(doc, y, cells, continuation);
     });
@@ -264,7 +266,7 @@ function drawCronograma(doc: PdfDoc, plan: UnitWorkPlan, continuation: string) {
         const cells = [
           { text: shift.name, width: widths[0] },
           { text: formatTimeRange(slot.startTime, slot.endTime), width: widths[1] },
-          { text: `${activity.text}${activity.zone ? `\n${activity.zone}` : ''}`, width: widths[2] },
+          { text: `${activity.text}${formatActivityZones(activity.zones) ? `\n${formatActivityZones(activity.zones)}` : ''}`, width: widths[2] },
           { text: `${audienceLabel(activity, shift.people)}\n${frequencyLine(activity)}`, width: widths[3] },
           ...WEEKDAY_OPTIONS.map((_, index) => ({ text: '', width: widths[4 + index] })),
         ];

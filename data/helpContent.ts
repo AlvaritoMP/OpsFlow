@@ -230,7 +230,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         tips: [
           'Puede copiar un plan para la semana siguiente y cambiar solo lo que varía.',
           'Si el puesto rota, agregue un nombre o el puesto sin ligarlo a una ficha.',
-          'Si la unidad tiene zonas, puede indicar en cuál se hace cada actividad.',
+          'En cada actividad puede marcar varios responsables y varias zonas.',
         ],
       },
       {

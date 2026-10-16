@@ -144,6 +144,7 @@ export function emptyActivity(): WorkPlanActivity {
     frequency: 'diaria',
     weekdays: [],
     personIds: [],
+    zones: [],
   };
 }
 
@@ -168,6 +169,30 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function uniqueZones(values: string[]): string[] {
+  const seen = new Set<string>();
+  const zones: string[] = [];
+  values.forEach((value) => {
+    const zone = value.trim();
+    const key = zone.toLowerCase();
+    if (!zone || seen.has(key)) return;
+    seen.add(key);
+    zones.push(zone);
+  });
+  return zones;
+}
+
+/** Acepta la lista nueva y la zona única de planes ya guardados. */
+export function parseActivityZones(raw: { zones?: unknown; zone?: unknown }): string[] {
+  const fromList = Array.isArray(raw.zones) ? raw.zones.filter((item): item is string => typeof item === 'string') : [];
+  const single = asString(raw.zone);
+  return uniqueZones(single ? [...fromList, single] : fromList);
+}
+
+export function formatActivityZones(zones?: string[]): string {
+  return (zones || []).filter(Boolean).join(', ');
+}
+
 function parseActivity(raw: unknown): WorkPlanActivity | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
@@ -183,7 +208,7 @@ function parseActivity(raw: unknown): WorkPlanActivity | null {
     frequency: allowed.includes(frequency as WorkPlanFrequency) ? (frequency as WorkPlanFrequency) : 'diaria',
     weekdays: sortWeekdays(weekdays),
     personIds,
-    zone: asString(row.zone).trim() || undefined,
+    zones: parseActivityZones(row),
   };
 }
 
@@ -263,7 +288,7 @@ export function sanitizePlan(plan: UnitWorkPlan): UnitWorkPlan {
               text: activity.text.trim(),
               weekdays: activity.frequency === 'semanal' ? sortWeekdays(activity.weekdays) : [],
               personIds: activity.personIds.filter((id) => ids.has(id)),
-              zone: activity.zone?.trim() || undefined,
+              zones: uniqueZones(activity.zones || []),
             })),
         })),
       };
@@ -384,6 +409,7 @@ function remapShift(shift: WorkPlanShift): WorkPlanShift {
         ...activity,
         id: newWorkPlanId(),
         weekdays: [...activity.weekdays],
+        zones: [...(activity.zones || [])],
         personIds: activity.personIds
           .map((id) => idMap.get(id))
           .filter((id): id is string => Boolean(id)),

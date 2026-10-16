@@ -32,7 +32,7 @@ ALTER TABLE public.unit_work_plans
 COMMENT ON TABLE public.unit_work_plans IS
   'Planes de trabajo por unidad: turnos, horarios y actividades. Un solo plan vigente por unidad.';
 COMMENT ON COLUMN public.unit_work_plans.shifts IS
-  'Turnos del plan: [{id, name, people:[{id, resourceId, name, role}], slots:[{id, startTime, endTime, activities:[{id, text, frequency, weekdays, personIds, zone}]}]}]';
+  'Turnos del plan: [{id, name, people:[{id, resourceId, name, role}], slots:[{id, startTime, endTime, activities:[{id, text, frequency, weekdays, personIds, zones:[...]}]}]}]';
 COMMENT ON COLUMN public.unit_work_plans.status IS
   'draft = en avance, se puede seguir guardando; active = versión final de la unidad. La final también se puede actualizar.';
 COMMENT ON COLUMN public.unit_work_plans.created_by_name IS

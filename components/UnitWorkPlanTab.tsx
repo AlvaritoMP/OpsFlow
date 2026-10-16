@@ -31,6 +31,7 @@ import {
   emptyActivity,
   emptyPlan,
   exampleShifts,
+  formatActivityZones,
   formatPlanStamp,
   formatTimeRange,
   frequencyMeta,
@@ -784,6 +785,19 @@ const ActivityCard: React.FC<{
       personIds: has ? activity.personIds.filter((id) => id !== personId) : [...activity.personIds, personId],
     });
   };
+  const selectedZones = activity.zones || [];
+  const zoneOptions = [...zones];
+  selectedZones.forEach((zone) => {
+    if (!zoneOptions.includes(zone)) zoneOptions.push(zone);
+  });
+  const toggleZone = (zone: string) => {
+    onChange({
+      ...activity,
+      zones: selectedZones.includes(zone)
+        ? selectedZones.filter((item) => item !== zone)
+        : [...selectedZones, zone],
+    });
+  };
 
   return (
     <div className="rounded-xl bg-slate-50 p-3 space-y-3">
@@ -841,7 +855,8 @@ const ActivityCard: React.FC<{
         </div>
       )}
       <div>
-        <p className="text-xs font-medium text-slate-500 mb-1">Quién lo hace</p>
+        <p className="text-xs font-medium text-slate-500 mb-1">Responsables</p>
+        <p className="text-xs text-slate-500 mb-2">Puede marcar más de uno. Si no marca a nadie, la actividad queda para todo el turno.</p>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -867,20 +882,28 @@ const ActivityCard: React.FC<{
           })}
         </div>
       </div>
-      {zones.length > 0 && (
-        <label className="block">
-          <span className="text-xs font-medium text-slate-500">Zona</span>
-          <select
-            value={activity.zone || ''}
-            disabled={!canEdit}
-            onChange={(event) => onChange({ ...activity, zone: event.target.value || undefined })}
-            className="mt-1 w-full h-12 rounded-xl border border-slate-300 px-3 text-base bg-white"
-          >
-            <option value="">Sin zona</option>
-            {activity.zone && !zones.includes(activity.zone) && <option value={activity.zone}>{activity.zone}</option>}
-            {zones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
-          </select>
-        </label>
+      {zoneOptions.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-slate-500 mb-1">Zonas</p>
+          <p className="text-xs text-slate-500 mb-2">Puede marcar más de una.</p>
+          <div className="flex flex-wrap gap-2">
+            {zoneOptions.map((zone) => {
+              const selected = selectedZones.includes(zone);
+              return (
+                <button
+                  key={zone}
+                  type="button"
+                  disabled={!canEdit}
+                  onClick={() => toggleZone(zone)}
+                  className={`h-10 px-3 rounded-full text-sm font-medium border max-w-full truncate ${selected ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white border-slate-200 text-slate-700'}`}
+                  aria-pressed={selected}
+                >
+                  {zone}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1017,7 +1040,7 @@ function CronogramaView({
                 <article className="rounded-2xl border border-slate-200 bg-white p-3">
                   <p className="text-xs font-medium text-slate-500">{row.range}</p>
                   <p className="font-semibold text-slate-900 mt-1">{row.activity.text}</p>
-                  <p className="text-sm text-slate-600 mt-1">{row.who}{row.activity.zone ? ` · ${row.activity.zone}` : ''}</p>
+                  <p className="text-sm text-slate-600 mt-1">{row.who}{formatActivityZones(row.activity.zones || []) ? ` · ${formatActivityZones(row.activity.zones)}` : ''}</p>
                   <span className={`inline-flex mt-2 text-xs font-semibold px-2 py-1 rounded-full border ${meta.chip}`}>{meta.label}</span>
                 </article>
               </div>
