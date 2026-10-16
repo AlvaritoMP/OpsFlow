@@ -229,9 +229,21 @@ export const requestsService = {
     }
   },
 
-  // Eliminar una solicitud
+  // Eliminar una solicitud y sus dependencias (comentarios y evidencias)
   async delete(id: string): Promise<void> {
     try {
+      const { error: commentsError } = await supabase
+        .from('request_comments')
+        .delete()
+        .eq('client_request_id', id);
+      if (commentsError) throw commentsError;
+
+      const { error: attachmentsError } = await supabase
+        .from('request_attachments')
+        .delete()
+        .eq('client_request_id', id);
+      if (attachmentsError) throw attachmentsError;
+
       const { error } = await supabase
         .from('client_requests')
         .delete()

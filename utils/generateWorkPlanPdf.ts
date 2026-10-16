@@ -149,10 +149,13 @@ function cellText(shift: WorkPlanShift, activities: WorkPlanActivity[], column: 
     if (column.personId) return ids.includes(column.personId);
     return ids.length === 0;
   });
+  if (column.shared) {
+    const shiftName = shift.name.trim() || 'Turno';
+    if (mine.length === 0) return shiftName;
+    return [shiftName, ...mine.map((activity) => activityBlock(activity, audienceLabel(activity, shift.people)))].join('\n\n');
+  }
   if (mine.length === 0) return '—';
-  return mine
-    .map((activity) => activityBlock(activity, column.shared ? audienceLabel(activity, shift.people) : undefined))
-    .join('\n\n');
+  return mine.map((activity) => activityBlock(activity)).join('\n\n');
 }
 
 function drawMeasuredRow(

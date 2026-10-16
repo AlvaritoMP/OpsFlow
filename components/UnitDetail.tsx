@@ -1086,6 +1086,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canManageZones = canEditGeneral || canEditBlueprint;
   const canViewRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'view');
   const canCreateRequests = checkPermission(userRole, 'CLIENT_REQUESTS', 'edit'); // Client can edit (create)
+  const canDeleteRequests = canCreateRequests;
 
   useEffect(() => {
     if ((activeTab === 'unitbook' && !canViewUnitBook) || (activeTab === 'workplan' && !canViewWorkPlan)) {
@@ -1945,13 +1946,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }
   };
 
-  // Eliminar requerimiento (solo para administradores)
+  // Eliminar requerimiento (quien puede crearlos, para corregir cargas por error)
   const handleDeleteRequest = async (requestId: string) => {
     if (!onUpdate && !replaceUnitInState) return;
     
-    // Verificar permisos: solo ADMIN y SUPER_ADMIN pueden eliminar requerimientos
-    if (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
-      setNotification({ type: 'error', message: 'Solo los administradores pueden eliminar requerimientos.' });
+    if (!canDeleteRequests) {
+      setNotification({ type: 'error', message: 'No tienes permisos para eliminar requerimientos.' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
@@ -1986,7 +1986,18 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       console.error('Error al eliminar requerimiento:', error);
-      setNotification({ type: 'error', message: 'Error al eliminar el requerimiento. Por favor, intente nuevamente.' });
+      const detail =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'object' && error !== null && 'message' in error
+            ? String((error as { message: unknown }).message)
+            : '';
+      setNotification({
+        type: 'error',
+        message: detail
+          ? `Error al eliminar el requerimiento: ${detail}`
+          : 'Error al eliminar el requerimiento. Por favor, intente nuevamente.',
+      });
       setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsSavingRequest(false);
@@ -5431,8 +5442,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                              >
                                                  <Edit2 size={14}/>
                                              </button>
-                                             {/* Botón de eliminación: visible solo para administradores */}
-                                             {(userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') && (
+                                             {canDeleteRequests && (
                                                  <button 
                                                      onClick={() => handleDeleteRequest(req.id)} 
                                                      className="text-xs bg-slate-50 hover:bg-red-50 text-slate-600 hover:text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200 hover:border-red-200"
