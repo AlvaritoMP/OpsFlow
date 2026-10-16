@@ -26,6 +26,7 @@ interface MattermostIncidentsProps {
   canEdit?: boolean;
   canDelete?: boolean;
   onSelectUnit?: (unitId: string) => void;
+  units?: { id: string; name: string }[];
 }
 
 function coverageClass(value: string): string {
@@ -96,12 +97,14 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
   canEdit = false,
   canDelete = false,
   onSelectUnit,
+  units = [],
 }) => {
   const [rows, setRows] = useState<PayrollAttendanceIncident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [workerQuery, setWorkerQuery] = useState('');
+  const [unitId, setUnitId] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [reporterQuery, setReporterQuery] = useState('');
@@ -123,12 +126,28 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
     void load();
   }, [load]);
 
+  const unitOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const unit of units) {
+      if (!unit.id) continue;
+      map.set(unit.id, unit.name || 'Unidad');
+    }
+    for (const row of rows) {
+      if (!row.unitId || map.has(row.unitId)) continue;
+      map.set(row.unitId, row.unitName || 'Unidad');
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  }, [units, rows]);
+
   const filtered = useMemo(() => {
     const worker = norm(workerQuery);
     const reporter = norm(reporterQuery);
     const from = dateFrom && dateTo && dateFrom > dateTo ? dateTo : dateFrom;
     const to = dateFrom && dateTo && dateFrom > dateTo ? dateFrom : dateTo;
     return rows.filter((row) => {
+      if (unitId && row.unitId !== unitId) return false;
       if (worker) {
         const hay = `${norm(row.employeeName)} ${norm(row.employeeDni)}`;
         if (!hay.includes(worker)) return false;
@@ -144,9 +163,9 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
       }
       return true;
     });
-  }, [rows, workerQuery, dateFrom, dateTo, reporterQuery]);
+  }, [rows, workerQuery, unitId, dateFrom, dateTo, reporterQuery]);
 
-  const hasFilters = Boolean(workerQuery || dateFrom || dateTo || reporterQuery);
+  const hasFilters = Boolean(workerQuery || unitId || dateFrom || dateTo || reporterQuery);
 
   const onStatus = async (id: string, status: PayrollAttendanceIncidentStatus) => {
     setSavingId(id);
@@ -210,7 +229,7 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase mb-3">
           <Search size={14} /> Buscar reportes
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
           <label className="block">
             <span className="block text-xs font-medium text-slate-600 mb-1">Trabajador (nombre o DNI)</span>
             <input
@@ -220,6 +239,21 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
               placeholder="Ej. Pérez o 12345678"
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
             />
+          </label>
+          <label className="block">
+            <span className="block text-xs font-medium text-slate-600 mb-1">Unidad</span>
+            <select
+              value={unitId}
+              onChange={(e) => setUnitId(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+            >
+              <option value="">Todas las unidades</option>
+              {unitOptions.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="block">
             <span className="block text-xs font-medium text-slate-600 mb-1">Reporte desde</span>
@@ -258,6 +292,7 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
             type="button"
             onClick={() => {
               setWorkerQuery('');
+              setUnitId('');
               setDateFrom('');
               setDateTo('');
               setReporterQuery('');

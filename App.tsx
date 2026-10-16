@@ -1919,6 +1919,7 @@ const App: React.FC = () => {
             canEdit={checkPermission(currentUser.role, 'MATTERMOST', 'edit')}
             canDelete={canDeleteAttendanceIncidents(currentUser)}
             onSelectUnit={handleSelectUnit}
+            units={operationalUnits}
           />
         ))}
         {renderCachedView('inventory', (
