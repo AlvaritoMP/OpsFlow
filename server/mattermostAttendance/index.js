@@ -54,6 +54,8 @@ import {
   getPost,
   getPostThread,
   getTeam,
+  isTransientMattermostError,
+  mattermostFetch,
   getTeamMember,
   getUser,
   openDialog,
@@ -1501,13 +1503,21 @@ async function handlePostAttachment(req, res, body) {
 
 let pollerStarted = false;
 let pollerBusy = false;
+let pollFailureStreak = 0;
+
+function nextPollDelay(baseMs) {
+  if (pollFailureStreak <= 0) return baseMs;
+  const factor = 2 ** Math.min(pollFailureStreak - 1, 4);
+  return Math.min(baseMs * factor, 5 * 60 * 1000);
+}
 
 async function pollOpenThreads() {
-  if (pollerBusy) return;
+  if (pollerBusy) return true;
   const cfg = loadConfig();
-  if (!cfg.botToken || !cfg.mattermostUrl) return;
+  if (!cfg.botToken || !cfg.mattermostUrl) return true;
   pollerBusy = true;
   try {
+    await mattermostFetch('/api/v4/users/me');
     const incidents = await listOpenIncidentsForPolling(7);
     for (const incident of incidents) {
       if (!incident.mattermost_post_id) continue;
@@ -1515,6 +1525,7 @@ async function pollOpenThreads() {
       try {
         thread = await getPostThread(incident.mattermost_post_id);
       } catch (err) {
+        if (isTransientMattermostError(err)) throw err;
         console.warn(
           '⚠️  Thread poll',
           incident.mattermost_post_id,
@@ -1535,8 +1546,13 @@ async function pollOpenThreads() {
         });
       }
     }
+    return true;
   } catch (err) {
-    console.error('❌ Poller hilos Mattermost:', err);
+    console.warn(
+      '⚠️  Poller Mattermost en pausa:',
+      err instanceof Error ? err.message : err,
+    );
+    return false;
   } finally {
     pollerBusy = false;
   }
@@ -1550,11 +1566,30 @@ export function startMattermostThreadPoller() {
     return;
   }
   pollerStarted = true;
-  const ms = Math.max(10_000, cfg.pollIntervalMs);
-  setInterval(() => {
-    void pollOpenThreads();
-  }, ms);
-  console.log(`🧵 Poller de adjuntos Mattermost cada ${Math.round(ms / 1000)}s`);
+  const baseMs = Math.max(20_000, Number(cfg.pollIntervalMs) || 20_000);
+
+  const arm = () => {
+    const wait = nextPollDelay(baseMs);
+    if (pollFailureStreak > 0) {
+      console.warn(
+        `🧵 Mattermost no disponible (${pollFailureStreak}). Siguiente revisión en ${Math.round(wait / 1000)}s, sin consultar Supabase.`,
+      );
+    }
+    setTimeout(() => {
+      void pollOpenThreads()
+        .then((ok) => {
+          pollFailureStreak = ok ? 0 : pollFailureStreak + 1;
+        })
+        .catch((err) => {
+          pollFailureStreak += 1;
+          console.error('❌ Poller hilos Mattermost:', err);
+        })
+        .finally(arm);
+    }, wait);
+  };
+
+  arm();
+  console.log(`🧵 Poller de adjuntos Mattermost cada ${Math.round(baseMs / 1000)}s (pausa después de cada pasada)`);
 }
 
 export async function handleMattermostRequest(req, res, urlPath) {

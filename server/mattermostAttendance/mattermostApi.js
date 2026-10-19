@@ -10,6 +10,15 @@ async function parseJsonSafe(res) {
   }
 }
 
+/** Caída de red, timeout o 5xx: no seguir recorriendo hilos ni consultar Supabase. */
+export function isTransientMattermostError(err) {
+  const msg = String(err instanceof Error ? err.message : err || '');
+  if (/HTTP 5\d\d/.test(msg)) return true;
+  return /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|aborted|timeout|socket|network|other side closed/i.test(
+    msg,
+  );
+}
+
 export async function mattermostFetch(path, { method = 'GET', body, headers = {}, asBuffer = false } = {}) {
   const cfg = loadConfig();
   if (!cfg.mattermostUrl || !cfg.botToken) {
@@ -26,7 +35,12 @@ export async function mattermostFetch(path, { method = 'GET', body, headers = {}
     reqHeaders['Content-Type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  const res = await fetch(url, { method, headers: reqHeaders, body: payload });
+  const res = await fetch(url, {
+    method,
+    headers: reqHeaders,
+    body: payload,
+    signal: AbortSignal.timeout(asBuffer ? 30_000 : 8_000),
+  });
   if (asBuffer) {
     if (!res.ok) {
       const errBody = await res.text();
