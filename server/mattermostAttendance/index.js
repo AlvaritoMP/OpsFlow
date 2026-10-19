@@ -273,8 +273,8 @@ function summaryLine(values, units, workers) {
   ].join(' · ');
 }
 
-function selectAction({ id, name, actionUrl, state, values, action, options }) {
-  return {
+function selectAction({ id, name, actionUrl, state, values, action, options, defaultOption }) {
+  const menu = {
     id,
     name,
     type: 'select',
@@ -284,6 +284,8 @@ function selectAction({ id, name, actionUrl, state, values, action, options }) {
     },
     options,
   };
+  if (defaultOption) menu.default_option = defaultOption;
+  return menu;
 }
 
 function registrarButton({ actionUrl, state, values }) {
@@ -341,13 +343,14 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
             options: unitOptions,
           }),
           selectAction({
-            id: 'setworker',
+            id: values.unit_id ? `worker-${values.unit_id}` : 'setworker',
             name: 'Trabajador',
             actionUrl,
             state,
             values,
             action: FORM_ACTIONS.worker,
             options: workerOptionsForForm(workers, values.unit_id),
+            defaultOption: values.employee_id,
           }),
           selectAction({
             id: 'settype',
@@ -696,7 +699,7 @@ async function handleCommand(req, res, body) {
   const cfg = loadConfig();
 
   try {
-    const units = await listActiveUnits();
+    const units = await cachedActiveUnits();
     if (!units.length) {
       sendJson(res, 200, {
         response_type: 'ephemeral',
