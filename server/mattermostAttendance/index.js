@@ -393,7 +393,7 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
 }
 
 let unitsCache = { at: 0, rows: null };
-const UNITS_CACHE_MS = 60_000;
+const UNITS_CACHE_MS = 5 * 60_000;
 
 async function cachedActiveUnits() {
   const now = Date.now();

@@ -24,19 +24,26 @@ async function fetchAllPages(buildQuery, pageSize = 1000) {
 
 export async function listActiveUnits() {
   const supabase = getSupabaseAdmin();
-  const rows = await fetchAllPages(() =>
-    supabase.from('units').select('id, name, status').order('name', { ascending: true }),
-  );
-  return rows.filter(isOperationalUnit);
+  const { data, error } = await supabase
+    .from('units')
+    .select('id, name, status')
+    .order('name', { ascending: true })
+    .limit(300);
+  if (error) throw error;
+  return (data || []).filter(isOperationalUnit);
 }
 
 const WORKER_SELECT_COLUMNS =
   'id, name, dni, unit_id, type, archived, personnel_status, inbound_source_data, is_shared';
 
-function activePersonalQuery(supabase) {
+/** El desplegable solo necesita el nombre. El JSON de la ficha se lee al registrar. */
+const WORKER_MENU_COLUMNS =
+  'id, name, dni, unit_id, type, archived, personnel_status, is_shared';
+
+function activePersonalQuery(supabase, columns = WORKER_SELECT_COLUMNS) {
   return supabase
     .from('resources')
-    .select(WORKER_SELECT_COLUMNS)
+    .select(columns)
     .eq('type', 'Personal')
     .or('archived.is.null,archived.eq.false');
 }
@@ -51,17 +58,27 @@ export async function listActiveWorkers(unitId) {
   return rows.filter(isActivePersonnelRow);
 }
 
+const workerMenuCache = new Map();
+const WORKER_MENU_CACHE_MS = 60_000;
+
 /** Primeros operarios activos de una unidad, para el desplegable de /falta. */
 export async function listWorkersForUnitSelect(unitId, limit = 101) {
   if (!unitId) return [];
+  const now = Date.now();
+  const cached = workerMenuCache.get(unitId);
+  if (cached && now - cached.at < WORKER_MENU_CACHE_MS && cached.limit >= limit) {
+    return cached.rows.slice(0, limit);
+  }
   const supabase = getSupabaseAdmin();
   const fetchLimit = Math.min(Math.max(limit * 3, limit), 400);
-  const { data, error } = await activePersonalQuery(supabase)
+  const { data, error } = await activePersonalQuery(supabase, WORKER_MENU_COLUMNS)
     .eq('unit_id', unitId)
     .order('name', { ascending: true })
     .limit(fetchLimit);
   if (error) throw error;
-  return (data || []).filter(isActivePersonnelRow).slice(0, limit);
+  const rows = (data || []).filter(isActivePersonnelRow).slice(0, limit);
+  workerMenuCache.set(unitId, { at: now, limit, rows });
+  return rows;
 }
 
 export function workerSelectOptions(workers) {
