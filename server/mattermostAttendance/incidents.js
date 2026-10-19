@@ -30,19 +30,38 @@ export async function listActiveUnits() {
   return rows.filter(isOperationalUnit);
 }
 
+const WORKER_SELECT_COLUMNS =
+  'id, name, dni, unit_id, type, archived, personnel_status, inbound_source_data, is_shared';
+
+function activePersonalQuery(supabase) {
+  return supabase
+    .from('resources')
+    .select(WORKER_SELECT_COLUMNS)
+    .eq('type', 'Personal')
+    .or('archived.is.null,archived.eq.false');
+}
+
 export async function listActiveWorkers(unitId) {
   const supabase = getSupabaseAdmin();
   const rows = await fetchAllPages(() => {
-    let q = supabase
-      .from('resources')
-      .select('id, name, dni, unit_id, type, archived, personnel_status, inbound_source_data, is_shared')
-      .eq('type', 'Personal')
-      .or('archived.is.null,archived.eq.false')
-      .order('name', { ascending: true });
+    let q = activePersonalQuery(supabase).order('name', { ascending: true });
     if (unitId) q = q.eq('unit_id', unitId);
     return q;
   });
   return rows.filter(isActivePersonnelRow);
+}
+
+/** Primeros operarios activos de una unidad, para el desplegable de /falta. */
+export async function listWorkersForUnitSelect(unitId, limit = 101) {
+  if (!unitId) return [];
+  const supabase = getSupabaseAdmin();
+  const fetchLimit = Math.min(Math.max(limit * 3, limit), 400);
+  const { data, error } = await activePersonalQuery(supabase)
+    .eq('unit_id', unitId)
+    .order('name', { ascending: true })
+    .limit(fetchLimit);
+  if (error) throw error;
+  return (data || []).filter(isActivePersonnelRow).slice(0, limit);
 }
 
 export function workerSelectOptions(workers) {

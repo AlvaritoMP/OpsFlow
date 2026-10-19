@@ -37,6 +37,7 @@ import {
   getWorkerById,
   listActiveUnits,
   listActiveWorkers,
+  listWorkersForUnitSelect,
   listOpenIncidentsForPolling,
   saveAttachment,
   updateIncidentDetails,
@@ -59,7 +60,6 @@ import {
   getTeamMember,
   getUser,
   openDialog,
-  patchPost,
   updatePost,
 } from './mattermostApi.js';
 
@@ -341,7 +341,7 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
             options: unitOptions,
           }),
           selectAction({
-            id: values.unit_id ? 'operario' : 'setworker',
+            id: 'setworker',
             name: 'Trabajador',
             actionUrl,
             state,
@@ -389,10 +389,22 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
   };
 }
 
+let unitsCache = { at: 0, rows: null };
+const UNITS_CACHE_MS = 60_000;
+
+async function cachedActiveUnits() {
+  const now = Date.now();
+  if (unitsCache.rows && now - unitsCache.at < UNITS_CACHE_MS) return unitsCache.rows;
+  const rows = await listActiveUnits();
+  unitsCache = { at: now, rows };
+  return rows;
+}
+
 async function workersForForm(unitId, workerQuery) {
   if (unitId) {
+    if (!workerQuery) return listWorkersForUnitSelect(unitId, SELECT_OPTIONS_MAX + 1);
     const workers = await listActiveWorkers(unitId);
-    return workerQuery ? filterWorkers(workers, workerQuery) : workers;
+    return filterWorkers(workers, workerQuery);
   }
   if (workerQuery) return filterWorkers(await listActiveWorkers(), workerQuery);
   return [];
@@ -403,22 +415,11 @@ function formUpdateResponse(form, extraText) {
   return {
     update: {
       message,
-      attachments: form.attachments,
-      props: { attachments: form.attachments },
+      props: {
+        attachments: form.attachments,
+      },
     },
   };
-}
-
-async function refreshFormPost(postId, form) {
-  if (!postId) return;
-  try {
-    await patchPost(postId, {
-      message: form.text,
-      props: { attachments: form.attachments },
-    });
-  } catch (err) {
-    console.warn('⚠️  No se pudo actualizar el mensaje /falta:', err instanceof Error ? err.message : err);
-  }
 }
 
 function cardFields({ unit, worker, values, incidentDate }) {
@@ -534,6 +535,7 @@ async function ingestFromPostLike({ postId, rootId, fileIds, userName }) {
 }
 
 async function handleInteractiveAction(req, res, body) {
+  const actionStarted = Date.now();
   const cfg = loadConfig();
   const payload = interactivePayload(body) || body;
   const action = payload.context?.action || payload.context?.Action || '';
@@ -556,7 +558,12 @@ async function handleInteractiveAction(req, res, body) {
   }
 
   const actionUrl = interactiveActionUrl();
-  const units = await listActiveUnits();
+  const pickingUnit = action === FORM_ACTIONS.unit || action === UNIT_PICKER_ACTION;
+  const prefetchUnitId = pickingUnit ? selected || values.unit_id : values.unit_id;
+  const [units, prefetchedWorkers] = await Promise.all([
+    cachedActiveUnits(),
+    prefetchUnitId ? listWorkersForUnitSelect(prefetchUnitId, SELECT_OPTIONS_MAX + 1) : Promise.resolve([]),
+  ]);
 
   if (action === FORM_ACTIONS.unit || action === UNIT_PICKER_ACTION) {
     const unit =
@@ -582,7 +589,10 @@ async function handleInteractiveAction(req, res, body) {
     }
   }
 
-  const workers = await workersForForm(values.unit_id);
+  const workers =
+    values.unit_id && values.unit_id === prefetchUnitId
+      ? prefetchedWorkers
+      : await workersForForm(values.unit_id);
   const form = ephemeralFaltaForm({
     actionUrl,
     state: stateRaw,
@@ -590,7 +600,6 @@ async function handleInteractiveAction(req, res, body) {
     workers,
     values,
   });
-  await refreshFormPost(payload.post_id || payload.postId, form);
 
   if (action === FORM_ACTIONS.register || action === UNIT_CONTINUE_ACTION) {
     const result = await saveAndPublishFalta({
@@ -619,10 +628,14 @@ async function handleInteractiveAction(req, res, body) {
         props: { attachments: [] },
       },
     });
+    console.log(`✅ /falta ${action} respondido en ${Date.now() - actionStarted}ms`);
     return;
   }
 
   sendJson(res, 200, formUpdateResponse(form));
+  console.log(
+    `✅ /falta ${action || payload.type || 'action'} respondido en ${Date.now() - actionStarted}ms (${workers.length} operarios)`,
+  );
 }
 
 async function resolveIncidentsChannel(channelId, channelName) {
