@@ -20,14 +20,22 @@ RUN npm config set fetch-retries 5 \
       sleep 20; \
     done
 
-# Copiar código fuente
-COPY . .
+# Frontend. Un cambio en server.js no vuelve a ejecutar esta compilación.
+COPY index.html index.css index.tsx vite.config.ts tsconfig.json tailwind.config.js postcss.config.cjs metadata.json ./
+COPY App.tsx constants.ts types.ts ./
+COPY components ./components
+COPY services ./services
+COPY hooks ./hooks
+COPY utils ./utils
+COPY types ./types
+COPY assets ./assets
+COPY data ./data
+COPY scripts/protect-dist.js ./scripts/protect-dist.js
 
-# Construir la aplicación
 RUN npm run build
 
-# Ejecutar script de protección
-RUN node scripts/protect-dist.js
+COPY server.js ./
+COPY server ./server
 
 # Exponer puerto 80
 EXPOSE 80

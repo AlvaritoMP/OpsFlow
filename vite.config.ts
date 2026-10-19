@@ -27,11 +27,17 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
+          // jspdf los importa solo para HTML/SVG. Los PDF de OpsFlow no usan eso,
+          // y meter esas librerías alarga varios minutos la compilación en el VPS.
+          html2canvas: path.resolve(__dirname, 'utils/jspdfOptionalStub.js'),
+          canvg: path.resolve(__dirname, 'utils/jspdfOptionalStub.js'),
+          dompurify: path.resolve(__dirname, 'utils/jspdfOptionalStub.js'),
         }
       },
       build: {
         outDir: 'dist',
         emptyOutDir: true,
+        reportCompressedSize: false,
         rollupOptions: {
           input: {
             main: path.resolve(__dirname, 'index.html')
