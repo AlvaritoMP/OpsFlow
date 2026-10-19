@@ -6,8 +6,19 @@ WORKDIR /app
 # Copiar archivos de dependencias
 COPY package.json package-lock.json* ./
 
-# Instalar dependencias
-RUN npm ci
+# Reintenta si el registro de npm corta la descarga (ECONNRESET).
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-factor 2 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm config set fetch-timeout 300000 \
+ && n=0 \
+ && until npm ci --no-audit --no-fund; do \
+      n=$((n + 1)); \
+      if [ "$n" -ge 5 ]; then exit 1; fi; \
+      echo "npm ci falló (intento ${n}). Reintentando en 20s..."; \
+      sleep 20; \
+    done
 
 # Copiar código fuente
 COPY . .
