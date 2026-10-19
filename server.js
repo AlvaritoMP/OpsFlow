@@ -98,7 +98,6 @@ function serveFile(filePath, res) {
       'Cache-Control': getCacheControl(filePath),
     });
     res.end(data);
-    console.log(`✅ Served: ${filePath} (${data.length} bytes)`);
   });
 }
 
@@ -198,8 +197,6 @@ async function handleOpalosisProxy(req, res, urlPath, search) {
 }
 
 const server = http.createServer(async (req, res) => {
-  console.log(`📥 Request: ${req.method} ${req.url}`);
-
   const rawUrl = req.url || '/';
   const qIndex = rawUrl.indexOf('?');
   const urlPath = (qIndex >= 0 ? rawUrl.slice(0, qIndex) : rawUrl).split('#')[0];
@@ -261,8 +258,6 @@ const server = http.createServer(async (req, res) => {
       }
       console.log(`⚠️  File not found: ${filePath}, serving index.html`);
       filePath = path.join(distPath, 'index.html');
-    } else {
-      console.log(`✅ Serving: ${filePath}`);
     }
 
     serveFile(filePath, res);
@@ -276,9 +271,13 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`📣 Webhooks Mattermost en /api/webhooks/mattermost/*`);
   console.log(`🔘 Mattermost integration.url: ${mattermostActionUrl()}`);
   startMattermostThreadPoller();
-  void backfillIncidentsToAttendance().catch((err) =>
-    console.warn('⚠️  No se pudieron reflejar faltas previas en asistencia:', err instanceof Error ? err.message : err),
-  );
+  if (String(process.env.OPSFLOW_ATTENDANCE_BACKFILL || '').toLowerCase() === 'true') {
+    void backfillIncidentsToAttendance().catch((err) =>
+      console.warn('⚠️  No se pudieron reflejar faltas previas en asistencia:', err instanceof Error ? err.message : err),
+    );
+  } else {
+    console.log('📅 Backfill de asistencia al arrancar: omitido. Cada falta se escribe al guardarla.');
+  }
   console.log(`✅ Servidor listo para recibir peticiones`);
 });
 
