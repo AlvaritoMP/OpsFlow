@@ -596,7 +596,7 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
     rates.essaludMode === 'fixed'
       ? num(rates.essaludFixedAmount)
       : (socialBase + family + gratification + feria) * rates.essaludRate;
-  const vidaLey = rates.applyVidaLey ? remLlss * rates.vidaLeyRate : 0;
+  const vidaLey = rates.applyVidaLey ? (remLlss + vacation) * rates.vidaLeyRate : 0;
   const sctr = rates.applySctr ? (basic + family + vacation) * rates.sctrRate : 0;
   const monthlyCost = remTotal + vacation + gratification + cts + feria + essalud + vidaLey + sctr;
   const factor = num(worker.factor) || 0;

@@ -919,7 +919,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Excel: descarga la liquidación con formato, en horizontal y ajustada a una sola hoja A4. En Excel use Imprimir o Exportar a PDF.',
         ],
         tips: [
-          'El total principal no incluye IGV. EsSalud en porcentaje usa el sueldo contractual completo. Vida Ley usa la remuneración afecta a leyes sociales (REM LLSS). SCTR usa remuneración básica + asignación familiar + vacaciones. En Parámetros, o desde el listado, una liquidación ya guardada puede pasar de porcentaje a un monto fijo. Las emitidas siguen emitidas y el total se recalcula.',
+          'El total principal no incluye IGV. EsSalud en porcentaje usa el sueldo contractual completo. Vida Ley usa la REM LLSS más las vacaciones. SCTR usa remuneración básica + asignación familiar + vacaciones. En Parámetros, o desde el listado, una liquidación ya guardada puede pasar de porcentaje a un monto fijo. Las emitidas siguen emitidas y el total se recalcula.',
           'En Parámetros puede cambiar los factores de hora extra, el recargo nocturno, los días y las horas, y si la asignación familiar entra en cada fórmula.',
           'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
           'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase. Para corridas y notas, ejecute también migrations/MIGRATION_CLIENT_BILLING_RUNS.sql.',

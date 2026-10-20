@@ -1108,11 +1108,6 @@ function EditorView(props: {
 
           {props.tab === 'labor' && (
             <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-              <div className={`px-3 py-2 text-xs border-b ${editor.model.rates.applyFeria ? 'bg-amber-50 text-amber-950 border-amber-100' : 'bg-slate-50 text-slate-600 border-slate-100'}`}>
-                {editor.model.rates.applyFeria
-                  ? `Provisión por feriados incluida: ${Number((editor.model.rates.feriaRate * 100).toFixed(4))}% × REM LLSS. En Costos, desplace la tabla hasta la columna ámbar «Prov. feriados», entre CTS y EsSalud.`
-                  : 'La provisión por feriados no entra al costo. En Parámetros marque «Incluir provisión por feriados». La columna «Prov. feriados» queda en cero hasta activarla.'}
-              </div>
               <div className="p-3 flex flex-col md:flex-row gap-2 md:items-center justify-between border-b border-slate-100">
                 <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
                   <Users size={16} className="shrink-0" />
@@ -1514,9 +1509,9 @@ function LaborSheet(props: {
             <th className={head}>Vacaciones</th>
             <th className={head}>Gratific.</th>
             <th className={head}>CTS</th>
-            <th className="sticky top-0 z-30 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-900 text-right px-1.5 py-2 whitespace-nowrap border-b border-amber-200" title={`Provisión por feriados: ${Number((props.rates.feriaRate * 100).toFixed(4))}% × REM LLSS`}>Prov. feriados</th>
+            <th className={head} title="Factor de feriados × REM LLSS">Feriado</th>
             <th className={head} title={essaludHint}>EsSalud</th>
-            <th className={head} title="REM LLSS × tasa de Vida Ley">Vida Ley</th>
+            <th className={head} title="(REM LLSS + vacaciones) × tasa de Vida Ley">Vida Ley</th>
             <th className={head} title="(Remuneración básica + asignación familiar + vacaciones) × tasa de SCTR">SCTR</th>
             <th className={head}>Costo</th>
           </tr>
@@ -1619,11 +1614,9 @@ function LaborSheet(props: {
                 <td className="px-1.5 py-1"><GridMoney value={line?.vacation} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.gratification} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.cts} /></td>
-                <td className="px-1.5 py-1 bg-amber-50" title="Factor de feriados × REM LLSS">
-                  <GridMoney value={props.rates.applyFeria ? line?.feria : 0} />
-                </td>
+                <td className="px-1.5 py-1"><GridMoney value={line?.feria} /></td>
                 <td className="px-1.5 py-1" title={essaludHint}><GridMoney value={line?.essalud} /></td>
-                <td className="px-1.5 py-1" title="Base: remuneración afecta a leyes sociales (REM LLSS)"><GridMoney value={line?.vidaLey} /></td>
+                <td className="px-1.5 py-1" title="Base: REM LLSS + vacaciones"><GridMoney value={line?.vidaLey} /></td>
                 <td className="px-1.5 py-1" title="Base: remuneración básica + asignación familiar + vacaciones"><GridMoney value={line?.sctr} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
               </tr>
@@ -1890,7 +1883,7 @@ function ParametersPanel(props: {
               : 'Esta liquidación todavía no está guardada. Use Guardar para crearla con este EsSalud.'}
           </span>
         </div>
-        {percent('vidaLeyRate', 'Vida Ley %', 'Base: remuneración afecta a leyes sociales (REM LLSS)')}
+        {percent('vidaLeyRate', 'Vida Ley %', 'Base: REM LLSS + vacaciones')}
         {percent('sctrRate', 'SCTR %', 'Base: remuneración básica + asignación familiar + vacaciones')}
         {percent('igvRate', 'IGV %', 'Se muestra aparte. El total principal no lo incluye.')}
       </div>
@@ -1945,11 +1938,8 @@ function ParametersPanel(props: {
         <label className="inline-flex items-center gap-2">
           <input type="checkbox" disabled={props.locked} checked={props.rates.applyVidaLey} onChange={(event) => props.onRates({ applyVidaLey: event.target.checked })} /> Incluir Vida Ley
         </label>
-        <label className="flex flex-col items-start gap-1 text-sm text-slate-700">
-          <span className="inline-flex items-center gap-2">
-            <input type="checkbox" disabled={props.locked} checked={props.rates.applyFeria} onChange={(event) => props.onRates({ applyFeria: event.target.checked })} /> Incluir provisión por feriados
-          </span>
-          <span className="text-[11px] text-slate-500 max-w-xl">Suma la columna ámbar «Prov. feriados» al costo. Está en Personal, entre CTS y EsSalud: desplace la tabla a la derecha. El importe aparece al marcarla; guarde para dejarlo en la liquidación.</span>
+        <label className="inline-flex items-center gap-2">
+          <input type="checkbox" disabled={props.locked} checked={props.rates.applyFeria} onChange={(event) => props.onRates({ applyFeria: event.target.checked })} /> Incluir feriados
         </label>
       </div>
       <label className="text-xs text-slate-500 block">

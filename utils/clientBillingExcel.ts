@@ -172,7 +172,7 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   writeBanner(sheet, row, lastCol, methodNote(input.model.rates), 8, false, 18, false, MUTED);
   row += 1;
 
-  const workers = workerRows(input.model.workers, input.computed, input.model.rates.feriaRate);
+  const workers = workerRows(input.model.workers, input.computed);
   const excluded = input.model.workers.filter((worker) => !worker.included).length;
 
   row = writeSection(sheet, row, lastCol, 'I. Costo de personal');
@@ -353,7 +353,7 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
     money('Gratific.', 9, 'cargas', (row) => row.gratification),
     money('CTS', 8.5, 'cargas', (row) => row.cts),
   ];
-  columns.push(money('Prov. feriados', 9, 'cargas', (row) => row.feria));
+  columns.push(money('Feriado', 8.5, 'cargas', (row) => row.feria));
   columns.push(money(rates.essaludMode === 'fixed' ? 'EsSalud fijo' : 'EsSalud', 8.5, 'cargas', (row) => row.essalud));
   if (rates.applyVidaLey) columns.push(money('Vida Ley', 8.5, 'cargas', (row) => row.vidaLey));
   if (rates.applySctr) columns.push(money('SCTR', 8, 'cargas', (row) => row.sctr));
@@ -365,17 +365,17 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
   return columns;
 }
 
-function workerRows(workers: BillingWorkerInput[], computed: BillingComputation, feriaRate: number): WorkerRow[] {
+function workerRows(workers: BillingWorkerInput[], computed: BillingComputation): WorkerRow[] {
   const lines = new Map(computed.workers.map((line) => [line.id, line]));
   return workers
     .filter((worker) => worker.included)
     .map((worker) => {
       const line = lines.get(worker.id);
-      return toWorkerRow(worker, line, feriaRate);
+      return toWorkerRow(worker, line);
     });
 }
 
-function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefined, feriaRate: number): WorkerRow {
+function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefined): WorkerRow {
   const amount = (value: number | undefined) => (Number.isFinite(value) ? (value as number) : 0);
   return {
     name: worker.name.trim() || 'Sin nombre',
@@ -398,7 +398,7 @@ function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefine
     vacation: amount(line?.vacation),
     gratification: amount(line?.gratification),
     cts: amount(line?.cts),
-    feria: amount(line ? line.remLlss * feriaRate : 0),
+    feria: amount(line?.feria),
     essalud: amount(line?.essalud),
     vidaLey: amount(line?.vidaLey),
     sctr: amount(line?.sctr),
@@ -625,12 +625,12 @@ function methodNote(rates: BillingRates): string {
     `CTS ${percent(rates.ctsRate)}`,
     essaludCaption(rates),
   ];
-  if (rates.applyVidaLey) parts.push(`Vida Ley ${percent(rates.vidaLeyRate, 3)} sobre REM LLSS`);
+  if (rates.applyVidaLey) parts.push(`Vida Ley ${percent(rates.vidaLeyRate, 3)} sobre REM LLSS + vacaciones`);
   if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)} sobre remuneración básica + asignación familiar + vacaciones`);
   parts.push(
     rates.applyFeria
-      ? `Provisión feriados ${percent(rates.feriaRate, 3)} × REM LLSS`
-      : `Provisión feriados ${percent(rates.feriaRate, 3)} × REM LLSS, no incluida en el costo`
+      ? `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS`
+      : `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS, no incluido en el costo`
   );
   return parts.join(' · ');
 }
