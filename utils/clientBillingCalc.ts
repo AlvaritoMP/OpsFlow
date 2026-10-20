@@ -185,7 +185,7 @@ export const DEFAULT_BILLING_RATES: BillingRates = {
   gratiBonusFactor: 1.09,
   ctsRate: 0.0972,
   feriaRate: (1 / 30) * (18 / 12),
-  applyFeria: false,
+  applyFeria: true,
   essaludRate: 0.09,
   essaludMode: 'percent',
   essaludFixedAmount: 0,
@@ -281,7 +281,7 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   nightHours: 'horas de bono nocturno',
   nightManual: 'monto manual de bono nocturno',
   socialBaseManual: 'base de cargas manual',
-  socialBase: 'base EsSalud/SCTR',
+  socialBase: 'base EsSalud',
   factor: 'factor',
   calendarDays: 'días del corte',
   absenceDays: 'faltas descontadas',
@@ -596,8 +596,8 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
     rates.essaludMode === 'fixed'
       ? num(rates.essaludFixedAmount)
       : (socialBase + family + gratification + feria) * rates.essaludRate;
-  const vidaLey = rates.applyVidaLey ? (remLlss + vacation) * rates.vidaLeyRate : 0;
-  const sctr = rates.applySctr ? (socialBase + gratification) * rates.sctrRate : 0;
+  const vidaLey = rates.applyVidaLey ? remLlss * rates.vidaLeyRate : 0;
+  const sctr = rates.applySctr ? (basic + family + vacation) * rates.sctrRate : 0;
   const monthlyCost = remTotal + vacation + gratification + cts + feria + essalud + vidaLey + sctr;
   const factor = num(worker.factor) || 0;
   return {
@@ -726,7 +726,7 @@ export function workerAdjustmentLabels(worker: BillingWorkerInput): string[] {
     }
   }
   if (worker.socialBaseManual && !sameNumber(worker.socialBase, worker.suggested.contractualSalary)) {
-    labels.push('base EsSalud/SCTR');
+    labels.push('base EsSalud');
   }
   if (num(worker.he25Hours) || worker.he25Manual) labels.push('HE diurna 25%');
   if (num(worker.he35Hours) || worker.he35Manual) labels.push('HE diurna 35%');

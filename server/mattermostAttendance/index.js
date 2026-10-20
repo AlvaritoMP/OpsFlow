@@ -745,11 +745,13 @@ async function completeFaltaRegistration({ res, payload, stateCheck, values, act
   }
 
   faltaRegisterLocks.add(lockKey);
-  sendJson(res, 200, clearedEphemeralResponse({
-    postId: payload.post_id,
-    channelId,
-    message: 'Registrando la falta…',
-  }));
+  // El formulario es efímero: Mattermost 11 no lo guarda y UpdatePost falla.
+  // Un `update` haría que el clic se vea como error aunque el registro siga.
+  sendJson(res, 200, {
+    response_type: 'ephemeral',
+    skip_slack_parsing: true,
+    ephemeral_text: 'Registrando la falta… El resumen se publicará en el canal.',
+  });
   console.log(`✅ /falta botón respondido en ${Date.now() - actionStarted}ms`, {
     unit_id: Boolean(submission.unit_id),
     employee_id: Boolean(submission.employee_id),
@@ -887,19 +889,53 @@ async function handleInteractiveAction(req, res, body) {
       values.unit_id && values.unit_id === prefetchUnitId
         ? prefetchedWorkers
         : await workersForForm(values.unit_id);
+
+    if (pickingUnit && !values.unit_id) {
+      console.warn('⚠️  /falta unidad no reconocida', {
+        selected: selected || null,
+        contextKeys: Object.keys(payload.context || {}),
+      });
+      sendJson(res, 200, {
+        response_type: 'ephemeral',
+        ephemeral_text: 'No se reconoció la unidad. Ejecute /falta de nuevo y vuelva a elegirla.',
+      });
+      return;
+    }
+
+    const unitName = units.find((unit) => unit.id === values.unit_id)?.name || 'la unidad';
     const { form, unitMax, workerMax } = buildFaltaForm({
       actionUrl,
       state: stateRaw,
       units,
       workers,
       values,
+      hint: pickingUnit
+        ? workers.length
+          ? `Unidad **${unitName}**. Elija el trabajador en este formulario e ignore el mensaje anterior.`
+          : `La unidad **${unitName}** no tiene operarios activos en OpsFlow.`
+        : undefined,
     });
+    const label = `${action || 'accion'} unidades=${Math.min(units.length, unitMax)} operarios=${Math.min(workers.length, workerMax)}`;
 
-    sendFaltaResponse(
-      res,
-      formUpdateResponse(form, { postId: payload.post_id, channelId }),
-      `${action || 'accion'} unidades=${Math.min(units.length, unitMax)} operarios=${Math.min(workers.length, workerMax)}`,
-    );
+    if (pickingUnit) {
+      // El cliente de Mattermost arma el desplegable una sola vez. Editar el
+      // mismo efímero no cambia las opciones, y UpdatePost ni siquiera aplica
+      // porque ese mensaje no está en la base. Un post efímero nuevo sí.
+      await createEphemeralPost(userId, {
+        channel_id: channelId,
+        message: form.text,
+        props: { attachments: form.attachments },
+      });
+      sendFaltaResponse(res, { skip_slack_parsing: true }, label);
+      console.log(
+        `✅ /falta unidad ${values.unit_id} publicada con ${workers.length} operarios en ${Date.now() - actionStarted}ms`,
+      );
+      return;
+    }
+
+    // Trabajador, tipo, motivo y cobertura quedan en el borrador del servidor.
+    // El desplegable ya muestra la opción elegida en el cliente.
+    sendFaltaResponse(res, { skip_slack_parsing: true }, label);
     console.log(
       `✅ /falta ${action || payload.type || 'action'} respondido en ${Date.now() - actionStarted}ms (${workers.length} operarios)`,
     );

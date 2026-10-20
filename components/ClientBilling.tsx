@@ -1503,15 +1503,16 @@ function LaborSheet(props: {
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
-            <th className={head} title={essaludFixed ? 'Sigue usándose para SCTR. EsSalud no la toma en modo monto fijo.' : 'Sueldo completo para EsSalud y SCTR. No se prorratea por días.'}>Base EsSalud</th>
+            <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : 'Sueldo completo para EsSalud. No se prorratea por días.'}>Base EsSalud</th>
             <th className={head}>Rem. básica</th>
-            <th className={head}>Rem. cargas</th>
+            <th className={head} title="Remuneración afecta a leyes sociales (REM LLSS)">Rem. cargas</th>
             <th className={head}>Vacaciones</th>
             <th className={head}>Gratific.</th>
             <th className={head}>CTS</th>
+            <th className={head} title={props.rates.applyFeria ? `Provisión por feriados: ${Number((props.rates.feriaRate * 100).toFixed(4))}% × REM LLSS` : `Provisión por feriados: ${Number((props.rates.feriaRate * 100).toFixed(4))}% × REM LLSS. No suma al costo hasta marcar Incluir provisión por feriados.`}>Prov. feriados</th>
             <th className={head} title={essaludHint}>EsSalud</th>
-            <th className={head}>Vida Ley</th>
-            <th className={head}>SCTR</th>
+            <th className={head} title="REM LLSS × tasa de Vida Ley">Vida Ley</th>
+            <th className={head} title="(Remuneración básica + asignación familiar + vacaciones) × tasa de SCTR">SCTR</th>
             <th className={head}>Costo</th>
           </tr>
         </thead>
@@ -1602,7 +1603,7 @@ function LaborSheet(props: {
                 <td className="px-1 py-1">
                   <GridNum
                     amber={worker.socialBaseManual}
-                    title={essaludFixed ? 'Sueldo completo para SCTR. EsSalud usa el monto fijo de los parámetros y no esta base.' : 'Sueldo completo para EsSalud y SCTR. No se prorratea por días.'}
+                    title={essaludFixed ? 'EsSalud usa el monto fijo de los parámetros y no esta base.' : 'Sueldo completo para EsSalud. No se prorratea por días.'}
                     disabled={props.locked}
                     value={worker.socialBaseManual ? worker.socialBase : worker.contractualSalary}
                     onChange={(socialBase) => props.onPatchWorker(worker.id, { socialBaseManual: true, socialBase })}
@@ -1613,9 +1614,12 @@ function LaborSheet(props: {
                 <td className="px-1.5 py-1"><GridMoney value={line?.vacation} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.gratification} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.cts} /></td>
+                <td className={`px-1.5 py-1 ${props.rates.applyFeria ? '' : 'opacity-40'}`} title={props.rates.applyFeria ? 'Factor de feriados × REM LLSS' : 'Factor de feriados × REM LLSS. Active Incluir provisión por feriados para sumarla al costo.'}>
+                  <GridMoney value={line ? line.remLlss * props.rates.feriaRate : 0} />
+                </td>
                 <td className="px-1.5 py-1" title={essaludHint}><GridMoney value={line?.essalud} /></td>
-                <td className="px-1.5 py-1"><GridMoney value={line?.vidaLey} /></td>
-                <td className="px-1.5 py-1"><GridMoney value={line?.sctr} /></td>
+                <td className="px-1.5 py-1" title="Base: remuneración afecta a leyes sociales (REM LLSS)"><GridMoney value={line?.vidaLey} /></td>
+                <td className="px-1.5 py-1" title="Base: remuneración básica + asignación familiar + vacaciones"><GridMoney value={line?.sctr} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
               </tr>
             );
@@ -1819,6 +1823,7 @@ function ParametersPanel(props: {
           <span className="block text-[11px] text-slate-400 mt-1">1.09 aplica el 9% adicional sobre la gratificación.</span>
         </label>
         {percent('ctsRate', 'CTS %')}
+        {percent('feriaRate', 'Provisión feriados %', 'Factor × remuneración afecta a leyes sociales (REM LLSS).')}
         <div className="text-xs text-slate-500">
           EsSalud
           <select
@@ -1880,8 +1885,8 @@ function ParametersPanel(props: {
               : 'Esta liquidación todavía no está guardada. Use Guardar para crearla con este EsSalud.'}
           </span>
         </div>
-        {percent('vidaLeyRate', 'Vida Ley %', 'Base: remuneración para cargas + vacaciones')}
-        {percent('sctrRate', 'SCTR %', 'Base: sueldo contractual + gratificación')}
+        {percent('vidaLeyRate', 'Vida Ley %', 'Base: remuneración afecta a leyes sociales (REM LLSS)')}
+        {percent('sctrRate', 'SCTR %', 'Base: remuneración básica + asignación familiar + vacaciones')}
         {percent('igvRate', 'IGV %', 'Se muestra aparte. El total principal no lo incluye.')}
       </div>
       <div className="border-t border-slate-100 pt-4 space-y-3">
@@ -1936,7 +1941,7 @@ function ParametersPanel(props: {
           <input type="checkbox" disabled={props.locked} checked={props.rates.applyVidaLey} onChange={(event) => props.onRates({ applyVidaLey: event.target.checked })} /> Incluir Vida Ley
         </label>
         <label className="inline-flex items-center gap-2">
-          <input type="checkbox" disabled={props.locked} checked={props.rates.applyFeria} onChange={(event) => props.onRates({ applyFeria: event.target.checked })} /> Incluir feriados
+          <input type="checkbox" disabled={props.locked} checked={props.rates.applyFeria} onChange={(event) => props.onRates({ applyFeria: event.target.checked })} /> Incluir provisión por feriados
         </label>
       </div>
       <label className="text-xs text-slate-500 block">
