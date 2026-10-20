@@ -1,6 +1,7 @@
 import { URLSearchParams } from 'node:url';
 import {
   COVERAGE_OPTIONS,
+  DIALOG_CALLBACK_ID,
   EDIT_DIALOG_CALLBACK_ID,
   FORM_ACTIONS,
   INCIDENT_REASONS,
@@ -22,6 +23,7 @@ import {
   loadConfig,
   mattermostActionUrl,
   mattermostDialogEditSubmitUrl,
+  mattermostDialogSubmitUrl,
   mattermostIncidentActionUrl,
   safeEqual,
   signState,
@@ -902,40 +904,18 @@ async function handleInteractiveAction(req, res, body) {
       return;
     }
 
-    const unitName = units.find((unit) => unit.id === values.unit_id)?.name || 'la unidad';
     const { form, unitMax, workerMax } = buildFaltaForm({
       actionUrl,
       state: stateRaw,
       units,
       workers,
       values,
-      hint: pickingUnit
-        ? workers.length
-          ? `Unidad **${unitName}**. Elija el trabajador en este formulario e ignore el mensaje anterior.`
-          : `La unidad **${unitName}** no tiene operarios activos en OpsFlow.`
-        : undefined,
     });
-    const label = `${action || 'accion'} unidades=${Math.min(units.length, unitMax)} operarios=${Math.min(workers.length, workerMax)}`;
-
-    if (pickingUnit) {
-      // El cliente de Mattermost arma el desplegable una sola vez. Editar el
-      // mismo efímero no cambia las opciones, y UpdatePost ni siquiera aplica
-      // porque ese mensaje no está en la base. Un post efímero nuevo sí.
-      await createEphemeralPost(userId, {
-        channel_id: channelId,
-        message: form.text,
-        props: { attachments: form.attachments },
-      });
-      sendFaltaResponse(res, { skip_slack_parsing: true }, label);
-      console.log(
-        `✅ /falta unidad ${values.unit_id} publicada con ${workers.length} operarios en ${Date.now() - actionStarted}ms`,
-      );
-      return;
-    }
-
-    // Trabajador, tipo, motivo y cobertura quedan en el borrador del servidor.
-    // El desplegable ya muestra la opción elegida en el cliente.
-    sendFaltaResponse(res, { skip_slack_parsing: true }, label);
+    sendFaltaResponse(
+      res,
+      formUpdateResponse(form, { postId: payload.post_id, channelId }),
+      `${action || 'accion'} unidades=${Math.min(units.length, unitMax)} operarios=${Math.min(workers.length, workerMax)}`,
+    );
     console.log(
       `✅ /falta ${action || payload.type || 'action'} respondido en ${Date.now() - actionStarted}ms (${workers.length} operarios)`,
     );
@@ -1004,8 +984,16 @@ async function handleCommand(req, res, body) {
   const teamId = body.team_id;
   const userName = body.user_name;
   const text = String(body.text || '').trim();
-  const actionUrl = interactiveActionUrl();
+  const triggerId = String(body.trigger_id || '').trim();
   const cfg = loadConfig();
+
+  if (!triggerId) {
+    sendJson(res, 200, {
+      response_type: 'ephemeral',
+      text: 'No se pudo abrir el formulario. Ejecute /falta de nuevo.',
+    });
+    return;
+  }
 
   try {
     const units = await cachedActiveUnits();
@@ -1019,37 +1007,20 @@ async function handleCommand(req, res, body) {
 
     const values = emptyFormValues();
     const unitFromText = matchUnitByText(units, text);
+    const workers = unitFromText ? await listWorkersForUnitSelect(unitFromText.id, FALTA_WORKER_CAP) : [];
     if (unitFromText) values.unit_id = unitFromText.id;
-
-    let workers = await workersForForm(values.unit_id, unitFromText ? '' : text);
-    if (!values.unit_id && workers.length === 1) {
-      values.unit_id = workers[0].unit_id || '';
-      values.employee_id = workers[0].id;
-      workers = await workersForForm(values.unit_id);
-    } else if (!values.unit_id && workers.length > 1 && workers.length <= SELECT_OPTIONS_MAX) {
-      const sameUnit = workers.every((w) => w.unit_id && w.unit_id === workers[0].unit_id);
-      if (sameUnit) values.unit_id = workers[0].unit_id;
-    }
 
     const state = signState(
       { channel_id: channelId, user_id: userId, team_id: teamId, user_name: userName, ts: Date.now() },
       cfg.stateSecret,
     );
-    rememberFaltaDraft(userId, channelId, values);
-    const { form, unitMax, workerMax } = buildFaltaForm({
-      actionUrl,
-      state,
-      units,
-      workers,
-      values,
-      unitQuery: unitFromText ? '' : text,
+    await openDialog({
+      triggerId,
+      url: mattermostDialogSubmitUrl(),
+      dialog: buildFaltaDialog({ state, units, workers, values }),
     });
-    console.log('🔗 /falta formulario efímero', actionUrl);
-    sendFaltaResponse(
-      res,
-      form,
-      `comando unidades=${Math.min(units.length, unitMax)} operarios=${Math.min(workers.length, workerMax)}`,
-    );
+    console.log(`🔗 /falta ventana abierta (${units.length} unidades)`);
+    sendJson(res, 200, {});
   } catch (err) {
     console.error('❌ /falta formulario:', err);
     sendJson(res, 200, {
@@ -1265,18 +1236,95 @@ function pinSelectOptions(options, currentValue, currentText, max = SELECT_OPTIO
   return [...head, ...rest].slice(0, max);
 }
 
-function selectDialogElement({ displayName, name, options, defaultValue, helpText }) {
+function selectDialogElement({ displayName, name, options, defaultValue, helpText, refresh = false }) {
   const element = {
     display_name: displayName,
     name,
     type: 'select',
     options,
   };
+  if (refresh) element.refresh = true;
   if (helpText) element.help_text = String(helpText).slice(0, 150);
   if (defaultValue && options.some((option) => option.value === defaultValue)) {
     element.default = String(defaultValue);
   }
   return element;
+}
+
+function buildFaltaDialog({ state, units, workers, values }) {
+  const unitId = cleanSelectId(values?.unit_id);
+  const unitOptions = menuOptions(
+    (units || []).map((unit) => ({
+      text: clipOptionText(unit.name || 'Unidad'),
+      value: unit.id,
+    })),
+    unitId,
+    FALTA_UNIT_CAP,
+  );
+  const workerOptions = unitId
+    ? menuOptions(
+        workerSelectOptions(workers || []).map((option) => ({
+          text: clipOptionText(option.text),
+          value: option.value,
+        })),
+        cleanSelectId(values?.employee_id),
+        FALTA_WORKER_CAP,
+      )
+    : [];
+  const shownWorkers = workerOptions.filter((option) => option.value !== 'pending');
+  const employeeOptions = shownWorkers.length
+    ? shownWorkers
+    : [{ text: unitId ? 'Sin trabajadores activos en esta unidad' : 'Elija primero la unidad', value: 'pending' }];
+  const unitName = (units || []).find((unit) => unit.id === unitId)?.name || '';
+
+  return {
+    callback_id: DIALOG_CALLBACK_ID,
+    title: 'Registrar falta',
+    introduction_text: unitId
+      ? shownWorkers.length
+        ? `${unitName || 'Unidad'}: ${shownWorkers.length} trabajador${shownWorkers.length === 1 ? '' : 'es'} activo${shownWorkers.length === 1 ? '' : 's'}.`
+        : `${unitName || 'Esta unidad'} no tiene trabajadores activos.`
+      : 'Elija la unidad. El campo Trabajador mostrará los operarios activos de esa unidad.',
+    submit_label: 'Registrar',
+    notify_on_cancel: false,
+    state,
+    source_url: mattermostDialogSubmitUrl(),
+    elements: [
+      selectDialogElement({
+        displayName: 'Unidad',
+        name: 'unit_id',
+        options: unitOptions,
+        defaultValue: unitId,
+        refresh: true,
+        helpText: 'Al elegir la unidad se cargan sus trabajadores activos.',
+      }),
+      selectDialogElement({
+        displayName: 'Trabajador',
+        name: 'employee_id',
+        options: employeeOptions,
+        defaultValue: cleanSelectId(values?.employee_id),
+        helpText: unitId ? 'Operarios activos de la unidad elegida.' : 'Disponible después de elegir la unidad.',
+      }),
+      selectDialogElement({
+        displayName: 'Tipo',
+        name: 'incident_type',
+        options: INCIDENT_TYPES,
+        defaultValue: values?.incident_type,
+      }),
+      selectDialogElement({
+        displayName: 'Motivo',
+        name: 'incident_reason',
+        options: INCIDENT_REASONS,
+        defaultValue: values?.incident_reason,
+      }),
+      selectDialogElement({
+        displayName: 'Cobertura',
+        name: 'has_coverage',
+        options: COVERAGE_OPTIONS,
+        defaultValue: values?.has_coverage,
+      }),
+    ],
+  };
 }
 
 function coverageLabel(value) {
@@ -1811,6 +1859,41 @@ async function handleDialogSubmit(req, res, body) {
   const stateCheck = verifyState(payload?.state, cfg.stateSecret);
   if (!stateCheck.ok) {
     sendJson(res, 200, { error: stateCheck.error });
+    return;
+  }
+
+  if (payload?.type === 'refresh') {
+    try {
+      const submission = payload.submission || {};
+      const units = await cachedActiveUnits();
+      const selectedUnit = cleanSelectId(submission.unit_id);
+      const unit =
+        units.find((row) => row.id === selectedUnit) || matchUnitByText(units, selectedUnit);
+      const unitId = unit?.id || '';
+      const workers = unitId ? await listWorkersForUnitSelect(unitId, FALTA_WORKER_CAP) : [];
+      const employeeStillThere = workers.some((worker) => worker.id === submission.employee_id);
+      const dialog = buildFaltaDialog({
+        state: payload.state,
+        units,
+        workers,
+        values: {
+          unit_id: unitId,
+          employee_id: employeeStillThere ? submission.employee_id : '',
+          incident_type: submission.incident_type || '',
+          incident_reason: submission.incident_reason || '',
+          has_coverage: submission.has_coverage || '',
+        },
+      });
+      console.log(
+        `✅ /falta unidad en el formulario: ${unit?.name || 'sin unidad'} (${workers.length} trabajadores)`,
+      );
+      sendJson(res, 200, { type: 'form', form: dialog });
+    } catch (err) {
+      console.error('❌ /falta refresh:', err);
+      sendJson(res, 200, {
+        error: `No se pudieron cargar los trabajadores: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
     return;
   }
 
