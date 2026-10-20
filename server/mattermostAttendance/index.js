@@ -235,29 +235,100 @@ function emptyFormValues() {
     incident_type: '',
     incident_reason: '',
     has_coverage: '',
+    date: limaTodayIso(),
   };
+}
+
+function cleanSelectId(value) {
+  const text = optionValue(value);
+  if (!text || text === 'pending') return '';
+  return text;
 }
 
 function formValuesFromContext(ctx = {}) {
   return {
-    unit_id: optionValue(ctx.unit_id),
-    employee_id: optionValue(ctx.employee_id),
+    unit_id: cleanSelectId(ctx.unit_id),
+    employee_id: cleanSelectId(ctx.employee_id),
     incident_type: optionValue(ctx.incident_type),
     incident_reason: optionValue(ctx.incident_reason),
     has_coverage: optionValue(ctx.has_coverage),
+    date: isoDate(optionValue(ctx.date) || optionValue(ctx.incident_date)) || limaTodayIso(),
   };
 }
 
+/** Solo strings: Mattermost rechaza el botón si el context no es JSON plano. */
 function formContext(state, values, action) {
   return {
-    action,
-    state,
-    unit_id: values.unit_id || '',
-    employee_id: values.employee_id || '',
-    incident_type: values.incident_type || '',
-    incident_reason: values.incident_reason || '',
-    has_coverage: values.has_coverage || '',
+    action: String(action || ''),
+    state: String(state || ''),
+    unit_id: String(values.unit_id || ''),
+    employee_id: String(values.employee_id || ''),
+    incident_type: String(values.incident_type || ''),
+    incident_reason: String(values.incident_reason || ''),
+    has_coverage: String(values.has_coverage || ''),
+    date: String(values.date || limaTodayIso()),
   };
+}
+
+function submissionFromValues(values) {
+  const date = isoDate(values?.date) || limaTodayIso();
+  return {
+    unit_id: cleanSelectId(values?.unit_id),
+    employee_id: cleanSelectId(values?.employee_id),
+    incident_type: optionValue(values?.incident_type),
+    incident_reason: optionValue(values?.incident_reason),
+    has_coverage: optionValue(values?.has_coverage),
+    date,
+    incident_date: date,
+  };
+}
+
+const faltaDrafts = new Map();
+const FALTA_DRAFT_TTL_MS = 15 * 60 * 1000;
+
+function faltaDraftKey(userId, channelId) {
+  return `${userId || ''}:${channelId || ''}`;
+}
+
+function rememberFaltaDraft(userId, channelId, values) {
+  if (!userId) return;
+  faltaDrafts.set(faltaDraftKey(userId, channelId), {
+    at: Date.now(),
+    values: formContext('', values, ''),
+  });
+}
+
+function recallFaltaDraft(userId, channelId) {
+  const key = faltaDraftKey(userId, channelId);
+  const row = faltaDrafts.get(key);
+  if (!row) return null;
+  if (Date.now() - row.at > FALTA_DRAFT_TTL_MS) {
+    faltaDrafts.delete(key);
+    return null;
+  }
+  return formValuesFromContext(row.values);
+}
+
+function forgetFaltaDraft(userId, channelId) {
+  faltaDrafts.delete(faltaDraftKey(userId, channelId));
+}
+
+function mergeFormValues(primary, fallback) {
+  const pick = (key) => {
+    const current = optionValue(primary?.[key]);
+    if (current && current !== 'pending') return current;
+    const previous = optionValue(fallback?.[key]);
+    if (previous && previous !== 'pending') return previous;
+    return '';
+  };
+  return formValuesFromContext({
+    unit_id: pick('unit_id'),
+    employee_id: pick('employee_id'),
+    incident_type: pick('incident_type'),
+    incident_reason: pick('incident_reason'),
+    has_coverage: pick('has_coverage'),
+    date: pick('date') || limaTodayIso(),
+  });
 }
 
 function summaryLine(values, units, workers) {
@@ -284,8 +355,27 @@ function selectAction({ id, name, actionUrl, state, values, action, options, def
     },
     options,
   };
-  if (defaultOption) menu.default_option = defaultOption;
+  if (defaultOption && options.some((option) => option.value === defaultOption)) {
+    menu.default_option = defaultOption;
+  }
   return menu;
+}
+
+const FALTA_MENU_MAX = 20;
+const FALTA_RESPONSE_MAX_BYTES = 20_000;
+const faltaRegisterLocks = new Set();
+
+function clipOptionText(text) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!value) return '—';
+  return value.length > 48 ? `${value.slice(0, 47)}…` : value;
+}
+
+function menuOptions(options, selectedValue, max = FALTA_MENU_MAX) {
+  const clean = (options || []).filter((option) => option && option.value && option.text);
+  const selected = selectedValue ? clean.find((option) => option.value === selectedValue) : null;
+  const rest = clean.filter((option) => option.value !== selectedValue);
+  return [...(selected ? [selected] : []), ...rest].slice(0, max);
 }
 
 function registrarButton({ actionUrl, state, values }) {
@@ -301,33 +391,49 @@ function registrarButton({ actionUrl, state, values }) {
   };
 }
 
-function workerOptionsForForm(workers, unitId) {
+function workerOptionsForForm(workers, unitId, selectedId) {
   if (!unitId) {
-    return [{ text: '1) Elija la unidad', value: 'pending' }];
+    return [{ text: 'Elija la unidad', value: 'pending' }];
   }
-  const options = workerSelectOptions(workers).slice(0, SELECT_OPTIONS_MAX);
+  const options = workerSelectOptions(workers).map((option) => ({
+    text: clipOptionText(option.text),
+    value: option.value,
+  }));
   if (!options.length) {
     return [{ text: 'Sin operarios en esta unidad', value: 'pending' }];
   }
-  return options;
+  return menuOptions(options, selectedId);
 }
 
-function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) {
-  const unitOptions = units.slice(0, SELECT_OPTIONS_MAX).map((u) => ({
-    text: String(u.name || 'Unidad').slice(0, 100),
-    value: u.id,
-  }));
-  const truncatedWorkers = Boolean(values.unit_id) && workers.length > SELECT_OPTIONS_MAX;
+function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint, unitQuery }) {
+  const query = String(unitQuery || '').trim().toLowerCase();
+  let unitRows = units;
+  if (query) {
+    const matched = units.filter((unit) => String(unit.name || '').toLowerCase().includes(query));
+    if (matched.length) unitRows = matched;
+  }
+  const unitOptions = menuOptions(
+    unitRows.map((unit) => ({
+      text: clipOptionText(unit.name || 'Unidad'),
+      value: unit.id,
+    })),
+    values.unit_id,
+  );
+  const truncatedUnits = unitRows.length > unitOptions.length;
+  const truncatedWorkers = Boolean(values.unit_id) && workers.length > FALTA_MENU_MAX;
   const intro =
     hint ||
-    'Complete los desplegables (el operario se filtra al elegir la unidad) y pulse **Registrar**. Las fotos o CITT se adjuntan después, respondiendo al hilo.';
-  const extra = truncatedWorkers
-    ? ` Hay más de ${SELECT_OPTIONS_MAX} operarios; se muestran los primeros. Use /falta + DNI para filtrar.`
-    : '';
+    'Complete los desplegables y pulse **Registrar**. Las fotos o CITT se adjuntan después, respondiendo al hilo.';
+  const extra = [
+    truncatedUnits ? `Hay más unidades. Use /falta seguido de parte del nombre.` : '',
+    truncatedWorkers ? `Hay más operarios. Use /falta seguido del DNI.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return {
-    response_type: 'in_channel',
-    text: `${intro}${extra}\n\n${summaryLine(values, units, workers)}`,
+    response_type: 'ephemeral',
+    text: `${intro}${extra ? ` ${extra}` : ''}\n\n${summaryLine(values, units, workers)}`,
     attachments: [
       {
         fallback: 'Unidad, operario y tipo',
@@ -343,13 +449,13 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
             options: unitOptions,
           }),
           selectAction({
-            id: values.unit_id ? `worker-${values.unit_id}` : 'setworker',
+            id: 'setworker',
             name: 'Trabajador',
             actionUrl,
             state,
             values,
             action: FORM_ACTIONS.worker,
-            options: workerOptionsForForm(workers, values.unit_id),
+            options: workerOptionsForForm(workers, values.unit_id, values.employee_id),
             defaultOption: values.employee_id,
           }),
           selectAction({
@@ -360,6 +466,7 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
             values,
             action: FORM_ACTIONS.type,
             options: INCIDENT_TYPES,
+            defaultOption: values.incident_type,
           }),
         ],
       },
@@ -375,6 +482,7 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
             values,
             action: FORM_ACTIONS.reason,
             options: INCIDENT_REASONS,
+            defaultOption: values.incident_reason,
           }),
           selectAction({
             id: 'setcoverage',
@@ -384,6 +492,7 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint }) 
             values,
             action: FORM_ACTIONS.coverage,
             options: COVERAGE_OPTIONS,
+            defaultOption: values.has_coverage,
           }),
           registrarButton({ actionUrl, state, values }),
         ],
@@ -403,25 +512,61 @@ async function cachedActiveUnits() {
   return rows;
 }
 
+function sendFaltaResponse(res, body, label) {
+  const encoded = JSON.stringify(body);
+  const bytes = Buffer.byteLength(encoded);
+  console.log(`📦 /falta ${label}: ${bytes} bytes`);
+  if (bytes > FALTA_RESPONSE_MAX_BYTES) {
+    console.error(`❌ /falta no se envía a Mattermost: ${bytes} bytes supera el tope de ${FALTA_RESPONSE_MAX_BYTES}`);
+    sendJson(res, 200, {
+      response_type: 'ephemeral',
+      ephemeral_text: 'El formulario es demasiado grande para Mattermost. Ejecute /falta seguido de parte del nombre de la unidad.',
+    });
+    return;
+  }
+  sendJson(res, 200, body);
+}
+
 async function workersForForm(unitId, workerQuery) {
   if (unitId) {
-    if (!workerQuery) return listWorkersForUnitSelect(unitId, SELECT_OPTIONS_MAX + 1);
+    if (!workerQuery) return listWorkersForUnitSelect(unitId, FALTA_MENU_MAX + 1);
     const workers = await listActiveWorkers(unitId);
-    return filterWorkers(workers, workerQuery);
+    return filterWorkers(workers, workerQuery).slice(0, FALTA_MENU_MAX + 1);
   }
   if (workerQuery) return filterWorkers(await listActiveWorkers(), workerQuery);
   return [];
 }
 
-function formUpdateResponse(form, extraText) {
+function formUpdateResponse(form, { postId, channelId, extraText } = {}) {
   const message = extraText ? `${form.text}\n\n${extraText}` : form.text;
-  return {
-    update: {
-      message,
-      props: {
-        attachments: form.attachments,
-      },
+  const update = {
+    message,
+    props: {
+      attachments: form.attachments,
     },
+  };
+  if (postId) update.id = String(postId);
+  if (channelId) update.channel_id = String(channelId);
+  return {
+    response_type: 'ephemeral',
+    skip_slack_parsing: true,
+    update,
+  };
+}
+
+function clearedEphemeralResponse({ postId, channelId, message } = {}) {
+  const update = {
+    message: message || 'Registrando la falta…',
+    props: {
+      attachments: [],
+    },
+  };
+  if (postId) update.id = String(postId);
+  if (channelId) update.channel_id = String(channelId);
+  return {
+    response_type: 'ephemeral',
+    skip_slack_parsing: true,
+    update,
   };
 }
 
@@ -537,108 +682,214 @@ async function ingestFromPostLike({ postId, rootId, fileIds, userName }) {
   return { ignored: false, incidentId: incident.id, ...result };
 }
 
-async function handleInteractiveAction(req, res, body) {
-  const actionStarted = Date.now();
-  const cfg = loadConfig();
-  const payload = interactivePayload(body) || body;
-  const action = payload.context?.action || payload.context?.Action || '';
-  const selected = selectedUnitFromAction(payload);
-  const stateRaw = payload.context?.state || payload.state || '';
-  const values = formValuesFromContext(payload.context || {});
+function registerPreviewError(submission) {
+  const parsed = validateSubmission(submission || {});
+  const incidentDate = isoDate(submission?.date || submission?.incident_date) || limaTodayIso();
+  const dateError = validateIncidentDate(incidentDate);
+  if (dateError) return dateError;
+  if (!parsed.ok) return Object.values(parsed.errors)[0] || 'Complete todos los desplegables.';
+  if (!isUuid(parsed.values.unitId)) return 'Seleccione la unidad / sede operativa.';
+  if (!parsed.values.employeeId || !isUuid(parsed.values.employeeId)) return 'Seleccione el trabajador.';
+  return '';
+}
 
-  console.log('📩 Mattermost action', {
-    type: payload.type || action || 'unknown',
-    action,
-    selected: selected || null,
-    contextKeys: Object.keys(payload.context || {}),
-    postId: payload.post_id || null,
-  });
+async function notifyRegistrar(userId, channelId, message) {
+  if (!userId || !channelId || !message) return;
+  try {
+    await createEphemeralPost(userId, { channel_id: channelId, message });
+  } catch (err) {
+    console.warn('⚠️  Ephemeral Mattermost:', err instanceof Error ? err.message : err);
+  }
+}
 
-  const stateCheck = verifyState(stateRaw, cfg.stateSecret);
-  if (!stateCheck.ok) {
-    sendJson(res, 200, { ephemeral_text: stateCheck.error || 'El formulario expiró. Ejecute /falta de nuevo.' });
+async function completeFaltaRegistration({ res, payload, stateCheck, values, actionStarted }) {
+  const channelId = payload.channel_id || stateCheck.payload.channel_id;
+  const userId = payload.user_id || stateCheck.payload.user_id;
+  const teamId = payload.team_id || stateCheck.payload.team_id;
+  const userName = payload.user_name || stateCheck.payload.user_name;
+  const submission = submissionFromValues(values);
+  const lockKey = `${userId || ''}:${payload.post_id || channelId || ''}`;
+  if (faltaRegisterLocks.has(lockKey)) {
+    sendJson(res, 200, {
+      response_type: 'ephemeral',
+      ephemeral_text: 'Ya se está registrando. No pulse de nuevo.',
+    });
     return;
   }
 
-  const actionUrl = interactiveActionUrl();
-  const pickingUnit = action === FORM_ACTIONS.unit || action === UNIT_PICKER_ACTION;
-  const prefetchUnitId = pickingUnit ? selected || values.unit_id : values.unit_id;
-  const [units, prefetchedWorkers] = await Promise.all([
-    cachedActiveUnits(),
-    prefetchUnitId ? listWorkersForUnitSelect(prefetchUnitId, SELECT_OPTIONS_MAX + 1) : Promise.resolve([]),
-  ]);
-
-  if (action === FORM_ACTIONS.unit || action === UNIT_PICKER_ACTION) {
-    const unit =
-      (selected && units.find((u) => u.id === selected)) ||
-      matchUnitByText(units, selected);
-    if (unit) {
-      if (values.unit_id !== unit.id) values.employee_id = '';
-      values.unit_id = unit.id;
-    }
-  } else if (action === FORM_ACTIONS.worker) {
-    if (selected && selected !== 'pending') values.employee_id = selected;
-  } else if (action === FORM_ACTIONS.type) {
-    if (selected) values.incident_type = selected;
-  } else if (action === FORM_ACTIONS.reason) {
-    if (selected) values.incident_reason = selected;
-  } else if (action === FORM_ACTIONS.coverage) {
-    if (selected) values.has_coverage = selected;
-  } else if (payload.type === 'select' && selected) {
-    const unit = units.find((u) => u.id === selected) || matchUnitByText(units, selected);
-    if (unit) {
-      if (values.unit_id !== unit.id) values.employee_id = '';
-      values.unit_id = unit.id;
-    }
+  const previewError = registerPreviewError(submission);
+  if (previewError) {
+    sendJson(res, 200, {
+      response_type: 'ephemeral',
+      ephemeral_text: previewError,
+    });
+    return;
   }
 
-  const workers =
-    values.unit_id && values.unit_id === prefetchUnitId
-      ? prefetchedWorkers
-      : await workersForForm(values.unit_id);
-  const form = ephemeralFaltaForm({
-    actionUrl,
-    state: stateRaw,
-    units,
-    workers,
-    values,
+  faltaRegisterLocks.add(lockKey);
+  sendJson(res, 200, clearedEphemeralResponse({
+    postId: payload.post_id,
+    channelId,
+    message: 'Registrando la falta…',
+  }));
+  console.log(`✅ /falta botón respondido en ${Date.now() - actionStarted}ms`, {
+    unit_id: Boolean(submission.unit_id),
+    employee_id: Boolean(submission.employee_id),
+    incident_type: submission.incident_type || null,
+    date: submission.date,
   });
 
-  if (action === FORM_ACTIONS.register || action === UNIT_CONTINUE_ACTION) {
-    const result = await saveAndPublishFalta({
-      submission: {
-        unit_id: values.unit_id,
-        employee_id: values.employee_id,
-        incident_type: values.incident_type,
-        incident_reason: values.incident_reason,
-        has_coverage: values.has_coverage,
-      },
-      channelId: payload.channel_id || stateCheck.payload.channel_id,
-      userId: payload.user_id || stateCheck.payload.user_id,
-      teamId: payload.team_id || stateCheck.payload.team_id,
-      userName: payload.user_name || stateCheck.payload.user_name,
+  try {
+    const saved = await saveFalta({
+      submission,
+      channelId,
+      userId,
+      teamId,
+      userName,
     });
-    if (!result.ok) {
+    if (!saved.ok) {
+      rememberFaltaDraft(userId, channelId, values);
+      await notifyRegistrar(userId, channelId, saved.error);
+      return;
+    }
+
+    forgetFaltaDraft(userId, channelId);
+    console.log(`✅ /falta guardada en ${Date.now() - actionStarted}ms`);
+
+    try {
+      await publishFaltaCard({
+        incident: saved.incident,
+        unit: saved.unit,
+        worker: saved.worker,
+        values: saved.values,
+        channelId,
+        userId,
+        teamId,
+        userName,
+      });
+      console.log(`✅ /falta publicada en el canal en ${Date.now() - actionStarted}ms`);
+    } catch (err) {
+      console.error('❌ Publicar tarjeta Mattermost:', err);
+      await notifyRegistrar(
+        userId,
+        channelId,
+        'La falta se guardó en OpsFlow, pero no se pudo publicar el resumen en el canal. ' +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
+  } catch (err) {
+    console.error('❌ /falta register:', err);
+    await notifyRegistrar(
+      userId,
+      channelId,
+      `No se pudo registrar la falta: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    faltaRegisterLocks.delete(lockKey);
+  }
+}
+
+async function handleInteractiveAction(req, res, body) {
+  const actionStarted = Date.now();
+  try {
+    const cfg = loadConfig();
+    const payload = interactivePayload(body) || body;
+    const action = payload.context?.action || payload.context?.Action || '';
+    const selected = selectedUnitFromAction(payload);
+    const stateRaw = payload.context?.state || payload.state || '';
+    const stateCheck = verifyState(stateRaw, cfg.stateSecret);
+
+    console.log('📩 Mattermost action', {
+      type: payload.type || action || 'unknown',
+      action,
+      selected: selected || null,
+      contextKeys: Object.keys(payload.context || {}),
+      postId: payload.post_id || null,
+    });
+
+    if (!stateCheck.ok) {
       sendJson(res, 200, {
-        ...formUpdateResponse(form),
-        ephemeral_text: result.error,
+        response_type: 'ephemeral',
+        ephemeral_text: stateCheck.error || 'El formulario expiró. Ejecute /falta de nuevo.',
       });
       return;
     }
-    sendJson(res, 200, {
-      update: {
-        message: `✅ Falta registrada: **${workerCardName(result.worker)}** en **${result.unit?.name || ''}**. ${result.attachHint}`,
-        props: { attachments: [] },
-      },
-    });
-    console.log(`✅ /falta ${action} respondido en ${Date.now() - actionStarted}ms`);
-    return;
-  }
 
-  sendJson(res, 200, formUpdateResponse(form));
-  console.log(
-    `✅ /falta ${action || payload.type || 'action'} respondido en ${Date.now() - actionStarted}ms (${workers.length} operarios)`,
-  );
+    const userId = payload.user_id || stateCheck.payload.user_id;
+    const channelId = payload.channel_id || stateCheck.payload.channel_id;
+    let values = mergeFormValues(formValuesFromContext(payload.context || {}), recallFaltaDraft(userId, channelId));
+
+    if (action === FORM_ACTIONS.register || action === UNIT_CONTINUE_ACTION) {
+      await completeFaltaRegistration({
+        res,
+        payload,
+        stateCheck,
+        values,
+        actionStarted,
+      });
+      return;
+    }
+
+    const actionUrl = interactiveActionUrl();
+    const pickingUnit = action === FORM_ACTIONS.unit || action === UNIT_PICKER_ACTION;
+    const prefetchUnitId = pickingUnit ? selected || values.unit_id : values.unit_id;
+    const [units, prefetchedWorkers] = await Promise.all([
+      cachedActiveUnits(),
+      prefetchUnitId ? listWorkersForUnitSelect(prefetchUnitId, FALTA_MENU_MAX + 1) : Promise.resolve([]),
+    ]);
+
+    if (action === FORM_ACTIONS.unit || action === UNIT_PICKER_ACTION) {
+      const unit =
+        (selected && units.find((u) => u.id === selected)) ||
+        matchUnitByText(units, selected);
+      if (unit) {
+        if (values.unit_id !== unit.id) values.employee_id = '';
+        values.unit_id = unit.id;
+      }
+    } else if (action === FORM_ACTIONS.worker) {
+      if (selected && selected !== 'pending') values.employee_id = selected;
+    } else if (action === FORM_ACTIONS.type) {
+      if (selected) values.incident_type = selected;
+    } else if (action === FORM_ACTIONS.reason) {
+      if (selected) values.incident_reason = selected;
+    } else if (action === FORM_ACTIONS.coverage) {
+      if (selected) values.has_coverage = selected;
+    } else if (payload.type === 'select' && selected) {
+      const unit = units.find((u) => u.id === selected) || matchUnitByText(units, selected);
+      if (unit) {
+        if (values.unit_id !== unit.id) values.employee_id = '';
+        values.unit_id = unit.id;
+      }
+    }
+
+    values = formValuesFromContext(values);
+    rememberFaltaDraft(userId, channelId, values);
+
+    const workers =
+      values.unit_id && values.unit_id === prefetchUnitId
+        ? prefetchedWorkers
+        : await workersForForm(values.unit_id);
+    const form = ephemeralFaltaForm({
+      actionUrl,
+      state: stateRaw,
+      units,
+      workers,
+      values,
+    });
+
+    sendFaltaResponse(res, formUpdateResponse(form, { postId: payload.post_id, channelId }), action || 'accion');
+    console.log(
+      `✅ /falta ${action || payload.type || 'action'} respondido en ${Date.now() - actionStarted}ms (${workers.length} operarios)`,
+    );
+  } catch (err) {
+    console.error('❌ /falta acción:', err);
+    if (!res.headersSent) {
+      sendJson(res, 200, {
+        response_type: 'ephemeral',
+        ephemeral_text: `No se pudo actualizar /falta: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
 }
 
 async function resolveIncidentsChannel(channelId, channelName) {
@@ -726,18 +977,17 @@ async function handleCommand(req, res, body) {
       { channel_id: channelId, user_id: userId, team_id: teamId, user_name: userName, ts: Date.now() },
       cfg.stateSecret,
     );
+    rememberFaltaDraft(userId, channelId, values);
     const form = ephemeralFaltaForm({
       actionUrl,
       state,
       units,
       workers,
       values,
+      unitQuery: unitFromText ? '' : text,
     });
-    console.log('🔗 /falta formulario inline', actionUrl);
-    sendJson(res, 200, {
-      ...form,
-      response_type: 'in_channel',
-    });
+    console.log('🔗 /falta formulario efímero', actionUrl);
+    sendFaltaResponse(res, form, 'comando');
   } catch (err) {
     console.error('❌ /falta formulario:', err);
     sendJson(res, 200, {
@@ -747,36 +997,94 @@ async function handleCommand(req, res, body) {
   }
 }
 
-async function saveAndPublishFalta({ submission, channelId, userId, teamId, userName }) {
+async function saveFalta({ submission, channelId, userId, teamId, userName }) {
   const parsed = validateSubmission(submission || {});
+  const incidentDate = isoDate(submission?.date || submission?.incident_date) || limaTodayIso();
+  const dateError = validateIncidentDate(incidentDate);
+  if (dateError) {
+    return { ok: false, error: dateError, errors: { date: dateError, incident_date: dateError } };
+  }
   if (!parsed.ok) {
     const first = Object.values(parsed.errors)[0] || 'Complete todos los desplegables.';
     return { ok: false, error: first, errors: parsed.errors };
   }
+  if (parsed.values.employeeId && !isUuid(parsed.values.employeeId)) {
+    return {
+      ok: false,
+      error: 'Seleccione el trabajador.',
+      errors: { employee_id: 'Seleccione el trabajador.' },
+    };
+  }
+  if (!isUuid(parsed.values.unitId)) {
+    return {
+      ok: false,
+      error: 'Seleccione la unidad / sede operativa.',
+      errors: { unit_id: 'Seleccione la unidad / sede operativa.' },
+    };
+  }
 
-  const unit = await getUnitById(parsed.values.unitId);
-  let worker = parsed.values.employeeId ? await getWorkerById(parsed.values.employeeId) : null;
+  let unit;
+  let worker;
+  try {
+    [unit, worker] = await Promise.all([
+      getUnitById(parsed.values.unitId),
+      parsed.values.employeeId ? getWorkerById(parsed.values.employeeId) : Promise.resolve(null),
+    ]);
+  } catch (err) {
+    console.error('❌ consultar unidad/operario:', err);
+    return {
+      ok: false,
+      error: `No se pudo consultar OpsFlow: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
   if (!worker && parsed.values.employeeQuery) {
-    const candidates = filterWorkers(await listActiveWorkers(parsed.values.unitId), parsed.values.employeeQuery);
-    const dniExact = candidates.filter(
-      (w) => String(w.dni || '').replace(/\D/g, '') === String(parsed.values.employeeQuery).replace(/\D/g, ''),
-    );
-    if (dniExact.length === 1) worker = dniExact[0];
-    else if (candidates.length === 1) worker = candidates[0];
-    else if (candidates.length > 1) {
-      return { ok: false, error: `Hay ${candidates.length} coincidencias. Use el DNI completo.`, errors: { employee_query: 'Use el DNI completo.' } };
+    try {
+      const candidates = filterWorkers(await listActiveWorkers(parsed.values.unitId), parsed.values.employeeQuery);
+      const dniExact = candidates.filter(
+        (row) => String(row.dni || '').replace(/\D/g, '') === String(parsed.values.employeeQuery).replace(/\D/g, ''),
+      );
+      if (dniExact.length === 1) worker = dniExact[0];
+      else if (candidates.length === 1) worker = candidates[0];
+      else if (candidates.length > 1) {
+        return {
+          ok: false,
+          error: `Hay ${candidates.length} coincidencias. Use el DNI completo.`,
+          errors: { employee_query: 'Use el DNI completo.' },
+        };
+      }
+    } catch (err) {
+      console.error('❌ buscar operario:', err);
+      return {
+        ok: false,
+        error: `No se pudo consultar el trabajador: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
   }
 
-  if (!unit || !isUnitOk(unit)) return { ok: false, error: 'La unidad no existe o no está operativa.', errors: { unit_id: 'La unidad no existe o no está operativa.' } };
+  if (!unit || !isUnitOk(unit)) {
+    return {
+      ok: false,
+      error: 'La unidad no existe o no está operativa.',
+      errors: { unit_id: 'La unidad no existe o no está operativa.' },
+    };
+  }
   if (!worker || worker.type !== 'Personal') {
-    return { ok: false, error: 'El trabajador no existe o no está activo en esa unidad.', errors: { employee_id: 'El trabajador no existe o no está activo en esa unidad.' } };
+    return {
+      ok: false,
+      error: 'El trabajador no existe o no está activo en esa unidad.',
+      errors: { employee_id: 'El trabajador no existe o no está activo en esa unidad.' },
+    };
   }
   if (worker.archived === true || ['cesado', 'archivado'].includes(String(worker.personnel_status || '').toLowerCase())) {
     return { ok: false, error: 'El trabajador no está activo.', errors: { employee_id: 'El trabajador no está activo.' } };
   }
   if (worker.unit_id !== parsed.values.unitId && worker.is_shared !== true) {
-    return { ok: false, error: 'El trabajador no pertenece a la unidad seleccionada.', errors: { employee_id: 'El trabajador no pertenece a la unidad seleccionada.' } };
+    return {
+      ok: false,
+      error: 'El trabajador no pertenece a la unidad seleccionada.',
+      errors: { employee_id: 'El trabajador no pertenece a la unidad seleccionada.' },
+    };
   }
 
   let incident;
@@ -784,73 +1092,90 @@ async function saveAndPublishFalta({ submission, channelId, userId, teamId, user
     incident = await createIncident({
       ...parsed.values,
       employeeId: worker.id,
-      reportedBy: userName ? `@${userName}` : userId,
+      incidentDate,
+      reportedBy: userName ? `@${String(userName).replace(/^@/, '')}` : userId,
       reportedByUserId: userId,
       channelId,
       teamId,
     });
   } catch (err) {
     console.error('❌ createIncident:', err);
-    return { ok: false, error: `No se pudo guardar la incidencia en OpsFlow: ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      ok: false,
+      error: `No se pudo guardar la incidencia en OpsFlow: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
-  try {
-    await syncIncidentToAttendance(incident);
-  } catch (err) {
+  return {
+    ok: true,
+    incident,
+    unit,
+    worker,
+    values: { ...parsed.values, incidentDate },
+  };
+}
+
+async function publishFaltaCard({ incident, unit, worker, values, channelId, teamId, userName }) {
+  void syncIncidentToAttendance(incident).catch((err) => {
     console.error('❌ No se reflejó la falta en la asistencia:', err);
-  }
+  });
 
-  const reporter = userName ? `@${userName}` : 'supervisor';
+  const reporter = userName ? `@${String(userName).replace(/^@/, '')}` : 'supervisor';
   const attachment = incidentCardAttachment({
     incidentId: incident.id,
     unit,
     worker,
-    values: parsed.values,
-    incidentDate: incident.incident_date || limaTodayIso(),
+    values,
+    incidentDate: incident.incident_date || values.incidentDate || limaTodayIso(),
     reporter,
     modified: false,
   });
+  const post = await createPost({
+    channel_id: channelId,
+    message: incidentCardMessage({
+      incidentType: values.incidentType,
+      workerName: workerCardName(worker),
+      modified: false,
+    }),
+    props: {
+      attachments: [attachment],
+    },
+  });
+  const teamName = await resolveTeamName(teamId, null);
+  const permalink = buildPermalink(teamName, post.id);
+  await updateIncidentPost(incident.id, { postId: post.id, permalink, channelId, teamId });
+  const attachHint =
+    'Para adjuntar fotos o CITT, responde con la imagen a este hilo' + (permalink ? `: ${permalink}` : '.');
+  return { post, permalink, attachHint };
+}
 
-  let attachHint = 'Para adjuntar fotos o CITT, responde con la imagen al hilo de la tarjeta en el canal.';
+async function saveAndPublishFalta({ submission, channelId, userId, teamId, userName }) {
+  const saved = await saveFalta({ submission, channelId, userId, teamId, userName });
+  if (!saved.ok) return saved;
+
   try {
-    const post = await createPost({
-      channel_id: channelId,
-      message: incidentCardMessage({
-        incidentType: parsed.values.incidentType,
-        workerName: workerCardName(worker),
-        modified: false,
-      }),
-      props: {
-        attachments: [attachment],
-      },
+    const published = await publishFaltaCard({
+      incident: saved.incident,
+      unit: saved.unit,
+      worker: saved.worker,
+      values: saved.values,
+      channelId,
+      teamId,
+      userName,
     });
-    const teamName = await resolveTeamName(teamId, null);
-    const permalink = buildPermalink(teamName, post.id);
-    await updateIncidentPost(incident.id, { postId: post.id, permalink, channelId, teamId });
-    attachHint =
-      'Para adjuntar fotos o CITT, responde con la imagen a este hilo' + (permalink ? `: ${permalink}` : '.');
-    try {
-      await createEphemeralPost(userId, {
-        channel_id: channelId,
-        message: `✅ Falta registrada en OpsFlow.\n📎 ${attachHint}`,
-      });
-    } catch (ephemeralErr) {
-      console.warn('⚠️  Ephemeral Mattermost:', ephemeralErr instanceof Error ? ephemeralErr.message : ephemeralErr);
-    }
+    return { ok: true, ...saved, ...published };
   } catch (err) {
     console.error('❌ Publicar tarjeta Mattermost:', err);
     return {
       ok: true,
-      incident,
-      unit,
-      worker,
+      incident: saved.incident,
+      unit: saved.unit,
+      worker: saved.worker,
       attachHint:
         'La incidencia se guardó en OpsFlow, pero no se pudo publicar la tarjeta en el canal. ' +
         (err instanceof Error ? err.message : String(err)),
     };
   }
-
-  return { ok: true, incident, unit, worker, attachHint };
 }
 
 function isUuid(value) {
