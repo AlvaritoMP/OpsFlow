@@ -32,6 +32,7 @@ import {
   listBillingNotes,
   listBillingRuns,
   listClientBillings,
+  convertBillingsEssaludToFixed,
   prepareBillingDraft,
   refreshWorkersFromUnit,
   loadBillingDayGlance,
@@ -63,6 +64,7 @@ import {
   newBillingId,
   describeOvertimeFormulas,
   pen,
+  usesPercentEssalud,
   resolveAttendanceWindow,
   workerOverlapsBillingWindow,
 } from '../utils/clientBillingCalc';
@@ -152,6 +154,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createTo, setCreateTo] = useState(() => monthDateBounds(new Date().toISOString().slice(0, 7)).to);
   const [copyPrevious, setCopyPrevious] = useState(true);
   const [appliedAttendanceKey, setAppliedAttendanceKey] = useState('');
+  const [bulkEssaludAmount, setBulkEssaludAmount] = useState('');
 
   const loadList = async () => {
     setLoadingList(true);
@@ -308,6 +311,88 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     });
     setAppliedAttendanceKey(key);
     return { ...current, model };
+  };
+
+  const saveEssaludFixed = async () => {
+    if (!editor?.id || !canEdit || editor.status === 'void') return;
+    const amount = Number(editor.model.rates.essaludFixedAmount);
+    if (amount === 0 && !window.confirm('El monto fijo es S/ 0.00. EsSalud quedará en cero en esta liquidación. ¿Continuar?')) {
+      return;
+    }
+    const already =
+      editor.baseline.rates.essaludMode === 'fixed' &&
+      Math.abs((editor.baseline.rates.essaludFixedAmount || 0) - amount) < 0.001 &&
+      pendingChanges.length === 0;
+    if (already) {
+      setBanner('Esta liquidación ya está guardada con ese monto fijo de EsSalud.');
+      return;
+    }
+    setBusy('Guardando EsSalud');
+    setBanner(null);
+    try {
+      const next = cloneModel(editor.model);
+      next.rates = { ...next.rates, essaludMode: 'fixed', essaludFixedAmount: amount };
+      const changes = diffBillingModels(editor.baseline, next);
+      const saved = await saveClientBilling({
+        id: editor.id,
+        unit: { id: editor.unitId, name: editor.unitName, clientName: editor.clientName },
+        periodMonth: editor.periodMonth,
+        model: next,
+        actor,
+        changes,
+      });
+      const audit = await getBillingAudit(saved.id);
+      setEditor({
+        ...editor,
+        status: saved.status,
+        model: cloneModel(saved.model),
+        baseline: cloneModel(saved.model),
+        audit,
+        updatedByName: saved.updatedByName,
+      });
+      setBanner(`EsSalud quedó en monto fijo de ${pen(amount)} por trabajador. El total sin IGV es ${pen(saved.grandTotal)}.`);
+      await loadList();
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo guardar EsSalud.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const convertVisibleEssalud = async () => {
+    const amount = Number(bulkEssaludAmount);
+    if (!Number.isFinite(amount) || amount < 0 || bulkEssaludAmount.trim() === '') {
+      setBanner('Escriba el monto fijo de EsSalud que se aplicará a las liquidaciones guardadas.');
+      return;
+    }
+    const targets = visibleRecords.filter((record) => record.status !== 'void' && usesPercentEssalud(record.model.rates));
+    if (targets.length === 0) {
+      setBanner('En este listado no hay liquidaciones guardadas con EsSalud en porcentaje.');
+      return;
+    }
+    const issued = targets.filter((record) => record.status === 'issued').length;
+    const confirmed = window.confirm(
+      `Se cambiará EsSalud a S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por trabajador en ${targets.length} liquidación(es) guardada(s) que hoy usan porcentaje${issued ? `, incluidas ${issued} emitida(s)` : ''}. El total se recalcula y el cálculo anterior queda en las corridas. ¿Continuar?`
+    );
+    if (!confirmed) return;
+    setBusy(`Actualizando EsSalud 0 de ${targets.length}`);
+    setBanner(null);
+    try {
+      const result = await convertBillingsEssaludToFixed(targets, amount, actor, (done, total) => {
+        setBusy(`Actualizando EsSalud ${done} de ${total}`);
+      });
+      const errorNote = result.errors.length ? ` ${result.errors.length} no se pudieron guardar.` : '';
+      setBanner(
+        result.updated
+          ? `EsSalud pasó a monto fijo en ${result.updated} liquidación(es).${errorNote}`
+          : `No se actualizó ninguna liquidación.${errorNote}`
+      );
+      await loadList();
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo cambiar EsSalud en las liquidaciones guardadas.');
+    } finally {
+      setBusy(null);
+    }
   };
 
   const save = async () => {
@@ -632,6 +717,37 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <option value="void">Anuladas</option>
                 </select>
               </div>
+              {canEdit && (
+                <div className="p-3 border-b border-slate-100 bg-slate-50 flex flex-col lg:flex-row lg:items-end gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800">Pasar EsSalud de porcentaje a monto fijo</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Aplica a las liquidaciones ya guardadas de este listado que todavía calculan EsSalud como porcentaje
+                      {` (${visibleRecords.filter((record) => record.status !== 'void' && usesPercentEssalud(record.model.rates)).length})`}.
+                      Las que ya están en monto fijo no cambian. Las emitidas siguen emitidas, el total se recalcula y el cálculo anterior queda en las corridas.
+                    </p>
+                  </div>
+                  <label className="text-xs text-slate-500 shrink-0">
+                    Monto por trabajador (S/)
+                    <input
+                      className={fieldClass}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bulkEssaludAmount}
+                      onChange={(event) => setBulkEssaludAmount(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!!busy || visibleRecords.every((record) => record.status === 'void' || !usesPercentEssalud(record.model.rates))}
+                    onClick={() => void convertVisibleEssalud()}
+                    className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-60"
+                  >
+                    Aplicar a las de porcentaje
+                  </button>
+                </div>
+              )}
               {loadingList ? (
                 <div className="p-8 text-center text-slate-500 text-sm">Cargando facturaciones...</div>
               ) : visibleRecords.length === 0 ? (
@@ -644,6 +760,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                         <th className="px-4 py-2 font-medium">Periodo</th>
                         <th className="px-4 py-2 font-medium">Cliente / unidad</th>
                         <th className="px-4 py-2 font-medium">Estado</th>
+                        <th className="px-4 py-2 font-medium">EsSalud</th>
                         <th className="px-4 py-2 font-medium text-right">Total sin IGV</th>
                         <th className="px-4 py-2 font-medium">Último ajuste</th>
                       </tr>
@@ -663,6 +780,11 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                           </td>
                           <td className="px-4 py-3">
                             <StatusPill status={record.status} />
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {usesPercentEssalud(record.model.rates)
+                              ? `Porcentaje ${Number((record.model.rates.essaludRate * 100).toFixed(2))}%`
+                              : `Fijo ${pen(record.model.rates.essaludFixedAmount)}`}
                           </td>
                           <td className="px-4 py-3 text-right font-semibold text-slate-900">{pen(record.grandTotal)}</td>
                           <td className="px-4 py-3 text-slate-500">
@@ -703,6 +825,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onPatchWorker={patchWorker}
             onPatchRates={patchRates}
             onSave={() => void save()}
+            onSaveEssalud={() => void saveEssaludFixed()}
             onIssue={() => void changeStatus('issued')}
             onReopen={() => void changeStatus('draft')}
             onVoid={() => {
@@ -771,6 +894,7 @@ function EditorView(props: {
   onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
   onPatchRates: (patch: Partial<BillingRates>) => void;
   onSave: () => void;
+  onSaveEssalud: () => void;
   onIssue: () => void;
   onReopen: () => void;
   onVoid: () => void;
@@ -885,7 +1009,7 @@ function EditorView(props: {
       </div>
 
       {editor.status === 'issued' && (
-        <Banner tone="info" text="Emitir guardó el cálculo, aplicó el corte de asistencia si había cambiado y dejó esta liquidación bloqueada. No se envió un comprobante a SUNAT. Para cambiar un sueldo, un costo o la utilidad hay que reabrirla; la reapertura y cada corrección quedan en la trazabilidad." />
+        <Banner tone="info" text="Emitir guardó el cálculo y dejó esta liquidación bloqueada. Para cambiar un sueldo, un costo o la utilidad hay que reabrirla. EsSalud sí se puede pasar de porcentaje a monto fijo en Parámetros, o desde el listado, sin reabrir el resto." />
       )}
       {props.banner && <Banner tone="info" text={props.banner} />}
       {props.compareSlot}
@@ -1134,7 +1258,20 @@ function EditorView(props: {
           )}
 
           {props.tab === 'params' && (
-            <ParametersPanel rates={editor.model.rates} considerations={editor.model.considerations} locked={locked} onRates={props.onPatchRates} onConsiderations={(considerations) => props.onPatchModel({ considerations })} onRemember={props.onRemember} canEdit={props.canEdit} />
+            <ParametersPanel
+              rates={editor.model.rates}
+              considerations={editor.model.considerations}
+              locked={locked}
+              essaludLocked={!props.canEdit || editor.status === 'void'}
+              issued={editor.status === 'issued'}
+              saved={Boolean(editor.id)}
+              onRates={props.onPatchRates}
+              onConsiderations={(considerations) => props.onPatchModel({ considerations })}
+              onRemember={props.onRemember}
+              onSaveEssalud={props.onSaveEssalud}
+              canEdit={props.canEdit}
+              busy={!!props.busy}
+            />
           )}
 
           {props.tab === 'trace' && <TracePanel editor={editor} pendingChanges={props.pendingChanges} />}
@@ -1637,10 +1774,15 @@ function ParametersPanel(props: {
   rates: BillingRates;
   considerations: string;
   locked: boolean;
+  essaludLocked: boolean;
+  issued: boolean;
+  saved: boolean;
   canEdit: boolean;
+  busy: boolean;
   onRates: (patch: Partial<BillingRates>) => void;
   onConsiderations: (value: string) => void;
   onRemember: () => void;
+  onSaveEssalud: () => void;
 }) {
   const percent = (key: keyof BillingRates, label: string, hint?: string) => (
     <label className="text-xs text-slate-500">
@@ -1681,7 +1823,7 @@ function ParametersPanel(props: {
           EsSalud
           <select
             className={fieldClass}
-            disabled={props.locked}
+            disabled={props.essaludLocked}
             value={props.rates.essaludMode === 'fixed' ? 'fixed' : 'percent'}
             onChange={(event) => props.onRates({ essaludMode: event.target.value === 'fixed' ? 'fixed' : 'percent' })}
           >
@@ -1696,7 +1838,7 @@ function ParametersPanel(props: {
                 type="number"
                 step="0.01"
                 min="0"
-                disabled={props.locked}
+                disabled={props.essaludLocked}
                 value={props.rates.essaludFixedAmount}
                 onChange={(event) => props.onRates({ essaludFixedAmount: Number(event.target.value) || 0 })}
               />
@@ -1711,7 +1853,7 @@ function ParametersPanel(props: {
                 className={fieldClass}
                 type="number"
                 step="0.001"
-                disabled={props.locked}
+                disabled={props.essaludLocked}
                 value={Number((props.rates.essaludRate * 100).toFixed(4))}
                 onChange={(event) => props.onRates({ essaludRate: (Number(event.target.value) || 0) / 100 })}
               />
@@ -1720,6 +1862,23 @@ function ParametersPanel(props: {
               </span>
             </>
           )}
+          {props.saved && props.canEdit && props.rates.essaludMode === 'fixed' && (
+            <button
+              type="button"
+              disabled={props.essaludLocked || props.busy}
+              onClick={props.onSaveEssalud}
+              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs disabled:opacity-60"
+            >
+              Guardar monto fijo en esta liquidación
+            </button>
+          )}
+          <span className="block text-[11px] text-slate-400 mt-1">
+            {props.saved
+              ? props.issued
+                ? 'La liquidación está emitida. Este botón recalcula y guarda EsSalud en monto fijo sin reabrir el resto ni volver a leer la asistencia.'
+                : 'Guarda esta liquidación ya existente con el EsSalud elegido y recalcula el total, sin volver a leer la asistencia.'
+              : 'Esta liquidación todavía no está guardada. Use Guardar para crearla con este EsSalud.'}
+          </span>
         </div>
         {percent('vidaLeyRate', 'Vida Ley %', 'Base: remuneración para cargas + vacaciones')}
         {percent('sctrRate', 'SCTR %', 'Base: sueldo contractual + gratificación')}

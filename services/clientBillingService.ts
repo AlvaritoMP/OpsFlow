@@ -17,6 +17,7 @@ import {
   attendanceWindowError,
   BillingDifferenceLine,
   cloneModel,
+  diffBillingModels,
   commercialDaysInWindow,
   computeBilling,
   includePersonnelInBilling,
@@ -31,6 +32,7 @@ import {
   formatPeriodLabel,
   newBillingId,
   normalizeBillingRates,
+  usesPercentEssalud,
   pen,
   round2,
   snapshotFromSavedTotals,
@@ -340,6 +342,49 @@ export async function saveClientBilling(input: {
     await writeAudit(record.id, input.actor, input.action || 'saved', summary, input.changes);
   }
   return record;
+}
+
+/** Recalcula liquidaciones ya guardadas que todavía usan EsSalud como porcentaje. Las emitidas siguen emitidas. */
+export async function convertBillingsEssaludToFixed(
+  records: ClientBillingRecord[],
+  amount: number,
+  actor: BillingActor,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ updated: number; skipped: number; errors: string[] }> {
+  const fixedAmount = Number(amount);
+  if (!Number.isFinite(fixedAmount) || fixedAmount < 0) {
+    throw new Error('Escriba un monto fijo de EsSalud igual o mayor que cero.');
+  }
+  const targets = records.filter((record) => record.status !== 'void' && record.model?.rates?.essaludMode !== 'fixed');
+  let updated = 0;
+  let skipped = records.length - targets.length;
+  const errors: string[] = [];
+  for (let index = 0; index < targets.length; index += 1) {
+    const record = targets[index];
+    onProgress?.(index + 1, targets.length);
+    try {
+      const next = cloneModel(record.model);
+      next.rates = normalizeBillingRates({
+        ...next.rates,
+        essaludMode: 'fixed',
+        essaludFixedAmount: fixedAmount,
+      });
+      await saveClientBilling({
+        id: record.id,
+        unit: { id: record.unitId, name: record.unitName, clientName: record.clientName },
+        periodMonth: record.periodMonth,
+        model: next,
+        actor,
+        changes: diffBillingModels(record.model, next),
+      });
+      updated += 1;
+    } catch (error) {
+      errors.push(
+        `${record.unitName} · ${record.periodMonth}: ${error instanceof Error ? error.message : 'No se pudo guardar'}`
+      );
+    }
+  }
+  return { updated, skipped, errors };
 }
 
 export type BillingNoteKind = 'credit' | 'debit';

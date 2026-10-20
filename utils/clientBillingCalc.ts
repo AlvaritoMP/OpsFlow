@@ -496,6 +496,11 @@ function extraAmount(salary: number, hours: number, factor: number, manual: numb
   return hourly(salary, rates) * factor * hours;
 }
 
+/** Las liquidaciones antiguas no traen el modo y se leen como porcentaje. */
+export function usesPercentEssalud(rates: Partial<BillingRates> | undefined): boolean {
+  return normalizeBillingRates(rates).essaludMode !== 'fixed';
+}
+
 /** Completa factores ausentes en liquidaciones guardadas antes de estas opciones. */
 export function normalizeBillingRates(rates: Partial<BillingRates> | undefined): BillingRates {
   const merged: BillingRates = { ...DEFAULT_BILLING_RATES, ...(rates || {}) };

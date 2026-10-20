@@ -361,9 +361,15 @@ function selectAction({ id, name, actionUrl, state, values, action, options, def
   return menu;
 }
 
-const FALTA_MENU_MAX = 20;
-const FALTA_RESPONSE_MAX_BYTES = 20_000;
+const FALTA_UNIT_CAP = 400;
+const FALTA_WORKER_CAP = 100;
+const FALTA_POST_MAX_BYTES = 48_000;
 const faltaRegisterLocks = new Set();
+
+function workerActionId(unitId) {
+  const compact = String(unitId || '').replace(/[^a-zA-Z0-9]/g, '');
+  return compact ? `w${compact}` : 'setworker';
+}
 
 function clipOptionText(text) {
   const value = String(text || '').replace(/\s+/g, ' ').trim();
@@ -371,7 +377,7 @@ function clipOptionText(text) {
   return value.length > 48 ? `${value.slice(0, 47)}…` : value;
 }
 
-function menuOptions(options, selectedValue, max = FALTA_MENU_MAX) {
+function menuOptions(options, selectedValue, max = FALTA_UNIT_CAP) {
   const clean = (options || []).filter((option) => option && option.value && option.text);
   const selected = selectedValue ? clean.find((option) => option.value === selectedValue) : null;
   const rest = clean.filter((option) => option.value !== selectedValue);
@@ -402,10 +408,10 @@ function workerOptionsForForm(workers, unitId, selectedId) {
   if (!options.length) {
     return [{ text: 'Sin operarios en esta unidad', value: 'pending' }];
   }
-  return menuOptions(options, selectedId);
+  return options;
 }
 
-function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint, unitQuery }) {
+function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint, unitQuery, unitMax = FALTA_UNIT_CAP, workerMax = FALTA_WORKER_CAP }) {
   const query = String(unitQuery || '').trim().toLowerCase();
   let unitRows = units;
   if (query) {
@@ -418,9 +424,10 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint, un
       value: unit.id,
     })),
     values.unit_id,
+    unitMax,
   );
   const truncatedUnits = unitRows.length > unitOptions.length;
-  const truncatedWorkers = Boolean(values.unit_id) && workers.length > FALTA_MENU_MAX;
+  const truncatedWorkers = Boolean(values.unit_id) && workers.length > workerMax;
   const intro =
     hint ||
     'Complete los desplegables y pulse **Registrar**. Las fotos o CITT se adjuntan después, respondiendo al hilo.';
@@ -447,15 +454,20 @@ function ephemeralFaltaForm({ actionUrl, state, units, workers, values, hint, un
             values,
             action: FORM_ACTIONS.unit,
             options: unitOptions,
+            defaultOption: values.unit_id,
           }),
           selectAction({
-            id: 'setworker',
+            id: workerActionId(values.unit_id),
             name: 'Trabajador',
             actionUrl,
             state,
             values,
             action: FORM_ACTIONS.worker,
-            options: workerOptionsForForm(workers, values.unit_id, values.employee_id),
+            options: menuOptions(
+              workerOptionsForForm(workers, values.unit_id, values.employee_id),
+              values.employee_id,
+              workerMax,
+            ),
             defaultOption: values.employee_id,
           }),
           selectAction({
@@ -512,26 +524,32 @@ async function cachedActiveUnits() {
   return rows;
 }
 
-function sendFaltaResponse(res, body, label) {
-  const encoded = JSON.stringify(body);
-  const bytes = Buffer.byteLength(encoded);
-  console.log(`📦 /falta ${label}: ${bytes} bytes`);
-  if (bytes > FALTA_RESPONSE_MAX_BYTES) {
-    console.error(`❌ /falta no se envía a Mattermost: ${bytes} bytes supera el tope de ${FALTA_RESPONSE_MAX_BYTES}`);
-    sendJson(res, 200, {
-      response_type: 'ephemeral',
-      ephemeral_text: 'El formulario es demasiado grande para Mattermost. Ejecute /falta seguido de parte del nombre de la unidad.',
-    });
-    return;
+function buildFaltaForm(args) {
+  let unitMax = FALTA_UNIT_CAP;
+  let workerMax = FALTA_WORKER_CAP;
+  let form = ephemeralFaltaForm({ ...args, unitMax, workerMax });
+  while (
+    Buffer.byteLength(JSON.stringify(form)) > FALTA_POST_MAX_BYTES &&
+    (unitMax > 25 || workerMax > 10)
+  ) {
+    if (workerMax > 10) workerMax = Math.max(10, workerMax - 10);
+    else unitMax = Math.max(25, unitMax - 25);
+    form = ephemeralFaltaForm({ ...args, unitMax, workerMax });
   }
+  return { form, unitMax, workerMax };
+}
+
+function sendFaltaResponse(res, body, label) {
+  const bytes = Buffer.byteLength(JSON.stringify(body));
+  console.log(`📦 /falta ${label}: ${bytes} bytes`);
   sendJson(res, 200, body);
 }
 
 async function workersForForm(unitId, workerQuery) {
   if (unitId) {
-    if (!workerQuery) return listWorkersForUnitSelect(unitId, FALTA_MENU_MAX + 1);
+    if (!workerQuery) return listWorkersForUnitSelect(unitId, FALTA_WORKER_CAP + 1);
     const workers = await listActiveWorkers(unitId);
-    return filterWorkers(workers, workerQuery).slice(0, FALTA_MENU_MAX + 1);
+    return filterWorkers(workers, workerQuery).slice(0, FALTA_WORKER_CAP + 1);
   }
   if (workerQuery) return filterWorkers(await listActiveWorkers(), workerQuery);
   return [];
@@ -835,7 +853,7 @@ async function handleInteractiveAction(req, res, body) {
     const prefetchUnitId = pickingUnit ? selected || values.unit_id : values.unit_id;
     const [units, prefetchedWorkers] = await Promise.all([
       cachedActiveUnits(),
-      prefetchUnitId ? listWorkersForUnitSelect(prefetchUnitId, FALTA_MENU_MAX + 1) : Promise.resolve([]),
+      prefetchUnitId ? listWorkersForUnitSelect(prefetchUnitId, FALTA_WORKER_CAP + 1) : Promise.resolve([]),
     ]);
 
     if (action === FORM_ACTIONS.unit || action === UNIT_PICKER_ACTION) {
@@ -869,7 +887,7 @@ async function handleInteractiveAction(req, res, body) {
       values.unit_id && values.unit_id === prefetchUnitId
         ? prefetchedWorkers
         : await workersForForm(values.unit_id);
-    const form = ephemeralFaltaForm({
+    const { form, unitMax, workerMax } = buildFaltaForm({
       actionUrl,
       state: stateRaw,
       units,
@@ -877,7 +895,11 @@ async function handleInteractiveAction(req, res, body) {
       values,
     });
 
-    sendFaltaResponse(res, formUpdateResponse(form, { postId: payload.post_id, channelId }), action || 'accion');
+    sendFaltaResponse(
+      res,
+      formUpdateResponse(form, { postId: payload.post_id, channelId }),
+      `${action || 'accion'} unidades=${Math.min(units.length, unitMax)} operarios=${Math.min(workers.length, workerMax)}`,
+    );
     console.log(
       `✅ /falta ${action || payload.type || 'action'} respondido en ${Date.now() - actionStarted}ms (${workers.length} operarios)`,
     );
@@ -978,7 +1000,7 @@ async function handleCommand(req, res, body) {
       cfg.stateSecret,
     );
     rememberFaltaDraft(userId, channelId, values);
-    const form = ephemeralFaltaForm({
+    const { form, unitMax, workerMax } = buildFaltaForm({
       actionUrl,
       state,
       units,
@@ -987,7 +1009,11 @@ async function handleCommand(req, res, body) {
       unitQuery: unitFromText ? '' : text,
     });
     console.log('🔗 /falta formulario efímero', actionUrl);
-    sendFaltaResponse(res, form, 'comando');
+    sendFaltaResponse(
+      res,
+      form,
+      `comando unidades=${Math.min(units.length, unitMax)} operarios=${Math.min(workers.length, workerMax)}`,
+    );
   } catch (err) {
     console.error('❌ /falta formulario:', err);
     sendJson(res, 200, {

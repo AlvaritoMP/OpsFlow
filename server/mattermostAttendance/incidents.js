@@ -28,7 +28,7 @@ export async function listActiveUnits() {
     .from('units')
     .select('id, name, status')
     .order('name', { ascending: true })
-    .limit(300);
+    .limit(1000);
   if (error) throw error;
   return (data || []).filter(isOperationalUnit);
 }
