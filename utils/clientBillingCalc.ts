@@ -5,6 +5,8 @@
 
 export type ProfitMode = 'margin_on_price' | 'markup_on_cost';
 export type ProfitBase = 'all' | 'labor';
+/** Porcentaje sobre la base laboral, o un monto igual para cada trabajador. */
+export type EssaludMode = 'percent' | 'fixed';
 
 export interface BillingRates {
   familyAllowanceAmount: number;
@@ -15,6 +17,10 @@ export interface BillingRates {
   feriaRate: number;
   applyFeria: boolean;
   essaludRate: number;
+  /** percent: tasa sobre la base. fixed: monto en soles, igual para cada trabajador. */
+  essaludMode: EssaludMode;
+  /** Monto de EsSalud por trabajador cuando essaludMode es fixed. */
+  essaludFixedAmount: number;
   vidaLeyRate: number;
   applyVidaLey: boolean;
   sctrRate: number;
@@ -181,6 +187,8 @@ export const DEFAULT_BILLING_RATES: BillingRates = {
   feriaRate: (1 / 30) * (18 / 12),
   applyFeria: false,
   essaludRate: 0.09,
+  essaludMode: 'percent',
+  essaludFixedAmount: 0,
   vidaLeyRate: 0.00396,
   applyVidaLey: true,
   sctrRate: 0.0165,
@@ -229,6 +237,8 @@ const RATE_LABELS: Record<keyof BillingRates, string> = {
   feriaRate: 'Tasa de feriados',
   applyFeria: 'Incluir feriados',
   essaludRate: 'Tasa de EsSalud',
+  essaludMode: 'Forma de EsSalud',
+  essaludFixedAmount: 'Monto fijo de EsSalud',
   vidaLeyRate: 'Tasa de Vida Ley',
   applyVidaLey: 'Incluir Vida Ley',
   sctrRate: 'Tasa de SCTR',
@@ -488,7 +498,13 @@ function extraAmount(salary: number, hours: number, factor: number, manual: numb
 
 /** Completa factores ausentes en liquidaciones guardadas antes de estas opciones. */
 export function normalizeBillingRates(rates: Partial<BillingRates> | undefined): BillingRates {
-  return { ...DEFAULT_BILLING_RATES, ...(rates || {}) };
+  const merged: BillingRates = { ...DEFAULT_BILLING_RATES, ...(rates || {}) };
+  if (merged.essaludMode !== 'percent' && merged.essaludMode !== 'fixed') {
+    merged.essaludMode = 'percent';
+  }
+  const fixed = Number(merged.essaludFixedAmount);
+  merged.essaludFixedAmount = Number.isFinite(fixed) ? fixed : 0;
+  return merged;
 }
 
 /** Sueldo para horas extra. El recargo nocturno aplica solo al sueldo; la asignación familiar entra plana. */
@@ -571,7 +587,10 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
   const cts = remLlss * rates.ctsRate;
   const feria = rates.applyFeria ? remLlss * rates.feriaRate : 0;
   const socialBase = worker.socialBaseManual ? num(worker.socialBase) : salary;
-  const essalud = (socialBase + family + gratification + feria) * rates.essaludRate;
+  const essalud =
+    rates.essaludMode === 'fixed'
+      ? num(rates.essaludFixedAmount)
+      : (socialBase + family + gratification + feria) * rates.essaludRate;
   const vidaLey = rates.applyVidaLey ? (remLlss + vacation) * rates.vidaLeyRate : 0;
   const sctr = rates.applySctr ? (socialBase + gratification) * rates.sctrRate : 0;
   const monthlyCost = remTotal + vacation + gratification + cts + feria + essalud + vidaLey + sctr;
@@ -910,5 +929,7 @@ function displayValue(value: unknown): string {
   if (value === 'markup_on_cost') return 'Margen sobre el costo';
   if (value === 'all') return 'Laboral + operativo + administrativo';
   if (value === 'labor') return 'Solo costo laboral';
+  if (value === 'percent') return 'Porcentaje';
+  if (value === 'fixed') return 'Monto fijo';
   return String(value);
 }

@@ -1331,6 +1331,10 @@ function LaborSheet(props: {
   const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-right px-1.5 py-2 whitespace-nowrap border-b border-slate-200';
   const headLeft = `${head} text-left`;
   const formulas = describeOvertimeFormulas(props.rates);
+  const essaludFixed = props.rates.essaludMode === 'fixed';
+  const essaludHint = essaludFixed
+    ? `Monto fijo de ${pen(props.rates.essaludFixedAmount)} por trabajador, independiente del sueldo.`
+    : 'Porcentaje sobre sueldo contractual + asignación familiar + gratificación + feriados.';
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1362,13 +1366,13 @@ function LaborSheet(props: {
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
-            <th className={head}>Base EsSalud</th>
+            <th className={head} title={essaludFixed ? 'Sigue usándose para SCTR. EsSalud no la toma en modo monto fijo.' : 'Sueldo completo para EsSalud y SCTR. No se prorratea por días.'}>Base EsSalud</th>
             <th className={head}>Rem. básica</th>
             <th className={head}>Rem. cargas</th>
             <th className={head}>Vacaciones</th>
             <th className={head}>Gratific.</th>
             <th className={head}>CTS</th>
-            <th className={head}>EsSalud</th>
+            <th className={head} title={essaludHint}>EsSalud</th>
             <th className={head}>Vida Ley</th>
             <th className={head}>SCTR</th>
             <th className={head}>Costo</th>
@@ -1461,7 +1465,7 @@ function LaborSheet(props: {
                 <td className="px-1 py-1">
                   <GridNum
                     amber={worker.socialBaseManual}
-                    title="Sueldo completo para EsSalud y SCTR. No se prorratea por días."
+                    title={essaludFixed ? 'Sueldo completo para SCTR. EsSalud usa el monto fijo de los parámetros y no esta base.' : 'Sueldo completo para EsSalud y SCTR. No se prorratea por días.'}
                     disabled={props.locked}
                     value={worker.socialBaseManual ? worker.socialBase : worker.contractualSalary}
                     onChange={(socialBase) => props.onPatchWorker(worker.id, { socialBaseManual: true, socialBase })}
@@ -1472,7 +1476,7 @@ function LaborSheet(props: {
                 <td className="px-1.5 py-1"><GridMoney value={line?.vacation} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.gratification} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.cts} /></td>
-                <td className="px-1.5 py-1"><GridMoney value={line?.essalud} /></td>
+                <td className="px-1.5 py-1" title={essaludHint}><GridMoney value={line?.essalud} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.vidaLey} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.sctr} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
@@ -1657,7 +1661,7 @@ function ParametersPanel(props: {
       <div>
         <h2 className="font-semibold text-slate-900">Parámetros de cargas y utilidad</h2>
         <p className="text-sm text-slate-500 mt-1">
-          Salen del método de facturación de abril: vacaciones 1/12, gratificación 16.67% con bonificación 9%, CTS 9.72%, EsSalud 9%, Vida Ley 0.396% y SCTR 1.65% (0.78% + 0.87%). Cámbielos solo si el contrato de la unidad usa otras tasas.
+          Salen del método de facturación de abril: vacaciones 1/12, gratificación 16.67% con bonificación 9%, CTS 9.72%, EsSalud 9%, Vida Ley 0.396% y SCTR 1.65% (0.78% + 0.87%). EsSalud puede quedar como ese porcentaje o como un monto fijo igual para cada trabajador, sin depender del sueldo. Cámbielos solo si el contrato de la unidad usa otras tasas.
         </p>
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1673,7 +1677,50 @@ function ParametersPanel(props: {
           <span className="block text-[11px] text-slate-400 mt-1">1.09 aplica el 9% adicional sobre la gratificación.</span>
         </label>
         {percent('ctsRate', 'CTS %')}
-        {percent('essaludRate', 'EsSalud %', 'Base: sueldo contractual + asignación familiar + gratificación + feriados')}
+        <div className="text-xs text-slate-500">
+          EsSalud
+          <select
+            className={fieldClass}
+            disabled={props.locked}
+            value={props.rates.essaludMode === 'fixed' ? 'fixed' : 'percent'}
+            onChange={(event) => props.onRates({ essaludMode: event.target.value === 'fixed' ? 'fixed' : 'percent' })}
+          >
+            <option value="percent">Porcentaje de la base</option>
+            <option value="fixed">Monto fijo, independiente del sueldo</option>
+          </select>
+          {props.rates.essaludMode === 'fixed' ? (
+            <>
+              <span className="block mt-2">Monto por trabajador (S/)</span>
+              <input
+                className={fieldClass}
+                type="number"
+                step="0.01"
+                min="0"
+                disabled={props.locked}
+                value={props.rates.essaludFixedAmount}
+                onChange={(event) => props.onRates({ essaludFixedAmount: Number(event.target.value) || 0 })}
+              />
+              <span className="block text-[11px] text-slate-400 mt-1">
+                Mismo monto en soles para cada trabajador. No usa el sueldo, la asignación, la gratificación ni los días.
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="block mt-2">Porcentaje</span>
+              <input
+                className={fieldClass}
+                type="number"
+                step="0.001"
+                disabled={props.locked}
+                value={Number((props.rates.essaludRate * 100).toFixed(4))}
+                onChange={(event) => props.onRates({ essaludRate: (Number(event.target.value) || 0) / 100 })}
+              />
+              <span className="block text-[11px] text-slate-400 mt-1">
+                Base: sueldo contractual + asignación familiar + gratificación + feriados
+              </span>
+            </>
+          )}
+        </div>
         {percent('vidaLeyRate', 'Vida Ley %', 'Base: remuneración para cargas + vacaciones')}
         {percent('sctrRate', 'SCTR %', 'Base: sueldo contractual + gratificación')}
         {percent('igvRate', 'IGV %', 'Se muestra aparte. El total principal no lo incluye.')}

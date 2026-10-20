@@ -354,7 +354,7 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
     money('CTS', 8.5, 'cargas', (row) => row.cts),
   ];
   if (rates.applyFeria) columns.push(money('Feria', 8.5, 'cargas', (row) => row.feria));
-  columns.push(money('EsSalud', 8.5, 'cargas', (row) => row.essalud));
+  columns.push(money(rates.essaludMode === 'fixed' ? 'EsSalud fijo' : 'EsSalud', 8.5, 'cargas', (row) => row.essalud));
   if (rates.applyVidaLey) columns.push(money('Vida Ley', 8.5, 'cargas', (row) => row.vidaLey));
   if (rates.applySctr) columns.push(money('SCTR', 8, 'cargas', (row) => row.sctr));
   columns.push(
@@ -623,7 +623,7 @@ function methodNote(rates: BillingRates): string {
     `Vacaciones ${percent(rates.vacationRate)}`,
     `Gratificación ${percent(rates.gratiRate)} × ${formatFactor(rates.gratiBonusFactor)}`,
     `CTS ${percent(rates.ctsRate)}`,
-    `EsSalud ${percent(rates.essaludRate)}`,
+    essaludCaption(rates),
   ];
   if (rates.applyVidaLey) parts.push(`Vida Ley ${percent(rates.vidaLeyRate, 3)}`);
   if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)}`);
@@ -635,6 +635,14 @@ function profitCaption(rates: BillingRates): string {
   const mode = rates.profitMode === 'margin_on_price' ? 'margen sobre el precio' : 'recargo sobre el costo';
   const base = rates.profitBase === 'labor' ? 'base costo laboral' : 'base costo laboral, operativo y administrativo';
   return `IV. Utilidad (${percent(rates.profitRate)} ${mode}; ${base})`;
+}
+
+function essaludCaption(rates: BillingRates): string {
+  if (rates.essaludMode === 'fixed') {
+    const amount = Number(rates.essaludFixedAmount) || 0;
+    return `EsSalud monto fijo S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por trabajador`;
+  }
+  return `EsSalud ${percent(rates.essaludRate)}`;
 }
 
 function percent(rate: number, digits = 2): string {

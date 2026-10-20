@@ -919,7 +919,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Excel: descarga la liquidación con formato, en horizontal y ajustada a una sola hoja A4. En Excel use Imprimir o Exportar a PDF.',
         ],
         tips: [
-          'El total principal no incluye IGV. EsSalud y SCTR usan el sueldo contractual completo, no el proporcional a los días.',
+          'El total principal no incluye IGV. EsSalud, en modo porcentaje, y SCTR usan el sueldo contractual completo, no el proporcional a los días. En Parámetros, EsSalud puede ser ese porcentaje o un monto fijo igual para cada trabajador.',
           'En Parámetros puede cambiar los factores de hora extra, el recargo nocturno, los días y las horas, y si la asignación familiar entra en cada fórmula.',
           'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
           'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase. Para corridas y notas, ejecute también migrations/MIGRATION_CLIENT_BILLING_RUNS.sql.',

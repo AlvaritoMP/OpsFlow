@@ -163,11 +163,11 @@ export async function prepareBillingDraft(
     loadAbsenceDeductions(unit.id, window),
   ]);
 
-  const rates: BillingRates = {
+  const rates = normalizeBillingRates({
     ...DEFAULT_BILLING_RATES,
     ...(previous?.model.rates || {}),
     ...(profile?.rates || {}),
-  };
+  });
   const monthLabel = formatPeriodLabel(periodMonth);
   const serviceLabel = profile?.serviceLabel || previous?.model.serviceLabel || `Servicio de ${unit.name}`;
   const model = emptyBillingModel(`${serviceLabel} — ${monthLabel}`, serviceLabel, rates);
