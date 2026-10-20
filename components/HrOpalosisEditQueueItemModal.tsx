@@ -511,10 +511,10 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
           },
         };
         setSnapshot(nextSnapshot);
-        setForm(
-          mergeHrFieldsWithSnapshot(item.hrFields, nextSnapshot, item.refOperaciones, {
-            opalosisUnidadId: item.hrFields?.lugarTrabajoId ?? null,
-            empresaCodigo: item.hrFields?.opaloId ?? null,
+        setForm((prev) =>
+          mergeHrFieldsWithSnapshot(prev, nextSnapshot, item.refOperaciones, {
+            opalosisUnidadId: prev.lugarTrabajoId ?? item.hrFields?.lugarTrabajoId ?? null,
+            empresaCodigo: prev.opaloId ?? item.hrFields?.opaloId ?? null,
           }),
         );
       } catch {
@@ -777,8 +777,22 @@ export const HrOpalosisEditQueueItemModal: React.FC<Props> = ({ item, onClose, o
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+    const norm = (value?: string | null) => (value ?? '').trim();
+    const saved = item.hrFields;
+    const bankChanged =
+      norm(form.bancoPreferencia) !== norm(saved?.bancoPreferencia) ||
+      norm(form.labels?.banco) !== norm(saved?.labels?.banco) ||
+      (form.bancoId ?? null) !== (saved?.bancoId ?? null) ||
+      norm(form.numeroCuentaTrabajador) !== norm(saved?.numeroCuentaTrabajador) ||
+      norm(form.cuentaCci) !== norm(saved?.cuentaCci);
+    const toSave: HrOpalosisIngresoFields = {
+      ...form,
+      paymentDetailsEditedAt: bankChanged
+        ? new Date().toISOString()
+        : (form.paymentDetailsEditedAt ?? saved?.paymentDetailsEditedAt ?? null),
+    };
     try {
-      const updated = await hrOutboundIngresoService.updateQueueItemHrFields(item.id, form);
+      const updated = await hrOutboundIngresoService.updateQueueItemHrFields(item.id, toSave);
       onSaved(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo guardar');

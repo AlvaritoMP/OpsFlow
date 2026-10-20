@@ -1341,6 +1341,11 @@ export interface HrOpalosisIngresoFields {
   numeroCuentaTrabajador?: string | null;
   /** CCI / cuenta interbancaria (no hay columna DTO; viaja en CamposDetalle). */
   cuentaCci?: string | null;
+  /**
+   * Marca de «Guardar datos» en la bandeja cuando RRHH cambió banco, cuenta o CCI.
+   * El refresco desde la ficha no pisa esos campos si esta marca es más reciente.
+   */
+  paymentDetailsEditedAt?: string | null;
   urlDocumentoAdjunto?: string | null;
   tallaPoloCamisa?: string | null;
   tallaCasaca?: string | null;

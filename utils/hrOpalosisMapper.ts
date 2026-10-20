@@ -661,6 +661,7 @@ export function normalizeHrFields(raw: unknown): HrOpalosisIngresoFields | null 
         bancoId: pickNumber(r.bancoId) ?? null,
         numeroCuentaTrabajador: nullIfEmpty(pickString(r.numeroCuentaTrabajador)),
         cuentaCci: nullIfEmpty(pickString(r.cuentaCci, r.cci)),
+        paymentDetailsEditedAt: nullIfEmpty(pickString(r.paymentDetailsEditedAt)),
         urlDocumentoAdjunto: nullIfEmpty(pickString(r.urlDocumentoAdjunto)),
         tallaPoloCamisa: nullIfEmpty(pickString(r.tallaPoloCamisa)),
         tallaCasaca: nullIfEmpty(pickString(r.tallaCasaca)),
@@ -1195,6 +1196,9 @@ export function mergeHrFieldsWithSnapshot(
 /**
  * Al refrescar un ítem aún pendiente: datos vivos (ficha landing / alta OpsFlow)
  * pisan campos de persona; se conservan IDs que RRHH ya tipificó en Opalosis.
+ * Banco, n° de cuenta y CCI guardados en «Completar / editar» se conservan
+ * mientras esa edición sea más reciente que la ficha. Si no, al reabrir la
+ * bandeja el refresco los devolvía al valor de la ficha (a menudo vacío).
  */
 export function refreshHrFieldsFromLiveSnapshot(
   existing: HrOpalosisIngresoFields | null | undefined,
@@ -1212,6 +1216,10 @@ export function refreshHrFieldsFromLiveSnapshot(
   const jubilado = isComplementaryJubilado(snapshot.ats.complementary?.jubilado);
   const keepId = (current?: number | null, next?: number | null) =>
     current !== null && current !== undefined ? current : (next ?? null);
+  const hrPaymentAt = existing.paymentDetailsEditedAt?.trim() ?? '';
+  const fichaAt = snapshot.ats.meta?.complementaryFilledAt?.trim() ?? '';
+  const keepHrPayment = hrPaymentAt.length > 0 && (fichaAt.length === 0 || hrPaymentAt >= fichaAt);
+  const hrBankLabel = (existing.bancoPreferencia || existing.labels?.banco || '').trim();
 
   return {
     ...mapped,
@@ -1220,7 +1228,18 @@ export function refreshHrFieldsFromLiveSnapshot(
     modeloContratoId: keepId(existing.modeloContratoId, mapped.modeloContratoId),
     regimenLaboralId: keepId(existing.regimenLaboralId, mapped.regimenLaboralId),
     fondoPensionId: jubilado ? null : keepId(existing.fondoPensionId, mapped.fondoPensionId),
-    bancoId: keepId(existing.bancoId, mapped.bancoId),
+    bancoId:
+      keepHrPayment && hrBankLabel
+        ? (existing.bancoId ?? null)
+        : keepId(existing.bancoId, mapped.bancoId),
+    ...(keepHrPayment
+      ? {
+          bancoPreferencia: existing.bancoPreferencia ?? null,
+          numeroCuentaTrabajador: existing.numeroCuentaTrabajador ?? null,
+          cuentaCci: existing.cuentaCci ?? null,
+          paymentDetailsEditedAt: existing.paymentDetailsEditedAt,
+        }
+      : { paymentDetailsEditedAt: null }),
     departamentoId: keepId(existing.departamentoId, mapped.departamentoId),
     provinciaId: keepId(existing.provinciaId, mapped.provinciaId),
     ubigeoId: keepId(existing.ubigeoId, mapped.ubigeoId),
@@ -1241,6 +1260,9 @@ export function refreshHrFieldsFromLiveSnapshot(
       lugarTrabajo: existing.lugarTrabajoId
         ? existing.labels?.lugarTrabajo || mapped.labels?.lugarTrabajo
         : mapped.labels?.lugarTrabajo || existing.labels?.lugarTrabajo,
+      ...(keepHrPayment
+        ? { banco: hrBankLabel ? existing.labels?.banco || existing.bancoPreferencia : undefined }
+        : {}),
     },
   };
 }
