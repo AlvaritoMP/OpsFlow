@@ -98,6 +98,9 @@ const OPS_KINDS: [string, string][] = [
   ['materiales', 'Materiales'],
   ['equipos', 'Equipos'],
   ['maquinaria', 'Maquinaria'],
+  ['supervision', 'Supervisión'],
+  ['capacitacion', 'Capacitación'],
+  ['epps_uniformes', 'Epps y Uniformes'],
   ['otros', 'Otros'],
 ];
 
@@ -757,37 +760,40 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 text-slate-500 text-left">
                       <tr>
-                        <th className="px-4 py-2 font-medium">Periodo</th>
-                        <th className="px-4 py-2 font-medium">Cliente / unidad</th>
-                        <th className="px-4 py-2 font-medium">Estado</th>
-                        <th className="px-4 py-2 font-medium">EsSalud</th>
-                        <th className="px-4 py-2 font-medium text-right">Total sin IGV</th>
-                        <th className="px-4 py-2 font-medium">Último ajuste</th>
+                        <th className="px-3 py-2 font-medium">Periodo</th>
+                        <th className="px-3 py-2 font-medium">Cliente / unidad</th>
+                        <th className="px-3 py-2 font-medium">Estado</th>
+                        <th className="px-3 py-2 font-medium text-right">Laboral</th>
+                        <th className="px-3 py-2 font-medium text-right">Operativo</th>
+                        <th className="px-3 py-2 font-medium text-right">Administrativo</th>
+                        <th className="px-3 py-2 font-medium text-right">Utilidad</th>
+                        <th className="px-3 py-2 font-medium text-right">Total</th>
+                        <th className="px-3 py-2 font-medium">Último ajuste</th>
                       </tr>
                     </thead>
                     <tbody>
                       {visibleRecords.map((record) => {
                         const attendance = resolveAttendanceWindow(record.periodMonth, record.model?.attendanceFrom, record.model?.attendanceTo);
+                        const money = 'px-3 py-3 text-right tabular-nums whitespace-nowrap text-slate-700';
                         return (
                         <tr key={record.id} className="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" onClick={() => void openRecord(record)}>
-                          <td className="px-4 py-3 font-medium text-slate-800">
+                          <td className="px-3 py-3 font-medium text-slate-800">
                             {formatPeriodLabel(record.periodMonth)}
                             <div className="text-xs font-normal text-slate-500">{formatAttendanceRange(attendance.from, attendance.to)}</div>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3">
                             <div className="text-slate-800">{record.clientName}</div>
                             <div className="text-xs text-slate-500">{record.unitName}</div>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3">
                             <StatusPill status={record.status} />
                           </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {usesPercentEssalud(record.model.rates)
-                              ? `Porcentaje ${Number((record.model.rates.essaludRate * 100).toFixed(2))}%`
-                              : `Fijo ${pen(record.model.rates.essaludFixedAmount)}`}
-                          </td>
-                          <td className="px-4 py-3 text-right font-semibold text-slate-900">{pen(record.grandTotal)}</td>
-                          <td className="px-4 py-3 text-slate-500">
+                          <td className={money}>{pen(record.laborTotal)}</td>
+                          <td className={money}>{pen(record.operationalTotal)}</td>
+                          <td className={money}>{pen(record.adminTotal)}</td>
+                          <td className={money}>{pen(record.profitTotal)}</td>
+                          <td className="px-3 py-3 text-right tabular-nums whitespace-nowrap font-semibold text-slate-900" title="Suma sin IGV">{pen(record.grandTotal)}</td>
+                          <td className="px-3 py-3 text-slate-500">
                             {record.updatedByName || record.createdByName || '—'}
                             <div className="text-xs">{new Date(record.updatedAt).toLocaleString('es-PE')}</div>
                           </td>
