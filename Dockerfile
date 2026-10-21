@@ -6,19 +6,16 @@ WORKDIR /app
 # Copiar archivos de dependencias
 COPY package.json package-lock.json* ./
 
-# Reintenta si el registro de npm corta la descarga (ECONNRESET).
-RUN npm config set fetch-retries 5 \
+# Un ECONNRESET debe cortar pronto. Timeout de 5 min y espera mínima de 20 s,
+# repetidos hasta 5 veces, convierten un corte de red en media hora: npm ci
+# borra node_modules y vuelve a empezar.
+RUN npm config set fetch-retries 2 \
  && npm config set fetch-retry-factor 2 \
- && npm config set fetch-retry-mintimeout 20000 \
- && npm config set fetch-retry-maxtimeout 120000 \
- && npm config set fetch-timeout 300000 \
- && n=0 \
- && until npm ci --no-audit --no-fund; do \
-      n=$((n + 1)); \
-      if [ "$n" -ge 5 ]; then exit 1; fi; \
-      echo "npm ci falló (intento ${n}). Reintentando en 20s..."; \
-      sleep 20; \
-    done
+ && npm config set fetch-retry-mintimeout 2000 \
+ && npm config set fetch-retry-maxtimeout 10000 \
+ && npm config set fetch-timeout 60000 \
+ && npm ci --no-audit --no-fund \
+ || (echo "npm ci falló. Reintentando una vez..." && sleep 5 && npm ci --no-audit --no-fund)
 
 # Frontend. Un cambio en server.js no vuelve a ejecutar esta compilación.
 COPY index.html index.css index.tsx vite.config.ts tsconfig.json tailwind.config.js postcss.config.cjs metadata.json ./

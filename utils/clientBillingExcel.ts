@@ -104,6 +104,15 @@ const thinBorder: Partial<ExcelJS.Borders> = {
   right: { style: 'thin', color: { argb: LINE } },
 };
 
+const OPALO_LOGO_SRC = new URL('../assets/logo-opalo.jpg', import.meta.url).href;
+const LOGO_MAX_WIDTH = 108;
+const LOGO_MAX_HEIGHT = 40;
+
+interface OpaloLogo {
+  base64: string;
+  aspect: number;
+}
+
 export function clientBillingExcelFilename(unitName: string, periodMonth: string): string {
   const safeName = `${unitName}-${periodMonth}`.replace(/[^\w\-]+/g, '_');
   return `Facturacion_${safeName}.xlsx`;
@@ -155,8 +164,10 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
 
   const attendance = resolveAttendanceWindow(input.periodMonth, input.model.attendanceFrom, input.model.attendanceTo);
   const corteDays = inclusiveDayCount(attendance.from, attendance.to);
+  const logo = await loadOpaloLogo();
   let row = 1;
-  writeBanner(sheet, row, lastCol, input.clientName || input.model.title || 'Facturación', 16, true, 24);
+  writeBanner(sheet, row, lastCol, input.clientName || input.model.title || 'Facturación', 16, true, logo ? 44 : 24, false, INK, logo ? 2 : 1);
+  if (logo) addOpaloLogo(workbook, sheet, logo);
   row += 1;
   const title = input.model.title.trim();
   const client = input.clientName.trim();
@@ -222,9 +233,8 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   row = adminRows.nextRow;
 
   row += 1;
-  const profitRow = row;
-  writeAmountRow(sheet, row, lastCol, profitCaption(input.model.rates), input.computed.profitAmount, false);
-  row += 1;
+  const profitRows = writeProfitBlock(sheet, row, lastCol, input.model.rates, input.computed.profitAmount);
+  row = profitRows.nextRow;
 
   const grandRow = row;
   writeFormulaRow(
@@ -232,7 +242,7 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
     row,
     lastCol,
     'TOTAL MENSUAL',
-    `${cellRef(lastCol, laborRow)}+${cellRef(lastCol, operationalRows.subtotalRow)}+${cellRef(lastCol, adminRows.subtotalRow)}+${cellRef(lastCol, profitRow)}`,
+    `${cellRef(lastCol, laborRow)}+${cellRef(lastCol, operationalRows.subtotalRow)}+${cellRef(lastCol, adminRows.subtotalRow)}+${cellRef(lastCol, profitRows.subtotalRow)}`,
     input.computed.grandTotal,
     true
   );
@@ -420,17 +430,102 @@ function writeBanner(
   bold: boolean,
   height: number,
   italic = false,
-  color = INK
+  color = INK,
+  startCol = 1
 ) {
   const row = sheet.getRow(rowNumber);
   row.height = height;
+  const textCol = Math.min(Math.max(startCol, 1), lastCol);
   for (let col = 1; col <= lastCol; col += 1) {
     const cell = row.getCell(col);
-    cell.value = col === 1 ? text : null;
+    cell.value = col === textCol ? text : null;
     cell.font = { name: FONT, size, bold, italic, color: { argb: color } };
     cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: size < 16 };
   }
-  if (lastCol > 1) sheet.mergeCells(rowNumber, 1, rowNumber, lastCol);
+  if (lastCol > textCol) sheet.mergeCells(rowNumber, textCol, rowNumber, lastCol);
+}
+
+function loadOpaloLogo(): Promise<OpaloLogo | null> {
+  if (typeof document === 'undefined') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        resolve(cropLogo(image));
+      } catch {
+        resolve(null);
+      }
+    };
+    image.onerror = () => resolve(null);
+    image.src = OPALO_LOGO_SRC;
+  });
+}
+
+function cropLogo(image: HTMLImageElement): OpaloLogo | null {
+  const width = image.naturalWidth || image.width || 0;
+  const height = image.naturalHeight || image.height || 0;
+  if (!width || !height) return null;
+  const source = document.createElement('canvas');
+  source.width = width;
+  source.height = height;
+  const sourceCtx = source.getContext('2d');
+  if (!sourceCtx) return null;
+  sourceCtx.drawImage(image, 0, 0);
+  const pixels = sourceCtx.getImageData(0, 0, width, height).data;
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  let found = false;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const alpha = pixels[offset + 3];
+      if (alpha < 20) continue;
+      if (pixels[offset] > 245 && pixels[offset + 1] > 245 && pixels[offset + 2] > 245) continue;
+      found = true;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (!found) return { base64: source.toDataURL('image/png'), aspect: width / height };
+  const pad = Math.max(2, Math.round(Math.min(width, height) * 0.02));
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(width - 1, maxX + pad);
+  maxY = Math.min(height - 1, maxY + pad);
+  const cropW = maxX - minX + 1;
+  const cropH = maxY - minY + 1;
+  const out = document.createElement('canvas');
+  out.width = cropW;
+  out.height = cropH;
+  const outCtx = out.getContext('2d');
+  if (!outCtx) return null;
+  outCtx.fillStyle = '#ffffff';
+  outCtx.fillRect(0, 0, cropW, cropH);
+  outCtx.drawImage(source, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+  return { base64: out.toDataURL('image/png'), aspect: cropW / Math.max(cropH, 1) };
+}
+
+function addOpaloLogo(workbook: ExcelJS.Workbook, sheet: ExcelJS.Worksheet, logo: OpaloLogo) {
+  const aspect = logo.aspect > 0.2 && logo.aspect < 12 ? logo.aspect : 2.9;
+  let height = LOGO_MAX_HEIGHT;
+  let width = height * aspect;
+  if (width > LOGO_MAX_WIDTH) {
+    width = LOGO_MAX_WIDTH;
+    height = width / aspect;
+  }
+  const rowHeight = sheet.getRow(1).height || 44;
+  const rowPx = (rowHeight * 96) / 72;
+  const topPx = Math.max(2, (rowPx - height) / 2);
+  const imageId = workbook.addImage({ base64: logo.base64, extension: 'png' });
+  sheet.addImage(imageId, {
+    tl: { col: 0.08, row: topPx / rowPx },
+    ext: { width: Math.round(width), height: Math.round(height) },
+    editAs: 'oneCell',
+  });
 }
 
 function writeSection(sheet: ExcelJS.Worksheet, rowNumber: number, lastCol: number, title: string): number {
@@ -507,6 +602,18 @@ function writeWorker(sheet: ExcelJS.Worksheet, rowNumber: number, columns: Sheet
   });
 }
 
+function paintSubtotalLine(sheet: ExcelJS.Worksheet, rowNumber: number, columnCount: number) {
+  const row = sheet.getRow(rowNumber);
+  row.height = 18;
+  for (let col = 1; col <= columnCount; col += 1) {
+    const cell = row.getCell(col);
+    cell.fill = solid(SUBTOTAL);
+    cell.border = thinBorder;
+    cell.font = { name: FONT, size: 8, bold: true, color: { argb: NAVY } };
+    cell.alignment = { vertical: 'middle', horizontal: col === 1 ? 'left' : 'right' };
+  }
+}
+
 function writeLaborSubtotal(
   sheet: ExcelJS.Worksheet,
   rowNumber: number,
@@ -515,14 +622,9 @@ function writeLaborSubtotal(
   lastRow: number,
   workers: WorkerRow[]
 ) {
-  const row = sheet.getRow(rowNumber);
-  row.height = 18;
+  paintSubtotalLine(sheet, rowNumber, columns.length);
   columns.forEach((column, index) => {
-    const cell = row.getCell(index + 1);
-    cell.fill = solid(SUBTOTAL);
-    cell.border = thinBorder;
-    cell.font = { name: FONT, size: 8, bold: true, color: { argb: NAVY } };
-    cell.alignment = { vertical: 'middle', horizontal: index === 0 ? 'left' : 'right' };
+    const cell = sheet.getCell(rowNumber, index + 1);
     if (index === 0) {
       cell.value = 'Subtotal personal';
       return;
@@ -562,17 +664,49 @@ function writeCostBlock(
   });
   const lastItem = row - 1;
   const subtotal = items.reduce((sum, line) => sum + (line.id === 'empty' ? 0 : amounts.get(line.id) ?? line.amount ?? 0), 0);
-  writeFormulaRow(
+  writeCategorySubtotal(
     sheet,
     row,
     lastCol,
     subtotalLabel,
     `SUM(${cellRef(lastCol, firstItem)}:${cellRef(lastCol, lastItem)})`,
-    subtotal,
-    false
+    subtotal
   );
   const subtotalRow = row;
   return { subtotalRow, nextRow: row + 1 };
+}
+
+function writeProfitBlock(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  lastCol: number,
+  rates: BillingRates,
+  amount: number
+): CostBlockRows {
+  let row = writeSection(sheet, rowNumber, lastCol, 'IV. Utilidad');
+  const detailRow = row;
+  writeAmountRow(sheet, row, lastCol, profitLineLabel(rates), amount, false);
+  row += 1;
+  writeCategorySubtotal(sheet, row, lastCol, 'Subtotal utilidad', cellRef(lastCol, detailRow), amount);
+  return { subtotalRow: row, nextRow: row + 1 };
+}
+
+function writeCategorySubtotal(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  lastCol: number,
+  label: string,
+  formula: string,
+  result: number
+) {
+  paintSubtotalLine(sheet, rowNumber, lastCol);
+  const labelCell = sheet.getCell(rowNumber, 1);
+  labelCell.value = label;
+  labelCell.alignment = { vertical: 'middle', horizontal: 'left', shrinkToFit: true };
+  const amount = sheet.getCell(rowNumber, lastCol);
+  amount.value = { formula, result };
+  amount.numFmt = MONEY;
+  amount.alignment = { vertical: 'middle', horizontal: 'right' };
 }
 
 function writeAmountRow(sheet: ExcelJS.Worksheet, rowNumber: number, lastCol: number, label: string, amount: number, strong: boolean) {
@@ -638,10 +772,10 @@ function methodNote(rates: BillingRates): string {
   return parts.join(' · ');
 }
 
-function profitCaption(rates: BillingRates): string {
-  const mode = rates.profitMode === 'margin_on_price' ? 'margen sobre el precio' : 'recargo sobre el costo';
+function profitLineLabel(rates: BillingRates): string {
+  const mode = rates.profitMode === 'margin_on_price' ? 'Margen sobre el precio' : 'Recargo sobre el costo';
   const base = rates.profitBase === 'labor' ? 'base costo laboral' : 'base costo laboral, operativo y administrativo';
-  return `IV. Utilidad (${percent(rates.profitRate)} ${mode}; ${base})`;
+  return `${mode} (${percent(rates.profitRate)}) · ${base}`;
 }
 
 function essaludCaption(rates: BillingRates): string {
