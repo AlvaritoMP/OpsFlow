@@ -1297,6 +1297,14 @@ function buildFaltaDialog({ state, units, workers, values }) {
         options: COVERAGE_OPTIONS,
         defaultValue: values?.has_coverage,
       }),
+      {
+        display_name: 'Fecha de la falta',
+        name: 'incident_date',
+        type: 'text',
+        default: isoDate(values?.date || values?.incident_date) || limaTodayIso(),
+        placeholder: 'AAAA-MM-DD',
+        help_text: 'Hoy por defecto. Puede indicar un día anterior, formato AAAA-MM-DD.',
+      },
     ],
   };
 }
@@ -1856,6 +1864,7 @@ async function handleDialogSubmit(req, res, body) {
           incident_type: submission.incident_type || '',
           incident_reason: submission.incident_reason || '',
           has_coverage: submission.has_coverage || '',
+          date: isoDate(submission.incident_date || submission.date) || limaTodayIso(),
         },
       });
       console.log(
