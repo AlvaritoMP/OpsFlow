@@ -1225,6 +1225,30 @@ function selectDialogElement({ displayName, name, options, defaultValue, helpTex
   return element;
 }
 
+function shiftIsoDate(iso, days) {
+  const match = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return limaTodayIso();
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function faltaDateElement(value) {
+  const today = limaTodayIso();
+  const selected = isoDate(value) || today;
+  const windowStart = shiftIsoDate(today, -365);
+  return {
+    display_name: 'Fecha de la falta',
+    name: 'incident_date',
+    type: 'date',
+    default: selected,
+    placeholder: 'Seleccione la fecha',
+    help_text: 'Hoy por defecto. Elija el día en el calendario.',
+    min_date: selected < windowStart ? selected : windowStart,
+    max_date: selected > today ? selected : today,
+  };
+}
+
 function buildFaltaDialog({ state, units, workers, values }) {
   const unitId = cleanSelectId(values?.unit_id);
   const unitOptions = menuOptions(
@@ -1297,14 +1321,7 @@ function buildFaltaDialog({ state, units, workers, values }) {
         options: COVERAGE_OPTIONS,
         defaultValue: values?.has_coverage,
       }),
-      {
-        display_name: 'Fecha de la falta',
-        name: 'incident_date',
-        type: 'text',
-        default: isoDate(values?.date || values?.incident_date) || limaTodayIso(),
-        placeholder: 'AAAA-MM-DD',
-        help_text: 'Hoy por defecto. Puede indicar un día anterior, formato AAAA-MM-DD.',
-      },
+      faltaDateElement(values?.date || values?.incident_date),
     ],
   };
 }
@@ -1430,14 +1447,7 @@ async function buildEditDialog(incident, actor) {
         options: COVERAGE_OPTIONS,
         defaultValue: incident.has_coverage,
       }),
-      {
-        display_name: 'Fecha',
-        name: 'incident_date',
-        type: 'text',
-        default: incidentDate,
-        help_text: 'Formato AAAA-MM-DD.',
-        placeholder: 'AAAA-MM-DD',
-      },
+      faltaDateElement(incidentDate),
       {
         display_name: 'Observaciones',
         name: 'observations',
