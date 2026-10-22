@@ -363,8 +363,8 @@ function selectAction({ id, name, actionUrl, state, values, action, options, def
   return menu;
 }
 
-const FALTA_UNIT_CAP = 400;
-const FALTA_WORKER_CAP = 100;
+const FALTA_UNIT_CAP = 100;
+const FALTA_WORKER_CAP = 300;
 const FALTA_POST_MAX_BYTES = 48_000;
 const faltaRegisterLocks = new Set();
 
@@ -1007,19 +1007,22 @@ async function handleCommand(req, res, body) {
 
     const values = emptyFormValues();
     const unitFromText = matchUnitByText(units, text);
-    const workers = unitFromText ? await listWorkersForUnitSelect(unitFromText.id, FALTA_WORKER_CAP) : [];
     if (unitFromText) values.unit_id = unitFromText.id;
+    const workers = unitFromText
+      ? await listWorkersForUnitSelect(unitFromText.id, FALTA_WORKER_CAP)
+      : [];
 
     const state = signState(
       { channel_id: channelId, user_id: userId, team_id: teamId, user_name: userName, ts: Date.now() },
       cfg.stateSecret,
     );
+    const openedAt = Date.now();
     await openDialog({
       triggerId,
       url: mattermostDialogSubmitUrl(),
       dialog: buildFaltaDialog({ state, units, workers, values }),
     });
-    console.log(`🔗 /falta ventana abierta (${units.length} unidades)`);
+    console.log(`🔗 /falta ventana abierta en ${Date.now() - openedAt}ms (${units.length} unidades)`);
     sendJson(res, 200, {});
   } catch (err) {
     console.error('❌ /falta formulario:', err);
@@ -1180,35 +1183,6 @@ async function publishFaltaCard({ incident, unit, worker, values, channelId, tea
   const attachHint =
     'Para adjuntar fotos o CITT, responde con la imagen a este hilo' + (permalink ? `: ${permalink}` : '.');
   return { post, permalink, attachHint };
-}
-
-async function saveAndPublishFalta({ submission, channelId, userId, teamId, userName }) {
-  const saved = await saveFalta({ submission, channelId, userId, teamId, userName });
-  if (!saved.ok) return saved;
-
-  try {
-    const published = await publishFaltaCard({
-      incident: saved.incident,
-      unit: saved.unit,
-      worker: saved.worker,
-      values: saved.values,
-      channelId,
-      teamId,
-      userName,
-    });
-    return { ok: true, ...saved, ...published };
-  } catch (err) {
-    console.error('❌ Publicar tarjeta Mattermost:', err);
-    return {
-      ok: true,
-      incident: saved.incident,
-      unit: saved.unit,
-      worker: saved.worker,
-      attachHint:
-        'La incidencia se guardó en OpsFlow, pero no se pudo publicar la tarjeta en el canal. ' +
-        (err instanceof Error ? err.message : String(err)),
-    };
-  }
 }
 
 function isUuid(value) {
@@ -1897,18 +1871,54 @@ async function handleDialogSubmit(req, res, body) {
     return;
   }
 
-  const result = await saveAndPublishFalta({
-    submission: payload?.submission || {},
-    channelId: payload.channel_id || stateCheck.payload.channel_id,
-    userId: payload.user_id || stateCheck.payload.user_id,
-    teamId: payload.team_id || stateCheck.payload.team_id,
-    userName: stateCheck.payload.user_name || payload.user_name || '',
-  });
-  if (!result.ok) {
-    sendJson(res, 200, result.errors ? { errors: result.errors } : { error: result.error });
+  const userId = payload.user_id || stateCheck.payload.user_id;
+  const channelId = payload.channel_id || stateCheck.payload.channel_id;
+  const teamId = payload.team_id || stateCheck.payload.team_id;
+  const userName = stateCheck.payload.user_name || payload.user_name || '';
+  const lockKey = `dialog:${userId || ''}:${channelId || ''}`;
+  if (faltaRegisterLocks.has(lockKey)) {
+    sendJson(res, 200, { error: 'Ya se está registrando. Espere un momento.' });
     return;
   }
-  sendEmpty(res);
+  faltaRegisterLocks.add(lockKey);
+  const releaseLock = () => faltaRegisterLocks.delete(lockKey);
+  try {
+    const saved = await saveFalta({
+      submission: payload?.submission || {},
+      channelId,
+      userId,
+      teamId,
+      userName,
+    });
+    if (!saved.ok) {
+      releaseLock();
+      sendJson(res, 200, saved.errors ? { errors: saved.errors } : { error: saved.error });
+      return;
+    }
+    sendEmpty(res);
+    void publishFaltaCard({
+      incident: saved.incident,
+      unit: saved.unit,
+      worker: saved.worker,
+      values: saved.values,
+      channelId,
+      teamId,
+      userName,
+    })
+      .catch(async (err) => {
+        console.error('❌ Publicar tarjeta Mattermost:', err);
+        await notifyRegistrar(
+          userId,
+          channelId,
+          'La falta se guardó en OpsFlow, pero no se pudo publicar el resumen en el canal. ' +
+            (err instanceof Error ? err.message : String(err)),
+        );
+      })
+      .finally(releaseLock);
+  } catch (err) {
+    releaseLock();
+    throw err;
+  }
 }
 
 function isUnitOk(unit) {
@@ -2045,6 +2055,12 @@ async function pollOpenThreads() {
 }
 
 export function startMattermostThreadPoller() {
+  void cachedActiveUnits().catch((err) => {
+    console.warn(
+      '⚠️  No se precargaron las unidades de /falta:',
+      err instanceof Error ? err.message : err,
+    );
+  });
   if (pollerStarted) return;
   const cfg = loadConfig();
   if (!cfg.botToken || !cfg.mattermostUrl) {

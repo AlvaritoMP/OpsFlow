@@ -61,23 +61,23 @@ export async function listActiveWorkers(unitId) {
 const workerMenuCache = new Map();
 const WORKER_MENU_CACHE_MS = 60_000;
 
-/** Primeros operarios activos de una unidad, para el desplegable de /falta. */
-export async function listWorkersForUnitSelect(unitId, limit = 101) {
+/** Operarios activos de una unidad, para el desplegable de /falta. */
+export async function listWorkersForUnitSelect(unitId, limit = 300) {
   if (!unitId) return [];
   const now = Date.now();
+  const capped = Math.min(Math.max(Number(limit) || 300, 1), 300);
   const cached = workerMenuCache.get(unitId);
-  if (cached && now - cached.at < WORKER_MENU_CACHE_MS && cached.limit >= limit) {
-    return cached.rows.slice(0, limit);
+  if (cached && now - cached.at < WORKER_MENU_CACHE_MS && cached.limit >= capped) {
+    return cached.rows.slice(0, capped);
   }
   const supabase = getSupabaseAdmin();
-  const fetchLimit = Math.min(Math.max(limit * 3, limit), 400);
   const { data, error } = await activePersonalQuery(supabase, WORKER_MENU_COLUMNS)
     .eq('unit_id', unitId)
     .order('name', { ascending: true })
-    .limit(fetchLimit);
+    .limit(capped);
   if (error) throw error;
-  const rows = (data || []).filter(isActivePersonnelRow).slice(0, limit);
-  workerMenuCache.set(unitId, { at: now, limit, rows });
+  const rows = (data || []).filter(isActivePersonnelRow).slice(0, capped);
+  workerMenuCache.set(unitId, { at: now, limit: capped, rows });
   return rows;
 }
 

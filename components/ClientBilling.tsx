@@ -1477,7 +1477,7 @@ function LaborSheet(props: {
   const essaludFixed = props.rates.essaludMode === 'fixed';
   const essaludHint = essaludFixed
     ? `Monto fijo de ${pen(props.rates.essaludFixedAmount)} por trabajador, independiente del sueldo.`
-    : 'Porcentaje sobre sueldo contractual + asignación familiar + gratificación + feriados.';
+    : 'Porcentaje sobre sueldo contractual + asignación familiar + vacaciones + gratificación + feriados.';
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1867,7 +1867,7 @@ function ParametersPanel(props: {
                 onChange={(event) => props.onRates({ essaludRate: (Number(event.target.value) || 0) / 100 })}
               />
               <span className="block text-[11px] text-slate-400 mt-1">
-                Base: sueldo contractual + asignación familiar + gratificación + feriados
+                Base: sueldo contractual + asignación familiar + vacaciones + gratificación + feriados
               </span>
             </>
           )}

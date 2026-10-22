@@ -783,7 +783,7 @@ function essaludCaption(rates: BillingRates): string {
     const amount = Number(rates.essaludFixedAmount) || 0;
     return `EsSalud monto fijo S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por trabajador`;
   }
-  return `EsSalud ${percent(rates.essaludRate)}`;
+  return `EsSalud ${percent(rates.essaludRate)} sobre sueldo + asignación familiar + vacaciones + gratificación + feriados`;
 }
 
 function percent(rate: number, digits = 2): string {

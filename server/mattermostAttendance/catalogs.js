@@ -12,7 +12,7 @@ export const FORM_ACTIONS = {
   coverage: 'setcoverage',
   register: 'register',
 };
-export const SELECT_OPTIONS_MAX = 100;
+export const SELECT_OPTIONS_MAX = 300;
 export const ATTACHMENTS_BUCKET = 'attendance-incident-attachments';
 
 export const INCIDENT_TYPES = [
