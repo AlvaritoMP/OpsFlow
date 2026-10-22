@@ -1518,7 +1518,7 @@ function LaborSheet(props: {
             <th className={head} title="Factor de feriados × REM LLSS">Feriado</th>
             <th className={head} title={essaludHint}>EsSalud</th>
             <th className={head} title="(REM LLSS + vacaciones) × tasa de Vida Ley">Vida Ley</th>
-            <th className={head} title="(Remuneración básica + asignación familiar + vacaciones) × tasa de SCTR">SCTR</th>
+            <th className={head} title="(Remuneración básica + asignación familiar + gratificación) × tasa de SCTR">SCTR</th>
             <th className={head}>Costo</th>
           </tr>
         </thead>
@@ -1623,7 +1623,7 @@ function LaborSheet(props: {
                 <td className="px-1.5 py-1"><GridMoney value={line?.feria} /></td>
                 <td className="px-1.5 py-1" title={essaludHint}><GridMoney value={line?.essalud} /></td>
                 <td className="px-1.5 py-1" title="Base: REM LLSS + vacaciones"><GridMoney value={line?.vidaLey} /></td>
-                <td className="px-1.5 py-1" title="Base: remuneración básica + asignación familiar + vacaciones"><GridMoney value={line?.sctr} /></td>
+                <td className="px-1.5 py-1" title="Base: remuneración básica + asignación familiar + gratificación"><GridMoney value={line?.sctr} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
               </tr>
             );
@@ -1890,7 +1890,7 @@ function ParametersPanel(props: {
           </span>
         </div>
         {percent('vidaLeyRate', 'Vida Ley %', 'Base: REM LLSS + vacaciones')}
-        {percent('sctrRate', 'SCTR %', 'Base: remuneración básica + asignación familiar + vacaciones')}
+        {percent('sctrRate', 'SCTR %', 'Base: remuneración básica + asignación familiar + gratificación')}
         {percent('igvRate', 'IGV %', 'Se muestra aparte. El total principal no lo incluye.')}
       </div>
       <div className="border-t border-slate-100 pt-4 space-y-3">

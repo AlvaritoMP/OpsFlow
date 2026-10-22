@@ -763,7 +763,7 @@ function methodNote(rates: BillingRates): string {
     essaludCaption(rates),
   ];
   if (rates.applyVidaLey) parts.push(`Vida Ley ${percent(rates.vidaLeyRate, 3)} sobre REM LLSS + vacaciones`);
-  if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)} sobre remuneración básica + asignación familiar + vacaciones`);
+  if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)} sobre remuneración básica + asignación familiar + gratificación`);
   parts.push(
     rates.applyFeria
       ? `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS`
