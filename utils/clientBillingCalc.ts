@@ -101,7 +101,58 @@ export interface BillingWorkerInput {
   /** Días de vacaciones gozadas en el corte. Sostienen vacaciones, gratificación, CTS, feriados y EsSalud. */
   vacationDays?: number;
   notes?: string;
+  /** Montos que se suman al calculado de una celda. Sin explicación no se aplican. */
+  adjustments?: Partial<Record<BillingAdjustmentKey, BillingCellAdjustment>>;
   suggested?: BillingWorkerSuggestion;
+}
+
+/** Celda calculada de personal a la que se le puede sumar un ajuste. */
+export type BillingAdjustmentKey =
+  | 'basic'
+  | 'he25'
+  | 'he35'
+  | 'heNight25'
+  | 'heNight35'
+  | 'night'
+  | 'vacation'
+  | 'gratification'
+  | 'cts'
+  | 'feria'
+  | 'essalud'
+  | 'vidaLey'
+  | 'sctr';
+
+export interface BillingCellAdjustment {
+  amount: number;
+  reason: string;
+  authorName: string;
+  createdAt: string;
+}
+
+export const BILLING_ADJUSTMENT_LABELS: Record<BillingAdjustmentKey, string> = {
+  basic: 'Remuneración básica',
+  he25: 'Hora extra diurna 25%',
+  he35: 'Hora extra diurna 35%',
+  heNight25: 'Hora extra nocturna 25%',
+  heNight35: 'Hora extra nocturna 35%',
+  night: 'Bono nocturno',
+  vacation: 'Vacaciones',
+  gratification: 'Gratificación',
+  cts: 'CTS',
+  feria: 'Feriado',
+  essalud: 'EsSalud',
+  vidaLey: 'Vida Ley',
+  sctr: 'SCTR',
+};
+
+/** El adicional entra al costo solo si tiene monto y una explicación. */
+export function adjustmentAmount(worker: BillingWorkerInput, key: BillingAdjustmentKey): number {
+  const item = worker.adjustments?.[key];
+  if (!item) return 0;
+  const amount = Number(item.amount);
+  const reason = String(item.reason || '').trim();
+  if (!Number.isFinite(amount) || amount === 0 || !reason) return 0;
+  return amount;
 }
 
 export interface BillingCostLine {
@@ -637,31 +688,52 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
   const vacationSalary = vacationChargeSalary(salary, basic, vacationDays, monthDays);
   const remLlss = earned + vacationSalary;
   const remTotal = earned + num(worker.workCondition) + num(worker.bonus);
-  const vacation = remLlss * rates.vacationRate;
-  const gratification = remLlss * rates.gratiBonusFactor * rates.gratiRate;
-  const cts = remLlss * rates.ctsRate;
-  const feria = rates.applyFeria ? remLlss * rates.feriaRate : 0;
+  const vacationBase = remLlss * rates.vacationRate;
+  const gratificationBase = remLlss * rates.gratiBonusFactor * rates.gratiRate;
+  const ctsBase = remLlss * rates.ctsRate;
+  const feriaBase = rates.applyFeria ? remLlss * rates.feriaRate : 0;
   // La REM LLSS reemplaza al sueldo completo y a la asignación familiar: ya trae los ingresos según los días.
-  const essaludIncome = remLlss + vacation + gratification + feria;
+  const essaludIncome = remLlss + vacationBase + gratificationBase + feriaBase;
   const essaludBase = Math.max(essaludIncome, rates.minimumWage);
-  const essalud =
+  const essaludBaseAmount =
     rates.essaludMode === 'fixed'
       ? num(rates.essaludFixedAmount)
       : essaludBase * rates.essaludRate;
   // Sueldo establecido y asignación familiar completos: no se prorratean por días trabajados ni por vacaciones.
   const statutoryBase = salary + family;
-  const vidaLey = rates.applyVidaLey ? statutoryBase * rates.vidaLeyRate : 0;
-  const sctr = rates.applySctr ? statutoryBase * rates.sctrRate : 0;
-  const monthlyCost = remTotal + vacation + gratification + cts + feria + essalud + vidaLey + sctr;
+  const vidaLeyBase = rates.applyVidaLey ? statutoryBase * rates.vidaLeyRate : 0;
+  const sctrBase = rates.applySctr ? statutoryBase * rates.sctrRate : 0;
+  // El adicional se suma a esa celda y al costo. No vuelve a entrar en las otras fórmulas.
+  const basicBilled = basic + adjustmentAmount(worker, 'basic');
+  const he25Billed = he25 + adjustmentAmount(worker, 'he25');
+  const he35Billed = he35 + adjustmentAmount(worker, 'he35');
+  const heNight25Billed = heNight25 + adjustmentAmount(worker, 'heNight25');
+  const heNight35Billed = heNight35 + adjustmentAmount(worker, 'heNight35');
+  const nightBilled = night + adjustmentAmount(worker, 'night');
+  const vacation = vacationBase + adjustmentAmount(worker, 'vacation');
+  const gratification = gratificationBase + adjustmentAmount(worker, 'gratification');
+  const cts = ctsBase + adjustmentAmount(worker, 'cts');
+  const feria = feriaBase + adjustmentAmount(worker, 'feria');
+  const essalud = essaludBaseAmount + adjustmentAmount(worker, 'essalud');
+  const vidaLey = vidaLeyBase + adjustmentAmount(worker, 'vidaLey');
+  const sctr = sctrBase + adjustmentAmount(worker, 'sctr');
+  const payExtras =
+    adjustmentAmount(worker, 'basic') +
+    adjustmentAmount(worker, 'he25') +
+    adjustmentAmount(worker, 'he35') +
+    adjustmentAmount(worker, 'heNight25') +
+    adjustmentAmount(worker, 'heNight35') +
+    adjustmentAmount(worker, 'night');
+  const monthlyCost = remTotal + payExtras + vacation + gratification + cts + feria + essalud + vidaLey + sctr;
   const factor = num(worker.factor) || 0;
   return {
     id: worker.id,
-    basic,
-    he25,
-    he35,
-    heNight25,
-    heNight35,
-    night,
+    basic: basicBilled,
+    he25: he25Billed,
+    he35: he35Billed,
+    heNight25: heNight25Billed,
+    heNight35: heNight35Billed,
+    night: nightBilled,
     remLlss,
     remTotal,
     vacationSalary,
@@ -774,20 +846,24 @@ const SUGGESTED_FIELDS: (keyof BillingWorkerSuggestion)[] = [
 ];
 
 export function workerAdjustmentLabels(worker: BillingWorkerInput): string[] {
-  if (!worker.suggested) return [];
   const labels: string[] = [];
-  if (!worker.included) labels.push('excluido');
-  for (const field of SUGGESTED_FIELDS) {
-    if (!sameNumber(worker[field], worker.suggested[field])) {
-      labels.push(WORKER_FIELD_LABELS[field] || field);
+  if (worker.suggested) {
+    if (!worker.included) labels.push('excluido');
+    for (const field of SUGGESTED_FIELDS) {
+      if (!sameNumber(worker[field], worker.suggested[field])) {
+        labels.push(WORKER_FIELD_LABELS[field] || field);
+      }
     }
+    if (num(worker.he25Hours) || worker.he25Manual) labels.push('HE diurna 25%');
+    if (num(worker.he35Hours) || worker.he35Manual) labels.push('HE diurna 35%');
+    if (num(worker.heNight25Hours) || worker.heNight25Manual) labels.push('HE nocturna 25%');
+    if (num(worker.heNight35Hours) || worker.heNight35Manual) labels.push('HE nocturna 35%');
+    if (num(worker.nightHours) || worker.nightManual) labels.push('bono nocturno');
+    if (!sameNumber(worker.factor, 1)) labels.push('factor');
   }
-  if (num(worker.he25Hours) || worker.he25Manual) labels.push('HE diurna 25%');
-  if (num(worker.he35Hours) || worker.he35Manual) labels.push('HE diurna 35%');
-  if (num(worker.heNight25Hours) || worker.heNight25Manual) labels.push('HE nocturna 25%');
-  if (num(worker.heNight35Hours) || worker.heNight35Manual) labels.push('HE nocturna 35%');
-  if (num(worker.nightHours) || worker.nightManual) labels.push('bono nocturno');
-  if (!sameNumber(worker.factor, 1)) labels.push('factor');
+  (Object.keys(BILLING_ADJUSTMENT_LABELS) as BillingAdjustmentKey[]).forEach((field) => {
+    if (adjustmentAmount(worker, field)) labels.push(`adicional ${BILLING_ADJUSTMENT_LABELS[field]}`);
+  });
   return labels;
 }
 
@@ -826,6 +902,13 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
       const key = field as keyof BillingWorkerInput;
       push(`${worker.name || 'Trabajador'} · ${WORKER_FIELD_LABELS[field]}`, prev[key], worker[key]);
     });
+    (Object.keys(BILLING_ADJUSTMENT_LABELS) as BillingAdjustmentKey[]).forEach((field) => {
+      push(
+        `${worker.name || 'Trabajador'} · Adicional ${BILLING_ADJUSTMENT_LABELS[field]}`,
+        formatAdjustment(prev.adjustments?.[field]),
+        formatAdjustment(worker.adjustments?.[field])
+      );
+    });
   });
   before.workers.forEach((worker) => {
     if (!afterWorkers.has(worker.id)) {
@@ -839,6 +922,15 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
     push(BILLING_INTERNAL_TAB_LABELS[tab], internalNoteLog(before.internalNotes, tab), internalNoteLog(after.internalNotes, tab));
   });
   return changes;
+}
+
+function formatAdjustment(item: BillingCellAdjustment | undefined): string {
+  if (!item) return '';
+  const reason = String(item.reason || '').trim();
+  const amount = Number(item.amount);
+  if (!reason || !Number.isFinite(amount) || amount === 0) return '';
+  const who = item.authorName ? ` · ${item.authorName}` : '';
+  return `${amount}${who}: ${reason}`;
 }
 
 function internalNoteLog(notes: BillingInternalNote[] | undefined, tab: BillingInternalTab): string {
