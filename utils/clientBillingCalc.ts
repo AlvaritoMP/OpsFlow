@@ -113,6 +113,26 @@ export interface BillingCostLine {
   note?: string;
 }
 
+/** Pestañas de la liquidación que pueden llevar bitácora interna. */
+export type BillingInternalTab = 'labor' | 'ops' | 'admin' | 'params' | 'trace';
+
+/** Nota interna de una pestaña. No sale en el Excel, el PDF ni en las corridas. */
+export interface BillingInternalNote {
+  id: string;
+  tab: BillingInternalTab;
+  text: string;
+  authorName: string;
+  createdAt: string;
+}
+
+export const BILLING_INTERNAL_TAB_LABELS: Record<BillingInternalTab, string> = {
+  labor: 'Bitácora de Personal',
+  ops: 'Bitácora operativa',
+  admin: 'Bitácora administrativa',
+  params: 'Bitácora de parámetros',
+  trace: 'Bitácora de trazabilidad',
+};
+
 export interface ClientBillingModel {
   version: 1;
   title: string;
@@ -127,6 +147,8 @@ export interface ClientBillingModel {
   attendanceFrom?: string;
   /** Fin del corte del que se leen asistencia y novedades (YYYY-MM-DD). */
   attendanceTo?: string;
+  /** Bitácora interna por pestaña. No se copia a corridas ni al Excel. */
+  internalNotes?: BillingInternalNote[];
 }
 
 export interface AttendanceWindow {
@@ -735,6 +757,7 @@ export function emptyBillingModel(title: string, serviceLabel: string, rates: Bi
     workers: [],
     operational: [],
     administrative: defaultAdministrativeLines(),
+    internalNotes: [],
   };
 }
 
@@ -812,7 +835,24 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
 
   diffLines(changes, 'Operativo', before.operational, after.operational);
   diffLines(changes, 'Administrativo', before.administrative, after.administrative);
+  (Object.keys(BILLING_INTERNAL_TAB_LABELS) as BillingInternalTab[]).forEach((tab) => {
+    push(BILLING_INTERNAL_TAB_LABELS[tab], internalNoteLog(before.internalNotes, tab), internalNoteLog(after.internalNotes, tab));
+  });
   return changes;
+}
+
+function internalNoteLog(notes: BillingInternalNote[] | undefined, tab: BillingInternalTab): string {
+  return (notes || [])
+    .filter((note) => note.tab === tab)
+    .map((note) => `${note.createdAt.slice(0, 16)} · ${note.authorName}: ${note.text.trim()}`)
+    .join('\n');
+}
+
+/** La corrida guarda el cálculo. La bitácora se queda solo en la liquidación. */
+export function modelWithoutInternalNotes(model: ClientBillingModel): ClientBillingModel {
+  const copy = cloneModel(model);
+  delete copy.internalNotes;
+  return copy;
 }
 
 function diffLines(changes: BillingChange[], group: string, before: BillingCostLine[], after: BillingCostLine[]) {

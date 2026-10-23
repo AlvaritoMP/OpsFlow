@@ -47,6 +47,8 @@ import { BillingRunCompare } from './BillingRunCompare';
 import {
   BillingComputation,
   BillingCostLine,
+  BillingInternalNote,
+  BillingInternalTab,
   BillingRates,
   BillingWorkerInput,
   ClientBillingModel,
@@ -92,7 +94,7 @@ interface EditorState {
   issuedByName?: string;
 }
 
-type TabId = 'labor' | 'ops' | 'admin' | 'params' | 'trace';
+type TabId = BillingInternalTab;
 
 const OPS_KINDS: [string, string][] = [
   ['materiales', 'Materiales'],
@@ -815,6 +817,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             pendingChanges={pendingChanges}
             locked={locked}
             canEdit={canEdit}
+            authorName={actor.name}
             busy={busy}
             banner={banner}
             tab={tab}
@@ -889,6 +892,7 @@ function EditorView(props: {
   pendingChanges: { label: string; before: string; after: string }[];
   locked: boolean;
   canEdit: boolean;
+  authorName: string;
   busy: string | null;
   banner: string | null;
   tab: TabId;
@@ -1100,7 +1104,9 @@ function EditorView(props: {
                 ['params', 'Parámetros'],
                 ['trace', 'Trazabilidad'],
               ] as [TabId, string][]
-            ).map(([id, label]) => (
+            ).map(([id, label]) => {
+              const notes = (editor.model.internalNotes || []).filter((note) => note.tab === id).length;
+              return (
               <button
                 key={id}
                 type="button"
@@ -1108,11 +1114,18 @@ function EditorView(props: {
                 className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap ${props.tab === id ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}
               >
                 {label}
+                {notes > 0 && (
+                  <span className={`ml-1.5 inline-flex min-w-[1.1rem] justify-center rounded-full px-1 text-[10px] ${props.tab === id ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`} title="Notas internas">
+                    {notes}
+                  </span>
+                )}
               </button>
-            ))}
+              );
+            })}
           </div>
 
           {props.tab === 'labor' && (
+            <>
             <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               <div className="p-3 flex flex-col md:flex-row gap-2 md:items-center justify-between border-b border-slate-100">
                 <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
@@ -1220,9 +1233,18 @@ function EditorView(props: {
                 />
               )}
             </section>
+            <TabBitacora
+              tab="labor"
+              notes={editor.model.internalNotes}
+              locked={locked}
+              authorName={props.authorName}
+              onChange={(internalNotes) => props.onPatchModel({ internalNotes })}
+            />
+            </>
           )}
 
           {props.tab === 'ops' && (
+            <>
             <LinesEditor
               title="Costos operativos"
               hint="Materiales, equipos o maquinaria del mes. El monto es el costo mensual que entra a la factura."
@@ -1232,6 +1254,14 @@ function EditorView(props: {
               computed={computed.operational}
               onChange={(operational) => props.onPatchModel({ operational })}
             />
+            <TabBitacora
+              tab="ops"
+              notes={editor.model.internalNotes}
+              locked={locked}
+              authorName={props.authorName}
+              onChange={(internalNotes) => props.onPatchModel({ internalNotes })}
+            />
+            </>
           )}
 
           {props.tab === 'admin' && (
@@ -1261,10 +1291,18 @@ function EditorView(props: {
                 computed={computed.administrative}
                 onChange={(administrative) => props.onPatchModel({ administrative })}
               />
+              <TabBitacora
+                tab="admin"
+                notes={editor.model.internalNotes}
+                locked={locked}
+                authorName={props.authorName}
+                onChange={(internalNotes) => props.onPatchModel({ internalNotes })}
+              />
             </div>
           )}
 
           {props.tab === 'params' && (
+            <>
             <ParametersPanel
               rates={editor.model.rates}
               considerations={editor.model.considerations}
@@ -1279,9 +1317,28 @@ function EditorView(props: {
               canEdit={props.canEdit}
               busy={!!props.busy}
             />
+            <TabBitacora
+              tab="params"
+              notes={editor.model.internalNotes}
+              locked={locked}
+              authorName={props.authorName}
+              onChange={(internalNotes) => props.onPatchModel({ internalNotes })}
+            />
+            </>
           )}
 
-          {props.tab === 'trace' && <TracePanel editor={editor} pendingChanges={props.pendingChanges} />}
+          {props.tab === 'trace' && (
+            <div className="space-y-3">
+              <TracePanel editor={editor} pendingChanges={props.pendingChanges} />
+              <TabBitacora
+                tab="trace"
+                notes={editor.model.internalNotes}
+                locked={locked}
+                authorName={props.authorName}
+                onChange={(internalNotes) => props.onPatchModel({ internalNotes })}
+              />
+            </div>
+          )}
         </div>
 
         <aside className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3 xl:sticky xl:top-4">
@@ -2115,6 +2172,84 @@ const fieldClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2
 
 function numDays(value: number | undefined): number {
   return Number.isFinite(value) ? (value as number) : 0;
+}
+
+function TabBitacora(props: {
+  tab: BillingInternalTab;
+  notes: BillingInternalNote[] | undefined;
+  locked: boolean;
+  authorName: string;
+  onChange: (notes: BillingInternalNote[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const entries = (props.notes || []).filter((note) => note.tab === props.tab).slice().reverse();
+  const add = () => {
+    const text = draft.trim();
+    if (!text || props.locked) return;
+    props.onChange([
+      ...(props.notes || []),
+      {
+        id: newBillingId(),
+        tab: props.tab,
+        text,
+        authorName: props.authorName || 'Usuario',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    setDraft('');
+  };
+  return (
+    <section className="bg-amber-50/60 border border-amber-200 rounded-xl p-4 space-y-3">
+      <div>
+        <h3 className="font-semibold text-slate-900">Bitácora interna</h3>
+        <p className="text-xs text-slate-500 mt-1">
+          Anote por qué consideró estos datos. Queda en la liquidación para el equipo. No sale en el Excel, el PDF ni en las corridas.
+        </p>
+      </div>
+      {entries.length === 0 ? (
+        <p className="text-sm text-slate-500">Todavía no hay notas en esta pestaña.</p>
+      ) : (
+        <ol className="space-y-2 max-h-64 overflow-auto">
+          {entries.map((note) => (
+            <li key={note.id} className="bg-white border border-amber-100 rounded-lg px-3 py-2">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[11px] text-slate-500">
+                  {note.authorName} · {new Date(note.createdAt).toLocaleString('es-PE')}
+                </p>
+                {!props.locked && (
+                  <button
+                    type="button"
+                    className="text-[11px] text-red-600 shrink-0"
+                    onClick={() => props.onChange((props.notes || []).filter((item) => item.id !== note.id))}
+                  >
+                    Quitar
+                  </button>
+                )}
+              </div>
+              <p className="text-sm text-slate-800 whitespace-pre-wrap mt-1">{note.text}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+      <div className="space-y-2">
+        <textarea
+          className={`${fieldClass} min-h-20`}
+          disabled={props.locked}
+          value={draft}
+          placeholder="Por qué se tomó este dato, qué se revisó o qué quedó pendiente."
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <button
+          type="button"
+          disabled={props.locked || !draft.trim()}
+          onClick={add}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs disabled:opacity-50"
+        >
+          Agregar nota
+        </button>
+      </div>
+    </section>
+  );
 }
 
 function essaludBaseTitle(line: ComputedWorker | undefined, rates: BillingRates, fixed: boolean): string {
