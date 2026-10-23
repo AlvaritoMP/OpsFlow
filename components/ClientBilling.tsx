@@ -1137,7 +1137,7 @@ function EditorView(props: {
                   <Users size={16} className="shrink-0" />
                   <span>
                     {sheetMode === 'costs'
-                      ? 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Si gozó vacaciones, indique los días en Días vac.: las cargas se calculan con el sueldo base de esos días. Lo amarillo fue ajustado a mano. En un monto calculado puede adicionar otro valor: el sistema pide la explicación y la guarda.'
+                      ? 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Si gozó vacaciones, indique los días en Días vac.: las cargas se calculan con el sueldo base de esos días. Lo amarillo fue ajustado a mano.'
                       : sheetMode === 'attendance'
                         ? 'Asistencia del corte, por día. ✓ marcación completa, ½ incompleta, F falta o sin marcas, T tardanza.'
                         : 'Novedades de tareo del corte, con la misma clave que en la unidad.'}
@@ -1537,6 +1537,10 @@ function LaborSheet(props: {
   onRemove: (id: string) => void;
 }) {
   const [adjustmentEdit, setAdjustmentEdit] = useState<{ workerId: string; field: BillingAdjustmentKey } | null>(null);
+  const openAdjustment = (event: React.MouseEvent, workerId: string, field: BillingAdjustmentKey) => {
+    event.preventDefault();
+    setAdjustmentEdit({ workerId, field });
+  };
   const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-right px-1.5 py-2 whitespace-nowrap border-b border-slate-200';
   const headLeft = `${head} text-left`;
   const formulas = describeOvertimeFormulas(props.rates);
@@ -1647,53 +1651,48 @@ function LaborSheet(props: {
                   manual={worker.he25Manual}
                   amount={line?.he25}
                   extra={adjustmentAmount(worker, 'he25')}
-                  reason={worker.adjustments?.he25?.reason}
                   locked={props.locked}
                   formula={formulas.day25}
                   onHours={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })}
                   onManual={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })}
-                  onAdjust={() => setAdjustmentEdit({ workerId: worker.id, field: 'he25' })}
+                  onAdjust={(event) => openAdjustment(event, worker.id, 'he25')}
                 />
                 <OvertimeCells
                   hours={worker.he35Hours}
                   manual={worker.he35Manual}
                   amount={line?.he35}
                   extra={adjustmentAmount(worker, 'he35')}
-                  reason={worker.adjustments?.he35?.reason}
                   locked={props.locked}
                   formula={formulas.day35}
                   onHours={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })}
                   onManual={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })}
-                  onAdjust={() => setAdjustmentEdit({ workerId: worker.id, field: 'he35' })}
+                  onAdjust={(event) => openAdjustment(event, worker.id, 'he35')}
                 />
                 <OvertimeCells
                   hours={worker.heNight25Hours || 0}
                   manual={worker.heNight25Manual}
                   amount={line?.heNight25}
                   extra={adjustmentAmount(worker, 'heNight25')}
-                  reason={worker.adjustments?.heNight25?.reason}
                   locked={props.locked}
                   formula={formulas.night25}
                   onHours={(heNight25Hours) => props.onPatchWorker(worker.id, { heNight25Hours, heNight25Manual: null })}
                   onManual={(heNight25Manual) => props.onPatchWorker(worker.id, { heNight25Manual })}
-                  onAdjust={() => setAdjustmentEdit({ workerId: worker.id, field: 'heNight25' })}
+                  onAdjust={(event) => openAdjustment(event, worker.id, 'heNight25')}
                 />
                 <OvertimeCells
                   hours={worker.heNight35Hours || 0}
                   manual={worker.heNight35Manual}
                   amount={line?.heNight35}
                   extra={adjustmentAmount(worker, 'heNight35')}
-                  reason={worker.adjustments?.heNight35?.reason}
                   locked={props.locked}
                   formula={formulas.night35}
                   onHours={(heNight35Hours) => props.onPatchWorker(worker.id, { heNight35Hours, heNight35Manual: null })}
                   onManual={(heNight35Manual) => props.onPatchWorker(worker.id, { heNight35Manual })}
-                  onAdjust={() => setAdjustmentEdit({ workerId: worker.id, field: 'heNight35' })}
+                  onAdjust={(event) => openAdjustment(event, worker.id, 'heNight35')}
                 />
                 <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.nightHours} onChange={(nightHours) => props.onPatchWorker(worker.id, { nightHours, nightManual: null })} /></td>
-                <td className="px-1 py-1">
+                <td className="px-1 py-1" onContextMenu={(event) => openAdjustment(event, worker.id, 'night')}>
                   <GridNum amber={worker.nightManual !== null} disabled={props.locked} value={worker.nightManual !== null ? worker.nightManual : roundShown((line?.night || 0) - adjustmentAmount(worker, 'night'))} onChange={(nightManual) => props.onPatchWorker(worker.id, { nightManual })} />
-                  <AdditionMark extra={adjustmentAmount(worker, 'night')} reason={worker.adjustments?.night?.reason} locked={props.locked} onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'night' })} />
                 </td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'workCondition')} title={hint(worker, 'workCondition')} disabled={props.locked} value={worker.workCondition} onChange={(workCondition) => props.onPatchWorker(worker.id, { workCondition })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'bonus')} title={worker.bonusConcept || hint(worker, 'bonus')} disabled={props.locked} value={worker.bonus} onChange={(bonus) => props.onPatchWorker(worker.id, { bonus })} /></td>
@@ -1701,15 +1700,15 @@ function LaborSheet(props: {
                 <td className="px-1.5 py-1" title={essaludBaseTitle(line, props.rates, essaludFixed)}>
                   {essaludFixed ? <span className="block text-right text-slate-400">—</span> : <GridMoney value={line?.essaludBase} />}
                 </td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.basic} extra={adjustmentAmount(worker, 'basic')} reason={worker.adjustments?.basic?.reason} locked={props.locked} onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'basic' })} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.basic} extra={adjustmentAmount(worker, 'basic')} title="Sueldo de los días trabajados" onOpen={(event) => openAdjustment(event, worker.id, 'basic')} /></td>
                 <td className="px-1.5 py-1" title={vacationDaysTitle(worker, line, props.rates)}><GridMoney value={line?.remLlss} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.vacation} extra={adjustmentAmount(worker, 'vacation')} reason={worker.adjustments?.vacation?.reason} locked={props.locked} onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'vacation' })} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.gratification} extra={adjustmentAmount(worker, 'gratification')} reason={worker.adjustments?.gratification?.reason} locked={props.locked} onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'gratification' })} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.cts} extra={adjustmentAmount(worker, 'cts')} reason={worker.adjustments?.cts?.reason} locked={props.locked} onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'cts' })} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.feria} extra={adjustmentAmount(worker, 'feria')} reason={worker.adjustments?.feria?.reason} locked={props.locked} title="Factor de feriados × REM LLSS" onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'feria' })} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.essalud} extra={adjustmentAmount(worker, 'essalud')} reason={worker.adjustments?.essalud?.reason} locked={props.locked} title={essaludHint} onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'essalud' })} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.vidaLey} extra={adjustmentAmount(worker, 'vidaLey')} reason={worker.adjustments?.vidaLey?.reason} locked={props.locked} title="Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados" onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'vidaLey' })} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.sctr} extra={adjustmentAmount(worker, 'sctr')} reason={worker.adjustments?.sctr?.reason} locked={props.locked} title="Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados" onOpen={() => setAdjustmentEdit({ workerId: worker.id, field: 'sctr' })} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.vacation} extra={adjustmentAmount(worker, 'vacation')} onOpen={(event) => openAdjustment(event, worker.id, 'vacation')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.gratification} extra={adjustmentAmount(worker, 'gratification')} onOpen={(event) => openAdjustment(event, worker.id, 'gratification')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.cts} extra={adjustmentAmount(worker, 'cts')} onOpen={(event) => openAdjustment(event, worker.id, 'cts')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.feria} extra={adjustmentAmount(worker, 'feria')} title="Factor de feriados × REM LLSS" onOpen={(event) => openAdjustment(event, worker.id, 'feria')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.essalud} extra={adjustmentAmount(worker, 'essalud')} title={essaludHint} onOpen={(event) => openAdjustment(event, worker.id, 'essalud')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.vidaLey} extra={adjustmentAmount(worker, 'vidaLey')} title="Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados" onOpen={(event) => openAdjustment(event, worker.id, 'vidaLey')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.sctr} extra={adjustmentAmount(worker, 'sctr')} title="Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados" onOpen={(event) => openAdjustment(event, worker.id, 'sctr')} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
               </tr>
             );
@@ -1757,12 +1756,11 @@ function OvertimeCells(props: {
   manual: number | null | undefined;
   amount: number | undefined;
   extra: number;
-  reason?: string;
   locked: boolean;
   formula: string;
   onHours: (hours: number) => void;
   onManual: (amount: number) => void;
-  onAdjust: () => void;
+  onAdjust: (event: React.MouseEvent) => void;
 }) {
   const written = isManualAmount(props.manual);
   const base = written ? (props.manual as number) : roundShown((props.amount || 0) - props.extra);
@@ -1771,15 +1769,14 @@ function OvertimeCells(props: {
       <td className="px-1 py-1">
         <GridNum step="0.5" disabled={props.locked} value={props.hours} onChange={props.onHours} />
       </td>
-      <td className="px-1 py-1">
+      <td className="px-1 py-1" onContextMenu={props.onAdjust}>
         <GridNum
           amber={written}
-          title={written ? 'Monto escrito a mano. El adicional, si existe, se suma aparte.' : props.formula}
+          title={written ? 'Monto escrito a mano' : props.formula}
           disabled={props.locked}
           value={base}
           onChange={props.onManual}
         />
-        <AdditionMark extra={props.extra} reason={props.reason} locked={props.locked} onOpen={props.onAdjust} />
       </td>
     </>
   );
@@ -1813,43 +1810,14 @@ function GridMoney({ value, strong }: { value?: number; strong?: boolean }) {
 
 function AdjustableMoney(props: {
   billed?: number;
-  extra: number;
-  reason?: string;
-  locked: boolean;
+  extra?: number;
   title?: string;
-  onOpen: () => void;
+  onOpen: (event: React.MouseEvent) => void;
 }) {
-  const has = props.extra !== 0 && Boolean(props.reason?.trim());
-  const calculated = (props.billed || 0) - (has ? props.extra : 0);
-  const tip = has
-    ? `Calculado ${pen(calculated)}. Adicional ${pen(props.extra)}. ${props.reason}`
-    : `${props.title ? `${props.title} ` : ''}Pulse para adicionar un monto. La explicación es obligatoria y el adicional no cambia las otras fórmulas.`;
   return (
-    <button
-      type="button"
-      disabled={props.locked && !has}
-      onClick={props.onOpen}
-      title={tip}
-      className={`block w-full rounded px-0.5 text-right ${has ? 'bg-amber-50 ring-1 ring-amber-300' : 'hover:bg-slate-50'} disabled:hover:bg-transparent`}
-    >
-      <GridMoney value={props.billed} />
-      {has && <span className="block text-[9px] leading-tight text-amber-800">{props.extra > 0 ? `+ ${pen(props.extra)}` : pen(props.extra)}</span>}
-    </button>
-  );
-}
-
-function AdditionMark(props: { extra: number; reason?: string; locked: boolean; onOpen: () => void }) {
-  const has = props.extra !== 0 && Boolean(props.reason?.trim());
-  if (props.locked && !has) return null;
-  return (
-    <button
-      type="button"
-      onClick={props.onOpen}
-      title={has ? props.reason : 'Adicionar un monto al calculado. La explicación es obligatoria.'}
-      className={`mt-0.5 block w-full text-left text-[9px] leading-tight ${has ? 'text-amber-800' : 'text-slate-400 hover:text-slate-700'}`}
-    >
-      {has ? (props.extra > 0 ? `+ ${pen(props.extra)}` : pen(props.extra)) : 'Adicionar'}
-    </button>
+    <div title={props.title} onContextMenu={props.onOpen}>
+      <GridMoney value={(props.billed || 0) - (props.extra || 0)} />
+    </div>
   );
 }
 
