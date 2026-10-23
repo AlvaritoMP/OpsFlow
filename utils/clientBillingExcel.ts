@@ -765,14 +765,14 @@ function methodNote(rates: BillingRates): string {
     `CTS ${percent(rates.ctsRate)}`,
     essaludCaption(rates),
   ];
-  if (rates.applyVidaLey) parts.push(`Vida Ley ${percent(rates.vidaLeyRate, 3)} sobre REM LLSS + vacaciones`);
-  if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)} sobre sueldo base de días trabajados y de vacaciones + asignación familiar + gratificación`);
+  if (rates.applyVidaLey) parts.push(`Vida Ley ${percent(rates.vidaLeyRate, 3)} sobre sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados`);
+  if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)} sobre sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados`);
   parts.push(
     rates.applyFeria
       ? `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS`
       : `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS, no incluido en el costo`
   );
-  parts.push('Los días de vacaciones suman su sueldo base a la REM LLSS y a las cargas, sin volver a sumarlo como remuneración y sin superar el sueldo mensual.');
+  parts.push('Los días de vacaciones suman su sueldo base a vacaciones, gratificación, CTS, feriados y EsSalud, sin volver a sumarlo como remuneración y sin superar el sueldo mensual. Vida Ley y SCTR no usan esos días.');
   return parts.join(' · ');
 }
 

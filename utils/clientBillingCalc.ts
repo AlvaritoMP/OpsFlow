@@ -96,7 +96,7 @@ export interface BillingWorkerInput {
   activeOnUnit?: boolean;
   /** El usuario editó Días. Ese valor no se reemplaza al recalcular. */
   daysManual?: boolean;
-  /** Días de vacaciones gozadas en el corte. Sostienen la base de las cargas sociales. */
+  /** Días de vacaciones gozadas en el corte. Sostienen vacaciones, gratificación, CTS, feriados y EsSalud. */
   vacationDays?: number;
   notes?: string;
   suggested?: BillingWorkerSuggestion;
@@ -601,9 +601,9 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
   const nightBase = rates.nightBonusIncludeFamily ? salary + family : salary;
   const night = extraAmount(nightBase, num(worker.nightHours), rates.nightPremiumRate, worker.nightManual, rates);
   const earned = basic + family + he25 + he35 + heNight25 + heNight35 + night;
-  // El sueldo de los días de vacaciones sostiene las cargas y no se factura otra vez como remuneración.
+  // El sueldo de los días de vacaciones sostiene vacaciones, gratificación, CTS, feriados y EsSalud.
+  // No se factura otra vez como remuneración. Vida Ley y SCTR no lo usan.
   const vacationSalary = vacationChargeSalary(salary, basic, vacationDays, monthDays);
-  const chargeBasic = basic + vacationSalary;
   const remLlss = earned + vacationSalary;
   const remTotal = earned + num(worker.workCondition) + num(worker.bonus);
   const vacation = remLlss * rates.vacationRate;
@@ -615,8 +615,10 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
     rates.essaludMode === 'fixed'
       ? num(rates.essaludFixedAmount)
       : (socialBase + family + vacation + gratification + feria) * rates.essaludRate;
-  const vidaLey = rates.applyVidaLey ? (remLlss + vacation) * rates.vidaLeyRate : 0;
-  const sctr = rates.applySctr ? (chargeBasic + family + gratification) * rates.sctrRate : 0;
+  // Sueldo establecido y asignación familiar completos: no se prorratean por días trabajados ni por vacaciones.
+  const statutoryBase = salary + family;
+  const vidaLey = rates.applyVidaLey ? statutoryBase * rates.vidaLeyRate : 0;
+  const sctr = rates.applySctr ? statutoryBase * rates.sctrRate : 0;
   const monthlyCost = remTotal + vacation + gratification + cts + feria + essalud + vidaLey + sctr;
   const factor = num(worker.factor) || 0;
   return {

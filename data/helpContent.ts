@@ -919,7 +919,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Excel: descarga la liquidación con formato, en horizontal y ajustada a una sola hoja A4. En Excel use Imprimir o Exportar a PDF.',
         ],
         tips: [
-          'El total principal no incluye IGV. EsSalud en porcentaje usa sueldo contractual + asignación familiar + vacaciones + gratificación + feriados. Vida Ley usa la REM LLSS más las vacaciones. SCTR usa el sueldo base de los días trabajados y de vacaciones + asignación familiar + gratificación. Si indica días de vacaciones, ese sueldo base entra en la REM LLSS y en las cargas, sin sumarse otra vez como remuneración. En Parámetros, o desde el listado, una liquidación ya guardada puede pasar de porcentaje a un monto fijo. Las emitidas siguen emitidas y el total se recalcula.',
+          'El total principal no incluye IGV. EsSalud en porcentaje usa sueldo contractual + asignación familiar + vacaciones + gratificación + feriados. Vida Ley y SCTR usan el sueldo establecido más la asignación familiar, ambos completos e independientes de los días trabajados. Si indica días de vacaciones, ese sueldo base entra en vacaciones, gratificación, CTS, feriados y EsSalud, sin sumarse otra vez como remuneración. En Parámetros, o desde el listado, una liquidación ya guardada puede pasar de porcentaje a un monto fijo. Las emitidas siguen emitidas y el total se recalcula.',
           'En Parámetros puede cambiar los factores de hora extra, el recargo nocturno, los días y las horas, y si la asignación familiar entra en cada fórmula.',
           'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
           'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase. Para corridas y notas, ejecute también migrations/MIGRATION_CLIENT_BILLING_RUNS.sql.',
@@ -955,7 +955,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Un corte más corto, por ejemplo del 16 al 30, factura esos días (15).',
           'Un corte que cruza de mes, por ejemplo del 26 de marzo al 25 de abril, factura hasta 30 días, para no superar el sueldo mensual.',
           'Quien ingresa o cesa dentro del corte se prorratea solo por los días que caen en ese rango.',
-          'Si gozó vacaciones, escriba esos días en Días vac. El sueldo sigue prorrateado por Días. Vacaciones, gratificación, CTS, feriados, EsSalud, Vida Ley y SCTR usan también el sueldo base de esos días, sin superar el sueldo mensual. Ese sueldo no se suma otra vez como remuneración.',
+          'Si gozó vacaciones, escriba esos días en Días vac. El sueldo sigue prorrateado por Días. Vacaciones, gratificación, CTS, feriados y EsSalud usan también el sueldo base de esos días, sin superar el sueldo mensual. Ese sueldo no se suma otra vez como remuneración. Vida Ley y SCTR no usan esos días: toman el sueldo establecido y la asignación familiar completos.',
         ],
         tips: [
           'Use Actualizar, junto a la tabla de personal, para volver a leer sueldos, bonos y faltas del corte.',

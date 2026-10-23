@@ -1496,7 +1496,7 @@ function LaborSheet(props: {
             <th className={head} title="Días del corte, antes de restar faltas">Días corte</th>
             <th className={head}>Faltas</th>
             <th className={head}>Días</th>
-            <th className={head} title="Días de vacaciones gozadas. Las cargas sociales se calculan también sobre el sueldo base de estos días, sin superar el sueldo mensual. Ese sueldo no se suma otra vez como remuneración.">Días vac.</th>
+            <th className={head} title="Días de vacaciones gozadas. Vacaciones, gratificación, CTS, feriados y EsSalud usan también el sueldo base de estos días, sin superar el sueldo mensual. Ese sueldo no se suma otra vez como remuneración. Vida Ley y SCTR no dependen de estos días.">Días vac.</th>
             <th className={head}>Asig. fam.</th>
             <th className={head}>HE día 25 h</th>
             <th className={head} title={formulas.day25}>HE día 25 S/</th>
@@ -1519,8 +1519,8 @@ function LaborSheet(props: {
             <th className={head}>CTS</th>
             <th className={head} title="Factor de feriados × REM LLSS">Feriado</th>
             <th className={head} title={essaludHint}>EsSalud</th>
-            <th className={head} title="(REM LLSS, con el sueldo base de los días de vacaciones, + vacaciones) × tasa de Vida Ley">Vida Ley</th>
-            <th className={head} title="(Sueldo base de días trabajados y de vacaciones + asignación familiar + gratificación) × tasa de SCTR">SCTR</th>
+            <th className={head} title="(Sueldo establecido + asignación familiar) × tasa de Vida Ley. Ambos entran completos, sin prorratear por días trabajados.">Vida Ley</th>
+            <th className={head} title="(Sueldo establecido + asignación familiar) × tasa de SCTR. Ambos entran completos, sin prorratear por días trabajados.">SCTR</th>
             <th className={head}>Costo</th>
           </tr>
         </thead>
@@ -1634,8 +1634,8 @@ function LaborSheet(props: {
                 <td className="px-1.5 py-1"><GridMoney value={line?.cts} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.feria} /></td>
                 <td className="px-1.5 py-1" title={essaludHint}><GridMoney value={line?.essalud} /></td>
-                <td className="px-1.5 py-1" title="Base: REM LLSS (incluye el sueldo base de los días de vacaciones) + vacaciones"><GridMoney value={line?.vidaLey} /></td>
-                <td className="px-1.5 py-1" title="Base: sueldo de días trabajados y de vacaciones + asignación familiar + gratificación"><GridMoney value={line?.sctr} /></td>
+                <td className="px-1.5 py-1" title="Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados"><GridMoney value={line?.vidaLey} /></td>
+                <td className="px-1.5 py-1" title="Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados"><GridMoney value={line?.sctr} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
               </tr>
             );
@@ -1901,8 +1901,8 @@ function ParametersPanel(props: {
               : 'Esta liquidación todavía no está guardada. Use Guardar para crearla con este EsSalud.'}
           </span>
         </div>
-        {percent('vidaLeyRate', 'Vida Ley %', 'Base: REM LLSS (incluye el sueldo base de los días de vacaciones) + vacaciones')}
-        {percent('sctrRate', 'SCTR %', 'Base: sueldo de días trabajados y de vacaciones + asignación familiar + gratificación')}
+        {percent('vidaLeyRate', 'Vida Ley %', 'Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados')}
+        {percent('sctrRate', 'SCTR %', 'Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados')}
         {percent('igvRate', 'IGV %', 'Se muestra aparte. El total principal no lo incluye.')}
       </div>
       <div className="border-t border-slate-100 pt-4 space-y-3">
@@ -2109,7 +2109,7 @@ function numDays(value: number | undefined): number {
 
 function vacationDaysTitle(worker: BillingWorkerInput, line: ComputedWorker | undefined, rates: BillingRates): string {
   const days = numDays(worker.vacationDays);
-  const base = 'Días de vacaciones gozadas. Las cargas se calculan también sobre el sueldo base de estos días y no superan el sueldo mensual. Ese sueldo no se suma otra vez como remuneración.';
+  const base = 'Días de vacaciones gozadas. Vacaciones, gratificación, CTS, feriados y EsSalud usan también el sueldo base de estos días y no superan el sueldo mensual. Ese sueldo no se suma otra vez como remuneración. Vida Ley y SCTR no dependen de estos días.';
   if (!days) return base;
   const applied = line?.vacationSalary || 0;
   const monthDays = rates.commercialMonthDays || 30;
@@ -2117,7 +2117,7 @@ function vacationDaysTitle(worker: BillingWorkerInput, line: ComputedWorker | un
   if (raw - applied > 0.009) {
     return `${days} días de vacaciones. Entran ${pen(applied)} de sueldo base: los días trabajados más las vacaciones no superan el sueldo mensual. Ese monto no se suma otra vez como remuneración.`;
   }
-  return `${days} días de vacaciones. Las cargas usan ${pen(applied)} adicionales de sueldo base. Ese monto no se suma otra vez como remuneración.`;
+  return `${days} días de vacaciones. Vacaciones, gratificación, CTS, feriados y EsSalud usan ${pen(applied)} adicionales de sueldo base. Ese monto no se suma otra vez como remuneración.`;
 }
 
 function daysHint(worker: BillingWorkerInput): string | undefined {
