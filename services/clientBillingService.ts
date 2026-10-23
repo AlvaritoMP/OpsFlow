@@ -1105,6 +1105,7 @@ function workerFromPersonnel(
     socialBaseManual: false,
     socialBase: salary,
     factor: 1,
+    vacationDays: 0,
     calendarDays,
     absenceDays,
     absenceDetail: absence?.detail || undefined,

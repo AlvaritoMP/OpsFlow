@@ -96,6 +96,8 @@ export interface BillingWorkerInput {
   activeOnUnit?: boolean;
   /** El usuario editó Días. Ese valor no se reemplaza al recalcular. */
   daysManual?: boolean;
+  /** Días de vacaciones gozadas en el corte. Sostienen la base de las cargas sociales. */
+  vacationDays?: number;
   notes?: string;
   suggested?: BillingWorkerSuggestion;
 }
@@ -140,6 +142,8 @@ export interface ComputedWorker {
   night: number;
   remLlss: number;
   remTotal: number;
+  /** Sueldo base de los días de vacaciones que entra en las cargas y no se vuelve a sumar como remuneración. */
+  vacationSalary: number;
   vacation: number;
   gratification: number;
   cts: number;
@@ -289,6 +293,7 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   startDate: 'fecha de inicio',
   endDate: 'fecha de cese',
   daysManual: 'días editados a mano',
+  vacationDays: 'días de vacaciones',
   notes: 'nota',
 };
 
@@ -563,6 +568,7 @@ export function withWorkerDefaults(worker: BillingWorkerInput): BillingWorkerInp
     heNight25Manual: manualOrNull(worker.heNight25Manual),
     heNight35Hours: num(worker.heNight35Hours),
     heNight35Manual: manualOrNull(worker.heNight35Manual),
+    vacationDays: Math.max(0, num(worker.vacationDays)),
   };
 }
 
@@ -570,10 +576,19 @@ function manualOrNull(value: number | null | undefined): number | null {
   return value !== null && value !== undefined && Number.isFinite(value) ? value : null;
 }
 
+/** Sueldo base de los días de vacaciones, sin pasar el sueldo mensual. */
+function vacationChargeSalary(salary: number, basic: number, vacationDays: number, monthDays: number): number {
+  if (vacationDays <= 0 || monthDays <= 0) return 0;
+  const raw = (salary / monthDays) * vacationDays;
+  const room = Math.max(0, salary - basic);
+  return Math.min(Math.max(0, raw), room);
+}
+
 export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRates): ComputedWorker {
   const rates = normalizeBillingRates(inputRates);
   const salary = num(worker.contractualSalary);
   const days = num(worker.daysWorked);
+  const vacationDays = Math.max(0, num(worker.vacationDays));
   const monthDays = rates.commercialMonthDays || 30;
   const basic = monthDays ? (salary / monthDays) * days : 0;
   const family = num(worker.familyAllowance);
@@ -585,8 +600,12 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
   const heNight35 = extraAmount(nightOtBase, num(worker.heNight35Hours), rates.he35Factor, worker.heNight35Manual, rates);
   const nightBase = rates.nightBonusIncludeFamily ? salary + family : salary;
   const night = extraAmount(nightBase, num(worker.nightHours), rates.nightPremiumRate, worker.nightManual, rates);
-  const remLlss = basic + family + he25 + he35 + heNight25 + heNight35 + night;
-  const remTotal = remLlss + num(worker.workCondition) + num(worker.bonus);
+  const earned = basic + family + he25 + he35 + heNight25 + heNight35 + night;
+  // El sueldo de los días de vacaciones sostiene las cargas y no se factura otra vez como remuneración.
+  const vacationSalary = vacationChargeSalary(salary, basic, vacationDays, monthDays);
+  const chargeBasic = basic + vacationSalary;
+  const remLlss = earned + vacationSalary;
+  const remTotal = earned + num(worker.workCondition) + num(worker.bonus);
   const vacation = remLlss * rates.vacationRate;
   const gratification = remLlss * rates.gratiBonusFactor * rates.gratiRate;
   const cts = remLlss * rates.ctsRate;
@@ -597,7 +616,7 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
       ? num(rates.essaludFixedAmount)
       : (socialBase + family + vacation + gratification + feria) * rates.essaludRate;
   const vidaLey = rates.applyVidaLey ? (remLlss + vacation) * rates.vidaLeyRate : 0;
-  const sctr = rates.applySctr ? (basic + family + gratification) * rates.sctrRate : 0;
+  const sctr = rates.applySctr ? (chargeBasic + family + gratification) * rates.sctrRate : 0;
   const monthlyCost = remTotal + vacation + gratification + cts + feria + essalud + vidaLey + sctr;
   const factor = num(worker.factor) || 0;
   return {
@@ -610,6 +629,7 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
     night,
     remLlss,
     remTotal,
+    vacationSalary,
     vacation,
     gratification,
     cts,

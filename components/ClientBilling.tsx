@@ -1119,7 +1119,7 @@ function EditorView(props: {
                   <Users size={16} className="shrink-0" />
                   <span>
                     {sheetMode === 'costs'
-                      ? 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Lo amarillo fue ajustado a mano.'
+                      ? 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Si gozó vacaciones, indique los días en Días vac.: las cargas se calculan con el sueldo base de esos días. Lo amarillo fue ajustado a mano.'
                       : sheetMode === 'attendance'
                         ? 'Asistencia del corte, por día. ✓ marcación completa, ½ incompleta, F falta o sin marcas, T tardanza.'
                         : 'Novedades de tareo del corte, con la misma clave que en la unidad.'}
@@ -1185,6 +1185,7 @@ function EditorView(props: {
                                 heNight35Manual: null,
                                 nightHours: 0,
                                 nightManual: null,
+                                vacationDays: 0,
                                 socialBaseManual: false,
                                 socialBase: 0,
                                 factor: 1,
@@ -1477,7 +1478,7 @@ function LaborSheet(props: {
   const essaludFixed = props.rates.essaludMode === 'fixed';
   const essaludHint = essaludFixed
     ? `Monto fijo de ${pen(props.rates.essaludFixedAmount)} por trabajador, independiente del sueldo.`
-    : 'Porcentaje sobre sueldo contractual + asignación familiar + vacaciones + gratificación + feriados.';
+    : 'Porcentaje sobre sueldo contractual + asignación familiar + vacaciones + gratificación + feriados. Las provisiones usan el sueldo de los días trabajados más el sueldo base de los días de vacaciones.';
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1495,6 +1496,7 @@ function LaborSheet(props: {
             <th className={head} title="Días del corte, antes de restar faltas">Días corte</th>
             <th className={head}>Faltas</th>
             <th className={head}>Días</th>
+            <th className={head} title="Días de vacaciones gozadas. Las cargas sociales se calculan también sobre el sueldo base de estos días, sin superar el sueldo mensual. Ese sueldo no se suma otra vez como remuneración.">Días vac.</th>
             <th className={head}>Asig. fam.</th>
             <th className={head}>HE día 25 h</th>
             <th className={head} title={formulas.day25}>HE día 25 S/</th>
@@ -1511,14 +1513,14 @@ function LaborSheet(props: {
             <th className={head}>Factor</th>
             <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : 'Sueldo completo para EsSalud. No se prorratea por días.'}>Base EsSalud</th>
             <th className={head}>Rem. básica</th>
-            <th className={head} title="Remuneración afecta a leyes sociales (REM LLSS)">Rem. cargas</th>
+            <th className={head} title="Remuneración afecta a leyes sociales. Suma el sueldo base de los días de vacaciones. Ese sueldo no se vuelve a sumar al costo.">Rem. cargas</th>
             <th className={head}>Vacaciones</th>
             <th className={head}>Gratific.</th>
             <th className={head}>CTS</th>
             <th className={head} title="Factor de feriados × REM LLSS">Feriado</th>
             <th className={head} title={essaludHint}>EsSalud</th>
-            <th className={head} title="(REM LLSS + vacaciones) × tasa de Vida Ley">Vida Ley</th>
-            <th className={head} title="(Remuneración básica + asignación familiar + gratificación) × tasa de SCTR">SCTR</th>
+            <th className={head} title="(REM LLSS, con el sueldo base de los días de vacaciones, + vacaciones) × tasa de Vida Ley">Vida Ley</th>
+            <th className={head} title="(Sueldo base de días trabajados y de vacaciones + asignación familiar + gratificación) × tasa de SCTR">SCTR</th>
             <th className={head}>Costo</th>
           </tr>
         </thead>
@@ -1562,6 +1564,16 @@ function LaborSheet(props: {
                     disabled={props.locked}
                     value={worker.daysWorked}
                     onChange={(daysWorked) => props.onPatchWorker(worker.id, { daysWorked, daysManual: true })}
+                  />
+                </td>
+                <td className="px-1 py-1">
+                  <GridNum
+                    step="1"
+                    amber={numDays(worker.vacationDays) > 0}
+                    title={vacationDaysTitle(worker, line, props.rates)}
+                    disabled={props.locked}
+                    value={numDays(worker.vacationDays)}
+                    onChange={(vacationDays) => props.onPatchWorker(worker.id, { vacationDays: Math.max(0, vacationDays) })}
                   />
                 </td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'familyAllowance')} title={hint(worker, 'familyAllowance')} disabled={props.locked} value={worker.familyAllowance} onChange={(familyAllowance) => props.onPatchWorker(worker.id, { familyAllowance })} /></td>
@@ -1616,14 +1628,14 @@ function LaborSheet(props: {
                   />
                 </td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.basic} /></td>
-                <td className="px-1.5 py-1"><GridMoney value={line?.remLlss} /></td>
+                <td className="px-1.5 py-1" title={vacationDaysTitle(worker, line, props.rates)}><GridMoney value={line?.remLlss} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.vacation} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.gratification} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.cts} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.feria} /></td>
                 <td className="px-1.5 py-1" title={essaludHint}><GridMoney value={line?.essalud} /></td>
-                <td className="px-1.5 py-1" title="Base: REM LLSS + vacaciones"><GridMoney value={line?.vidaLey} /></td>
-                <td className="px-1.5 py-1" title="Base: remuneración básica + asignación familiar + gratificación"><GridMoney value={line?.sctr} /></td>
+                <td className="px-1.5 py-1" title="Base: REM LLSS (incluye el sueldo base de los días de vacaciones) + vacaciones"><GridMoney value={line?.vidaLey} /></td>
+                <td className="px-1.5 py-1" title="Base: sueldo de días trabajados y de vacaciones + asignación familiar + gratificación"><GridMoney value={line?.sctr} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
               </tr>
             );
@@ -1867,7 +1879,7 @@ function ParametersPanel(props: {
                 onChange={(event) => props.onRates({ essaludRate: (Number(event.target.value) || 0) / 100 })}
               />
               <span className="block text-[11px] text-slate-400 mt-1">
-                Base: sueldo contractual + asignación familiar + vacaciones + gratificación + feriados
+                Base: sueldo contractual + asignación familiar + vacaciones + gratificación + feriados. Las provisiones incluyen el sueldo base de los días de vacaciones.
               </span>
             </>
           )}
@@ -1889,8 +1901,8 @@ function ParametersPanel(props: {
               : 'Esta liquidación todavía no está guardada. Use Guardar para crearla con este EsSalud.'}
           </span>
         </div>
-        {percent('vidaLeyRate', 'Vida Ley %', 'Base: REM LLSS + vacaciones')}
-        {percent('sctrRate', 'SCTR %', 'Base: remuneración básica + asignación familiar + gratificación')}
+        {percent('vidaLeyRate', 'Vida Ley %', 'Base: REM LLSS (incluye el sueldo base de los días de vacaciones) + vacaciones')}
+        {percent('sctrRate', 'SCTR %', 'Base: sueldo de días trabajados y de vacaciones + asignación familiar + gratificación')}
         {percent('igvRate', 'IGV %', 'Se muestra aparte. El total principal no lo incluye.')}
       </div>
       <div className="border-t border-slate-100 pt-4 space-y-3">
@@ -2090,6 +2102,23 @@ function Field(props: { label: string; hint?: string; adjusted: boolean; childre
 }
 
 const fieldClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
+
+function numDays(value: number | undefined): number {
+  return Number.isFinite(value) ? (value as number) : 0;
+}
+
+function vacationDaysTitle(worker: BillingWorkerInput, line: ComputedWorker | undefined, rates: BillingRates): string {
+  const days = numDays(worker.vacationDays);
+  const base = 'Días de vacaciones gozadas. Las cargas se calculan también sobre el sueldo base de estos días y no superan el sueldo mensual. Ese sueldo no se suma otra vez como remuneración.';
+  if (!days) return base;
+  const applied = line?.vacationSalary || 0;
+  const monthDays = rates.commercialMonthDays || 30;
+  const raw = monthDays ? (numDays(worker.contractualSalary) / monthDays) * days : 0;
+  if (raw - applied > 0.009) {
+    return `${days} días de vacaciones. Entran ${pen(applied)} de sueldo base: los días trabajados más las vacaciones no superan el sueldo mensual. Ese monto no se suma otra vez como remuneración.`;
+  }
+  return `${days} días de vacaciones. Las cargas usan ${pen(applied)} adicionales de sueldo base. Ese monto no se suma otra vez como remuneración.`;
+}
 
 function daysHint(worker: BillingWorkerInput): string | undefined {
   if (worker.daysManual) {

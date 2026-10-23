@@ -51,6 +51,7 @@ interface WorkerRow {
   startDate: string;
   endDate: string;
   days: number;
+  vacationDays: number;
   absences: number;
   basic: number;
   family: number;
@@ -350,6 +351,7 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
     { header: 'Inicio', width: 11, group: 'personal', kind: 'text', pick: (row) => row.startDate },
     { header: 'Cese', width: 11, group: 'personal', kind: 'text', pick: (row) => row.endDate },
     { header: 'Días', width: 5.5, group: 'personal', kind: 'int', pick: (row) => row.days },
+    { header: 'Días vac.', width: 8, group: 'personal', kind: 'int', pick: (row) => row.vacationDays },
     { header: 'Faltas', width: 6, group: 'personal', kind: 'int', pick: (row) => row.absences },
     money('Rem. básica', 9, 'sueldo', (row) => row.basic),
     money('Asig. fam.', 8.5, 'sueldo', (row) => row.family),
@@ -396,6 +398,7 @@ function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefine
     startDate: formatBillingDate(worker.startDate),
     endDate: formatBillingDate(worker.endDate),
     days: amount(worker.daysWorked),
+    vacationDays: amount(worker.vacationDays),
     absences: amount(worker.absenceDays),
     basic: amount(line?.basic),
     family: amount(worker.familyAllowance),
@@ -763,12 +766,13 @@ function methodNote(rates: BillingRates): string {
     essaludCaption(rates),
   ];
   if (rates.applyVidaLey) parts.push(`Vida Ley ${percent(rates.vidaLeyRate, 3)} sobre REM LLSS + vacaciones`);
-  if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)} sobre remuneración básica + asignación familiar + gratificación`);
+  if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)} sobre sueldo base de días trabajados y de vacaciones + asignación familiar + gratificación`);
   parts.push(
     rates.applyFeria
       ? `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS`
       : `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS, no incluido en el costo`
   );
+  parts.push('Los días de vacaciones suman su sueldo base a la REM LLSS y a las cargas, sin volver a sumarlo como remuneración y sin superar el sueldo mensual.');
   return parts.join(' · ');
 }
 
