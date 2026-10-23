@@ -21,6 +21,8 @@ export interface BillingRates {
   essaludMode: EssaludMode;
   /** Monto de EsSalud por trabajador cuando essaludMode es fixed. */
   essaludFixedAmount: number;
+  /** Remuneración mínima vital. La base de EsSalud en porcentaje no baja de este monto. */
+  minimumWage: number;
   vidaLeyRate: number;
   applyVidaLey: boolean;
   sctrRate: number;
@@ -149,6 +151,8 @@ export interface ComputedWorker {
   cts: number;
   feria: number;
   essalud: number;
+  /** Base usada por EsSalud en porcentaje: REM LLSS + vacaciones + gratificación + feriados, sin bajar de la RMV. */
+  essaludBase: number;
   vidaLey: number;
   sctr: number;
   monthlyCost: number;
@@ -193,6 +197,8 @@ export const DEFAULT_BILLING_RATES: BillingRates = {
   essaludRate: 0.09,
   essaludMode: 'percent',
   essaludFixedAmount: 0,
+  /** RMV vigente desde el 1 de octubre de 2026 (D.S. 015-2026-TR). */
+  minimumWage: 1230,
   vidaLeyRate: 0.00396,
   applyVidaLey: true,
   sctrRate: 0.0165,
@@ -243,6 +249,7 @@ const RATE_LABELS: Record<keyof BillingRates, string> = {
   essaludRate: 'Tasa de EsSalud',
   essaludMode: 'Forma de EsSalud',
   essaludFixedAmount: 'Monto fijo de EsSalud',
+  minimumWage: 'Remuneración mínima vital',
   vidaLeyRate: 'Tasa de Vida Ley',
   applyVidaLey: 'Incluir Vida Ley',
   sctrRate: 'Tasa de SCTR',
@@ -514,6 +521,8 @@ export function normalizeBillingRates(rates: Partial<BillingRates> | undefined):
   }
   const fixed = Number(merged.essaludFixedAmount);
   merged.essaludFixedAmount = Number.isFinite(fixed) ? fixed : 0;
+  const wage = Number(merged.minimumWage);
+  merged.minimumWage = Number.isFinite(wage) && wage > 0 ? wage : DEFAULT_BILLING_RATES.minimumWage;
   return merged;
 }
 
@@ -610,11 +619,13 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
   const gratification = remLlss * rates.gratiBonusFactor * rates.gratiRate;
   const cts = remLlss * rates.ctsRate;
   const feria = rates.applyFeria ? remLlss * rates.feriaRate : 0;
-  const socialBase = worker.socialBaseManual ? num(worker.socialBase) : salary;
+  // La REM LLSS reemplaza al sueldo completo y a la asignación familiar: ya trae los ingresos según los días.
+  const essaludIncome = remLlss + vacation + gratification + feria;
+  const essaludBase = Math.max(essaludIncome, rates.minimumWage);
   const essalud =
     rates.essaludMode === 'fixed'
       ? num(rates.essaludFixedAmount)
-      : (socialBase + family + vacation + gratification + feria) * rates.essaludRate;
+      : essaludBase * rates.essaludRate;
   // Sueldo establecido y asignación familiar completos: no se prorratean por días trabajados ni por vacaciones.
   const statutoryBase = salary + family;
   const vidaLey = rates.applyVidaLey ? statutoryBase * rates.vidaLeyRate : 0;
@@ -637,6 +648,7 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
     cts,
     feria,
     essalud,
+    essaludBase,
     vidaLey,
     sctr,
     monthlyCost,
@@ -746,9 +758,6 @@ export function workerAdjustmentLabels(worker: BillingWorkerInput): string[] {
     if (!sameNumber(worker[field], worker.suggested[field])) {
       labels.push(WORKER_FIELD_LABELS[field] || field);
     }
-  }
-  if (worker.socialBaseManual && !sameNumber(worker.socialBase, worker.suggested.contractualSalary)) {
-    labels.push('base EsSalud');
   }
   if (num(worker.he25Hours) || worker.he25Manual) labels.push('HE diurna 25%');
   if (num(worker.he35Hours) || worker.he35Manual) labels.push('HE diurna 35%');

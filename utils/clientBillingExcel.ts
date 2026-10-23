@@ -787,7 +787,8 @@ function essaludCaption(rates: BillingRates): string {
     const amount = Number(rates.essaludFixedAmount) || 0;
     return `EsSalud monto fijo S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por trabajador`;
   }
-  return `EsSalud ${percent(rates.essaludRate)} sobre sueldo + asignación familiar + vacaciones + gratificación + feriados`;
+  const wage = (Number(rates.minimumWage) || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `EsSalud ${percent(rates.essaludRate)} sobre REM LLSS + vacaciones + gratificación + feriados. Si la base es menor que la RMV (S/ ${wage}), se usa la RMV; el mínimo es la RMV por ${percent(rates.essaludRate)}`;
 }
 
 function percent(rate: number, digits = 2): string {

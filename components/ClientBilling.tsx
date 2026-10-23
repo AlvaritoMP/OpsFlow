@@ -1478,7 +1478,7 @@ function LaborSheet(props: {
   const essaludFixed = props.rates.essaludMode === 'fixed';
   const essaludHint = essaludFixed
     ? `Monto fijo de ${pen(props.rates.essaludFixedAmount)} por trabajador, independiente del sueldo.`
-    : 'Porcentaje sobre sueldo contractual + asignación familiar + vacaciones + gratificación + feriados. Las provisiones usan el sueldo de los días trabajados más el sueldo base de los días de vacaciones.';
+    : 'Porcentaje sobre REM LLSS + vacaciones + gratificación + feriados. La REM LLSS reemplaza al sueldo y a la asignación familiar, y toma los ingresos según los días trabajados. Si esa base queda bajo la remuneración mínima vital, se usa la RMV.';
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1511,7 +1511,7 @@ function LaborSheet(props: {
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
-            <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : 'Sueldo completo para EsSalud. No se prorratea por días.'}>Base EsSalud</th>
+            <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : 'REM LLSS + vacaciones + gratificación + feriados. Si queda bajo la remuneración mínima vital, la base es la RMV.'}>Base EsSalud</th>
             <th className={head}>Rem. básica</th>
             <th className={head} title="Remuneración afecta a leyes sociales. Suma el sueldo base de los días de vacaciones. Ese sueldo no se vuelve a sumar al costo.">Rem. cargas</th>
             <th className={head}>Vacaciones</th>
@@ -1618,14 +1618,8 @@ function LaborSheet(props: {
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'workCondition')} title={hint(worker, 'workCondition')} disabled={props.locked} value={worker.workCondition} onChange={(workCondition) => props.onPatchWorker(worker.id, { workCondition })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'bonus')} title={worker.bonusConcept || hint(worker, 'bonus')} disabled={props.locked} value={worker.bonus} onChange={(bonus) => props.onPatchWorker(worker.id, { bonus })} /></td>
                 <td className="px-1 py-1"><GridNum amber={!same(worker.factor, 1)} disabled={props.locked} value={worker.factor} onChange={(factor) => props.onPatchWorker(worker.id, { factor })} /></td>
-                <td className="px-1 py-1">
-                  <GridNum
-                    amber={worker.socialBaseManual}
-                    title={essaludFixed ? 'EsSalud usa el monto fijo de los parámetros y no esta base.' : 'Sueldo completo para EsSalud. No se prorratea por días.'}
-                    disabled={props.locked}
-                    value={worker.socialBaseManual ? worker.socialBase : worker.contractualSalary}
-                    onChange={(socialBase) => props.onPatchWorker(worker.id, { socialBaseManual: true, socialBase })}
-                  />
+                <td className="px-1.5 py-1" title={essaludBaseTitle(line, props.rates, essaludFixed)}>
+                  {essaludFixed ? <span className="block text-right text-slate-400">—</span> : <GridMoney value={line?.essaludBase} />}
                 </td>
                 <td className="px-1.5 py-1"><GridMoney value={line?.basic} /></td>
                 <td className="px-1.5 py-1" title={vacationDaysTitle(worker, line, props.rates)}><GridMoney value={line?.remLlss} /></td>
@@ -1879,7 +1873,23 @@ function ParametersPanel(props: {
                 onChange={(event) => props.onRates({ essaludRate: (Number(event.target.value) || 0) / 100 })}
               />
               <span className="block text-[11px] text-slate-400 mt-1">
-                Base: sueldo contractual + asignación familiar + vacaciones + gratificación + feriados. Las provisiones incluyen el sueldo base de los días de vacaciones.
+                Base: REM LLSS + vacaciones + gratificación + feriados. La REM LLSS reemplaza al sueldo y a la asignación familiar. Si queda bajo la remuneración mínima vital, EsSalud usa la RMV por esta tasa.
+              </span>
+              <span className="block mt-2">Remuneración mínima vital (S/)</span>
+              <input
+                className={fieldClass}
+                type="number"
+                step="0.01"
+                min="0"
+                disabled={props.essaludLocked}
+                value={props.rates.minimumWage}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  if (Number.isFinite(next) && next > 0) props.onRates({ minimumWage: next });
+                }}
+              />
+              <span className="block text-[11px] text-slate-400 mt-1">
+                Piso de la base. Con el 9% el aporte mínimo es esta RMV por el 9%. Vigente: S/ 1,230 desde el 1 de octubre de 2026.
               </span>
             </>
           )}
@@ -2105,6 +2115,16 @@ const fieldClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2
 
 function numDays(value: number | undefined): number {
   return Number.isFinite(value) ? (value as number) : 0;
+}
+
+function essaludBaseTitle(line: ComputedWorker | undefined, rates: BillingRates, fixed: boolean): string {
+  if (fixed) return 'EsSalud usa el monto fijo de los parámetros y no esta base.';
+  const income = (line?.remLlss || 0) + (line?.vacation || 0) + (line?.gratification || 0) + (line?.feria || 0);
+  const wage = rates.minimumWage || 0;
+  if (wage > 0 && income + 0.009 < wage) {
+    return `La suma de REM LLSS, vacaciones, gratificación y feriados (${pen(income)}) queda bajo la remuneración mínima vital. La base de EsSalud es ${pen(wage)}.`;
+  }
+  return 'Base: REM LLSS + vacaciones + gratificación + feriados. No baja de la remuneración mínima vital.';
 }
 
 function vacationDaysTitle(worker: BillingWorkerInput, line: ComputedWorker | undefined, rates: BillingRates): string {
