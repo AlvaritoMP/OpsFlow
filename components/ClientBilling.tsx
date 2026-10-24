@@ -1547,7 +1547,7 @@ function LaborSheet(props: {
   const essaludFixed = props.rates.essaludMode === 'fixed';
   const essaludHint = essaludFixed
     ? `Monto fijo de ${pen(props.rates.essaludFixedAmount)} por trabajador, independiente del sueldo.`
-    : 'Porcentaje sobre REM LLSS + vacaciones + gratificación + feriados. La REM LLSS reemplaza al sueldo y a la asignación familiar, y toma los ingresos según los días trabajados. Si esa base queda bajo la remuneración mínima vital, se usa la RMV.';
+    : 'Porcentaje sobre REM LLSS + vacaciones + feriados. La REM LLSS reemplaza al sueldo y a la asignación familiar, y toma los ingresos según los días trabajados. La gratificación no entra en esta base. Si esa base queda bajo la remuneración mínima vital, se usa la RMV.';
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1580,7 +1580,7 @@ function LaborSheet(props: {
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
-            <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : 'REM LLSS + vacaciones + gratificación + feriados. Si queda bajo la remuneración mínima vital, la base es la RMV.'}>Base EsSalud</th>
+            <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : 'REM LLSS + vacaciones + feriados. La gratificación no entra. Si queda bajo la remuneración mínima vital, la base es la RMV.'}>Base EsSalud</th>
             <th className={head}>Rem. básica</th>
             <th className={head} title="Remuneración afecta a leyes sociales. Suma el sueldo base de los días de vacaciones. Ese sueldo no se vuelve a sumar al costo.">Rem. cargas</th>
             <th className={head}>Vacaciones</th>
@@ -2049,6 +2049,11 @@ function ParametersPanel(props: {
             <option value="percent">Porcentaje de la base</option>
             <option value="fixed">Monto fijo, independiente del sueldo</option>
           </select>
+          <span className="block text-[11px] text-slate-400 mt-1 leading-relaxed">
+            {props.rates.essaludMode === 'fixed'
+              ? 'Mismo monto en soles para cada trabajador. No usa el sueldo, la asignación, las horas, las vacaciones, los feriados ni la gratificación.'
+              : 'Considera la remuneración para cargas (sueldo según los días, asignación familiar, horas extra, bono nocturno y sueldo de las vacaciones gozadas), más la provisión de vacaciones y la de feriados. La gratificación no entra. Si esa suma queda bajo la remuneración mínima vital, la base es la RMV.'}
+          </span>
           {props.rates.essaludMode === 'fixed' ? (
             <>
               <span className="block mt-2">Monto por trabajador (S/)</span>
@@ -2061,9 +2066,6 @@ function ParametersPanel(props: {
                 value={props.rates.essaludFixedAmount}
                 onChange={(event) => props.onRates({ essaludFixedAmount: Number(event.target.value) || 0 })}
               />
-              <span className="block text-[11px] text-slate-400 mt-1">
-                Mismo monto en soles para cada trabajador. No usa el sueldo, la asignación, la gratificación ni los días.
-              </span>
             </>
           ) : (
             <>
@@ -2076,9 +2078,6 @@ function ParametersPanel(props: {
                 value={Number((props.rates.essaludRate * 100).toFixed(4))}
                 onChange={(event) => props.onRates({ essaludRate: (Number(event.target.value) || 0) / 100 })}
               />
-              <span className="block text-[11px] text-slate-400 mt-1">
-                Base: REM LLSS + vacaciones + gratificación + feriados. La REM LLSS reemplaza al sueldo y a la asignación familiar. Si queda bajo la remuneración mínima vital, EsSalud usa la RMV por esta tasa.
-              </span>
               <span className="block mt-2">Remuneración mínima vital (S/)</span>
               <input
                 className={fieldClass}
@@ -2401,12 +2400,12 @@ function TabBitacora(props: {
 
 function essaludBaseTitle(line: ComputedWorker | undefined, rates: BillingRates, fixed: boolean): string {
   if (fixed) return 'EsSalud usa el monto fijo de los parámetros y no esta base.';
-  const income = (line?.remLlss || 0) + (line?.vacation || 0) + (line?.gratification || 0) + (line?.feria || 0);
+  const income = (line?.remLlss || 0) + (line?.vacation || 0) + (line?.feria || 0);
   const wage = rates.minimumWage || 0;
   if (wage > 0 && income + 0.009 < wage) {
-    return `La suma de REM LLSS, vacaciones, gratificación y feriados (${pen(income)}) queda bajo la remuneración mínima vital. La base de EsSalud es ${pen(wage)}.`;
+    return `La suma de REM LLSS, vacaciones y feriados (${pen(income)}) queda bajo la remuneración mínima vital. La base de EsSalud es ${pen(wage)}.`;
   }
-  return 'Base: REM LLSS + vacaciones + gratificación + feriados. No baja de la remuneración mínima vital.';
+  return 'Base: REM LLSS + vacaciones + feriados. La gratificación no entra. No baja de la remuneración mínima vital.';
 }
 
 function vacationDaysTitle(worker: BillingWorkerInput, line: ComputedWorker | undefined, rates: BillingRates): string {

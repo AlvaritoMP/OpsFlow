@@ -224,7 +224,7 @@ export interface ComputedWorker {
   cts: number;
   feria: number;
   essalud: number;
-  /** Base usada por EsSalud en porcentaje: REM LLSS + vacaciones + gratificación + feriados, sin bajar de la RMV. */
+  /** Base usada por EsSalud en porcentaje: REM LLSS + vacaciones + feriados, sin bajar de la RMV. La gratificación no entra. */
   essaludBase: number;
   vidaLey: number;
   sctr: number;
@@ -693,7 +693,8 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
   const ctsBase = remLlss * rates.ctsRate;
   const feriaBase = rates.applyFeria ? remLlss * rates.feriaRate : 0;
   // La REM LLSS reemplaza al sueldo completo y a la asignación familiar: ya trae los ingresos según los días.
-  const essaludIncome = remLlss + vacationBase + gratificationBase + feriaBase;
+  // La gratificación se factura aparte y no integra la base de EsSalud.
+  const essaludIncome = remLlss + vacationBase + feriaBase;
   const essaludBase = Math.max(essaludIncome, rates.minimumWage);
   const essaludBaseAmount =
     rates.essaludMode === 'fixed'
