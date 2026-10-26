@@ -728,7 +728,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <p className="text-xs text-slate-500">El mes identifica la liquidación. El rango define la asistencia, las novedades y los días a facturar.</p>
                   {onOpenHelp && (
                     <button type="button" onClick={onOpenHelp} className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900">
-                      <HelpCircle size={14} /> Ayuda del corte
+                      <HelpCircle size={14} /> Ayuda de la facturación
                     </button>
                   )}
                 </div>
@@ -1084,7 +1084,7 @@ function EditorView(props: {
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-slate-800">Corte de asistencia y novedades</p>
                   {props.onOpenHelp && (
-                    <button type="button" onClick={props.onOpenHelp} title="Ayuda del corte" aria-label="Ayuda del corte" className="text-slate-500 hover:text-blue-700">
+                    <button type="button" onClick={props.onOpenHelp} title="Ayuda de la facturación" aria-label="Ayuda de la facturación" className="text-slate-500 hover:text-blue-700">
                       <HelpCircle size={16} />
                     </button>
                   )}
