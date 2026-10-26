@@ -272,6 +272,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   });
 
   const openRecord = async (record: ClientBillingRecord) => {
+    if (!record.model.osStartDate || !record.model.osEndDate) {
+      setBanner(`La facturación de ${record.unitName} no tiene inicio y entrega de la orden de servicio. No se puede abrir. Indique esas fechas en Nueva facturación; son distintas del corte de asistencia.`);
+      return;
+    }
     setBusy('Abriendo liquidación');
     setBanner(null);
     try {
@@ -330,9 +334,39 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     try {
       const existing = await findActiveBilling(unit.id, createPeriod);
       if (existing) {
+        if (existing.status === 'draft') {
+          const model = cloneModel(existing.model);
+          model.osStartDate = createOsFrom;
+          model.osEndDate = createOsTo;
+          model.opalosisPesCode = createPes.trim() || model.opalosisPesCode || '';
+          model.opalosisIssue = {
+            documentKind: createDocumentKind,
+            workGroup: createWorkGroup,
+            businessLine: createBusinessLine,
+            opaloCompany: createCompany,
+            positionLabel: OPALOSIS_POSITION,
+            clientApplicant: 'first',
+            makerDni: createDni.trim(),
+          };
+          const saved = await saveClientBilling({
+            id: existing.id,
+            unit: { id: unit.id, name: unit.name, clientName: unit.clientName },
+            periodMonth: createPeriod,
+            model,
+            actor,
+            changes: diffBillingModels(existing.model, model),
+          });
+          if (model.opalosisPesCode && model.opalosisIssue) {
+            await saveUnitOpalosisSetup(unit.id, { pesCode: model.opalosisPesCode, issue: model.opalosisIssue }, actor);
+          }
+          setShowCreate(false);
+          await openRecord(saved);
+          setBanner(`Ya había una facturación de ${unit.name} para ${formatPeriodLabel(createPeriod)}. Quedaron en ella el inicio y la entrega de la orden.`);
+          return;
+        }
         setShowCreate(false);
         await openRecord(existing);
-        setBanner(`Ya hay una facturación de ${unit.name} para ${formatPeriodLabel(createPeriod)}. Se abrió para continuar.`);
+        setBanner(`Ya hay una facturación emitida de ${unit.name} para ${formatPeriodLabel(createPeriod)}.`);
         return;
       }
       const model = await prepareBillingDraft(
@@ -690,7 +724,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       makerDni: issue?.makerDni || currentUser.dni || '',
     });
     if (error) {
-      setBanner(`${error} Esos datos se indican al armar la facturación.`);
+      setBanner(error);
       return;
     }
     void confirmIssue({
