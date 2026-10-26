@@ -33,10 +33,6 @@ COMMENT ON COLUMN public.client_billings.period_month IS 'Primer día del mes fa
 CREATE INDEX IF NOT EXISTS idx_client_billings_unit_period
     ON public.client_billings(unit_id, period_month DESC);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_client_billings_active_period
-    ON public.client_billings(unit_id, period_month)
-    WHERE status <> 'void';
-
 CREATE TABLE IF NOT EXISTS public.client_billing_audit (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     billing_id UUID NOT NULL REFERENCES public.client_billings(id) ON DELETE CASCADE,

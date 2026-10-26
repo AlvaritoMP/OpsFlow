@@ -916,7 +916,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Administrativo: costo financiero (tasa anual y días financiados), gestión de RRHH y otros ítems de estructura.',
           'Utilidad: margen sobre el precio de venta o recargo sobre el costo, sobre todo el costo o solo el laboral.',
           'Al armar la facturación indique el PES, las fechas de la orden, el documento, el grupo, la línea, la empresa y el DNI. Emitir OS usa esos datos y no vuelve a preguntarlos. El monto es el total sin IGV; en la nota de crédito va en negativo.',
-          'Un superadministrador puede enviar una facturación a la papelera desde la lista, sin abrirla. El filtro Papelera la muestra. El mes queda libre para armar otra. Si ya tenía orden en OpaloSis, esa orden se anula allá.',
+          'Un mismo mes puede tener varias liquidaciones de la misma unidad. Nueva facturación siempre crea otra; no reemplaza la que ya está. Un superadministrador envía una a la papelera desde la lista. El filtro Papelera la muestra, y desde ahí se restaura o se elimina del sistema. Las demás del mes no se tocan. Si ya tenía orden en OpaloSis, esa orden se anula allá.',
           'Excel: descarga la liquidación en horizontal, ajustada a una sola hoja A4. En Excel use Imprimir o Exportar a PDF.',
           'Si marca «Con fórmulas» antes de descargar, el archivo incluye las fórmulas de cada monto. Las hojas Cálculo y Parámetros muestran de dónde sale cada cifra. Si cambia un dato o una tasa, Excel vuelve a calcular.',
         ],

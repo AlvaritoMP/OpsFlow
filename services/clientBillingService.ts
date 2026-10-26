@@ -139,18 +139,6 @@ export async function getBillingAudit(billingId: string): Promise<ClientBillingA
   }));
 }
 
-export async function findActiveBilling(unitId: string, periodMonth: string): Promise<ClientBillingRecord | null> {
-  const { data, error } = await db
-    .from('client_billings')
-    .select('*')
-    .eq('unit_id', unitId)
-    .eq('period_month', toPeriodDate(periodMonth))
-    .neq('status', 'void')
-    .maybeSingle();
-  if (error) throw mapError(error);
-  return data ? mapRecord(data) : null;
-}
-
 export async function prepareBillingDraft(
   unit: BillingUnitRef,
   periodMonth: string,
@@ -593,11 +581,21 @@ export async function setBillingNoteStatus(
   return note;
 }
 
+export async function deleteClientBilling(id: string): Promise<void> {
+  const { data, error: readError } = await db.from('client_billings').select('status').eq('id', id).maybeSingle();
+  if (readError) throw mapError(readError);
+  if (!data) throw new Error('Esa facturación ya no está en el sistema.');
+  if (data.status !== 'void') throw new Error('Solo se elimina de forma permanente lo que está en la papelera.');
+  const { error } = await db.from('client_billings').delete().eq('id', id);
+  if (error) throw mapError(error);
+}
+
 export async function setBillingStatus(
   id: string,
   status: BillingStatus,
   actor: BillingActor,
-  summary: string
+  summary: string,
+  options?: { keepIssued?: boolean }
 ): Promise<ClientBillingRecord> {
   const patch: Record<string, unknown> = {
     status,
@@ -605,7 +603,7 @@ export async function setBillingStatus(
     updated_by_name: actor.name,
     updated_at: new Date().toISOString(),
   };
-  if (status === 'issued') {
+  if (status === 'issued' && !options?.keepIssued) {
     patch.issued_at = new Date().toISOString();
     patch.issued_by_name = actor.name;
   }
@@ -1497,7 +1495,10 @@ function mapError(error: any): Error {
     );
   }
   if (error?.code === '23505') {
-    return new BillingStorageError('duplicate', 'Ya existe una facturación activa de esta unidad para ese mes.');
+    return new BillingStorageError(
+      'duplicate',
+      'No se pudo crear otra facturación de ese mes. Ejecute migrations/MIGRATION_CLIENT_BILLING_MULTIPLE.sql en Supabase.'
+    );
   }
   handleSupabaseError(error);
   return new BillingStorageError('unknown', error?.message || 'No se pudo guardar la facturación.');

@@ -14,6 +14,7 @@ import {
   Receipt,
   CalendarRange,
   RefreshCw,
+  RotateCcw,
   Save,
   Trash2,
   Users,
@@ -28,7 +29,6 @@ import {
   ClientBillingRecord,
   ClientBillingRun,
   SavedBillingCalc,
-  findActiveBilling,
   getBillingAudit,
   listBillingNotes,
   listBillingRuns,
@@ -42,6 +42,7 @@ import {
   publishBillingFormulas,
   saveBillingNote,
   saveBillingProfile,
+  deleteClientBilling,
   saveClientBilling,
   saveUnitOpalosisSetup,
   setBillingNoteStatus,
@@ -273,10 +274,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   });
 
   const openRecord = async (record: ClientBillingRecord) => {
-    if (!record.model.osStartDate || !record.model.osEndDate) {
-      setBanner(`La facturación de ${record.unitName} no tiene inicio y entrega de la orden de servicio. No se puede abrir. Indique esas fechas en Nueva facturación; son distintas del corte de asistencia.`);
-      return;
-    }
     setBusy('Abriendo liquidación');
     setBanner(null);
     try {
@@ -333,43 +330,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     setBusy('Armando la liquidación con el personal de la unidad');
     setBanner(null);
     try {
-      const existing = await findActiveBilling(unit.id, createPeriod);
-      if (existing) {
-        if (existing.status === 'draft') {
-          const model = cloneModel(existing.model);
-          model.osStartDate = createOsFrom;
-          model.osEndDate = createOsTo;
-          model.opalosisPesCode = createPes.trim() || model.opalosisPesCode || '';
-          model.opalosisIssue = {
-            documentKind: createDocumentKind,
-            workGroup: createWorkGroup,
-            businessLine: createBusinessLine,
-            opaloCompany: createCompany,
-            positionLabel: OPALOSIS_POSITION,
-            clientApplicant: 'first',
-            makerDni: createDni.trim(),
-          };
-          const saved = await saveClientBilling({
-            id: existing.id,
-            unit: { id: unit.id, name: unit.name, clientName: unit.clientName },
-            periodMonth: createPeriod,
-            model,
-            actor,
-            changes: diffBillingModels(existing.model, model),
-          });
-          if (model.opalosisPesCode && model.opalosisIssue) {
-            await saveUnitOpalosisSetup(unit.id, { pesCode: model.opalosisPesCode, issue: model.opalosisIssue }, actor);
-          }
-          setShowCreate(false);
-          await openRecord(saved);
-          setBanner(`Ya había una facturación de ${unit.name} para ${formatPeriodLabel(createPeriod)}. Quedaron en ella el inicio y la entrega de la orden.`);
-          return;
-        }
-        setShowCreate(false);
-        await openRecord(existing);
-        setBanner(`Ya hay una facturación emitida de ${unit.name} para ${formatPeriodLabel(createPeriod)}.`);
-        return;
-      }
       const model = await prepareBillingDraft(
         { id: unit.id, name: unit.name, clientName: unit.clientName },
         createPeriod,
@@ -548,7 +508,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     const orderNumber = record.model.opalosisRegistration?.numeroOrdenServicio;
     const orderNote = orderNumber ? ` La orden ${orderNumber} sigue en OpaloSis; ahí se anula a mano.` : '';
     const confirmed = window.confirm(
-      `¿Enviar a la papelera la facturación de ${record.unitName} (${formatPeriodLabel(record.periodMonth)})? Deja de ocupar el mes y puede armar otra.${orderNote}`
+      `¿Enviar a la papelera la facturación de ${record.unitName} (${formatPeriodLabel(record.periodMonth)})? Las demás del mismo mes no se tocan.${orderNote}`
     );
     if (!confirmed) return;
     setBusy('Enviando a la papelera');
@@ -559,10 +519,50 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         setEditor(null);
         setEditorCompare(false);
       }
-      setBanner('Quedó en la papelera. El filtro Anuladas la muestra, y ya puede crear otra facturación de ese mes.');
+      setBanner('Quedó en la papelera. El filtro Papelera la muestra: desde ahí se restaura o se elimina del sistema.');
       await loadList();
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo enviar a la papelera.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const restoreRecord = async (record: ClientBillingRecord) => {
+    const status: BillingStatus = record.issuedAt ? 'issued' : 'draft';
+    setBusy('Restaurando');
+    setBanner(null);
+    try {
+      await setBillingStatus(record.id, status, actor, 'El superadministrador restauró la facturación desde la papelera.', {
+        keepIssued: status === 'issued',
+      });
+      setFilterStatus('');
+      setBanner(`La facturación de ${record.unitName} (${formatPeriodLabel(record.periodMonth)}) volvió a la lista.`);
+      await loadList();
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo restaurar.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteRecord = async (record: ClientBillingRecord) => {
+    const confirmed = window.confirm(
+      `¿Eliminar del sistema la facturación de ${record.unitName} (${formatPeriodLabel(record.periodMonth)})? No se puede recuperar.`
+    );
+    if (!confirmed) return;
+    setBusy('Eliminando');
+    setBanner(null);
+    try {
+      await deleteClientBilling(record.id);
+      if (editor?.id === record.id) {
+        setEditor(null);
+        setEditorCompare(false);
+      }
+      setBanner('La facturación se eliminó del sistema.');
+      await loadList();
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo eliminar.');
     } finally {
       setBusy(null);
     }
@@ -1193,7 +1193,36 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                           </td>
                           {canDiscard && (
                             <td className="px-3 py-3 text-right">
-                              {record.status !== 'void' && (
+                              {record.status === 'void' ? (
+                                <div className="inline-flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    title="Volver a la lista"
+                                    disabled={!!busy}
+                                    className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 disabled:opacity-50"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void restoreRecord(record);
+                                    }}
+                                  >
+                                    <RotateCcw size={15} />
+                                    Restaurar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Eliminar del sistema"
+                                    disabled={!!busy}
+                                    className="inline-flex items-center gap-1 text-red-700 hover:text-red-900 disabled:opacity-50"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void deleteRecord(record);
+                                    }}
+                                  >
+                                    <Trash2 size={15} />
+                                    Eliminar
+                                  </button>
+                                </div>
+                              ) : (
                                 <button
                                   type="button"
                                   title="Enviar a la papelera"
@@ -1251,7 +1280,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onIssue={issueOs}
             onReopen={() => void changeStatus('draft')}
             onVoid={() => {
-              if (window.confirm('¿Anular esta facturación? Quedará en el historial y podrá crear otra del mismo mes.')) {
+              if (window.confirm('¿Anular esta facturación? Quedará en la papelera. Las demás del mismo mes no se tocan.')) {
                 void changeStatus('void');
               }
             }}
@@ -1478,6 +1507,18 @@ function EditorView(props: {
         </div>
       </div>
 
+      {editor.status === 'draft' && props.canEdit && (
+        <div className="bg-white border border-slate-200 rounded-xl p-3 grid sm:grid-cols-2 gap-3 max-w-xl">
+          <label className="text-sm text-slate-600">
+            Inicio de la orden
+            <input className={fieldClass} type="date" value={editor.model.osStartDate || ''} onChange={(event) => props.onPatchModel({ osStartDate: event.target.value })} />
+          </label>
+          <label className="text-sm text-slate-600">
+            Entrega de la orden
+            <input className={fieldClass} type="date" value={editor.model.osEndDate || ''} onChange={(event) => props.onPatchModel({ osEndDate: event.target.value })} />
+          </label>
+        </div>
+      )}
       {editor.status === 'issued' && (
         <Banner
           tone="info"
