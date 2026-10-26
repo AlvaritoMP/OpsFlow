@@ -38,12 +38,15 @@ import {
   refreshWorkersFromUnit,
   loadBillingDayGlance,
   BillingDayGlance,
+  publishBillingFormulas,
+  saveUnitBillingFormulas,
   saveBillingNote,
   saveBillingProfile,
   saveClientBilling,
   setBillingNoteStatus,
   setBillingStatus,
 } from '../services/clientBillingService';
+import { BillingFormulaEditor } from './BillingFormulaEditor';
 import { BillingRunCompare } from './BillingRunCompare';
 import {
   BillingComputation,
@@ -69,12 +72,12 @@ import {
   inclusiveDayCount,
   monthDateBounds,
   newBillingId,
-  describeOvertimeFormulas,
   pen,
   usesPercentEssalud,
   resolveAttendanceWindow,
   workerOverlapsBillingWindow,
 } from '../utils/clientBillingCalc';
+import { BillingFormulaSet, describeFormula } from '../utils/billingFormulas';
 
 interface ClientBillingProps {
   units: Unit[];
@@ -565,6 +568,26 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
   };
 
+  const publishFormulas = async (formulas: BillingFormulaSet) => {
+    if (!editor || editor.status !== 'draft' || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) return;
+    setBusy('Publicando fórmulas');
+    setBanner(null);
+    try {
+      patchModel({ formulas });
+      await saveUnitBillingFormulas(editor.unitId, formulas, actor);
+      const published = await publishBillingFormulas(formulas, actor);
+      setBanner(
+        published.catalog
+          ? 'Fórmulas publicadas. Esta liquidación ya las usa. Guárdela para dejarlas en el borrador. Las liquidaciones nuevas también las toman.'
+          : 'Las fórmulas quedaron en esta unidad. Guarde la liquidación. Para el resto de unidades ejecute migrations/MIGRATION_CLIENT_BILLING_FORMULAS.sql en Supabase.'
+      );
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudieron publicar las fórmulas.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const rememberConditions = async () => {
     if (!editor || !canEdit) return;
     setBusy('Guardando condiciones de la unidad');
@@ -849,6 +872,9 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             }}
             onReload={() => void reloadPersonnel()}
             onRemember={() => void rememberConditions()}
+            onApplyFormulas={(formulas) => patchModel({ formulas })}
+            onPublishFormulas={(formulas) => void publishFormulas(formulas)}
+            formulaAdmin={currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN'}
             onExport={() => exportExcel(editor, computed)}
             onOpenHelp={onOpenHelp}
             onOpenCompare={() => {
@@ -915,6 +941,9 @@ function EditorView(props: {
   onVoid: () => void;
   onReload: () => void;
   onRemember: () => void;
+  onApplyFormulas: (formulas: BillingFormulaSet) => void;
+  onPublishFormulas: (formulas: BillingFormulaSet) => void;
+  formulaAdmin: boolean;
   onExport: () => void;
   onOpenHelp?: () => void;
   onOpenCompare: () => void;
@@ -1224,6 +1253,7 @@ function EditorView(props: {
                   workers={filteredWorkers}
                   lines={workerMap}
                   rates={editor.model.rates}
+                  formulas={editor.model.formulas}
                   locked={locked}
                   authorName={props.authorName}
                   onPatchWorker={props.onPatchWorker}
@@ -1275,7 +1305,7 @@ function EditorView(props: {
               <section className="bg-white border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
                 <p className="font-medium text-slate-800 mb-2">Costo financiero</p>
                 <p>
-                  Se calcula como (costo laboral + costo operativo) × ({Math.round(editor.model.rates.financialAnnualRate * 1000) / 10}% anual / 365) × {editor.model.rates.financialDays} días = <strong>{pen(computed.financialAmount)}</strong>.
+                  {describeFormula('financiero', editor.model.formulas)} Resultado: <strong>{pen(computed.financialAmount)}</strong>.
                 </p>
                 <div className="grid sm:grid-cols-2 gap-3 mt-3">
                   <label>
@@ -1309,8 +1339,19 @@ function EditorView(props: {
 
           {props.tab === 'params' && (
             <>
+            {props.formulaAdmin && (
+              <BillingFormulaEditor
+                billingKey={`${editor.id || 'nueva'}:${editor.unitId}:${editor.periodMonth}`}
+                formulas={editor.model.formulas}
+                locked={locked || !props.canEdit}
+                publishing={props.busy === 'Publicando fórmulas'}
+                onApply={props.onApplyFormulas}
+                onPublish={props.onPublishFormulas}
+              />
+            )}
             <ParametersPanel
               rates={editor.model.rates}
+              formulas={editor.model.formulas}
               considerations={editor.model.considerations}
               locked={locked}
               essaludLocked={!props.canEdit || editor.status === 'void'}
@@ -1374,9 +1415,7 @@ function EditorView(props: {
               </label>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              {editor.model.rates.profitMode === 'margin_on_price'
-                ? `La utilidad es el ${Number((editor.model.rates.profitRate * 100).toFixed(2))}% del precio. El total sin IGV queda en costo / ${(1 - editor.model.rates.profitRate).toFixed(2)}.`
-                : `La utilidad es el ${Number((editor.model.rates.profitRate * 100).toFixed(2))}% adicional sobre la base.`}
+              {describeFormula('baseUtilidad', editor.model.formulas)} {describeFormula('utilidad', editor.model.formulas)}
             </p>
             <SummaryRow label="Utilidad" value={computed.profitAmount} share={share(computed.profitAmount, computed.grandTotal)} />
           </div>
@@ -1531,6 +1570,7 @@ function LaborSheet(props: {
   workers: BillingWorkerInput[];
   lines: Map<string, ComputedWorker>;
   rates: BillingRates;
+  formulas?: BillingFormulaSet;
   locked: boolean;
   authorName: string;
   onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
@@ -1543,11 +1583,8 @@ function LaborSheet(props: {
   };
   const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-right px-1.5 py-2 whitespace-nowrap border-b border-slate-200';
   const headLeft = `${head} text-left`;
-  const formulas = describeOvertimeFormulas(props.rates);
+  const say = (id: string) => describeFormula(id, props.formulas);
   const essaludFixed = props.rates.essaludMode === 'fixed';
-  const essaludHint = essaludFixed
-    ? `Monto fijo de ${pen(props.rates.essaludFixedAmount)} por trabajador, independiente del sueldo.`
-    : 'Porcentaje sobre REM LLSS + vacaciones + feriados. La REM LLSS reemplaza al sueldo y a la asignación familiar, y toma los ingresos según los días trabajados. La gratificación no entra en esta base. Si esa base queda bajo la remuneración mínima vital, se usa la RMV.';
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1565,32 +1602,32 @@ function LaborSheet(props: {
             <th className={head} title="Días del corte, antes de restar faltas">Días corte</th>
             <th className={head}>Faltas</th>
             <th className={head}>Días</th>
-            <th className={head} title="Días de vacaciones gozadas. Vacaciones, gratificación, CTS, feriados y EsSalud usan también el sueldo base de estos días, sin superar el sueldo mensual. Ese sueldo no se suma otra vez como remuneración. Vida Ley y SCTR no dependen de estos días.">Días vac.</th>
+            <th className={head} title={say('sueldoVacaciones')}>Días vac.</th>
             <th className={head}>Asig. fam.</th>
             <th className={head}>HE día 25 h</th>
-            <th className={head} title={formulas.day25}>HE día 25 S/</th>
+            <th className={head} title={say('he25')}>HE día 25 S/</th>
             <th className={head}>HE día 35 h</th>
-            <th className={head} title={formulas.day35}>HE día 35 S/</th>
-            <th className={head} title={formulas.night25}>HE noche 25 h</th>
-            <th className={head} title={formulas.night25}>HE noche 25 S/</th>
-            <th className={head} title={formulas.night35}>HE noche 35 h</th>
-            <th className={head} title={formulas.night35}>HE noche 35 S/</th>
-            <th className={head} title={formulas.nightBonus}>Bono h</th>
-            <th className={head} title={formulas.nightBonus}>Bono S/</th>
+            <th className={head} title={say('he35')}>HE día 35 S/</th>
+            <th className={head} title={say('heNoche25')}>HE noche 25 h</th>
+            <th className={head} title={say('heNoche25')}>HE noche 25 S/</th>
+            <th className={head} title={say('heNoche35')}>HE noche 35 h</th>
+            <th className={head} title={say('heNoche35')}>HE noche 35 S/</th>
+            <th className={head} title={say('bonoNocturno')}>Bono h</th>
+            <th className={head} title={say('bonoNocturno')}>Bono S/</th>
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
-            <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : 'REM LLSS + vacaciones + feriados. La gratificación no entra. Si queda bajo la remuneración mínima vital, la base es la RMV.'}>Base EsSalud</th>
-            <th className={head}>Rem. básica</th>
-            <th className={head} title="Remuneración afecta a leyes sociales. Suma el sueldo base de los días de vacaciones. Ese sueldo no se vuelve a sumar al costo.">Rem. cargas</th>
-            <th className={head}>Vacaciones</th>
-            <th className={head}>Gratific.</th>
-            <th className={head}>CTS</th>
-            <th className={head} title="Factor de feriados × REM LLSS">Feriado</th>
-            <th className={head} title={essaludHint}>EsSalud</th>
-            <th className={head} title="(Sueldo establecido + asignación familiar) × tasa de Vida Ley. Ambos entran completos, sin prorratear por días trabajados.">Vida Ley</th>
-            <th className={head} title="(Sueldo establecido + asignación familiar) × tasa de SCTR. Ambos entran completos, sin prorratear por días trabajados.">SCTR</th>
-            <th className={head}>Costo</th>
+            <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : say('baseEssalud')}>Base EsSalud</th>
+            <th className={head} title={say('basico')}>Rem. básica</th>
+            <th className={head} title={say('remCargas')}>Rem. cargas</th>
+            <th className={head} title={say('vacaciones')}>Vacaciones</th>
+            <th className={head} title={say('gratificacion')}>Gratific.</th>
+            <th className={head} title={say('cts')}>CTS</th>
+            <th className={head} title={say('feriado')}>Feriado</th>
+            <th className={head} title={say('essalud')}>EsSalud</th>
+            <th className={head} title={say('vidaLey')}>Vida Ley</th>
+            <th className={head} title={say('sctr')}>SCTR</th>
+            <th className={head} title={say('costoTotal')}>Costo</th>
           </tr>
         </thead>
         <tbody>
@@ -1639,7 +1676,7 @@ function LaborSheet(props: {
                   <GridNum
                     step="1"
                     amber={numDays(worker.vacationDays) > 0}
-                    title={vacationDaysTitle(worker, line, props.rates)}
+                    title={say('sueldoVacaciones')}
                     disabled={props.locked}
                     value={numDays(worker.vacationDays)}
                     onChange={(vacationDays) => props.onPatchWorker(worker.id, { vacationDays: Math.max(0, vacationDays) })}
@@ -1652,7 +1689,7 @@ function LaborSheet(props: {
                   amount={line?.he25}
                   extra={adjustmentAmount(worker, 'he25')}
                   locked={props.locked}
-                  formula={formulas.day25}
+                  formula={say('he25')}
                   onHours={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })}
                   onManual={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })}
                   onAdjust={(event) => openAdjustment(event, worker.id, 'he25')}
@@ -1663,7 +1700,7 @@ function LaborSheet(props: {
                   amount={line?.he35}
                   extra={adjustmentAmount(worker, 'he35')}
                   locked={props.locked}
-                  formula={formulas.day35}
+                  formula={say('he35')}
                   onHours={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })}
                   onManual={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })}
                   onAdjust={(event) => openAdjustment(event, worker.id, 'he35')}
@@ -1674,7 +1711,7 @@ function LaborSheet(props: {
                   amount={line?.heNight25}
                   extra={adjustmentAmount(worker, 'heNight25')}
                   locked={props.locked}
-                  formula={formulas.night25}
+                  formula={say('heNoche25')}
                   onHours={(heNight25Hours) => props.onPatchWorker(worker.id, { heNight25Hours, heNight25Manual: null })}
                   onManual={(heNight25Manual) => props.onPatchWorker(worker.id, { heNight25Manual })}
                   onAdjust={(event) => openAdjustment(event, worker.id, 'heNight25')}
@@ -1685,30 +1722,30 @@ function LaborSheet(props: {
                   amount={line?.heNight35}
                   extra={adjustmentAmount(worker, 'heNight35')}
                   locked={props.locked}
-                  formula={formulas.night35}
+                  formula={say('heNoche35')}
                   onHours={(heNight35Hours) => props.onPatchWorker(worker.id, { heNight35Hours, heNight35Manual: null })}
                   onManual={(heNight35Manual) => props.onPatchWorker(worker.id, { heNight35Manual })}
                   onAdjust={(event) => openAdjustment(event, worker.id, 'heNight35')}
                 />
                 <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.nightHours} onChange={(nightHours) => props.onPatchWorker(worker.id, { nightHours, nightManual: null })} /></td>
-                <td className="px-1 py-1" onContextMenu={(event) => openAdjustment(event, worker.id, 'night')}>
-                  <GridNum amber={worker.nightManual !== null} disabled={props.locked} value={worker.nightManual !== null ? worker.nightManual : roundShown((line?.night || 0) - adjustmentAmount(worker, 'night'))} onChange={(nightManual) => props.onPatchWorker(worker.id, { nightManual })} />
+                <td className="px-1 py-1" title={say('bonoNocturno')} onContextMenu={(event) => openAdjustment(event, worker.id, 'night')}>
+                  <GridNum amber={worker.nightManual !== null} disabled={props.locked} title={say('bonoNocturno')} value={worker.nightManual !== null ? worker.nightManual : roundShown((line?.night || 0) - adjustmentAmount(worker, 'night'))} onChange={(nightManual) => props.onPatchWorker(worker.id, { nightManual })} />
                 </td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'workCondition')} title={hint(worker, 'workCondition')} disabled={props.locked} value={worker.workCondition} onChange={(workCondition) => props.onPatchWorker(worker.id, { workCondition })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'bonus')} title={worker.bonusConcept || hint(worker, 'bonus')} disabled={props.locked} value={worker.bonus} onChange={(bonus) => props.onPatchWorker(worker.id, { bonus })} /></td>
                 <td className="px-1 py-1"><GridNum amber={!same(worker.factor, 1)} disabled={props.locked} value={worker.factor} onChange={(factor) => props.onPatchWorker(worker.id, { factor })} /></td>
-                <td className="px-1.5 py-1" title={essaludBaseTitle(line, props.rates, essaludFixed)}>
+                <td className="px-1.5 py-1" title={say('baseEssalud')}>
                   {essaludFixed ? <span className="block text-right text-slate-400">—</span> : <GridMoney value={line?.essaludBase} />}
                 </td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.basic} extra={adjustmentAmount(worker, 'basic')} title="Sueldo de los días trabajados" onOpen={(event) => openAdjustment(event, worker.id, 'basic')} /></td>
-                <td className="px-1.5 py-1" title={vacationDaysTitle(worker, line, props.rates)}><GridMoney value={line?.remLlss} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.vacation} extra={adjustmentAmount(worker, 'vacation')} onOpen={(event) => openAdjustment(event, worker.id, 'vacation')} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.gratification} extra={adjustmentAmount(worker, 'gratification')} onOpen={(event) => openAdjustment(event, worker.id, 'gratification')} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.cts} extra={adjustmentAmount(worker, 'cts')} onOpen={(event) => openAdjustment(event, worker.id, 'cts')} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.feria} extra={adjustmentAmount(worker, 'feria')} title="Factor de feriados × REM LLSS" onOpen={(event) => openAdjustment(event, worker.id, 'feria')} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.essalud} extra={adjustmentAmount(worker, 'essalud')} title={essaludHint} onOpen={(event) => openAdjustment(event, worker.id, 'essalud')} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.vidaLey} extra={adjustmentAmount(worker, 'vidaLey')} title="Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados" onOpen={(event) => openAdjustment(event, worker.id, 'vidaLey')} /></td>
-                <td className="px-1 py-1"><AdjustableMoney billed={line?.sctr} extra={adjustmentAmount(worker, 'sctr')} title="Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados" onOpen={(event) => openAdjustment(event, worker.id, 'sctr')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.basic} extra={adjustmentAmount(worker, 'basic')} title={say('basico')} onOpen={(event) => openAdjustment(event, worker.id, 'basic')} /></td>
+                <td className="px-1.5 py-1" title={say('remCargas')}><GridMoney value={line?.remLlss} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.vacation} extra={adjustmentAmount(worker, 'vacation')} title={say('vacaciones')} onOpen={(event) => openAdjustment(event, worker.id, 'vacation')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.gratification} extra={adjustmentAmount(worker, 'gratification')} title={say('gratificacion')} onOpen={(event) => openAdjustment(event, worker.id, 'gratification')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.cts} extra={adjustmentAmount(worker, 'cts')} title={say('cts')} onOpen={(event) => openAdjustment(event, worker.id, 'cts')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.feria} extra={adjustmentAmount(worker, 'feria')} title={say('feriado')} onOpen={(event) => openAdjustment(event, worker.id, 'feria')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.essalud} extra={adjustmentAmount(worker, 'essalud')} title={say('essalud')} onOpen={(event) => openAdjustment(event, worker.id, 'essalud')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.vidaLey} extra={adjustmentAmount(worker, 'vidaLey')} title={say('vidaLey')} onOpen={(event) => openAdjustment(event, worker.id, 'vidaLey')} /></td>
+                <td className="px-1 py-1"><AdjustableMoney billed={line?.sctr} extra={adjustmentAmount(worker, 'sctr')} title={say('sctr')} onOpen={(event) => openAdjustment(event, worker.id, 'sctr')} /></td>
                 <td className="px-1.5 py-1"><GridMoney value={worker.included ? line?.totalCost : 0} strong /></td>
               </tr>
             );
@@ -1990,6 +2027,7 @@ function LinesEditor(props: {
 
 function ParametersPanel(props: {
   rates: BillingRates;
+  formulas?: BillingFormulaSet;
   considerations: string;
   locked: boolean;
   essaludLocked: boolean;
@@ -2029,15 +2067,15 @@ function ParametersPanel(props: {
           Asignación familiar (S/)
           <input className={fieldClass} type="number" step="0.01" disabled={props.locked} value={props.rates.familyAllowanceAmount} onChange={(event) => props.onRates({ familyAllowanceAmount: Number(event.target.value) || 0 })} />
         </label>
-        {percent('vacationRate', 'Vacaciones %', '1/12 = 8.3333% de la remuneración para cargas')}
-        {percent('gratiRate', 'Gratificación %')}
+        {percent('vacationRate', 'Vacaciones %', describeFormula('vacaciones', props.formulas))}
+        {percent('gratiRate', 'Gratificación %', describeFormula('gratificacion', props.formulas))}
         <label className="text-xs text-slate-500">
           Factor de bonificación extraordinaria
           <input className={fieldClass} type="number" step="0.01" disabled={props.locked} value={props.rates.gratiBonusFactor} onChange={(event) => props.onRates({ gratiBonusFactor: Number(event.target.value) || 0 })} />
-          <span className="block text-[11px] text-slate-400 mt-1">1.09 aplica el 9% adicional sobre la gratificación.</span>
+          <span className="block text-[11px] text-slate-400 mt-1">{describeFormula('gratificacion', props.formulas)}</span>
         </label>
-        {percent('ctsRate', 'CTS %')}
-        {percent('feriaRate', 'Provisión feriados %', 'Factor × remuneración afecta a leyes sociales (REM LLSS).')}
+        {percent('ctsRate', 'CTS %', describeFormula('cts', props.formulas))}
+        {percent('feriaRate', 'Provisión feriados %', describeFormula('feriado', props.formulas))}
         <div className="text-xs text-slate-500">
           EsSalud
           <select
@@ -2050,9 +2088,7 @@ function ParametersPanel(props: {
             <option value="fixed">Monto fijo, independiente del sueldo</option>
           </select>
           <span className="block text-[11px] text-slate-400 mt-1 leading-relaxed">
-            {props.rates.essaludMode === 'fixed'
-              ? 'Mismo monto en soles para cada trabajador. No usa el sueldo, la asignación, las horas, las vacaciones, los feriados ni la gratificación.'
-              : 'Considera la remuneración para cargas (sueldo según los días, asignación familiar, horas extra, bono nocturno y sueldo de las vacaciones gozadas), más la provisión de vacaciones y la de feriados. La gratificación no entra. Si esa suma queda bajo la remuneración mínima vital, la base es la RMV.'}
+            {describeFormula('essalud', props.formulas)} {describeFormula('baseEssalud', props.formulas)}
           </span>
           {props.rates.essaludMode === 'fixed' ? (
             <>
@@ -2114,9 +2150,9 @@ function ParametersPanel(props: {
               : 'Esta liquidación todavía no está guardada. Use Guardar para crearla con este EsSalud.'}
           </span>
         </div>
-        {percent('vidaLeyRate', 'Vida Ley %', 'Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados')}
-        {percent('sctrRate', 'SCTR %', 'Base: sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados')}
-        {percent('igvRate', 'IGV %', 'Se muestra aparte. El total principal no lo incluye.')}
+        {percent('vidaLeyRate', 'Vida Ley %', describeFormula('vidaLey', props.formulas))}
+        {percent('sctrRate', 'SCTR %', describeFormula('sctr', props.formulas))}
+        {percent('igvRate', 'IGV %', describeFormula('igv', props.formulas))}
       </div>
       <div className="border-t border-slate-100 pt-4 space-y-3">
         <div>
@@ -2160,7 +2196,7 @@ function ParametersPanel(props: {
             <input type="checkbox" disabled={props.locked} checked={props.rates.nightBonusIncludeFamily} onChange={(event) => props.onRates({ nightBonusIncludeFamily: event.target.checked })} /> Asignación familiar en el bono nocturno
           </label>
         </div>
-        <FormulaPreview rates={props.rates} />
+        <FormulaPreview formulas={props.formulas} />
       </div>
       <div className="flex flex-wrap gap-4 text-sm text-slate-700">
         <label className="inline-flex items-center gap-2">
@@ -2186,14 +2222,13 @@ function ParametersPanel(props: {
   );
 }
 
-function FormulaPreview({ rates }: { rates: BillingRates }) {
-  const formulas = describeOvertimeFormulas(rates);
+function FormulaPreview({ formulas }: { formulas?: BillingFormulaSet }) {
   const rows: [string, string][] = [
-    ['Hora extra diurna 25%', formulas.day25],
-    ['Hora extra diurna 35%', formulas.day35],
-    ['Hora extra nocturna 25%', formulas.night25],
-    ['Hora extra nocturna 35%', formulas.night35],
-    ['Bono nocturno', formulas.nightBonus],
+    ['Hora extra diurna 25%', describeFormula('he25', formulas)],
+    ['Hora extra diurna 35%', describeFormula('he35', formulas)],
+    ['Hora extra nocturna 25%', describeFormula('heNoche25', formulas)],
+    ['Hora extra nocturna 35%', describeFormula('heNoche35', formulas)],
+    ['Bono nocturno', describeFormula('bonoNocturno', formulas)],
   ];
   return (
     <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1">
@@ -2396,29 +2431,6 @@ function TabBitacora(props: {
       </div>
     </section>
   );
-}
-
-function essaludBaseTitle(line: ComputedWorker | undefined, rates: BillingRates, fixed: boolean): string {
-  if (fixed) return 'EsSalud usa el monto fijo de los parámetros y no esta base.';
-  const income = (line?.remLlss || 0) + (line?.vacation || 0) + (line?.feria || 0);
-  const wage = rates.minimumWage || 0;
-  if (wage > 0 && income + 0.009 < wage) {
-    return `La suma de REM LLSS, vacaciones y feriados (${pen(income)}) queda bajo la remuneración mínima vital. La base de EsSalud es ${pen(wage)}.`;
-  }
-  return 'Base: REM LLSS + vacaciones + feriados. La gratificación no entra. No baja de la remuneración mínima vital.';
-}
-
-function vacationDaysTitle(worker: BillingWorkerInput, line: ComputedWorker | undefined, rates: BillingRates): string {
-  const days = numDays(worker.vacationDays);
-  const base = 'Días de vacaciones gozadas. Vacaciones, gratificación, CTS, feriados y EsSalud usan también el sueldo base de estos días y no superan el sueldo mensual. Ese sueldo no se suma otra vez como remuneración. Vida Ley y SCTR no dependen de estos días.';
-  if (!days) return base;
-  const applied = line?.vacationSalary || 0;
-  const monthDays = rates.commercialMonthDays || 30;
-  const raw = monthDays ? (numDays(worker.contractualSalary) / monthDays) * days : 0;
-  if (raw - applied > 0.009) {
-    return `${days} días de vacaciones. Entran ${pen(applied)} de sueldo base: los días trabajados más las vacaciones no superan el sueldo mensual. Ese monto no se suma otra vez como remuneración.`;
-  }
-  return `${days} días de vacaciones. Vacaciones, gratificación, CTS, feriados y EsSalud usan ${pen(applied)} adicionales de sueldo base. Ese monto no se suma otra vez como remuneración.`;
 }
 
 function daysHint(worker: BillingWorkerInput): string | undefined {

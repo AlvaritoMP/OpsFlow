@@ -12,6 +12,7 @@ import {
   inclusiveDayCount,
   resolveAttendanceWindow,
 } from './clientBillingCalc';
+import { describeFormula } from './billingFormulas';
 
 export interface ClientBillingExcelInput {
   clientName: string;
@@ -184,7 +185,7 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   row += 1;
   writeBanner(sheet, row, lastCol, input.model.serviceLabel || 'Servicio facturado', 10, false, 16, true);
   row += 1;
-  writeBanner(sheet, row, lastCol, methodNote(input.model.rates), 8, false, 18, false, MUTED);
+  writeBanner(sheet, row, lastCol, methodNote(input.model), 8, false, 18, false, MUTED);
   row += 1;
 
   const workers = workerRows(input.model.workers, input.computed);
@@ -234,7 +235,7 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   row = adminRows.nextRow;
 
   row += 1;
-  const profitRows = writeProfitBlock(sheet, row, lastCol, input.model.rates, input.computed.profitAmount);
+  const profitRows = writeProfitBlock(sheet, row, lastCol, describeFormula('utilidad', input.model.formulas), input.computed.profitAmount);
   row = profitRows.nextRow;
 
   const grandRow = row;
@@ -683,12 +684,12 @@ function writeProfitBlock(
   sheet: ExcelJS.Worksheet,
   rowNumber: number,
   lastCol: number,
-  rates: BillingRates,
+  label: string,
   amount: number
 ): CostBlockRows {
   let row = writeSection(sheet, rowNumber, lastCol, 'IV. Utilidad');
   const detailRow = row;
-  writeAmountRow(sheet, row, lastCol, profitLineLabel(rates), amount, false);
+  writeAmountRow(sheet, row, lastCol, label, amount, false);
   row += 1;
   writeCategorySubtotal(sheet, row, lastCol, 'Subtotal utilidad', cellRef(lastCol, detailRow), amount);
   return { subtotalRow: row, nextRow: row + 1 };
@@ -757,46 +758,25 @@ function styleTotal(sheet: ExcelJS.Worksheet, rowNumber: number, lastCol: number
   }
 }
 
-function methodNote(rates: BillingRates): string {
+function methodNote(model: ClientBillingModel): string {
+  const formulas = model.formulas;
   const parts = [
     'En soles (S/). El total mensual no incluye IGV.',
-    `Vacaciones ${percent(rates.vacationRate)}`,
-    `Gratificación ${percent(rates.gratiRate)} × ${formatFactor(rates.gratiBonusFactor)}`,
-    `CTS ${percent(rates.ctsRate)}`,
-    essaludCaption(rates),
+    `Vacaciones: ${describeFormula('vacaciones', formulas)}`,
+    `Gratificación: ${describeFormula('gratificacion', formulas)}`,
+    `CTS: ${describeFormula('cts', formulas)}`,
+    `Feriados: ${describeFormula('feriado', formulas)}`,
+    `EsSalud: ${describeFormula('essalud', formulas)}`,
+    `Base de EsSalud: ${describeFormula('baseEssalud', formulas)}`,
+    `Vida Ley: ${describeFormula('vidaLey', formulas)}`,
+    `SCTR: ${describeFormula('sctr', formulas)}`,
+    `Sueldo de vacaciones: ${describeFormula('sueldoVacaciones', formulas)}`,
   ];
-  if (rates.applyVidaLey) parts.push(`Vida Ley ${percent(rates.vidaLeyRate, 3)} sobre sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados`);
-  if (rates.applySctr) parts.push(`SCTR ${percent(rates.sctrRate, 3)} sobre sueldo establecido + asignación familiar, ambos completos e independientes de los días trabajados`);
-  parts.push(
-    rates.applyFeria
-      ? `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS`
-      : `Feriado ${percent(rates.feriaRate, 3)} × REM LLSS, no incluido en el costo`
-  );
-  parts.push('Los días de vacaciones suman su sueldo base a vacaciones, gratificación, CTS, feriados y EsSalud, sin volver a sumarlo como remuneración y sin superar el sueldo mensual. Vida Ley y SCTR no usan esos días.');
   return parts.join(' · ');
-}
-
-function profitLineLabel(rates: BillingRates): string {
-  const mode = rates.profitMode === 'margin_on_price' ? 'Margen sobre el precio' : 'Recargo sobre el costo';
-  const base = rates.profitBase === 'labor' ? 'base costo laboral' : 'base costo laboral, operativo y administrativo';
-  return `${mode} (${percent(rates.profitRate)}) · ${base}`;
-}
-
-function essaludCaption(rates: BillingRates): string {
-  if (rates.essaludMode === 'fixed') {
-    const amount = Number(rates.essaludFixedAmount) || 0;
-    return `EsSalud monto fijo S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por trabajador`;
-  }
-  const wage = (Number(rates.minimumWage) || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `EsSalud ${percent(rates.essaludRate)} sobre REM LLSS + vacaciones + feriados. La gratificación no entra. Si la base es menor que la RMV (S/ ${wage}), se usa la RMV; el mínimo es la RMV por ${percent(rates.essaludRate)}`;
 }
 
 function percent(rate: number, digits = 2): string {
   return `${(rate * 100).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: digits })}%`;
-}
-
-function formatFactor(factor: number): string {
-  return factor.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 function solid(argb: string): ExcelJS.Fill {

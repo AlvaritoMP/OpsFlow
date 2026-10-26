@@ -40,6 +40,7 @@ import {
   subtractBillingSnapshots,
   withWorkerDefaults,
 } from '../utils/clientBillingCalc';
+import { BillingFormulaSet, normalizeBillingFormulas, validateBillingFormulas } from '../utils/billingFormulas';
 
 export type BillingStatus = 'draft' | 'issued' | 'void';
 
@@ -158,12 +159,13 @@ export async function prepareBillingDraft(
   const windowError = attendanceWindowError(window.from, window.to);
   if (windowError) throw new Error(windowError);
 
-  const [profile, previous, people, compensations, absences] = await Promise.all([
+  const [profile, previous, people, compensations, absences, published] = await Promise.all([
     loadProfile(unit.id),
     loadPrevious(unit.id, periodMonth),
     loadPersonnel(unit.id, window),
     variableCompensationsService.getByUnitAndMonth(unit.id, periodMonth).catch(() => []),
     loadAbsenceDeductions(unit.id, window),
+    loadPublishedBillingFormulas(),
   ]);
 
   const rates = normalizeBillingRates({
@@ -177,6 +179,8 @@ export async function prepareBillingDraft(
   model.attendanceFrom = window.from;
   model.attendanceTo = window.to;
   model.considerations = profile?.considerations || previous?.model.considerations || model.considerations;
+  const formulas = published || profile?.formulas;
+  if (formulas) model.formulas = normalizeBillingFormulas(formulas);
 
   const bonuses = new Map<string, { amount: number; concept: string[] }>();
   compensations.forEach((item) => {
@@ -657,6 +661,7 @@ export async function saveBillingProfile(unitId: string, model: ClientBillingMod
     serviceLabel: model.serviceLabel,
     considerations: model.considerations,
     administrative: model.administrative,
+    formulas: model.formulas ? normalizeBillingFormulas(model.formulas) : undefined,
   };
   const { error } = await db.from('client_billing_profiles').upsert({
     unit_id: unitId,
@@ -667,11 +672,68 @@ export async function saveBillingProfile(unitId: string, model: ClientBillingMod
   if (error) throw mapError(error);
 }
 
+export async function saveUnitBillingFormulas(unitId: string, formulas: BillingFormulaSet, actor: BillingActor): Promise<void> {
+  await assertBillingAdmin(actor);
+  const normalized = normalizeBillingFormulas(formulas);
+  const issues = validateBillingFormulas(normalized);
+  if (issues.length) throw new Error(issues[0].message);
+  const current = (await loadProfile(unitId)) || {};
+  const { error } = await db.from('client_billing_profiles').upsert({
+    unit_id: unitId,
+    payload: { ...current, formulas: normalized },
+    updated_by_name: actor.name,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw mapError(error);
+}
+
+export async function publishBillingFormulas(formulas: BillingFormulaSet, actor: BillingActor): Promise<{ catalog: boolean }> {
+  await assertBillingAdmin(actor);
+  const normalized = normalizeBillingFormulas(formulas);
+  const issues = validateBillingFormulas(normalized);
+  if (issues.length) throw new Error(issues[0].message);
+  const { error } = await db.from('client_billing_formula_catalog').upsert({
+    id: 'active',
+    payload: { formulas: normalized },
+    updated_by_name: actor.name,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) {
+    if (isMissingTable(error)) return { catalog: false };
+    throw mapError(error);
+  }
+  return { catalog: true };
+}
+
+export async function loadPublishedBillingFormulas(): Promise<BillingFormulaSet | null> {
+  const { data, error } = await db
+    .from('client_billing_formula_catalog')
+    .select('payload')
+    .eq('id', 'active')
+    .maybeSingle();
+  if (error) {
+    if (isMissingTable(error)) return null;
+    throw mapError(error);
+  }
+  const formulas = data?.payload?.formulas;
+  return formulas && typeof formulas === 'object' ? normalizeBillingFormulas(formulas) : null;
+}
+
+async function assertBillingAdmin(actor: BillingActor): Promise<void> {
+  if (!actor.id) throw new Error('Solo un administrador puede publicar las fórmulas.');
+  const { data, error } = await db.from('users').select('role').eq('id', actor.id).maybeSingle();
+  if (error) throw new Error('No se pudo confirmar el rol del administrador.');
+  if (data?.role !== 'ADMIN' && data?.role !== 'SUPER_ADMIN') {
+    throw new Error('Solo un administrador puede publicar las fórmulas.');
+  }
+}
+
 async function loadProfile(unitId: string): Promise<{
   rates?: Partial<BillingRates>;
   serviceLabel?: string;
   considerations?: string;
   administrative?: BillingCostLine[];
+  formulas?: BillingFormulaSet;
 } | null> {
   const { data, error } = await db
     .from('client_billing_profiles')
@@ -1373,6 +1435,12 @@ function isMissingTable(error: any): boolean {
 function mapError(error: any): Error {
   if (isMissingTable(error)) {
     const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+    if (/client_billing_formula_catalog/i.test(message)) {
+      return new BillingStorageError(
+        'missing_table',
+        'Falta la tabla de fórmulas. Ejecute migrations/MIGRATION_CLIENT_BILLING_FORMULAS.sql en Supabase.'
+      );
+    }
     if (/client_billing_notes|client_billing_runs/i.test(message)) {
       return new BillingStorageError(
         'missing_table',

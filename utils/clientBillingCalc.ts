@@ -1,7 +1,18 @@
 /** Cálculo de facturación de intermediación / tercerización.
  * Réplica del método del archivo de facturación (Estación Callao, abril):
  * costo laboral con cargas, operativo, administrativo y utilidad.
+ * Las celdas salen de las fórmulas editables. Sin fórmulas guardadas se usa el método de fábrica.
  */
+
+import {
+  BILLING_FORMULA_DEFS,
+  BillingFormulaSet,
+  evaluateFormulas,
+  normalizeBillingFormulas,
+  WORKER_FORMULA_IDS,
+} from './billingFormulas';
+
+export type { BillingFormulaSet };
 
 export type ProfitMode = 'margin_on_price' | 'markup_on_cost';
 export type ProfitBase = 'all' | 'labor';
@@ -200,6 +211,8 @@ export interface ClientBillingModel {
   attendanceTo?: string;
   /** Bitácora interna por pestaña. No se copia a corridas ni al Excel. */
   internalNotes?: BillingInternalNote[];
+  /** Fórmulas de las celdas. Si falta una, se usa la de fábrica. */
+  formulas?: BillingFormulaSet;
 }
 
 export interface AttendanceWindow {
@@ -569,18 +582,6 @@ function isFullCalendarMonth(from: Date, to: Date): boolean {
   return to.getDate() === last;
 }
 
-function hourly(salary: number, rates: BillingRates): number {
-  const days = rates.commercialMonthDays || 30;
-  const hours = rates.hoursPerDay || 8;
-  return salary / days / hours;
-}
-
-function extraAmount(salary: number, hours: number, factor: number, manual: number | null | undefined, rates: BillingRates): number {
-  if (manual !== null && manual !== undefined && Number.isFinite(manual)) return manual;
-  if (!hours) return 0;
-  return hourly(salary, rates) * factor * hours;
-}
-
 /** Las liquidaciones antiguas no traen el modo y se leen como porcentaje. */
 export function usesPercentEssalud(rates: Partial<BillingRates> | undefined): boolean {
   return normalizeBillingRates(rates).essaludMode !== 'fixed';
@@ -599,49 +600,6 @@ export function normalizeBillingRates(rates: Partial<BillingRates> | undefined):
   return merged;
 }
 
-/** Sueldo para horas extra. El recargo nocturno aplica solo al sueldo; la asignación familiar entra plana. */
-function payBaseForOvertime(
-  salary: number,
-  family: number,
-  includeFamily: boolean,
-  includeNightPremium: boolean,
-  rates: BillingRates
-): number {
-  const premium = includeNightPremium ? salary * (rates.nightPremiumRate || 0) : 0;
-  return salary + premium + (includeFamily ? family : 0);
-}
-
-export function describeOvertimeFormulas(rates: BillingRates): {
-  day25: string;
-  day35: string;
-  night25: string;
-  night35: string;
-  nightBonus: string;
-} {
-  const current = normalizeBillingRates(rates);
-  const days = current.commercialMonthDays || 30;
-  const hours = current.hoursPerDay || 8;
-  const dayParts = ['sueldo'];
-  if (current.heDayIncludeFamily) dayParts.push('asignación familiar');
-  const nightParts = ['sueldo'];
-  if (current.heNightApplyPremium) nightParts.push(`sueldo × ${formatRate(current.nightPremiumRate)}`);
-  if (current.heNightIncludeFamily) nightParts.push('asignación familiar');
-  const bonusParts = ['sueldo'];
-  if (current.nightBonusIncludeFamily) bonusParts.push('asignación familiar');
-  const hour = (parts: string[], factor: number) => `(${parts.join(' + ')}) / ${days} / ${hours} × ${formatRate(factor)} × horas`;
-  return {
-    day25: hour(dayParts, current.he25Factor),
-    day35: hour(dayParts, current.he35Factor),
-    night25: hour(nightParts, current.he25Factor),
-    night35: hour(nightParts, current.he35Factor),
-    nightBonus: hour(bonusParts, current.nightPremiumRate),
-  };
-}
-
-function formatRate(value: number): string {
-  return Number((Number.isFinite(value) ? value : 0).toFixed(4)).toString();
-}
-
 export function withWorkerDefaults(worker: BillingWorkerInput): BillingWorkerInput {
   return {
     ...worker,
@@ -658,110 +616,147 @@ function manualOrNull(value: number | null | undefined): number | null {
   return value !== null && value !== undefined && Number.isFinite(value) ? value : null;
 }
 
-/** Sueldo base de los días de vacaciones, sin pasar el sueldo mensual. */
-function vacationChargeSalary(salary: number, basic: number, vacationDays: number, monthDays: number): number {
-  if (vacationDays <= 0 || monthDays <= 0) return 0;
-  const raw = (salary / monthDays) * vacationDays;
-  const room = Math.max(0, salary - basic);
-  return Math.min(Math.max(0, raw), room);
-}
-
-export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRates): ComputedWorker {
+export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRates, formulas?: BillingFormulaSet): ComputedWorker {
   const rates = normalizeBillingRates(inputRates);
-  const salary = num(worker.contractualSalary);
-  const days = num(worker.daysWorked);
-  const vacationDays = Math.max(0, num(worker.vacationDays));
-  const monthDays = rates.commercialMonthDays || 30;
-  const basic = monthDays ? (salary / monthDays) * days : 0;
-  const family = num(worker.familyAllowance);
-  const dayBase = payBaseForOvertime(salary, family, rates.heDayIncludeFamily, false, rates);
-  const nightOtBase = payBaseForOvertime(salary, family, rates.heNightIncludeFamily, rates.heNightApplyPremium, rates);
-  const he25 = extraAmount(dayBase, num(worker.he25Hours), rates.he25Factor, worker.he25Manual, rates);
-  const he35 = extraAmount(dayBase, num(worker.he35Hours), rates.he35Factor, worker.he35Manual, rates);
-  const heNight25 = extraAmount(nightOtBase, num(worker.heNight25Hours), rates.he25Factor, worker.heNight25Manual, rates);
-  const heNight35 = extraAmount(nightOtBase, num(worker.heNight35Hours), rates.he35Factor, worker.heNight35Manual, rates);
-  const nightBase = rates.nightBonusIncludeFamily ? salary + family : salary;
-  const night = extraAmount(nightBase, num(worker.nightHours), rates.nightPremiumRate, worker.nightManual, rates);
-  const earned = basic + family + he25 + he35 + heNight25 + heNight35 + night;
-  // El sueldo de los días de vacaciones sostiene vacaciones, gratificación, CTS, feriados y EsSalud.
-  // No se factura otra vez como remuneración. Vida Ley y SCTR no lo usan.
-  const vacationSalary = vacationChargeSalary(salary, basic, vacationDays, monthDays);
-  const remLlss = earned + vacationSalary;
-  const remTotal = earned + num(worker.workCondition) + num(worker.bonus);
-  const vacationBase = remLlss * rates.vacationRate;
-  const gratificationBase = remLlss * rates.gratiBonusFactor * rates.gratiRate;
-  const ctsBase = remLlss * rates.ctsRate;
-  const feriaBase = rates.applyFeria ? remLlss * rates.feriaRate : 0;
-  // La REM LLSS reemplaza al sueldo completo y a la asignación familiar: ya trae los ingresos según los días.
-  // La gratificación se factura aparte y no integra la base de EsSalud.
-  const essaludIncome = remLlss + vacationBase + feriaBase;
-  const essaludBase = Math.max(essaludIncome, rates.minimumWage);
-  const essaludBaseAmount =
-    rates.essaludMode === 'fixed'
-      ? num(rates.essaludFixedAmount)
-      : essaludBase * rates.essaludRate;
-  // Sueldo establecido y asignación familiar completos: no se prorratean por días trabajados ni por vacaciones.
-  const statutoryBase = salary + family;
-  const vidaLeyBase = rates.applyVidaLey ? statutoryBase * rates.vidaLeyRate : 0;
-  const sctrBase = rates.applySctr ? statutoryBase * rates.sctrRate : 0;
+  const values = workerFormulaValues(worker, rates, formulas);
+  const basic = values.basico;
+  const he25 = values.he25;
+  const he35 = values.he35;
+  const heNight25 = values.heNoche25;
+  const heNight35 = values.heNoche35;
+  const night = values.bonoNocturno;
+  const vacationSalary = values.sueldoVacaciones;
+  const remLlss = values.remCargas;
+  const remTotal = values.remTotal;
+  const vacationBase = values.vacaciones;
+  const gratificationBase = values.gratificacion;
+  const ctsBase = values.cts;
+  const feriaBase = values.feriado;
+  const essaludBase = values.baseEssalud;
+  const essaludBaseAmount = values.essalud;
+  const vidaLeyBase = values.vidaLey;
+  const sctrBase = values.sctr;
   // El adicional se suma a esa celda y al costo. No vuelve a entrar en las otras fórmulas.
-  const basicBilled = basic + adjustmentAmount(worker, 'basic');
-  const he25Billed = he25 + adjustmentAmount(worker, 'he25');
-  const he35Billed = he35 + adjustmentAmount(worker, 'he35');
-  const heNight25Billed = heNight25 + adjustmentAmount(worker, 'heNight25');
-  const heNight35Billed = heNight35 + adjustmentAmount(worker, 'heNight35');
-  const nightBilled = night + adjustmentAmount(worker, 'night');
-  const vacation = vacationBase + adjustmentAmount(worker, 'vacation');
-  const gratification = gratificationBase + adjustmentAmount(worker, 'gratification');
-  const cts = ctsBase + adjustmentAmount(worker, 'cts');
-  const feria = feriaBase + adjustmentAmount(worker, 'feria');
-  const essalud = essaludBaseAmount + adjustmentAmount(worker, 'essalud');
-  const vidaLey = vidaLeyBase + adjustmentAmount(worker, 'vidaLey');
-  const sctr = sctrBase + adjustmentAmount(worker, 'sctr');
-  const payExtras =
-    adjustmentAmount(worker, 'basic') +
-    adjustmentAmount(worker, 'he25') +
-    adjustmentAmount(worker, 'he35') +
-    adjustmentAmount(worker, 'heNight25') +
-    adjustmentAmount(worker, 'heNight35') +
-    adjustmentAmount(worker, 'night');
-  const monthlyCost = remTotal + payExtras + vacation + gratification + cts + feria + essalud + vidaLey + sctr;
-  const factor = num(worker.factor) || 0;
   return {
     id: worker.id,
-    basic: basicBilled,
-    he25: he25Billed,
-    he35: he35Billed,
-    heNight25: heNight25Billed,
-    heNight35: heNight35Billed,
-    night: nightBilled,
+    basic: basic + adjustmentAmount(worker, 'basic'),
+    he25: he25 + adjustmentAmount(worker, 'he25'),
+    he35: he35 + adjustmentAmount(worker, 'he35'),
+    heNight25: heNight25 + adjustmentAmount(worker, 'heNight25'),
+    heNight35: heNight35 + adjustmentAmount(worker, 'heNight35'),
+    night: night + adjustmentAmount(worker, 'night'),
     remLlss,
     remTotal,
     vacationSalary,
-    vacation,
-    gratification,
-    cts,
-    feria,
-    essalud,
+    vacation: vacationBase + adjustmentAmount(worker, 'vacation'),
+    gratification: gratificationBase + adjustmentAmount(worker, 'gratification'),
+    cts: ctsBase + adjustmentAmount(worker, 'cts'),
+    feria: feriaBase + adjustmentAmount(worker, 'feria'),
+    essalud: essaludBaseAmount + adjustmentAmount(worker, 'essalud'),
     essaludBase,
-    vidaLey,
-    sctr,
-    monthlyCost,
-    totalCost: monthlyCost * (factor || 0),
+    vidaLey: vidaLeyBase + adjustmentAmount(worker, 'vidaLey'),
+    sctr: sctrBase + adjustmentAmount(worker, 'sctr'),
+    monthlyCost: values.costoMes,
+    totalCost: values.costoTotal,
+  };
+}
+
+function workerFormulaValues(worker: BillingWorkerInput, rates: BillingRates, formulas?: BillingFormulaSet): Record<string, number> {
+  const scope = workerFormulaScope(worker, rates);
+  try {
+    return evaluateFormulas(formulas, scope, WORKER_FORMULA_IDS);
+  } catch {
+    return evaluateFormulas(undefined, scope, WORKER_FORMULA_IDS);
+  }
+}
+
+function workerFormulaScope(worker: BillingWorkerInput, rates: BillingRates): Record<string, number> {
+  const manual = (value: number | null | undefined) => (value !== null && value !== undefined && Number.isFinite(value) ? value : 0);
+  const active = (value: number | null | undefined) => (value !== null && value !== undefined && Number.isFinite(value) ? 1 : 0);
+  const flag = (value: boolean) => (value ? 1 : 0);
+  return {
+    sueldo: num(worker.contractualSalary),
+    dias: num(worker.daysWorked),
+    diasVacaciones: Math.max(0, num(worker.vacationDays)),
+    asignacion: num(worker.familyAllowance),
+    condicionTrabajo: num(worker.workCondition),
+    bonos: num(worker.bonus),
+    factor: num(worker.factor),
+    he25Horas: num(worker.he25Hours),
+    he25Manual: manual(worker.he25Manual),
+    he25ManualActivo: active(worker.he25Manual),
+    he35Horas: num(worker.he35Hours),
+    he35Manual: manual(worker.he35Manual),
+    he35ManualActivo: active(worker.he35Manual),
+    heNoche25Horas: num(worker.heNight25Hours),
+    heNoche25Manual: manual(worker.heNight25Manual),
+    heNoche25ManualActivo: active(worker.heNight25Manual),
+    heNoche35Horas: num(worker.heNight35Hours),
+    heNoche35Manual: manual(worker.heNight35Manual),
+    heNoche35ManualActivo: active(worker.heNight35Manual),
+    bonoHoras: num(worker.nightHours),
+    bonoManual: manual(worker.nightManual),
+    bonoManualActivo: active(worker.nightManual),
+    diasMes: rates.commercialMonthDays || 30,
+    horasDia: rates.hoursPerDay || 8,
+    tasaVacaciones: num(rates.vacationRate),
+    tasaGratificacion: num(rates.gratiRate),
+    factorBonificacion: num(rates.gratiBonusFactor),
+    tasaCts: num(rates.ctsRate),
+    tasaFeriado: num(rates.feriaRate),
+    aplicaFeriado: flag(rates.applyFeria),
+    tasaEssalud: num(rates.essaludRate),
+    essaludFijo: rates.essaludMode === 'fixed' ? 1 : 0,
+    montoEssalud: num(rates.essaludFixedAmount),
+    rmv: num(rates.minimumWage),
+    tasaVidaLey: num(rates.vidaLeyRate),
+    aplicaVidaLey: flag(rates.applyVidaLey),
+    tasaSctr: num(rates.sctrRate),
+    aplicaSctr: flag(rates.applySctr),
+    factorHe25: num(rates.he25Factor),
+    factorHe35: num(rates.he35Factor),
+    recargoNocturno: num(rates.nightPremiumRate),
+    heDiaConAsignacion: flag(rates.heDayIncludeFamily),
+    heNocheConAsignacion: flag(rates.heNightIncludeFamily),
+    heNocheConRecargo: flag(rates.heNightApplyPremium),
+    bonoConAsignacion: flag(rates.nightBonusIncludeFamily),
+    ajusteBasico: adjustmentAmount(worker, 'basic'),
+    ajusteHe25: adjustmentAmount(worker, 'he25'),
+    ajusteHe35: adjustmentAmount(worker, 'he35'),
+    ajusteHeNoche25: adjustmentAmount(worker, 'heNight25'),
+    ajusteHeNoche35: adjustmentAmount(worker, 'heNight35'),
+    ajusteBono: adjustmentAmount(worker, 'night'),
+    ajusteVacaciones: adjustmentAmount(worker, 'vacation'),
+    ajusteGratificacion: adjustmentAmount(worker, 'gratification'),
+    ajusteCts: adjustmentAmount(worker, 'cts'),
+    ajusteFeriado: adjustmentAmount(worker, 'feria'),
+    ajusteEssalud: adjustmentAmount(worker, 'essalud'),
+    ajusteVidaLey: adjustmentAmount(worker, 'vidaLey'),
+    ajusteSctr: adjustmentAmount(worker, 'sctr'),
   };
 }
 
 export function computeBilling(model: ClientBillingModel): BillingComputation {
-  const rates = model.rates;
-  const workers = model.workers.map((worker) => computeWorker(worker, rates));
+  const rates = normalizeBillingRates(model.rates);
+  const workers = model.workers.map((worker) => computeWorker(worker, rates, model.formulas));
   const included = new Set(model.workers.filter((worker) => worker.included).map((worker) => worker.id));
   const laborTotal = workers.reduce((sum, worker) => (included.has(worker.id) ? sum + worker.totalCost : sum), 0);
 
   const operational = model.operational.map((line) => ({ id: line.id, amount: num(line.amount), formula: false }));
   const operationalTotal = operational.reduce((sum, line) => sum + line.amount, 0);
 
-  const financialAmount =
-    (laborTotal + operationalTotal) * (num(rates.financialAnnualRate) / 365) * num(rates.financialDays);
+  const billingScope: Record<string, number> = {
+    costoLaboral: laborTotal,
+    costoOperativo: operationalTotal,
+    costoAdministrativo: 0,
+    tasaFinanciera: num(rates.financialAnnualRate),
+    diasFinanciados: num(rates.financialDays),
+    utilidadSoloLaboral: rates.profitBase === 'labor' ? 1 : 0,
+    margenSobrePrecio: rates.profitMode === 'margin_on_price' ? 1 : 0,
+    tasaUtilidad: num(rates.profitRate),
+    tasaIgv: num(rates.igvRate),
+  };
+  const financialAmount = billingFormula(model.formulas, billingScope, 'financiero');
 
   const administrative = model.administrative.map((line) => {
     if (line.kind === 'financiero' && line.formulaLocked) {
@@ -770,10 +765,11 @@ export function computeBilling(model: ClientBillingModel): BillingComputation {
     return { id: line.id, amount: num(line.amount), formula: false };
   });
   const adminTotal = administrative.reduce((sum, line) => sum + line.amount, 0);
-  const profitBaseAmount = rates.profitBase === 'labor' ? laborTotal : laborTotal + operationalTotal + adminTotal;
-  const profitAmount = profitOf(profitBaseAmount, rates.profitMode, rates.profitRate);
+  billingScope.costoAdministrativo = adminTotal;
+  const profitBaseAmount = billingFormula(model.formulas, billingScope, 'baseUtilidad');
+  const profitAmount = billingFormula(model.formulas, billingScope, 'utilidad');
   const grandTotal = laborTotal + operationalTotal + adminTotal + profitAmount;
-  const igvAmount = grandTotal * num(rates.igvRate);
+  const igvAmount = billingFormula(model.formulas, billingScope, 'igv');
   return {
     workers,
     laborTotal,
@@ -788,6 +784,14 @@ export function computeBilling(model: ClientBillingModel): BillingComputation {
     igvAmount,
     totalWithIgv: grandTotal + igvAmount,
   };
+}
+
+function billingFormula(formulas: BillingFormulaSet | undefined, scope: Record<string, number>, id: string): number {
+  try {
+    return evaluateFormulas(formulas, scope, [id])[id] || 0;
+  } catch {
+    return evaluateFormulas(undefined, scope, [id])[id] || 0;
+  }
 }
 
 export function profitOf(base: number, mode: ProfitMode, rate: number): number {
@@ -885,6 +889,12 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
 
   (Object.keys(RATE_LABELS) as (keyof BillingRates)[]).forEach((key) => {
     push(RATE_LABELS[key], before.rates[key], after.rates[key]);
+  });
+
+  const beforeFormulas = normalizeBillingFormulas(before.formulas);
+  const afterFormulas = normalizeBillingFormulas(after.formulas);
+  BILLING_FORMULA_DEFS.forEach((item) => {
+    push(`Fórmula de ${item.label}`, beforeFormulas[item.id], afterFormulas[item.id]);
   });
 
   const beforeWorkers = new Map(before.workers.map((worker) => [worker.id, worker]));
