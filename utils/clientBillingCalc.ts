@@ -200,6 +200,43 @@ export const BILLING_INTERNAL_TAB_LABELS: Record<BillingInternalTab, string> = {
   trace: 'Bitácora de trazabilidad',
 };
 
+/** Documento que se indica al emitir, para el signo del total sin IGV. */
+export type OpalosisDocumentKind = 'invoice' | 'credit' | 'debit';
+
+export const OPALOSIS_WORK_GROUPS = [
+  'Administración',
+  'Intermediación',
+  'Grupo 1',
+  'Grupo 2',
+  'Contabilidad',
+  'BPO',
+  'Payroll',
+] as const;
+
+export const OPALOSIS_BUSINESS_LINES = ['Intermediación', 'Tercerización'] as const;
+
+export const OPALOSIS_COMPANIES = ['Opalo Perú', 'Opalo Intermediación', 'Opalo Tercerización'] as const;
+
+export const OPALOSIS_POSITION = 'Diversos';
+
+export const OPALOSIS_DOCUMENT_LABELS: Record<OpalosisDocumentKind, string> = {
+  invoice: 'Liquidación',
+  debit: 'Nota de débito',
+  credit: 'Nota de crédito',
+};
+
+/** Datos que se confirman en la ventana de emisión. */
+export interface OpalosisIssueSettings {
+  documentKind: OpalosisDocumentKind;
+  workGroup: string;
+  businessLine: string;
+  opaloCompany: string;
+  positionLabel: string;
+  /** Si no se elige uno, OpaloSis aporta el primero de la lista. */
+  clientApplicant: 'first';
+  makerDni: string;
+}
+
 export interface ClientBillingModel {
   version: 1;
   title: string;
@@ -214,6 +251,14 @@ export interface ClientBillingModel {
   attendanceFrom?: string;
   /** Fin del corte del que se leen asistencia y novedades (YYYY-MM-DD). */
   attendanceTo?: string;
+  /** Inicio de vida de la orden de servicio en OpaloSis (YYYY-MM-DD). */
+  osStartDate?: string;
+  /** Entrega de la orden de servicio en OpaloSis (YYYY-MM-DD). */
+  osEndDate?: string;
+  /** Código PES de la propuesta económica de esta unidad. */
+  opalosisPesCode?: string;
+  /** Lo elegido en la ventana de emisión. */
+  opalosisIssue?: OpalosisIssueSettings;
   /** Bitácora interna por pestaña. No se copia a corridas ni al Excel. */
   internalNotes?: BillingInternalNote[];
   /** Fórmulas de las celdas. Si falta una, se usa la de fábrica. */
@@ -1011,6 +1056,18 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
   push('Consideraciones', before.considerations, after.considerations);
   push('Inicio del corte de asistencia', formatAttendanceDate(before.attendanceFrom), formatAttendanceDate(after.attendanceFrom));
   push('Fin del corte de asistencia', formatAttendanceDate(before.attendanceTo), formatAttendanceDate(after.attendanceTo));
+  push('Inicio de la orden de servicio', formatAttendanceDate(before.osStartDate), formatAttendanceDate(after.osStartDate));
+  push('Entrega de la orden de servicio', formatAttendanceDate(before.osEndDate), formatAttendanceDate(after.osEndDate));
+  push('Código PES', before.opalosisPesCode, after.opalosisPesCode);
+  push(
+    'Documento para OpaloSis',
+    before.opalosisIssue ? OPALOSIS_DOCUMENT_LABELS[before.opalosisIssue.documentKind] : '',
+    after.opalosisIssue ? OPALOSIS_DOCUMENT_LABELS[after.opalosisIssue.documentKind] : ''
+  );
+  push('Grupo de trabajo', before.opalosisIssue?.workGroup, after.opalosisIssue?.workGroup);
+  push('Línea de negocio', before.opalosisIssue?.businessLine, after.opalosisIssue?.businessLine);
+  push('Factura Opalo', before.opalosisIssue?.opaloCompany, after.opalosisIssue?.opaloCompany);
+  push('DNI de quien emite', before.opalosisIssue?.makerDni, after.opalosisIssue?.makerDni);
 
   (Object.keys(RATE_LABELS) as (keyof BillingRates)[]).forEach((key) => {
     push(RATE_LABELS[key], before.rates[key], after.rates[key]);

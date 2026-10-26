@@ -176,6 +176,7 @@ export async function prepareBillingDraft(
   const model = emptyBillingModel(`${serviceLabel} — ${monthLabel}`, serviceLabel, rates);
   model.attendanceFrom = window.from;
   model.attendanceTo = window.to;
+  model.opalosisPesCode = (profile?.opalosisPesCode || previous?.model.opalosisPesCode || '').trim();
   model.considerations = profile?.considerations || previous?.model.considerations || model.considerations;
 
   const bonuses = new Map<string, { amount: number; concept: string[] }>();
@@ -618,11 +619,13 @@ export async function setBillingStatus(
 }
 
 export async function saveBillingProfile(unitId: string, model: ClientBillingModel, actor: BillingActor): Promise<void> {
+  const existing = await loadProfile(unitId);
   const payload = {
     rates: model.rates,
     serviceLabel: model.serviceLabel,
     considerations: model.considerations,
     administrative: model.administrative,
+    opalosisPesCode: (model.opalosisPesCode || existing?.opalosisPesCode || '').trim(),
   };
   const { error } = await db.from('client_billing_profiles').upsert({
     unit_id: unitId,
@@ -674,12 +677,29 @@ async function assertBillingAdmin(actor: BillingActor): Promise<void> {
   }
 }
 
+export async function loadUnitOpalosisPes(unitId: string): Promise<string> {
+  const profile = await loadProfile(unitId);
+  return String(profile?.opalosisPesCode || '').trim();
+}
+
+export async function saveUnitOpalosisPes(unitId: string, pesCode: string, actor: BillingActor): Promise<void> {
+  const existing = (await loadProfile(unitId)) || {};
+  const { error } = await db.from('client_billing_profiles').upsert({
+    unit_id: unitId,
+    payload: { ...existing, opalosisPesCode: pesCode.trim() },
+    updated_by_name: actor.name,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw mapError(error);
+}
+
 async function loadProfile(unitId: string): Promise<{
   rates?: Partial<BillingRates>;
   serviceLabel?: string;
   considerations?: string;
   administrative?: BillingCostLine[];
   formulas?: BillingFormulaSet;
+  opalosisPesCode?: string;
 } | null> {
   const { data, error } = await db
     .from('client_billing_profiles')

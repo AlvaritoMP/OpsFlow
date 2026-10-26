@@ -131,6 +131,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  /** Documento de quien emite. OpaloSis lo recibe como documentoMaker. */
+  dni?: string;
   role: UserRole;
   avatar?: string;
   linkedClientNames?: string[]; // Changed to array: Links user to specific Client Companies (client names)

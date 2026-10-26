@@ -561,6 +561,7 @@ export const authService = {
         id: finalUserId,
         name: userData.name || email,
         email: email.toLowerCase(),
+        dni: userData.dni,
         role: userData.role || 'OPERATIONS',
         avatar: userData.avatar || userData.name?.substring(0, 2).toUpperCase(),
         linkedClientNames: userData.linkedClientNames,

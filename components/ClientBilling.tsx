@@ -38,13 +38,16 @@ import {
   loadBillingDayGlance,
   BillingDayGlance,
   loadPublishedBillingFormulas,
+  loadUnitOpalosisPes,
   publishBillingFormulas,
   saveBillingNote,
   saveBillingProfile,
   saveClientBilling,
+  saveUnitOpalosisPes,
   setBillingNoteStatus,
   setBillingStatus,
 } from '../services/clientBillingService';
+import { usersService } from '../services/usersService';
 import { BillingFormulaEditor } from './BillingFormulaEditor';
 import { BillingRunCompare } from './BillingRunCompare';
 import {
@@ -65,9 +68,17 @@ import {
   cloneModel,
   computeBilling,
   diffBillingModels,
+  formatAttendanceDate,
   formatAttendanceRange,
   formatBillingDate,
   formatPeriodLabel,
+  OPALOSIS_BUSINESS_LINES,
+  OPALOSIS_COMPANIES,
+  OPALOSIS_DOCUMENT_LABELS,
+  OPALOSIS_POSITION,
+  OPALOSIS_WORK_GROUPS,
+  OpalosisDocumentKind,
+  OpalosisIssueSettings,
   inclusiveDayCount,
   monthDateBounds,
   newBillingId,
@@ -164,6 +175,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createPeriod, setCreatePeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [createFrom, setCreateFrom] = useState(() => monthDateBounds(new Date().toISOString().slice(0, 7)).from);
   const [createTo, setCreateTo] = useState(() => monthDateBounds(new Date().toISOString().slice(0, 7)).to);
+  const [createOsFrom, setCreateOsFrom] = useState('');
+  const [createOsTo, setCreateOsTo] = useState('');
+  const [createPes, setCreatePes] = useState('');
+  const [issueOpen, setIssueOpen] = useState(false);
   const [copyPrevious, setCopyPrevious] = useState(true);
   const [appliedAttendanceKey, setAppliedAttendanceKey] = useState('');
   const [billingSection, setBillingSection] = useState<'liquidaciones' | 'formulas'>('liquidaciones');
@@ -195,6 +210,21 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setLoadingList(false);
     }
   };
+
+  useEffect(() => {
+    if (!showCreate || !createUnitId) return;
+    let cancelled = false;
+    void loadUnitOpalosisPes(createUnitId)
+      .then((pes) => {
+        if (!cancelled) setCreatePes(pes);
+      })
+      .catch(() => {
+        if (!cancelled) setCreatePes('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showCreate, createUnitId]);
 
   useEffect(() => {
     void loadList();
@@ -268,6 +298,14 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setBanner(windowError);
       return;
     }
+    if (!createOsFrom || !createOsTo) {
+      setBanner('Indique el inicio y la entrega de la orden de servicio.');
+      return;
+    }
+    if (createOsTo < createOsFrom) {
+      setBanner('La entrega de la orden de servicio no puede ser anterior al inicio.');
+      return;
+    }
     setBusy('Armando la liquidación con el personal de la unidad');
     setBanner(null);
     try {
@@ -283,6 +321,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         createPeriod,
         { copyPreviousCosts: copyPrevious, attendanceFrom: createFrom, attendanceTo: createTo }
       );
+      model.osStartDate = createOsFrom;
+      model.osEndDate = createOsTo;
+      model.opalosisPesCode = createPes.trim();
+      if (model.opalosisPesCode) await saveUnitOpalosisPes(unit.id, model.opalosisPesCode, actor);
       setEditor({
         unitId: unit.id,
         clientName: unit.clientName,
@@ -423,22 +465,26 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
   };
 
-  const changeStatus = async (status: BillingStatus) => {
-    if (!editor) return;
-    if (status !== 'issued' && !editor.id) {
+  const changeStatus = async (status: BillingStatus, source?: EditorState): Promise<boolean> => {
+    const origin = source || editor;
+    if (!origin) return false;
+    if (status !== 'issued' && !origin.id) {
       setBanner('Guarde la liquidación antes de anularla.');
-      return;
+      return false;
     }
+    const kind = origin.model.opalosisIssue?.documentKind;
     const summaries: Record<BillingStatus, string> = {
-      issued: 'Emitió la facturación. A partir de aquí solo se modifica reabriendo el borrador.',
+      issued: kind
+        ? `Emitió la facturación como ${OPALOSIS_DOCUMENT_LABELS[kind]}. Los datos de la orden quedaron en la liquidación.`
+        : 'Emitió la facturación. A partir de aquí solo se modifica reabriendo el borrador.',
       draft: 'Reabrió la facturación para corregirla.',
       void: 'Anuló la facturación de este mes.',
     };
     setBusy(status === 'issued' ? 'Emitiendo' : status === 'void' ? 'Anulando' : 'Reabriendo');
     setBanner(null);
     try {
-      let issuedEditor = editor;
-      if (status === 'issued') issuedEditor = await syncAttendance(editor);
+      let issuedEditor = origin;
+      if (status === 'issued') issuedEditor = await syncAttendance(origin);
       let billingId = issuedEditor.id;
       if (status === 'issued' && (!billingId || diffBillingModels(issuedEditor.baseline, issuedEditor.model).length)) {
         const savedDraft = await saveClientBilling({
@@ -459,7 +505,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
           updatedByName: savedDraft.updatedByName,
         };
       }
-      if (!billingId) return;
+      if (!billingId) return false;
       const saved = await setBillingStatus(billingId, status, actor, summaries[status]);
       const audit = await getBillingAudit(saved.id);
       setEditor({
@@ -473,12 +519,60 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         baseline: cloneModel(issuedEditor.model),
       });
       setBanner(summaries[status]);
+      if (status === 'issued') setIssueOpen(false);
       await loadList();
+      return true;
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo actualizar el estado.');
+      return false;
     } finally {
       setBusy(null);
     }
+  };
+
+  const confirmIssue = async (input: {
+    osStartDate: string;
+    osEndDate: string;
+    pesCode: string;
+    issue: OpalosisIssueSettings;
+  }) => {
+    if (!editor) return;
+    const next: EditorState = {
+      ...editor,
+      model: {
+        ...editor.model,
+        osStartDate: input.osStartDate,
+        osEndDate: input.osEndDate,
+        opalosisPesCode: input.pesCode.trim(),
+        opalosisIssue: input.issue,
+      },
+    };
+    let dniNote = '';
+    try {
+      await usersService.update(currentUser.id, {
+        name: currentUser.name,
+        email: currentUser.email,
+        role: currentUser.role,
+        avatar: currentUser.avatar,
+        dni: input.issue.makerDni,
+        canDeleteAttendanceIncidents: currentUser.canDeleteAttendanceIncidents,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message.includes('columna de DNI')) {
+        dniNote = ' El DNI quedó en esta liquidación. Para guardarlo en el usuario, ejecute migrations/MIGRATION_USERS_DNI.sql.';
+      }
+    }
+    if (next.model.opalosisPesCode) {
+      try {
+        await saveUnitOpalosisPes(editor.unitId, next.model.opalosisPesCode, actor);
+      } catch {
+        dniNote += ' No se pudo guardar el PES en la unidad; quedó en esta liquidación.';
+      }
+    }
+    const issued = await changeStatus('issued', next);
+    if (!issued) setIssueOpen(false);
+    if (issued && dniNote) setBanner((current) => `${current || ''}${dniNote}`);
   };
 
   const refreshOpenAudit = async () => {
@@ -719,7 +813,26 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                     Asistencia y novedades hasta
                     <input className={fieldClass} type="date" value={createTo} onChange={(event) => setCreateTo(event.target.value)} />
                   </label>
+                  <label className="text-sm text-slate-600 md:col-span-2">
+                    Código PES de OpaloSis
+                    <input
+                      className={fieldClass}
+                      value={createPes}
+                      placeholder="PES-20131211-01"
+                      onChange={(event) => setCreatePes(event.target.value)}
+                    />
+                    <span className="mt-1 block text-xs text-slate-500">Se guarda en la unidad y se reutiliza en las siguientes liquidaciones.</span>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Inicio de la orden de servicio
+                    <input className={fieldClass} type="date" value={createOsFrom} onChange={(event) => setCreateOsFrom(event.target.value)} />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Entrega de la orden de servicio
+                    <input className={fieldClass} type="date" value={createOsTo} onChange={(event) => setCreateOsTo(event.target.value)} />
+                  </label>
                 </div>
+                <p className="text-xs text-slate-500">El inicio y la entrega son el tiempo de vida de la orden en OpaloSis. Son distintas del corte de asistencia.</p>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={copyPrevious} onChange={(event) => setCopyPrevious(event.target.checked)} />
                   Copiar costos operativos y administrativos del mes anterior
@@ -844,7 +957,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onPatchRates={patchRates}
             onSave={() => void save()}
             onSaveEssalud={() => void saveEssaludFixed()}
-            onIssue={() => void changeStatus('issued')}
+            onIssue={() => setIssueOpen(true)}
             onReopen={() => void changeStatus('draft')}
             onVoid={() => {
               if (window.confirm('¿Anular esta facturación? Quedará en el historial y podrá crear otra del mismo mes.')) {
@@ -886,6 +999,22 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
           />
         )}
 
+        {issueOpen && editor && computed && (
+          <IssueOpalosisDialog
+            osStartDate={editor.model.osStartDate || ''}
+            osEndDate={editor.model.osEndDate || ''}
+            pesCode={editor.model.opalosisPesCode || ''}
+            makerDni={currentUser.dni || editor.model.opalosisIssue?.makerDni || ''}
+            totalWithoutIgv={computed.grandTotal}
+            initial={editor.model.opalosisIssue}
+            busy={!!busy}
+            onClose={() => {
+              if (!busy) setIssueOpen(false);
+            }}
+            onConfirm={(input) => void confirmIssue(input)}
+          />
+        )}
+
         {busy && (
           <div className="fixed bottom-4 right-4 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
             <Loader2 size={16} className="animate-spin" /> {busy}
@@ -895,6 +1024,163 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     </div>
   );
 };
+
+function IssueOpalosisDialog(props: {
+  osStartDate: string;
+  osEndDate: string;
+  pesCode: string;
+  makerDni: string;
+  totalWithoutIgv: number;
+  initial?: OpalosisIssueSettings;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (input: { osStartDate: string; osEndDate: string; pesCode: string; issue: OpalosisIssueSettings }) => void;
+}) {
+  const [osFrom, setOsFrom] = useState(props.osStartDate);
+  const [osTo, setOsTo] = useState(props.osEndDate);
+  const [pes, setPes] = useState(props.pesCode);
+  const [kind, setKind] = useState<OpalosisDocumentKind>(props.initial?.documentKind || 'invoice');
+  const [workGroup, setWorkGroup] = useState(props.initial?.workGroup || '');
+  const [businessLine, setBusinessLine] = useState(props.initial?.businessLine || '');
+  const [company, setCompany] = useState(props.initial?.opaloCompany || '');
+  const [dni, setDni] = useState(props.makerDni);
+  const [error, setError] = useState<string | null>(null);
+  const inputClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
+  const signed = kind === 'credit' ? -Math.abs(props.totalWithoutIgv) : Math.abs(props.totalWithoutIgv);
+
+  const submit = () => {
+    const document = dni.trim();
+    if (!osFrom || !osTo) {
+      setError('Indique el inicio y la entrega de la orden de servicio.');
+      return;
+    }
+    if (osTo < osFrom) {
+      setError('La entrega de la orden no puede ser anterior al inicio.');
+      return;
+    }
+    if (!pes.trim()) {
+      setError('Indique el código PES de la unidad.');
+      return;
+    }
+    if (!workGroup || !businessLine || !company) {
+      setError('Elija el grupo de trabajo, la línea de negocio y la empresa que factura.');
+      return;
+    }
+    if (document.length < 8 || document.length > 20) {
+      setError('El DNI de quien emite debe tener entre 8 y 20 caracteres.');
+      return;
+    }
+    setError(null);
+    props.onConfirm({
+      osStartDate: osFrom,
+      osEndDate: osTo,
+      pesCode: pes.trim(),
+      issue: {
+        documentKind: kind,
+        workGroup,
+        businessLine,
+        opaloCompany: company,
+        positionLabel: OPALOSIS_POSITION,
+        clientApplicant: 'first',
+        makerDni: document,
+      },
+    });
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" role="dialog" aria-labelledby="opalosis-issue-title">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h2 id="opalosis-issue-title" className="font-semibold text-slate-900">Emitir hacia OpaloSis</h2>
+          <p className="text-sm text-slate-500 mt-1">Estos datos completan la orden de servicio. El monto es el total sin IGV.</p>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-sm text-slate-600">
+              Inicio de la orden
+              <input className={inputClass} type="date" value={osFrom} onChange={(event) => setOsFrom(event.target.value)} />
+            </label>
+            <label className="text-sm text-slate-600">
+              Entrega de la orden
+              <input className={inputClass} type="date" value={osTo} onChange={(event) => setOsTo(event.target.value)} />
+            </label>
+          </div>
+          <label className="block text-sm text-slate-600">
+            Código PES
+            <input className={inputClass} value={pes} onChange={(event) => setPes(event.target.value)} />
+          </label>
+          <fieldset className="space-y-1">
+            <legend className="text-sm text-slate-600">Documento</legend>
+            <div className="flex flex-wrap gap-2">
+              {(Object.keys(OPALOSIS_DOCUMENT_LABELS) as OpalosisDocumentKind[]).map((option) => (
+                <label key={option} className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm cursor-pointer ${kind === option ? 'border-blue-600 bg-blue-50 text-blue-900' : 'border-slate-200 text-slate-700'}`}>
+                  <input type="radio" name="opalosis-document" className="sr-only" checked={kind === option} onChange={() => setKind(option)} />
+                  {OPALOSIS_DOCUMENT_LABELS[option]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <p className="text-sm text-slate-800">
+            Total sin IGV que viaja: <strong>{pen(signed)}</strong>
+            {kind === 'credit' ? ' (negativo por nota de crédito)' : ''}
+          </p>
+          <label className="block text-sm text-slate-600">
+            Cliente solicitante
+            <select className={inputClass} value="first" disabled>
+              <option value="first">Primero de la lista de OpaloSis</option>
+            </select>
+          </label>
+          <label className="block text-sm text-slate-600">
+            Grupo de trabajo
+            <select className={inputClass} value={workGroup} onChange={(event) => setWorkGroup(event.target.value)}>
+              <option value="">Seleccione</option>
+              {OPALOSIS_WORK_GROUPS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-slate-600">
+            Línea de negocio
+            <select className={inputClass} value={businessLine} onChange={(event) => setBusinessLine(event.target.value)}>
+              <option value="">Seleccione</option>
+              {OPALOSIS_BUSINESS_LINES.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-slate-600">
+            Puesto OS
+            <input className={inputClass} value={OPALOSIS_POSITION} disabled />
+          </label>
+          <label className="block text-sm text-slate-600">
+            Factura Opalo
+            <select className={inputClass} value={company} onChange={(event) => setCompany(event.target.value)}>
+              <option value="">Seleccione</option>
+              {OPALOSIS_COMPANIES.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-slate-600">
+            DNI de quien emite
+            <input className={inputClass} value={dni} maxLength={20} onChange={(event) => setDni(event.target.value)} />
+          </label>
+          <p className="text-xs text-slate-500">Moneda: soles (PEN), tipo de cambio 1. Al confirmar, estos datos quedan guardados en la liquidación. La orden en OpaloSis se enviará cuando la conexión esté activa.</p>
+          {error && <p className="text-sm text-red-700">{error}</p>}
+        </div>
+        <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2">
+          <button type="button" onClick={props.onClose} disabled={props.busy} className="px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-60">
+            Cancelar
+          </button>
+          <button type="button" onClick={submit} disabled={props.busy} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-60">
+            <Check size={16} /> {props.busy ? 'Emitiendo' : 'Confirmar emisión'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 function EditorView(props: {
   editor: EditorState;
@@ -991,6 +1277,10 @@ function EditorView(props: {
           </div>
           <p className="text-sm text-slate-500 mt-1">
             {editor.unitName} · {formatPeriodLabel(editor.periodMonth)} · Corte {formatAttendanceRange(attendance.from, attendance.to)}
+            {editor.model.osStartDate && editor.model.osEndDate
+              ? ` · Orden ${formatAttendanceDate(editor.model.osStartDate)} – ${formatAttendanceDate(editor.model.osEndDate)}`
+              : ''}
+            {editor.model.opalosisPesCode ? ` · PES ${editor.model.opalosisPesCode}` : ''}
             {editor.updatedByName ? ` · Último guardado por ${editor.updatedByName}` : ''}
             {editor.issuedByName ? ` · Emitida por ${editor.issuedByName}` : ''}
           </p>
@@ -1034,7 +1324,7 @@ function EditorView(props: {
                 type="button"
                 onClick={props.onIssue}
                 disabled={!!props.busy}
-                title="Guarda los cambios pendientes, actualiza las faltas si el corte cambió y bloquea la liquidación. No envía un comprobante a SUNAT."
+                title="Abre la ventana para indicar el documento, el grupo, la línea y la empresa antes de emitir."
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-60"
               >
                 <Check size={16} /> Emitir
@@ -1050,7 +1340,14 @@ function EditorView(props: {
       </div>
 
       {editor.status === 'issued' && (
-        <Banner tone="info" text="Emitir guardó el cálculo y dejó esta liquidación como estaba. Para cambiar un sueldo, un costo o la utilidad hay que reabrirla. EsSalud se cambia en Parámetros de esta liquidación." />
+        <Banner
+          tone="info"
+          text={`Emitir guardó el cálculo y dejó esta liquidación cerrada.${
+            editor.model.opalosisIssue
+              ? ` Se registró como ${OPALOSIS_DOCUMENT_LABELS[editor.model.opalosisIssue.documentKind]}, grupo ${editor.model.opalosisIssue.workGroup}, ${editor.model.opalosisIssue.businessLine}, factura ${editor.model.opalosisIssue.opaloCompany}.`
+              : ''
+          } Para cambiar un sueldo, un costo o la utilidad hay que reabrirla.`}
+        />
       )}
       {props.banner && <Banner tone="info" text={props.banner} />}
       {props.compareSlot}

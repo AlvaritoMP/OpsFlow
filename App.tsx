@@ -150,7 +150,7 @@ const App: React.FC = () => {
   // User Management State
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [userForm, setUserForm] = useState<{name: string, email: string, password: string, role: UserRole, linkedClientNames: string[], canDeleteAttendanceIncidents: boolean}>({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
+  const [userForm, setUserForm] = useState<{name: string, email: string, dni: string, password: string, role: UserRole, linkedClientNames: string[], canDeleteAttendanceIncidents: boolean}>({ name: '', email: '', dni: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [passwordForm, setPasswordForm] = useState<{userId: string, newPassword: string, confirmPassword: string}>({ userId: '', newPassword: '', confirmPassword: '' });
   const [userOperationLoading, setUserOperationLoading] = useState<{type: 'create' | 'update' | 'delete' | 'password' | null, userId?: string}>({ type: null });
@@ -1156,7 +1156,7 @@ const App: React.FC = () => {
   // --- USER MANAGEMENT HANDLERS ---
   const openAddUserModal = () => {
       setEditingUser(null);
-      setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
+      setUserForm({ name: '', email: '', dni: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
       setShowUserModal(true);
   };
 
@@ -1164,7 +1164,8 @@ const App: React.FC = () => {
       setEditingUser(user);
       setUserForm({ 
           name: user.name, 
-          email: user.email, 
+          email: user.email,
+          dni: user.dni || '',
           password: '', 
           role: user.role, 
           linkedClientNames: user.linkedClientNames || [],
@@ -1251,6 +1252,11 @@ const App: React.FC = () => {
 
   const handleSaveUser = async () => {
     if (!userForm.name || !userForm.email) return;
+    const dni = userForm.dni.trim();
+    if (dni && (dni.length < 8 || dni.length > 20)) {
+      alert('El DNI debe tener entre 8 y 20 caracteres.');
+      return;
+    }
     
     // Si es nuevo usuario, requiere contraseña
     if (!editingUser && !userForm.password) {
@@ -1286,6 +1292,7 @@ const App: React.FC = () => {
         await updateUser(editingUser.id, {
           name: userForm.name,
           email: userForm.email,
+          dni: userForm.dni.trim(),
           role: userForm.role,
           linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined,
           ...(deleteAutonomy !== undefined ? { canDeleteAttendanceIncidents: deleteAutonomy } : {}),
@@ -1295,6 +1302,7 @@ const App: React.FC = () => {
         const { dbUser } = await authService.signUp(userForm.email, userForm.password, {
           name: userForm.name,
           email: userForm.email,
+          dni: userForm.dni.trim(),
           role: userForm.role,
           avatar: userForm.name.substring(0,2).toUpperCase(),
           linkedClientNames: isRestrictedRole ? userForm.linkedClientNames : undefined,
@@ -1312,7 +1320,7 @@ const App: React.FC = () => {
       await loadUsers();
       
       setShowUserModal(false);
-      setUserForm({ name: '', email: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
+      setUserForm({ name: '', email: '', dni: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
     } catch (error: any) {
       console.error('Error al guardar usuario:', error);
       alert(error.message || 'Error al guardar el usuario. Por favor, intente nuevamente.');
@@ -3084,6 +3092,11 @@ const App: React.FC = () => {
                   </div>
                   <div className="p-6 space-y-4">
                       <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} /></div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">DNI</label>
+                        <input type="text" maxLength={20} className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.dni} onChange={e => setUserForm({...userForm, dni: e.target.value})} placeholder="Documento de quien emite" />
+                        <p className="text-xs text-slate-500 mt-1">Se envía a OpaloSis al emitir una liquidación. Entre 8 y 20 caracteres.</p>
+                      </div>
                       <div><label className="block text-sm font-medium text-slate-700 mb-1">Email</label><input type="email" className="w-full border border-slate-300 rounded-lg p-2 outline-none bg-slate-50" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} disabled={!!editingUser} /></div>
                       {!editingUser && (
                         <div>

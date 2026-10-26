@@ -142,9 +142,10 @@ export const usersService = {
         const missingColumn =
           error.code === '42703' ||
           error.code === 'PGRST204' ||
-          /can_delete_attendance_incidents/i.test(error.message || '');
-        if (missingColumn && userData.can_delete_attendance_incidents !== undefined) {
-          delete userData.can_delete_attendance_incidents;
+          /can_delete_attendance_incidents|dni/i.test(error.message || '');
+        if (missingColumn && (userData.can_delete_attendance_incidents !== undefined || userData.dni !== undefined)) {
+          if (/can_delete_attendance_incidents/i.test(error.message || '')) delete userData.can_delete_attendance_incidents;
+          if (/dni/i.test(error.message || '')) delete userData.dni;
           const retry = await supabase.from('users').insert(userData).select().single();
           if (retry.error) {
             console.error('Error al insertar usuario:', retry.error);
@@ -192,11 +193,14 @@ export const usersService = {
         const missingColumn =
           error.code === '42703' ||
           error.code === 'PGRST204' ||
-          /can_delete_attendance_incidents/i.test(error.message || '');
-        if (missingColumn && userData.can_delete_attendance_incidents !== undefined) {
-          delete userData.can_delete_attendance_incidents;
+          /can_delete_attendance_incidents|dni/i.test(error.message || '');
+        const droppedDni = missingColumn && userData.dni !== undefined && /dni/i.test(error.message || '');
+        if (missingColumn && (userData.can_delete_attendance_incidents !== undefined || userData.dni !== undefined)) {
+          if (/can_delete_attendance_incidents/i.test(error.message || '')) delete userData.can_delete_attendance_incidents;
+          if (droppedDni) delete userData.dni;
           const retry = await supabase.from('users').update(userData).eq('id', id);
           if (retry.error) throw retry.error;
+          if (droppedDni) throw new Error('Falta la columna de DNI en usuarios. Ejecute migrations/MIGRATION_USERS_DNI.sql en Supabase.');
         } else {
           throw error;
         }
@@ -283,6 +287,7 @@ function transformUserFromDB(data: any): User {
     email: data.email,
     role: data.role as UserRole,
     avatar: data.avatar,
+    dni: data.dni ? String(data.dni) : undefined,
     linkedClientNames: data.user_client_links?.map((link: any) => link.client_name) || [],
     canDeleteAttendanceIncidents: data.can_delete_attendance_incidents === true,
     // NO incluir password_hash en el objeto User retornado por seguridad
@@ -309,6 +314,10 @@ function transformUserToDB(user: Partial<User>): any {
   }
   if (user.canDeleteAttendanceIncidents !== undefined) {
     result.can_delete_attendance_incidents = Boolean(user.canDeleteAttendanceIncidents);
+  }
+  if (user.dni !== undefined) {
+    const dni = String(user.dni).trim();
+    result.dni = dni || null;
   }
   // Si se proporciona password pero no password_hash, se debe hashear antes de llamar a esta función
   
