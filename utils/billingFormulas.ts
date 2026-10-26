@@ -559,3 +559,41 @@ function describeArg(ast: Ast, parentOp?: string): string {
 function formatNumber(value: number): string {
   return Number(value.toFixed(6)).toString();
 }
+
+/** Traduce una fórmula de liquidación a una fórmula de Excel.
+ * Los nombres los resuelve quien llama: una celda o un nombre definido.
+ * La división entre cero da 0, igual que el cálculo de OpsFlow.
+ */
+export function formulaToExcel(expression: string, refOf: (name: string) => string): string {
+  return excelNode(parseFormula(expression), refOf);
+}
+
+function excelNode(ast: Ast, refOf: (name: string) => string): string {
+  if (ast.t === 'n') return excelNumber(ast.v);
+  if (ast.t === 'id') return refOf(ast.n);
+  if (ast.t === 'un') return `(-${excelNode(ast.v, refOf)})`;
+  if (ast.t === 'call') {
+    const args = ast.a.map((item) => excelNode(item, refOf));
+    if (ast.n === 'max') return `MAX(${args.join(',')})`;
+    if (ast.n === 'min') return `MIN(${args.join(',')})`;
+    return `IF(ABS(${args[0]})>0.000000000001,${args[1]},${args[2]})`;
+  }
+  const left = excelNode(ast.l, refOf);
+  const right = excelNode(ast.r, refOf);
+  if (ast.op === '+') return `(${left}+${right})`;
+  if (ast.op === '-') return `(${left}-${right})`;
+  if (ast.op === '*') return `(${left}*${right})`;
+  if (ast.op === '/') return `IF((${right})=0,0,(${left})/(${right}))`;
+  if (ast.op === '>') return `IF((${left})>(${right}),1,0)`;
+  if (ast.op === '<') return `IF((${left})<(${right}),1,0)`;
+  if (ast.op === '>=') return `IF((${left})>=(${right}),1,0)`;
+  if (ast.op === '<=') return `IF((${left})<=(${right}),1,0)`;
+  return `IF((${left})=(${right}),1,0)`;
+}
+
+function excelNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  if (Object.is(value, -0)) return '0';
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(12).replace(/\.?0+$/, '');
+}

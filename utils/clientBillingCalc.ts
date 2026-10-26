@@ -50,8 +50,8 @@ export interface BillingRates {
   /** El bono nocturno incluye la asignación familiar en la base. */
   nightBonusIncludeFamily: boolean;
   /**
-   * En el detalle para el cliente, las horas extra se muestran dentro del bono nocturno.
-   * El cálculo del costo no cambia.
+   * En el detalle para el cliente, las horas extra nocturnas se muestran dentro del bono nocturno.
+   * Las diurnas siguen en su columna. El cálculo del costo no cambia.
    */
   rollOvertimeIntoNightBonus: boolean;
   commercialMonthDays: number;
@@ -353,7 +353,7 @@ const RATE_LABELS: Record<keyof BillingRates, string> = {
   heNightApplyPremium: 'Recargo nocturno en hora extra nocturna',
   nightPremiumRate: 'Porcentaje de bono nocturno',
   nightBonusIncludeFamily: 'Asignación familiar en bono nocturno',
-  rollOvertimeIntoNightBonus: 'Acumular horas extra en bono nocturno',
+  rollOvertimeIntoNightBonus: 'Acumular horas extra nocturnas en bono nocturno',
   commercialMonthDays: 'Días comerciales del mes',
   hoursPerDay: 'Horas por día',
   financialAnnualRate: 'Tasa anual del costo financiero',
@@ -616,7 +616,7 @@ export interface OvertimeNightSplit {
   night: number;
 }
 
-/** Pasa las horas extra a la columna de bono nocturno. Sirve para mostrar el detalle; no altera el costo. */
+/** Pasa solo las horas extra nocturnas a la columna de bono nocturno. Sirve para mostrar el detalle; no altera el costo. */
 export function presentOvertimeInNightBonus(split: OvertimeNightSplit, enabled: boolean): OvertimeNightSplit {
   const he25 = num(split.he25);
   const he35 = num(split.he35);
@@ -625,11 +625,11 @@ export function presentOvertimeInNightBonus(split: OvertimeNightSplit, enabled: 
   const night = num(split.night);
   if (!enabled) return { he25, he35, heNight25, heNight35, night };
   return {
-    he25: 0,
-    he35: 0,
+    he25,
+    he35,
     heNight25: 0,
     heNight35: 0,
-    night: night + he25 + he35 + heNight25 + heNight35,
+    night: night + heNight25 + heNight35,
   };
 }
 
@@ -703,10 +703,84 @@ function workerFormulaValues(worker: BillingWorkerInput, rates: BillingRates, fo
   }
 }
 
-function workerFormulaScope(worker: BillingWorkerInput, rates: BillingRates): Record<string, number> {
+export const WORKER_INPUT_IDS = [
+  'sueldo',
+  'dias',
+  'diasVacaciones',
+  'asignacion',
+  'condicionTrabajo',
+  'bonos',
+  'factor',
+  'he25Horas',
+  'he25Manual',
+  'he25ManualActivo',
+  'he35Horas',
+  'he35Manual',
+  'he35ManualActivo',
+  'heNoche25Horas',
+  'heNoche25Manual',
+  'heNoche25ManualActivo',
+  'heNoche35Horas',
+  'heNoche35Manual',
+  'heNoche35ManualActivo',
+  'bonoHoras',
+  'bonoManual',
+  'bonoManualActivo',
+  'ajusteBasico',
+  'ajusteHe25',
+  'ajusteHe35',
+  'ajusteHeNoche25',
+  'ajusteHeNoche35',
+  'ajusteBono',
+  'ajusteVacaciones',
+  'ajusteGratificacion',
+  'ajusteCts',
+  'ajusteFeriado',
+  'ajusteEssalud',
+  'ajusteVidaLey',
+  'ajusteSctr',
+] as const;
+
+export type WorkerInputId = (typeof WORKER_INPUT_IDS)[number];
+
+export const BILLING_RATE_IDS = [
+  'diasMes',
+  'horasDia',
+  'factorHe25',
+  'factorHe35',
+  'recargoNocturno',
+  'heDiaConAsignacion',
+  'heNocheConAsignacion',
+  'heNocheConRecargo',
+  'bonoConAsignacion',
+  'tasaVacaciones',
+  'tasaGratificacion',
+  'factorBonificacion',
+  'tasaCts',
+  'tasaFeriado',
+  'aplicaFeriado',
+  'tasaEssalud',
+  'essaludFijo',
+  'montoEssalud',
+  'rmv',
+  'tasaVidaLey',
+  'aplicaVidaLey',
+  'tasaSctr',
+  'aplicaSctr',
+  'tasaFinanciera',
+  'diasFinanciados',
+  'utilidadSoloLaboral',
+  'margenSobrePrecio',
+  'tasaUtilidad',
+  'tasaIgv',
+] as const;
+
+export type BillingRateId = (typeof BILLING_RATE_IDS)[number];
+
+/** Datos de una fila de personal. Son los mismos que usa el cálculo. */
+export function workerInputValues(worker: BillingWorkerInput): Record<WorkerInputId, number> {
   const manual = (value: number | null | undefined) => (value !== null && value !== undefined && Number.isFinite(value) ? value : 0);
   const active = (value: number | null | undefined) => (value !== null && value !== undefined && Number.isFinite(value) ? 1 : 0);
-  const flag = (value: boolean) => (value ? 1 : 0);
   return {
     sueldo: num(worker.contractualSalary),
     dias: num(worker.daysWorked),
@@ -730,29 +804,6 @@ function workerFormulaScope(worker: BillingWorkerInput, rates: BillingRates): Re
     bonoHoras: num(worker.nightHours),
     bonoManual: manual(worker.nightManual),
     bonoManualActivo: active(worker.nightManual),
-    diasMes: rates.commercialMonthDays || 30,
-    horasDia: rates.hoursPerDay || 8,
-    tasaVacaciones: num(rates.vacationRate),
-    tasaGratificacion: num(rates.gratiRate),
-    factorBonificacion: num(rates.gratiBonusFactor),
-    tasaCts: num(rates.ctsRate),
-    tasaFeriado: num(rates.feriaRate),
-    aplicaFeriado: flag(rates.applyFeria),
-    tasaEssalud: num(rates.essaludRate),
-    essaludFijo: rates.essaludMode === 'fixed' ? 1 : 0,
-    montoEssalud: num(rates.essaludFixedAmount),
-    rmv: num(rates.minimumWage),
-    tasaVidaLey: num(rates.vidaLeyRate),
-    aplicaVidaLey: flag(rates.applyVidaLey),
-    tasaSctr: num(rates.sctrRate),
-    aplicaSctr: flag(rates.applySctr),
-    factorHe25: num(rates.he25Factor),
-    factorHe35: num(rates.he35Factor),
-    recargoNocturno: num(rates.nightPremiumRate),
-    heDiaConAsignacion: flag(rates.heDayIncludeFamily),
-    heNocheConAsignacion: flag(rates.heNightIncludeFamily),
-    heNocheConRecargo: flag(rates.heNightApplyPremium),
-    bonoConAsignacion: flag(rates.nightBonusIncludeFamily),
     ajusteBasico: adjustmentAmount(worker, 'basic'),
     ajusteHe25: adjustmentAmount(worker, 'he25'),
     ajusteHe35: adjustmentAmount(worker, 'he35'),
@@ -767,6 +818,47 @@ function workerFormulaScope(worker: BillingWorkerInput, rates: BillingRates): Re
     ajusteVidaLey: adjustmentAmount(worker, 'vidaLey'),
     ajusteSctr: adjustmentAmount(worker, 'sctr'),
   };
+}
+
+/** Tasas y opciones de la liquidación. 1 es sí y 0 es no. */
+export function billingRateValues(rates: Partial<BillingRates> | undefined): Record<BillingRateId, number> {
+  const normalized = normalizeBillingRates(rates);
+  const flag = (value: boolean) => (value ? 1 : 0);
+  return {
+    diasMes: normalized.commercialMonthDays || 30,
+    horasDia: normalized.hoursPerDay || 8,
+    factorHe25: num(normalized.he25Factor),
+    factorHe35: num(normalized.he35Factor),
+    recargoNocturno: num(normalized.nightPremiumRate),
+    heDiaConAsignacion: flag(normalized.heDayIncludeFamily),
+    heNocheConAsignacion: flag(normalized.heNightIncludeFamily),
+    heNocheConRecargo: flag(normalized.heNightApplyPremium),
+    bonoConAsignacion: flag(normalized.nightBonusIncludeFamily),
+    tasaVacaciones: num(normalized.vacationRate),
+    tasaGratificacion: num(normalized.gratiRate),
+    factorBonificacion: num(normalized.gratiBonusFactor),
+    tasaCts: num(normalized.ctsRate),
+    tasaFeriado: num(normalized.feriaRate),
+    aplicaFeriado: flag(normalized.applyFeria),
+    tasaEssalud: num(normalized.essaludRate),
+    essaludFijo: normalized.essaludMode === 'fixed' ? 1 : 0,
+    montoEssalud: num(normalized.essaludFixedAmount),
+    rmv: num(normalized.minimumWage),
+    tasaVidaLey: num(normalized.vidaLeyRate),
+    aplicaVidaLey: flag(normalized.applyVidaLey),
+    tasaSctr: num(normalized.sctrRate),
+    aplicaSctr: flag(normalized.applySctr),
+    tasaFinanciera: num(normalized.financialAnnualRate),
+    diasFinanciados: num(normalized.financialDays),
+    utilidadSoloLaboral: normalized.profitBase === 'labor' ? 1 : 0,
+    margenSobrePrecio: normalized.profitMode === 'margin_on_price' ? 1 : 0,
+    tasaUtilidad: num(normalized.profitRate),
+    tasaIgv: num(normalized.igvRate),
+  };
+}
+
+function workerFormulaScope(worker: BillingWorkerInput, rates: BillingRates): Record<string, number> {
+  return { ...workerInputValues(worker), ...billingRateValues(rates) };
 }
 
 export function computeBilling(model: ClientBillingModel): BillingComputation {

@@ -854,7 +854,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onReload={() => void reloadPersonnel()}
             onRemember={() => void rememberConditions()}
             formulas={activeFormulas}
-            onExport={() => exportExcel(editor, computed, activeFormulas)}
+            onExport={(withFormulas) => exportExcel(editor, computed, activeFormulas, withFormulas)}
             onOpenHelp={onOpenHelp}
             onOpenCompare={() => {
               if (!editor.id) {
@@ -921,7 +921,7 @@ function EditorView(props: {
   onReload: () => void;
   onRemember: () => void;
   formulas?: BillingFormulaSet;
-  onExport: () => void;
+  onExport: (withFormulas?: boolean) => void;
   onOpenHelp?: () => void;
   onOpenCompare: () => void;
   compareSlot: React.ReactNode;
@@ -936,6 +936,7 @@ function EditorView(props: {
     return `${worker.name} ${worker.position} ${worker.dni || ''}`.toLowerCase().includes(q);
   });
   const includedCount = windowWorkers.filter((worker) => worker.included).length;
+  const [excelWithFormulas, setExcelWithFormulas] = useState(false);
   const [sheetMode, setSheetMode] = useState<'costs' | 'attendance' | 'novedades'>('costs');
   const [nightView, setNightView] = useState<'real' | 'rolled'>('real');
   const rollOvertime = editor.model.rates.rollOvertimeIntoNightBonus === true;
@@ -995,8 +996,24 @@ function EditorView(props: {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={props.onExport} title="Descargar Excel listo para imprimir en una hoja horizontal" className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50">
-            <Download size={16} /> Excel
+          <label
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 cursor-pointer"
+            title="Al descargar, el Excel trae las fórmulas de cada monto. En Cálculo y Parámetros se ve cómo se obtiene cada cifra."
+          >
+            <input type="checkbox" checked={excelWithFormulas} onChange={(event) => setExcelWithFormulas(event.target.checked)} />
+            Con fórmulas
+          </label>
+          <button
+            type="button"
+            onClick={() => props.onExport(excelWithFormulas)}
+            title={
+              excelWithFormulas
+                ? 'Descargar Excel con las fórmulas de cada monto. Cálculo y Parámetros muestran cómo se obtiene cada cifra.'
+                : 'Descargar Excel listo para imprimir en una hoja horizontal'
+            }
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50"
+          >
+            <Download size={16} /> {excelWithFormulas ? 'Excel con fórmulas' : 'Excel'}
           </button>
           {editor.id && (
             <button type="button" onClick={props.onOpenCompare} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50">
@@ -1147,7 +1164,7 @@ function EditorView(props: {
                   <span>
                     {sheetMode === 'costs'
                       ? showRolled
-                        ? 'Vista de cliente: las horas extra quedan en cero y su importe está sumado al bono nocturno, además del bono que ya correspondía. Remuneración, cargas y costo siguen el cálculo real. Vuelva a Detalle real para editar las horas.'
+                        ? 'Vista de cliente: las horas extra nocturnas quedan en cero y su importe está sumado al bono nocturno, además del bono que ya correspondía. Las diurnas siguen en su columna. Remuneración, cargas y costo siguen el cálculo real. Vuelva a Detalle real para editar las horas nocturnas.'
                         : 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Si gozó vacaciones, indique los días en Días vac.: las cargas se calculan con el sueldo base de esos días. Lo amarillo fue ajustado a mano.'
                       : sheetMode === 'attendance'
                         ? 'Asistencia del corte, por día. ✓ marcación completa, ½ incompleta, F falta o sin marcas, T tardanza.'
@@ -1178,7 +1195,7 @@ function EditorView(props: {
                     ))}
                   </div>
                   {rollOvertime && sheetMode === 'costs' && (
-                    <div className="inline-flex rounded-lg border border-amber-200 bg-amber-50 p-0.5" title="Compare el cálculo real con el detalle que verá el cliente, donde las horas extra están dentro del bono nocturno.">
+                    <div className="inline-flex rounded-lg border border-amber-200 bg-amber-50 p-0.5" title="Compare el cálculo real con el detalle que verá el cliente, donde las horas extra nocturnas están dentro del bono nocturno.">
                       {(
                         [
                           ['real', 'Detalle real'],
@@ -1632,16 +1649,16 @@ function LaborSheet(props: {
             <th className={head}>Días</th>
             <th className={head} title={say('sueldoVacaciones')}>Días vac.</th>
             <th className={head}>Asig. fam.</th>
-            <th className={head} title={props.showRolled ? 'En esta vista las horas están en Bono h' : undefined}>HE día 25 h</th>
-            <th className={head} title={props.showRolled ? 'En esta vista el importe está en Bono nocturno' : say('he25')}>HE día 25 S/</th>
-            <th className={head} title={props.showRolled ? 'En esta vista las horas están en Bono h' : undefined}>HE día 35 h</th>
-            <th className={head} title={props.showRolled ? 'En esta vista el importe está en Bono nocturno' : say('he35')}>HE día 35 S/</th>
+            <th className={head}>HE día 25 h</th>
+            <th className={head} title={say('he25')}>HE día 25 S/</th>
+            <th className={head}>HE día 35 h</th>
+            <th className={head} title={say('he35')}>HE día 35 S/</th>
             <th className={head} title={props.showRolled ? 'En esta vista las horas están en Bono h' : say('heNoche25')}>HE noche 25 h</th>
             <th className={head} title={props.showRolled ? 'En esta vista el importe está en Bono nocturno' : say('heNoche25')}>HE noche 25 S/</th>
             <th className={head} title={props.showRolled ? 'En esta vista las horas están en Bono h' : say('heNoche35')}>HE noche 35 h</th>
             <th className={head} title={props.showRolled ? 'En esta vista el importe está en Bono nocturno' : say('heNoche35')}>HE noche 35 S/</th>
-            <th className={nightHead} title={props.showRolled ? 'Horas de bono nocturno más todas las horas extra' : say('bonoNocturno')}>Bono h</th>
-            <th className={nightHead} title={props.showRolled ? 'Bono nocturno más el importe de todas las horas extra' : say('bonoNocturno')}>Bono S/</th>
+            <th className={nightHead} title={props.showRolled ? 'Horas de bono nocturno más las horas extra nocturnas' : say('bonoNocturno')}>Bono h</th>
+            <th className={nightHead} title={props.showRolled ? 'Bono nocturno más el importe de las horas extra nocturnas' : say('bonoNocturno')}>Bono S/</th>
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
@@ -1713,38 +1730,36 @@ function LaborSheet(props: {
                   />
                 </td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'familyAllowance')} title={hint(worker, 'familyAllowance')} disabled={props.locked} value={worker.familyAllowance} onChange={(familyAllowance) => props.onPatchWorker(worker.id, { familyAllowance })} /></td>
+                <OvertimeCells
+                  hours={worker.he25Hours}
+                  manual={worker.he25Manual}
+                  amount={line?.he25}
+                  extra={adjustmentAmount(worker, 'he25')}
+                  locked={props.locked}
+                  formula={say('he25')}
+                  onHours={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })}
+                  onManual={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })}
+                  onAdjust={(event) => openAdjustment(event, worker.id, 'he25')}
+                />
+                <OvertimeCells
+                  hours={worker.he35Hours}
+                  manual={worker.he35Manual}
+                  amount={line?.he35}
+                  extra={adjustmentAmount(worker, 'he35')}
+                  locked={props.locked}
+                  formula={say('he35')}
+                  onHours={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })}
+                  onManual={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })}
+                  onAdjust={(event) => openAdjustment(event, worker.id, 'he35')}
+                />
                 {props.showRolled ? (
                   <>
-                    <RolledPair hours={hours.he25} amount={money.he25} muted title="Estas horas extra están sumadas en el bono nocturno" />
-                    <RolledPair hours={hours.he35} amount={money.he35} muted title="Estas horas extra están sumadas en el bono nocturno" />
-                    <RolledPair hours={hours.heNight25} amount={money.heNight25} muted title="Estas horas extra están sumadas en el bono nocturno" />
-                    <RolledPair hours={hours.heNight35} amount={money.heNight35} muted title="Estas horas extra están sumadas en el bono nocturno" />
-                    <RolledPair hours={hours.night} amount={money.night} highlight title="Bono nocturno más todas las horas extra. El costo no cambia." />
+                    <RolledPair hours={hours.heNight25} amount={money.heNight25} muted title="Estas horas extra nocturnas están sumadas en el bono nocturno" />
+                    <RolledPair hours={hours.heNight35} amount={money.heNight35} muted title="Estas horas extra nocturnas están sumadas en el bono nocturno" />
+                    <RolledPair hours={hours.night} amount={money.night} highlight title="Bono nocturno más las horas extra nocturnas. El costo no cambia." />
                   </>
                 ) : (
                   <>
-                    <OvertimeCells
-                      hours={worker.he25Hours}
-                      manual={worker.he25Manual}
-                      amount={line?.he25}
-                      extra={adjustmentAmount(worker, 'he25')}
-                      locked={props.locked}
-                      formula={say('he25')}
-                      onHours={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })}
-                      onManual={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })}
-                      onAdjust={(event) => openAdjustment(event, worker.id, 'he25')}
-                    />
-                    <OvertimeCells
-                      hours={worker.he35Hours}
-                      manual={worker.he35Manual}
-                      amount={line?.he35}
-                      extra={adjustmentAmount(worker, 'he35')}
-                      locked={props.locked}
-                      formula={say('he35')}
-                      onHours={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })}
-                      onManual={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })}
-                      onAdjust={(event) => openAdjustment(event, worker.id, 'he35')}
-                    />
                     <OvertimeCells
                       hours={worker.heNight25Hours || 0}
                       manual={worker.heNight25Manual}
@@ -2303,9 +2318,9 @@ function ParametersPanel(props: {
             onChange={(event) => props.onRates({ rollOvertimeIntoNightBonus: event.target.checked })}
           />
           <span>
-            Acumular las horas extra en el bono nocturno
+            Acumular las horas extra nocturnas en el bono nocturno
             <span className="block text-xs text-slate-500 mt-0.5">
-              En el Excel del cliente, las horas extra diurnas y nocturnas al 25% y al 35% se suman en la columna de bono nocturno, además del bono que ya corresponda. El costo no cambia. En Personal use Detalle real o Bono acumulado para ver las dos lecturas.
+              En el Excel del cliente, HE noche 25% y HE noche 35% se suman en la columna de bono nocturno, además del bono que ya corresponda. Las horas extra diurnas siguen en su columna. El costo no cambia. En Personal use Detalle real o Bono acumulado para ver las dos lecturas.
             </span>
           </span>
         </label>
@@ -2607,7 +2622,7 @@ function describeCreation(model: ClientBillingModel) {
   ];
 }
 
-async function exportExcel(editor: EditorState, computed: BillingComputation, formulas?: BillingFormulaSet | null) {
+async function exportExcel(editor: EditorState, computed: BillingComputation, formulas?: BillingFormulaSet | null, withFormulas = false) {
   try {
     const { downloadClientBillingExcel } = await import('../utils/clientBillingExcel');
     const model = modelInAttendanceWindow(editor.periodMonth, editor.model);
@@ -2617,6 +2632,7 @@ async function exportExcel(editor: EditorState, computed: BillingComputation, fo
       periodMonth: editor.periodMonth,
       model: { ...model, formulas: formulas || undefined },
       computed,
+      withFormulas,
     });
   } catch (error) {
     console.error(error);

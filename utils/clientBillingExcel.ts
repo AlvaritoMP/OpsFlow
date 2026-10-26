@@ -14,6 +14,19 @@ import {
   resolveAttendanceWindow,
 } from './clientBillingCalc';
 import { describeFormula } from './billingFormulas';
+import { attachBillingFormulaSheets, type FormulaBook } from './clientBillingExcelFormulas';
+
+// exceljs es CommonJS. Algunos entornos lo entregan envuelto; se usa la capa que trae Workbook.
+const Excel = excelModule(ExcelJS);
+
+function excelModule(namespace: typeof ExcelJS): typeof ExcelJS {
+  const bag = namespace as typeof ExcelJS & { default?: typeof ExcelJS; 'module.exports'?: typeof ExcelJS };
+  const candidates = [namespace, bag.default, bag['module.exports']];
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate.Workbook === 'function') return candidate;
+  }
+  return namespace;
+}
 
 export interface ClientBillingExcelInput {
   clientName: string;
@@ -21,8 +34,11 @@ export interface ClientBillingExcelInput {
   periodMonth: string;
   model: ClientBillingModel;
   computed: BillingComputation;
+  /** Incluye las hojas Cálculo y Parámetros, y deja los montos como fórmulas de Excel. */
+  withFormulas?: boolean;
 }
 
+const FACT_SHEET = 'Facturación';
 const FONT = 'Calibri';
 const NAVY = 'FF1F4E79';
 const INK = 'FF1F2933';
@@ -116,9 +132,9 @@ interface OpaloLogo {
   aspect: number;
 }
 
-export function clientBillingExcelFilename(unitName: string, periodMonth: string): string {
+export function clientBillingExcelFilename(unitName: string, periodMonth: string, withFormulas = false): string {
   const safeName = `${unitName}-${periodMonth}`.replace(/[^\w\-]+/g, '_');
-  return `Facturacion_${safeName}.xlsx`;
+  return `Facturacion_${safeName}${withFormulas ? '_con_formulas' : ''}.xlsx`;
 }
 
 export async function downloadClientBillingExcel(input: ClientBillingExcelInput): Promise<void> {
@@ -130,7 +146,7 @@ export async function downloadClientBillingExcel(input: ClientBillingExcelInput)
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = clientBillingExcelFilename(input.unitName, input.periodMonth);
+  link.download = clientBillingExcelFilename(input.unitName, input.periodMonth, input.withFormulas);
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -138,13 +154,13 @@ export async function downloadClientBillingExcel(input: ClientBillingExcelInput)
 }
 
 export async function buildClientBillingWorkbook(input: ClientBillingExcelInput): Promise<ExcelJS.Workbook> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new Excel.Workbook();
   workbook.creator = 'OpsFlow';
   workbook.created = new Date();
   workbook.calcProperties.fullCalcOnLoad = true;
   workbook.title = input.model.title || `Facturación ${input.clientName}`;
 
-  const sheet = workbook.addWorksheet('Facturación', {
+  const sheet = workbook.addWorksheet(FACT_SHEET, {
     views: [{ showGridLines: false, zoomScale: 90 }],
     properties: { defaultRowHeight: 15, tabColor: { argb: NAVY } },
     pageSetup: {
@@ -189,8 +205,24 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   row += 1;
   writeBanner(sheet, row, lastCol, methodNote(input.model), 8, false, 18, false, MUTED);
   row += 1;
+  if (input.withFormulas) {
+    writeBanner(
+      sheet,
+      row,
+      lastCol,
+      'Versión con fórmulas. Personal, utilidad e IGV salen de la hoja Cálculo. Las tasas están en Parámetros: al cambiar un dato, Excel vuelve a calcular.',
+      8,
+      false,
+      28,
+      false,
+      MUTED
+    );
+    row += 1;
+  }
 
+  const included = input.model.workers.filter((worker) => worker.included);
   const workers = workerRows(input.model.workers, input.computed, rollOvertime);
+  const formulaBook: FormulaBook | null = input.withFormulas ? attachBillingFormulaSheets(workbook, input, included) : null;
   const excluded = input.model.workers.filter((worker) => !worker.included).length;
 
   row = writeSection(sheet, row, lastCol, 'I. Costo de personal');
@@ -203,7 +235,12 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
 
   const firstWorkerRow = row;
   workers.forEach((worker, index) => {
-    writeWorker(sheet, row, columns, worker, index % 2 === 1);
+    const source = included[index];
+    writeWorker(sheet, row, columns, worker, index % 2 === 1, (header, value) => {
+      if (!formulaBook || !source) return null;
+      const formula = formulaBook.displayFormula(source.id, header, rollOvertime);
+      return formula ? { formula, result: value } : null;
+    });
     row += 1;
   });
   if (workers.length === 0) {
@@ -252,7 +289,29 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   );
   row += 1;
 
-  return finalize(workbook, sheet, input, lastCol, groupRow, headerRow, grandRow, row);
+  const settlement = formulaBook?.writeSettlement({
+    labor: absRef(FACT_SHEET, lastCol, laborRow),
+    operational: absRef(FACT_SHEET, lastCol, operationalRows.subtotalRow),
+    administrative: absRef(FACT_SHEET, lastCol, adminRows.subtotalRow),
+  });
+  if (settlement) {
+    (adminRows.amountRows || []).forEach((line) => {
+      if (!line.useFormula) return;
+      const cell = sheet.getCell(line.row, lastCol);
+      cell.value = { formula: settlement.financiero, result: input.computed.financialAmount };
+    });
+    if (profitRows.detailRow) {
+      const profitCell = sheet.getCell(profitRows.detailRow, lastCol);
+      profitCell.value = { formula: settlement.utilidad, result: input.computed.profitAmount };
+    }
+  }
+
+  const finalized = await finalize(workbook, sheet, input, lastCol, groupRow, headerRow, grandRow, row);
+  if (settlement) {
+    const igvCell = sheet.getCell(finalized.igvRow, lastCol);
+    igvCell.value = { formula: settlement.igv, result: input.computed.igvAmount };
+  }
+  return finalized.workbook;
 }
 
 async function finalize(
@@ -264,7 +323,7 @@ async function finalize(
   headerRow: number,
   grandRow: number,
   rowAfterGrand: number
-): Promise<ExcelJS.Workbook> {
+): Promise<{ workbook: ExcelJS.Workbook; igvRow: number }> {
   let row = rowAfterGrand;
   const igvRate = Number(input.model.rates.igvRate.toFixed(6));
   const igvRow = row;
@@ -332,12 +391,14 @@ async function finalize(
       activeCell: 'A1',
     },
   ];
-  return workbook;
+  return { workbook, igvRow };
 }
 
 interface CostBlockRows {
   subtotalRow: number;
   nextRow: number;
+  detailRow?: number;
+  amountRows?: { id: string; row: number; useFormula: boolean }[];
 }
 
 function sheetColumns(rates: BillingRates): SheetColumn[] {
@@ -349,11 +410,9 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
     pick,
   });
   const rollOvertime = rates.rollOvertimeIntoNightBonus === true;
-  const overtimeColumns: SheetColumn[] = rollOvertime
+  const nightOvertimeColumns: SheetColumn[] = rollOvertime
     ? []
     : [
-        money('HE día 25%', 9, 'sueldo', (row) => row.he25),
-        money('HE día 35%', 9, 'sueldo', (row) => row.he35),
         money('HE noche 25%', 10, 'sueldo', (row) => row.heNight25),
         money('HE noche 35%', 10, 'sueldo', (row) => row.heNight35),
       ];
@@ -367,7 +426,9 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
     { header: 'Faltas', width: 6, group: 'personal', kind: 'int', pick: (row) => row.absences },
     money('Rem. básica', 9, 'sueldo', (row) => row.basic),
     money('Asig. fam.', 8.5, 'sueldo', (row) => row.family),
-    ...overtimeColumns,
+    money('HE día 25%', 9, 'sueldo', (row) => row.he25),
+    money('HE día 35%', 9, 'sueldo', (row) => row.he35),
+    ...nightOvertimeColumns,
     money(rollOvertime ? 'Bono nocturno' : 'Bono noct.', rollOvertime ? 12 : 8.5, 'sueldo', (row) => row.night),
     money('Rem. cargas', 9.5, 'sueldo', (row) => row.remLlss),
     money('Cond. trab.', 8.5, 'sueldo', (row) => row.condition),
@@ -598,13 +659,21 @@ function writeColumnHeaders(sheet: ExcelJS.Worksheet, rowNumber: number, columns
   });
 }
 
-function writeWorker(sheet: ExcelJS.Worksheet, rowNumber: number, columns: SheetColumn[], worker: WorkerRow, zebra: boolean) {
+function writeWorker(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  columns: SheetColumn[],
+  worker: WorkerRow,
+  zebra: boolean,
+  formulaAt?: (header: string, value: number) => { formula: string; result: number } | null
+) {
   const row = sheet.getRow(rowNumber);
   row.height = 16;
   columns.forEach((column, index) => {
     const cell = row.getCell(index + 1);
     const value = column.pick(worker);
-    cell.value = value;
+    const linked = formulaAt?.(column.header, typeof value === 'number' ? value : 0);
+    cell.value = linked ?? value;
     cell.font = {
       name: FONT,
       size: 8,
@@ -672,20 +741,23 @@ function writeCostBlock(
   title: string,
   subtotalLabel: string,
   lines: BillingCostLine[],
-  computed: { id: string; amount: number }[]
+  computed: { id: string; amount: number; formula?: boolean }[]
 ): CostBlockRows {
   let row = writeSection(sheet, rowNumber, lastCol, title);
-  const amounts = new Map(computed.map((line) => [line.id, line.amount]));
+  const amounts = new Map(computed.map((line) => [line.id, line]));
   const items = lines.length ? lines : [{ id: 'empty', kind: 'otros', description: 'Sin ítems', amount: 0 }];
   const firstItem = row;
+  const amountRows: { id: string; row: number; useFormula: boolean }[] = [];
   items.forEach((line) => {
-    const amount = line.id === 'empty' ? 0 : amounts.get(line.id) ?? line.amount ?? 0;
+    const info = line.id === 'empty' ? undefined : amounts.get(line.id);
+    const amount = info?.amount ?? line.amount ?? 0;
     const label = line.description?.trim() || KIND_LABELS[line.kind] || line.kind || 'Ítem';
     writeAmountRow(sheet, row, lastCol, label, amount, false);
+    amountRows.push({ id: line.id, row, useFormula: info?.formula === true });
     row += 1;
   });
   const lastItem = row - 1;
-  const subtotal = items.reduce((sum, line) => sum + (line.id === 'empty' ? 0 : amounts.get(line.id) ?? line.amount ?? 0), 0);
+  const subtotal = items.reduce((sum, line) => sum + (line.id === 'empty' ? 0 : amounts.get(line.id)?.amount ?? line.amount ?? 0), 0);
   writeCategorySubtotal(
     sheet,
     row,
@@ -695,7 +767,7 @@ function writeCostBlock(
     subtotal
   );
   const subtotalRow = row;
-  return { subtotalRow, nextRow: row + 1 };
+  return { subtotalRow, nextRow: row + 1, amountRows };
 }
 
 function writeProfitBlock(
@@ -710,7 +782,7 @@ function writeProfitBlock(
   writeAmountRow(sheet, row, lastCol, label, amount, false);
   row += 1;
   writeCategorySubtotal(sheet, row, lastCol, 'Subtotal utilidad', cellRef(lastCol, detailRow), amount);
-  return { subtotalRow: row, nextRow: row + 1 };
+  return { subtotalRow: row, detailRow, nextRow: row + 1 };
 }
 
 function writeCategorySubtotal(
@@ -814,4 +886,8 @@ function columnLetter(col: number): string {
 
 function cellRef(col: number, row: number): string {
   return `${columnLetter(col)}${row}`;
+}
+
+function absRef(sheetName: string, col: number, row: number): string {
+  return `'${sheetName.replace(/'/g, "''")}'!$${columnLetter(col)}$${row}`;
 }
