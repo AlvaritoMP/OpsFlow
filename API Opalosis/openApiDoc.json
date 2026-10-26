@@ -1,0 +1,991 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "ApiOpaloSis",
+    "version": "1.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "ApiOpaloSis"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "parameters": [
+          {
+            "name": "Buscar",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Puesto",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PropuestaEconomicaResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PropuestaEconomicaResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PropuestaEconomicaResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/{requerimientoId}/servicios-paquetes": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "parameters": [
+          {
+            "name": "requerimientoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServicioPaqueteResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServicioPaqueteResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServicioPaqueteResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/{requerimientoId}/descripcion": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "parameters": [
+          {
+            "name": "requerimientoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PropuestaEconomicaDescripcionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PropuestaEconomicaDescripcionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PropuestaEconomicaDescripcionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/{requerimientoDetalleId}/detalle-servicios": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "parameters": [
+          {
+            "name": "requerimientoDetalleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServicioPaqueteDetalleResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServicioPaqueteDetalleResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServicioPaqueteDetalleResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/{requerimientoId}/cliente-solicitante": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "parameters": [
+          {
+            "name": "requerimientoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClienteSolicitanteResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClienteSolicitanteResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClienteSolicitanteResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/tipo-moneda": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MonedaResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MonedaResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MonedaResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/empresa-factura": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/{value}/catalogo-puesto": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "parameters": [
+          {
+            "name": "value",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/catalogo-lineanegocio": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/propuestas-economicas/catalogo-grupotrabajo": {
+      "get": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogosResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ordenes-servicio/orden-servicio/registro-os": {
+      "post": {
+        "tags": [
+          "OrdenesServicio"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistroOrdenServicioRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistroOrdenServicioRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistroOrdenServicioRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdenServicioResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdenServicioResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdenServicioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/WeatherForecast": {
+      "get": {
+        "tags": [
+          "WeatherForecast"
+        ],
+        "operationId": "GetWeatherForecast",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WeatherForecast"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WeatherForecast"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WeatherForecast"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CatalogosResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "value": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClienteSolicitanteResponse": {
+        "type": "object",
+        "properties": {
+          "clienteSolicitanteId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nombreSolicitante": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MonedaResponse": {
+        "type": "object",
+        "properties": {
+          "isoMoneda": {
+            "type": "string",
+            "nullable": true
+          },
+          "moneda": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "OrdenServicioDetalle": {
+        "type": "object",
+        "properties": {
+          "requerimientoId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "requerimientoDetalleId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "nombreServicio": {
+            "type": "string",
+            "nullable": true
+          },
+          "nombrePaquete": {
+            "type": "string",
+            "nullable": true
+          },
+          "puestoEnServicio": {
+            "type": "string",
+            "nullable": true
+          },
+          "puestoEnPaquete": {
+            "type": "string",
+            "nullable": true
+          },
+          "cantidad": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "tarifaPaquete": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "sueldo": {
+            "maximum": 79228162514264337593543950335,
+            "minimum": 0,
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "precioUnitario": {
+            "maximum": 79228162514264337593543950335,
+            "minimum": 0,
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "OrdenServicioResponse": {
+        "type": "object",
+        "properties": {
+          "ordenServicioId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "resultado": {
+            "type": "boolean"
+          },
+          "mensaje": {
+            "type": "string",
+            "nullable": true
+          },
+          "mensajeError": {
+            "type": "string",
+            "nullable": true
+          },
+          "opsflowCalculoId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "numeroOrdenServicio": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": { }
+      },
+      "PropuestaEconomicaDescripcionResponse": {
+        "type": "object",
+        "properties": {
+          "descripcionRequerimiento": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PropuestaEconomicaResponse": {
+        "type": "object",
+        "properties": {
+          "propuestaEconomicaId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "propuestaEconomicaCod": {
+            "type": "string",
+            "nullable": true
+          },
+          "requerimientoId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nombreServicio": {
+            "type": "string",
+            "nullable": true
+          },
+          "nombreEmpresa": {
+            "type": "string",
+            "nullable": true
+          },
+          "nombreComercialEmpresa": {
+            "type": "string",
+            "nullable": true
+          },
+          "autorizadores": {
+            "type": "string",
+            "nullable": true
+          },
+          "fechaPropuestaEconomica": {
+            "type": "string",
+            "nullable": true
+          },
+          "estado": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RegistroOrdenServicioRequest": {
+        "required": [
+          "documentoMaker",
+          "empresaOpaloId",
+          "fechaEntrega",
+          "fechaInicio",
+          "listaOrdenServicioDetalle",
+          "opsflowCalculoId",
+          "puestoId",
+          "tipoCambio"
+        ],
+        "type": "object",
+        "properties": {
+          "propuestaEconomicaId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "fechaInicio": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fechaEntrega": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "documentoMaker": {
+            "maxLength": 20,
+            "minLength": 8,
+            "type": "string"
+          },
+          "clienteSolicitanteId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "observacion": {
+            "type": "string",
+            "nullable": true
+          },
+          "direccionIpMac": {
+            "type": "string",
+            "nullable": true
+          },
+          "lineaNegocioId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "grupoTrabajoId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "puestoId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "isoMoneda": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipoCambio": {
+            "maximum": 79228162514264337593543950335,
+            "minimum": 0.01,
+            "type": "number",
+            "format": "double"
+          },
+          "empresaOpaloId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "opsflowCalculoId": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "format": "int32"
+          },
+          "listaOrdenServicioDetalle": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrdenServicioDetalle"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ServicioPaqueteDetalleResponse": {
+        "type": "object",
+        "properties": {
+          "servicioId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nombreServicio": {
+            "type": "string",
+            "nullable": true
+          },
+          "servicioPaqueteId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "servicioPaqueteDetalleId": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ServicioPaqueteResponse": {
+        "type": "object",
+        "properties": {
+          "requerimientoId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "requerimientoDetalleId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nombreServicio": {
+            "type": "string",
+            "nullable": true
+          },
+          "nombrePaquete": {
+            "type": "string",
+            "nullable": true
+          },
+          "puestoEnServicio": {
+            "type": "string",
+            "nullable": true
+          },
+          "puestoEnPaquete": {
+            "type": "string",
+            "nullable": true
+          },
+          "cantidad": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tarifaPaquete": {
+            "type": "number",
+            "format": "double"
+          },
+          "sueldo": {
+            "type": "number",
+            "format": "double"
+          },
+          "precioUnitario": {
+            "type": "number",
+            "format": "double"
+          },
+          "total": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WeatherForecast": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "temperatureC": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "temperatureF": {
+            "type": "integer",
+            "format": "int32",
+            "readOnly": true
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "description": "Ingresa la key en el campo de abajo.",
+        "name": "X-API-Key",
+        "in": "header"
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKey": [ ]
+    }
+  ],
+  "tags": [
+    {
+      "name": "ApiOpaloSis"
+    },
+    {
+      "name": "OrdenesServicio"
+    },
+    {
+      "name": "WeatherForecast"
+    }
+  ]
+}

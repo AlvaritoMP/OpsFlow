@@ -22,6 +22,10 @@ const OPALOSIS_API_BASE_URL = (
 ).replace(/\/$/, '');
 const OPALOSIS_API_KEY = process.env.OPALOSIS_API_KEY || '';
 const OPALOSIS_PROXY_SECRET = process.env.OPALOSIS_PROXY_SECRET || '';
+const OPALOSIS_OS_API_BASE_URL = (
+  process.env.OPALOSIS_OS_API_BASE_URL || 'https://apiopalosis.opaloperu.com'
+).replace(/\/$/, '');
+const OPALOSIS_OS_API_KEY = process.env.OPALOSIS_OS_API_KEY || OPALOSIS_API_KEY;
 
 const OPALOSIS_ALLOWED_PATHS = new Set([
   'tipo-documento',
@@ -196,11 +200,74 @@ async function handleOpalosisProxy(req, res, urlPath, search) {
   }
 }
 
+/** Proxy hacia la API de órdenes de servicio (host distinto al de ingresos). */
+async function handleOpalosisOsProxy(req, res, urlPath, search) {
+  if (!OPALOSIS_PROXY_SECRET || !OPALOSIS_OS_API_KEY) {
+    sendJson(res, 503, {
+      error: 'Proxy de órdenes no configurado',
+      detail: 'Faltan OPALOSIS_PROXY_SECRET y OPALOSIS_OS_API_KEY (o OPALOSIS_API_KEY) en EasyPanel',
+    });
+    return;
+  }
+  const provided = req.headers['x-opsflow-proxy-secret'];
+  if (!provided || provided !== OPALOSIS_PROXY_SECRET) {
+    sendJson(res, 401, { error: 'Unauthorized proxy' });
+    return;
+  }
+  const relative = urlPath.replace(/^\/api\/opalosis-os-proxy\/?/, '').replace(/^\//, '');
+  const pathKey = relative.split('/')[0];
+  if (!relative || relative.includes('..') || !['propuestas-economicas', 'orden-servicio'].includes(pathKey)) {
+    sendJson(res, 403, { error: `Ruta de órdenes no permitida: ${pathKey || relative}` });
+    return;
+  }
+  const targetUrl = `${OPALOSIS_OS_API_BASE_URL}/api/ordenes-servicio/${relative}${search || ''}`;
+  const method = (req.method || 'GET').toUpperCase();
+  let bodyBuffer = null;
+  if (method !== 'GET' && method !== 'HEAD') bodyBuffer = await readRequestBody(req);
+  console.log(`🔁 Opalosis OS proxy ${method} ${targetUrl}`);
+  try {
+    const upstream = await fetch(targetUrl, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': OPALOSIS_OS_API_KEY,
+        Accept: 'application/json',
+      },
+      body: bodyBuffer && bodyBuffer.length ? bodyBuffer : undefined,
+    });
+    const text = await upstream.text();
+    res.writeHead(upstream.status, {
+      'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    res.end(text);
+  } catch (err) {
+    console.error('❌ Opalosis OS proxy upstream error:', err);
+    sendJson(res, 502, {
+      error: 'Error al contactar la API de órdenes desde EasyPanel',
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const rawUrl = req.url || '/';
   const qIndex = rawUrl.indexOf('?');
   const urlPath = (qIndex >= 0 ? rawUrl.slice(0, qIndex) : rawUrl).split('#')[0];
   const search = qIndex >= 0 ? rawUrl.slice(qIndex) : '';
+
+  if (urlPath === '/api/opalosis-os-proxy' || urlPath.startsWith('/api/opalosis-os-proxy/')) {
+    try {
+      await handleOpalosisOsProxy(req, res, urlPath, search);
+    } catch (err) {
+      console.error('❌ Proxy de órdenes error:', err);
+      sendJson(res, 500, {
+        error: 'Error interno del proxy de órdenes',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
 
   if (urlPath === '/api/opalosis-proxy' || urlPath.startsWith('/api/opalosis-proxy/')) {
     try {

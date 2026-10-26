@@ -38,16 +38,17 @@ import {
   loadBillingDayGlance,
   BillingDayGlance,
   loadPublishedBillingFormulas,
-  loadUnitOpalosisPes,
+  loadUnitOpalosisSetup,
   publishBillingFormulas,
   saveBillingNote,
   saveBillingProfile,
   saveClientBilling,
-  saveUnitOpalosisPes,
+  saveUnitOpalosisSetup,
   setBillingNoteStatus,
   setBillingStatus,
 } from '../services/clientBillingService';
 import { usersService } from '../services/usersService';
+import { registerBillingServiceOrder } from '../services/billingOpalosisService';
 import { BillingFormulaEditor } from './BillingFormulaEditor';
 import { BillingRunCompare } from './BillingRunCompare';
 import {
@@ -178,7 +179,12 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createOsFrom, setCreateOsFrom] = useState('');
   const [createOsTo, setCreateOsTo] = useState('');
   const [createPes, setCreatePes] = useState('');
-  const [issueOpen, setIssueOpen] = useState(false);
+  const [pesChoices, setPesChoices] = useState<string[]>([]);
+  const [createDocumentKind, setCreateDocumentKind] = useState<OpalosisDocumentKind>('invoice');
+  const [createWorkGroup, setCreateWorkGroup] = useState('');
+  const [createBusinessLine, setCreateBusinessLine] = useState('');
+  const [createCompany, setCreateCompany] = useState('');
+  const [createDni, setCreateDni] = useState(currentUser.dni || '');
   const [copyPrevious, setCopyPrevious] = useState(true);
   const [appliedAttendanceKey, setAppliedAttendanceKey] = useState('');
   const [billingSection, setBillingSection] = useState<'liquidaciones' | 'formulas'>('liquidaciones');
@@ -214,12 +220,20 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   useEffect(() => {
     if (!showCreate || !createUnitId) return;
     let cancelled = false;
-    void loadUnitOpalosisPes(createUnitId)
-      .then((pes) => {
-        if (!cancelled) setCreatePes(pes);
+    void loadUnitOpalosisSetup(createUnitId)
+      .then((setup) => {
+        if (cancelled) return;
+        setPesChoices(setup.pesChoices);
+        setCreatePes(setup.pesChoices[0] || '');
+        setCreateDocumentKind(setup.documentKind || 'invoice');
+        setCreateWorkGroup(setup.workGroup || '');
+        setCreateBusinessLine(setup.businessLine || '');
+        setCreateCompany(setup.opaloCompany || '');
       })
       .catch(() => {
-        if (!cancelled) setCreatePes('');
+        if (cancelled) return;
+        setPesChoices([]);
+        setCreatePes('');
       });
     return () => {
       cancelled = true;
@@ -298,12 +312,17 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setBanner(windowError);
       return;
     }
-    if (!createOsFrom || !createOsTo) {
-      setBanner('Indique el inicio y la entrega de la orden de servicio.');
-      return;
-    }
-    if (createOsTo < createOsFrom) {
-      setBanner('La entrega de la orden de servicio no puede ser anterior al inicio.');
+    const setupError = osSetupError({
+      osStartDate: createOsFrom,
+      osEndDate: createOsTo,
+      pesCode: createPes,
+      workGroup: createWorkGroup,
+      businessLine: createBusinessLine,
+      opaloCompany: createCompany,
+      makerDni: createDni,
+    });
+    if (setupError) {
+      setBanner(setupError);
       return;
     }
     setBusy('Armando la liquidación con el personal de la unidad');
@@ -323,8 +342,33 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       );
       model.osStartDate = createOsFrom;
       model.osEndDate = createOsTo;
-      model.opalosisPesCode = createPes.trim();
-      if (model.opalosisPesCode) await saveUnitOpalosisPes(unit.id, model.opalosisPesCode, actor);
+      model.opalosisPesCode = createPes.trim() || model.opalosisPesCode || '';
+      model.opalosisIssue = {
+        documentKind: createDocumentKind,
+        workGroup: createWorkGroup,
+        businessLine: createBusinessLine,
+        opaloCompany: createCompany,
+        positionLabel: OPALOSIS_POSITION,
+        clientApplicant: 'first',
+        makerDni: createDni.trim(),
+      };
+      if (model.opalosisPesCode && model.opalosisIssue) {
+        await saveUnitOpalosisSetup(unit.id, { pesCode: model.opalosisPesCode, issue: model.opalosisIssue }, actor);
+      }
+      if (createDni.trim() && createDni.trim() !== (currentUser.dni || '')) {
+        try {
+          await usersService.update(currentUser.id, {
+            name: currentUser.name,
+            email: currentUser.email,
+            role: currentUser.role,
+            avatar: currentUser.avatar,
+            dni: createDni.trim(),
+            canDeleteAttendanceIncidents: currentUser.canDeleteAttendanceIncidents,
+          });
+        } catch {
+          // El DNI queda en la liquidación aunque la columna del usuario aún no exista.
+        }
+      }
       setEditor({
         unitId: unit.id,
         clientName: unit.clientName,
@@ -519,7 +563,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         baseline: cloneModel(issuedEditor.model),
       });
       setBanner(summaries[status]);
-      if (status === 'issued') setIssueOpen(false);
       await loadList();
       return true;
     } catch (error) {
@@ -563,16 +606,107 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         dniNote = ' El DNI quedó en esta liquidación. Para guardarlo en el usuario, ejecute migrations/MIGRATION_USERS_DNI.sql.';
       }
     }
-    if (next.model.opalosisPesCode) {
+    if (next.model.opalosisPesCode && next.model.opalosisIssue) {
       try {
-        await saveUnitOpalosisPes(editor.unitId, next.model.opalosisPesCode, actor);
+        await saveUnitOpalosisSetup(
+          editor.unitId,
+          { pesCode: next.model.opalosisPesCode, issue: next.model.opalosisIssue },
+          actor
+        );
       } catch {
-        dniNote += ' No se pudo guardar el PES en la unidad; quedó en esta liquidación.';
+        dniNote += ' No se pudo guardar la orden en la unidad; quedó en esta liquidación.';
       }
     }
-    const issued = await changeStatus('issued', next);
-    if (!issued) setIssueOpen(false);
-    if (issued && dniNote) setBanner((current) => `${current || ''}${dniNote}`);
+    setBusy('Enviando la orden a OpaloSis');
+    setBanner(null);
+    try {
+      const prepared = await syncAttendance(next);
+      const savedDraft = await saveClientBilling({
+        id: prepared.id,
+        unit: { id: prepared.unitId, name: prepared.unitName, clientName: prepared.clientName },
+        periodMonth: prepared.periodMonth,
+        model: prepared.model,
+        actor,
+        changes: prepared.id ? diffBillingModels(prepared.baseline, prepared.model) : describeCreation(prepared.model),
+      });
+      setEditor({
+        ...prepared,
+        id: savedDraft.id,
+        status: savedDraft.status,
+        model: cloneModel(savedDraft.model),
+        baseline: cloneModel(savedDraft.model),
+        createdByName: savedDraft.createdByName,
+        updatedByName: savedDraft.updatedByName,
+      });
+      const total = computeBilling(savedDraft.model).grandTotal;
+      const signed = prepared.model.opalosisIssue?.documentKind === 'credit' ? -Math.abs(total) : Math.abs(total);
+      const registration = await registerBillingServiceOrder({
+        billingId: savedDraft.id,
+        opsflowCalculoId: savedDraft.model.opalosisRegistration?.opsflowCalculoId,
+        pesCode: prepared.model.opalosisPesCode || '',
+        osStartDate: prepared.model.osStartDate || '',
+        osEndDate: prepared.model.osEndDate || '',
+        documentoMaker: prepared.model.opalosisIssue?.makerDni || '',
+        documentKind: prepared.model.opalosisIssue?.documentKind || 'invoice',
+        workGroup: prepared.model.opalosisIssue?.workGroup || '',
+        businessLine: prepared.model.opalosisIssue?.businessLine || '',
+        opaloCompany: prepared.model.opalosisIssue?.opaloCompany || '',
+        positionLabel: OPALOSIS_POSITION,
+        signedTotal: signed,
+        unitName: prepared.unitName,
+        periodMonth: prepared.periodMonth,
+      });
+      const withOrder: EditorState = {
+        ...prepared,
+        id: savedDraft.id,
+        model: { ...cloneModel(savedDraft.model), opalosisRegistration: registration },
+        baseline: cloneModel(savedDraft.model),
+        createdByName: savedDraft.createdByName,
+        updatedByName: savedDraft.updatedByName,
+      };
+      const issued = await changeStatus('issued', withOrder);
+      if (issued) {
+        const existed = registration.alreadyExisted
+          ? ' OpaloSis ya tenía esta orden y no modificó el monto.'
+          : '';
+        setBanner((current) => `${current || ''} Orden ${registration.numeroOrdenServicio}.${existed}${dniNote}`);
+      }
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'OpaloSis no registró la orden. La liquidación sigue en borrador.');
+      setBusy(null);
+    }
+  };
+
+  const issueOs = () => {
+    if (!editor) return;
+    const issue = editor.model.opalosisIssue;
+    const error = osSetupError({
+      osStartDate: editor.model.osStartDate || '',
+      osEndDate: editor.model.osEndDate || '',
+      pesCode: editor.model.opalosisPesCode || '',
+      workGroup: issue?.workGroup || '',
+      businessLine: issue?.businessLine || '',
+      opaloCompany: issue?.opaloCompany || '',
+      makerDni: issue?.makerDni || currentUser.dni || '',
+    });
+    if (error) {
+      setBanner(`${error} Esos datos se indican al armar la facturación.`);
+      return;
+    }
+    void confirmIssue({
+      osStartDate: editor.model.osStartDate || '',
+      osEndDate: editor.model.osEndDate || '',
+      pesCode: editor.model.opalosisPesCode || '',
+      issue: {
+        documentKind: issue?.documentKind || 'invoice',
+        workGroup: issue?.workGroup || '',
+        businessLine: issue?.businessLine || '',
+        opaloCompany: issue?.opaloCompany || '',
+        positionLabel: OPALOSIS_POSITION,
+        clientApplicant: 'first',
+        makerDni: (issue?.makerDni || currentUser.dni || '').trim(),
+      },
+    });
   };
 
   const refreshOpenAudit = async () => {
@@ -815,13 +949,36 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   </label>
                   <label className="text-sm text-slate-600 md:col-span-2">
                     Código PES de OpaloSis
-                    <input
-                      className={fieldClass}
-                      value={createPes}
-                      placeholder="PES-20131211-01"
-                      onChange={(event) => setCreatePes(event.target.value)}
-                    />
-                    <span className="mt-1 block text-xs text-slate-500">Se guarda en la unidad y se reutiliza en las siguientes liquidaciones.</span>
+                    {pesChoices.length > 0 ? (
+                      <select
+                        className={fieldClass}
+                        value={pesChoices.includes(createPes) ? createPes : '__new__'}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setCreatePes(value === '__new__' ? '' : value);
+                        }}
+                      >
+                        {pesChoices.map((code) => (
+                          <option key={code} value={code}>
+                            {code}
+                          </option>
+                        ))}
+                        <option value="__new__">Otro código</option>
+                      </select>
+                    ) : null}
+                    {(pesChoices.length === 0 || !pesChoices.includes(createPes)) && (
+                      <input
+                        className={fieldClass}
+                        value={createPes}
+                        placeholder="PES-20131211-01"
+                        onChange={(event) => setCreatePes(event.target.value)}
+                      />
+                    )}
+                    <span className="mt-1 block text-xs text-slate-500">
+                      {pesChoices.length > 0
+                        ? 'Queda el de la última liquidación de esta unidad.'
+                        : 'El mes siguiente puede elegir este mismo código.'}
+                    </span>
                   </label>
                   <label className="text-sm text-slate-600">
                     Inicio de la orden de servicio
@@ -831,8 +988,63 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                     Entrega de la orden de servicio
                     <input className={fieldClass} type="date" value={createOsTo} onChange={(event) => setCreateOsTo(event.target.value)} />
                   </label>
+                  <label className="text-sm text-slate-600">
+                    Documento
+                    <select
+                      className={fieldClass}
+                      value={createDocumentKind}
+                      onChange={(event) => setCreateDocumentKind(event.target.value as OpalosisDocumentKind)}
+                    >
+                      {(Object.keys(OPALOSIS_DOCUMENT_LABELS) as OpalosisDocumentKind[]).map((option) => (
+                        <option key={option} value={option}>
+                          {OPALOSIS_DOCUMENT_LABELS[option]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Grupo de trabajo
+                    <select className={fieldClass} value={createWorkGroup} onChange={(event) => setCreateWorkGroup(event.target.value)}>
+                      <option value="">Seleccione</option>
+                      {OPALOSIS_WORK_GROUPS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Línea de negocio
+                    <select className={fieldClass} value={createBusinessLine} onChange={(event) => setCreateBusinessLine(event.target.value)}>
+                      <option value="">Seleccione</option>
+                      {OPALOSIS_BUSINESS_LINES.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Factura Opalo
+                    <select className={fieldClass} value={createCompany} onChange={(event) => setCreateCompany(event.target.value)}>
+                      <option value="">Seleccione</option>
+                      {OPALOSIS_COMPANIES.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Cliente solicitante
+                    <input className={fieldClass} value="Primero de la lista de OpaloSis" disabled />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Puesto OS
+                    <input className={fieldClass} value={OPALOSIS_POSITION} disabled />
+                  </label>
+                  <label className="text-sm text-slate-600 md:col-span-2">
+                    DNI de quien emite
+                    <input className={fieldClass} value={createDni} maxLength={20} onChange={(event) => setCreateDni(event.target.value)} />
+                  </label>
                 </div>
-                <p className="text-xs text-slate-500">El inicio y la entrega son el tiempo de vida de la orden en OpaloSis. Son distintas del corte de asistencia.</p>
+                <p className="text-xs text-slate-500">
+                  El inicio y la entrega son el tiempo de vida de la orden y se indican cada mes. El PES, el documento, el grupo, la línea y la empresa quedan para la siguiente liquidación. Emitir OS usa estos datos y envía el total sin IGV; en una nota de crédito va en negativo. Moneda: soles.
+                </p>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={copyPrevious} onChange={(event) => setCopyPrevious(event.target.checked)} />
                   Copiar costos operativos y administrativos del mes anterior
@@ -957,7 +1169,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onPatchRates={patchRates}
             onSave={() => void save()}
             onSaveEssalud={() => void saveEssaludFixed()}
-            onIssue={() => setIssueOpen(true)}
+            onIssue={issueOs}
             onReopen={() => void changeStatus('draft')}
             onVoid={() => {
               if (window.confirm('¿Anular esta facturación? Quedará en el historial y podrá crear otra del mismo mes.')) {
@@ -999,22 +1211,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
           />
         )}
 
-        {issueOpen && editor && computed && (
-          <IssueOpalosisDialog
-            osStartDate={editor.model.osStartDate || ''}
-            osEndDate={editor.model.osEndDate || ''}
-            pesCode={editor.model.opalosisPesCode || ''}
-            makerDni={currentUser.dni || editor.model.opalosisIssue?.makerDni || ''}
-            totalWithoutIgv={computed.grandTotal}
-            initial={editor.model.opalosisIssue}
-            busy={!!busy}
-            onClose={() => {
-              if (!busy) setIssueOpen(false);
-            }}
-            onConfirm={(input) => void confirmIssue(input)}
-          />
-        )}
-
         {busy && (
           <div className="fixed bottom-4 right-4 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
             <Loader2 size={16} className="animate-spin" /> {busy}
@@ -1025,161 +1221,24 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   );
 };
 
-function IssueOpalosisDialog(props: {
+function osSetupError(input: {
   osStartDate: string;
   osEndDate: string;
   pesCode: string;
+  workGroup: string;
+  businessLine: string;
+  opaloCompany: string;
   makerDni: string;
-  totalWithoutIgv: number;
-  initial?: OpalosisIssueSettings;
-  busy: boolean;
-  onClose: () => void;
-  onConfirm: (input: { osStartDate: string; osEndDate: string; pesCode: string; issue: OpalosisIssueSettings }) => void;
-}) {
-  const [osFrom, setOsFrom] = useState(props.osStartDate);
-  const [osTo, setOsTo] = useState(props.osEndDate);
-  const [pes, setPes] = useState(props.pesCode);
-  const [kind, setKind] = useState<OpalosisDocumentKind>(props.initial?.documentKind || 'invoice');
-  const [workGroup, setWorkGroup] = useState(props.initial?.workGroup || '');
-  const [businessLine, setBusinessLine] = useState(props.initial?.businessLine || '');
-  const [company, setCompany] = useState(props.initial?.opaloCompany || '');
-  const [dni, setDni] = useState(props.makerDni);
-  const [error, setError] = useState<string | null>(null);
-  const inputClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
-  const signed = kind === 'credit' ? -Math.abs(props.totalWithoutIgv) : Math.abs(props.totalWithoutIgv);
-
-  const submit = () => {
-    const document = dni.trim();
-    if (!osFrom || !osTo) {
-      setError('Indique el inicio y la entrega de la orden de servicio.');
-      return;
-    }
-    if (osTo < osFrom) {
-      setError('La entrega de la orden no puede ser anterior al inicio.');
-      return;
-    }
-    if (!pes.trim()) {
-      setError('Indique el código PES de la unidad.');
-      return;
-    }
-    if (!workGroup || !businessLine || !company) {
-      setError('Elija el grupo de trabajo, la línea de negocio y la empresa que factura.');
-      return;
-    }
-    if (document.length < 8 || document.length > 20) {
-      setError('El DNI de quien emite debe tener entre 8 y 20 caracteres.');
-      return;
-    }
-    setError(null);
-    props.onConfirm({
-      osStartDate: osFrom,
-      osEndDate: osTo,
-      pesCode: pes.trim(),
-      issue: {
-        documentKind: kind,
-        workGroup,
-        businessLine,
-        opaloCompany: company,
-        positionLabel: OPALOSIS_POSITION,
-        clientApplicant: 'first',
-        makerDni: document,
-      },
-    });
-  };
-
-  return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" role="dialog" aria-labelledby="opalosis-issue-title">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 id="opalosis-issue-title" className="font-semibold text-slate-900">Emitir hacia OpaloSis</h2>
-          <p className="text-sm text-slate-500 mt-1">Estos datos completan la orden de servicio. El monto es el total sin IGV.</p>
-        </div>
-        <div className="px-5 py-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-sm text-slate-600">
-              Inicio de la orden
-              <input className={inputClass} type="date" value={osFrom} onChange={(event) => setOsFrom(event.target.value)} />
-            </label>
-            <label className="text-sm text-slate-600">
-              Entrega de la orden
-              <input className={inputClass} type="date" value={osTo} onChange={(event) => setOsTo(event.target.value)} />
-            </label>
-          </div>
-          <label className="block text-sm text-slate-600">
-            Código PES
-            <input className={inputClass} value={pes} onChange={(event) => setPes(event.target.value)} />
-          </label>
-          <fieldset className="space-y-1">
-            <legend className="text-sm text-slate-600">Documento</legend>
-            <div className="flex flex-wrap gap-2">
-              {(Object.keys(OPALOSIS_DOCUMENT_LABELS) as OpalosisDocumentKind[]).map((option) => (
-                <label key={option} className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm cursor-pointer ${kind === option ? 'border-blue-600 bg-blue-50 text-blue-900' : 'border-slate-200 text-slate-700'}`}>
-                  <input type="radio" name="opalosis-document" className="sr-only" checked={kind === option} onChange={() => setKind(option)} />
-                  {OPALOSIS_DOCUMENT_LABELS[option]}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <p className="text-sm text-slate-800">
-            Total sin IGV que viaja: <strong>{pen(signed)}</strong>
-            {kind === 'credit' ? ' (negativo por nota de crédito)' : ''}
-          </p>
-          <label className="block text-sm text-slate-600">
-            Cliente solicitante
-            <select className={inputClass} value="first" disabled>
-              <option value="first">Primero de la lista de OpaloSis</option>
-            </select>
-          </label>
-          <label className="block text-sm text-slate-600">
-            Grupo de trabajo
-            <select className={inputClass} value={workGroup} onChange={(event) => setWorkGroup(event.target.value)}>
-              <option value="">Seleccione</option>
-              {OPALOSIS_WORK_GROUPS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm text-slate-600">
-            Línea de negocio
-            <select className={inputClass} value={businessLine} onChange={(event) => setBusinessLine(event.target.value)}>
-              <option value="">Seleccione</option>
-              {OPALOSIS_BUSINESS_LINES.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm text-slate-600">
-            Puesto OS
-            <input className={inputClass} value={OPALOSIS_POSITION} disabled />
-          </label>
-          <label className="block text-sm text-slate-600">
-            Factura Opalo
-            <select className={inputClass} value={company} onChange={(event) => setCompany(event.target.value)}>
-              <option value="">Seleccione</option>
-              {OPALOSIS_COMPANIES.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm text-slate-600">
-            DNI de quien emite
-            <input className={inputClass} value={dni} maxLength={20} onChange={(event) => setDni(event.target.value)} />
-          </label>
-          <p className="text-xs text-slate-500">Moneda: soles (PEN), tipo de cambio 1. Al confirmar, estos datos quedan guardados en la liquidación. La orden en OpaloSis se enviará cuando la conexión esté activa.</p>
-          {error && <p className="text-sm text-red-700">{error}</p>}
-        </div>
-        <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2">
-          <button type="button" onClick={props.onClose} disabled={props.busy} className="px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-60">
-            Cancelar
-          </button>
-          <button type="button" onClick={submit} disabled={props.busy} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-60">
-            <Check size={16} /> {props.busy ? 'Emitiendo' : 'Confirmar emisión'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
+}): string | null {
+  if (!input.osStartDate || !input.osEndDate) return 'Indique el inicio y la entrega de la orden de servicio.';
+  if (input.osEndDate < input.osStartDate) return 'La entrega de la orden de servicio no puede ser anterior al inicio.';
+  if (!input.pesCode.trim()) return 'Indique el código PES de la unidad.';
+  if (!input.workGroup || !input.businessLine || !input.opaloCompany) {
+    return 'Elija el grupo de trabajo, la línea de negocio y la empresa que factura.';
+  }
+  const dni = input.makerDni.trim();
+  if (dni.length < 8 || dni.length > 20) return 'El DNI de quien emite debe tener entre 8 y 20 caracteres.';
+  return null;
 }
 
 function EditorView(props: {
@@ -1281,6 +1340,7 @@ function EditorView(props: {
               ? ` · Orden ${formatAttendanceDate(editor.model.osStartDate)} – ${formatAttendanceDate(editor.model.osEndDate)}`
               : ''}
             {editor.model.opalosisPesCode ? ` · PES ${editor.model.opalosisPesCode}` : ''}
+            {editor.model.opalosisRegistration?.numeroOrdenServicio ? ` · ${editor.model.opalosisRegistration.numeroOrdenServicio}` : ''}
             {editor.updatedByName ? ` · Último guardado por ${editor.updatedByName}` : ''}
             {editor.issuedByName ? ` · Emitida por ${editor.issuedByName}` : ''}
           </p>
@@ -1324,10 +1384,10 @@ function EditorView(props: {
                 type="button"
                 onClick={props.onIssue}
                 disabled={!!props.busy}
-                title="Abre la ventana para indicar el documento, el grupo, la línea y la empresa antes de emitir."
+                title="Emite la liquidación con los datos de la orden indicados al armar la facturación."
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-60"
               >
-                <Check size={16} /> Emitir
+                <Check size={16} /> Emitir OS
               </button>
             </>
           )}

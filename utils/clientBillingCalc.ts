@@ -225,7 +225,18 @@ export const OPALOSIS_DOCUMENT_LABELS: Record<OpalosisDocumentKind, string> = {
   credit: 'Nota de crédito',
 };
 
-/** Datos que se confirman en la ventana de emisión. */
+/** Respuesta guardada cuando OpaloSis acepta la orden. */
+export interface OpalosisRegistration {
+  opsflowCalculoId: number;
+  ordenServicioId: number;
+  numeroOrdenServicio: string;
+  mensaje: string;
+  signedAmount: number;
+  sentAt: string;
+  alreadyExisted: boolean;
+}
+
+/** Datos de la orden, definidos al armar la liquidación. */
 export interface OpalosisIssueSettings {
   documentKind: OpalosisDocumentKind;
   workGroup: string;
@@ -257,8 +268,10 @@ export interface ClientBillingModel {
   osEndDate?: string;
   /** Código PES de la propuesta económica de esta unidad. */
   opalosisPesCode?: string;
-  /** Lo elegido en la ventana de emisión. */
+  /** Datos de la orden definidos al armar la liquidación. */
   opalosisIssue?: OpalosisIssueSettings;
+  /** Respuesta de OpaloSis al registrar la orden. */
+  opalosisRegistration?: OpalosisRegistration;
   /** Bitácora interna por pestaña. No se copia a corridas ni al Excel. */
   internalNotes?: BillingInternalNote[];
   /** Fórmulas de las celdas. Si falta una, se usa la de fábrica. */
@@ -1068,6 +1081,7 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
   push('Línea de negocio', before.opalosisIssue?.businessLine, after.opalosisIssue?.businessLine);
   push('Factura Opalo', before.opalosisIssue?.opaloCompany, after.opalosisIssue?.opaloCompany);
   push('DNI de quien emite', before.opalosisIssue?.makerDni, after.opalosisIssue?.makerDni);
+  push('Orden de servicio', before.opalosisRegistration?.numeroOrdenServicio, after.opalosisRegistration?.numeroOrdenServicio);
 
   (Object.keys(RATE_LABELS) as (keyof BillingRates)[]).forEach((key) => {
     push(RATE_LABELS[key], before.rates[key], after.rates[key]);

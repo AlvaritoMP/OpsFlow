@@ -4705,18 +4705,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     }
   };
 
-  const handleDownloadDocument = async (document: UnitDocument) => {
+  const handleDownloadDocument = async (unitDocument: UnitDocument) => {
     try {
       const { documentsService } = await import('../services/documentsService');
-      const downloadUrl = await documentsService.getDownloadUrl(document.id);
-      
-      if (downloadUrl) {
-        // Abrir en nueva pestaña para descargar
-        window.open(downloadUrl, '_blank');
-      } else {
-        setNotification({ type: 'error', message: 'No se pudo obtener la URL de descarga' });
-        setTimeout(() => setNotification(null), 3000);
-      }
+      await documentsService.download(unitDocument);
     } catch (error) {
       console.error('Error al descargar documento:', error);
       setNotification({ type: 'error', message: 'Error al descargar el documento. Por favor, intente nuevamente.' });

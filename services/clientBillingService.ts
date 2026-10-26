@@ -12,6 +12,8 @@ import {
   BillingRates,
   BillingWorkerInput,
   ClientBillingModel,
+  OpalosisDocumentKind,
+  OpalosisIssueSettings,
   DEFAULT_BILLING_RATES,
   AttendanceWindow,
   attendanceWindowError,
@@ -626,6 +628,14 @@ export async function saveBillingProfile(unitId: string, model: ClientBillingMod
     considerations: model.considerations,
     administrative: model.administrative,
     opalosisPesCode: (model.opalosisPesCode || existing?.opalosisPesCode || '').trim(),
+    opalosisPreset: model.opalosisIssue
+      ? {
+          documentKind: model.opalosisIssue.documentKind,
+          workGroup: model.opalosisIssue.workGroup,
+          businessLine: model.opalosisIssue.businessLine,
+          opaloCompany: model.opalosisIssue.opaloCompany,
+        }
+      : existing?.opalosisPreset,
   };
   const { error } = await db.from('client_billing_profiles').upsert({
     unit_id: unitId,
@@ -677,16 +687,83 @@ async function assertBillingAdmin(actor: BillingActor): Promise<void> {
   }
 }
 
-export async function loadUnitOpalosisPes(unitId: string): Promise<string> {
-  const profile = await loadProfile(unitId);
-  return String(profile?.opalosisPesCode || '').trim();
+export interface UnitOpalosisSetup {
+  pesChoices: string[];
+  documentKind: OpalosisDocumentKind;
+  workGroup: string;
+  businessLine: string;
+  opaloCompany: string;
 }
 
-export async function saveUnitOpalosisPes(unitId: string, pesCode: string, actor: BillingActor): Promise<void> {
+function asDocumentKind(value: unknown): OpalosisDocumentKind | '' {
+  return value === 'invoice' || value === 'credit' || value === 'debit' ? value : '';
+}
+
+/** PES y opciones de la última liquidación, para repetirlas el mes siguiente. */
+export async function loadUnitOpalosisSetup(unitId: string): Promise<UnitOpalosisSetup> {
+  const setup: UnitOpalosisSetup = {
+    pesChoices: [],
+    documentKind: 'invoice',
+    workGroup: '',
+    businessLine: '',
+    opaloCompany: '',
+  };
+  const push = (value?: string | null) => {
+    const code = String(value || '').trim();
+    if (code && !setup.pesChoices.some((item) => item.toLowerCase() === code.toLowerCase())) setup.pesChoices.push(code);
+  };
+  let kindSet = false;
+  const apply = (issue?: Partial<OpalosisIssueSettings> | null) => {
+    if (!issue) return;
+    if (!setup.workGroup && issue.workGroup) setup.workGroup = issue.workGroup;
+    if (!setup.businessLine && issue.businessLine) setup.businessLine = issue.businessLine;
+    if (!setup.opaloCompany && issue.opaloCompany) setup.opaloCompany = issue.opaloCompany;
+    const kind = asDocumentKind(issue.documentKind);
+    if (kind && !kindSet) {
+      setup.documentKind = kind;
+      kindSet = true;
+    }
+  };
+
+  const { data, error } = await db
+    .from('client_billings')
+    .select('payload')
+    .eq('unit_id', unitId)
+    .neq('status', 'void')
+    .order('period_month', { ascending: false })
+    .limit(36);
+  if (!error) {
+    for (const row of data || []) {
+      const model = row.payload?.model || row.payload || {};
+      push(model.opalosisPesCode);
+      apply(model.opalosisIssue);
+    }
+  }
+
+  const profile = await loadProfile(unitId);
+  push(profile?.opalosisPesCode);
+  apply(profile?.opalosisPreset);
+  return setup;
+}
+
+export async function saveUnitOpalosisSetup(
+  unitId: string,
+  setup: { pesCode: string; issue: OpalosisIssueSettings },
+  actor: BillingActor
+): Promise<void> {
   const existing = (await loadProfile(unitId)) || {};
   const { error } = await db.from('client_billing_profiles').upsert({
     unit_id: unitId,
-    payload: { ...existing, opalosisPesCode: pesCode.trim() },
+    payload: {
+      ...existing,
+      opalosisPesCode: setup.pesCode.trim(),
+      opalosisPreset: {
+        documentKind: setup.issue.documentKind,
+        workGroup: setup.issue.workGroup,
+        businessLine: setup.issue.businessLine,
+        opaloCompany: setup.issue.opaloCompany,
+      },
+    },
     updated_by_name: actor.name,
     updated_at: new Date().toISOString(),
   });
@@ -700,6 +777,7 @@ async function loadProfile(unitId: string): Promise<{
   administrative?: BillingCostLine[];
   formulas?: BillingFormulaSet;
   opalosisPesCode?: string;
+  opalosisPreset?: Partial<OpalosisIssueSettings>;
 } | null> {
   const { data, error } = await db
     .from('client_billing_profiles')
