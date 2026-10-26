@@ -33,7 +33,6 @@ import {
   formatPeriodLabel,
   newBillingId,
   normalizeBillingRates,
-  usesPercentEssalud,
   pen,
   round2,
   snapshotFromSavedTotals,
@@ -159,13 +158,12 @@ export async function prepareBillingDraft(
   const windowError = attendanceWindowError(window.from, window.to);
   if (windowError) throw new Error(windowError);
 
-  const [profile, previous, people, compensations, absences, published] = await Promise.all([
+  const [profile, previous, people, compensations, absences] = await Promise.all([
     loadProfile(unit.id),
     loadPrevious(unit.id, periodMonth),
     loadPersonnel(unit.id, window),
     variableCompensationsService.getByUnitAndMonth(unit.id, periodMonth).catch(() => []),
     loadAbsenceDeductions(unit.id, window),
-    loadPublishedBillingFormulas(),
   ]);
 
   const rates = normalizeBillingRates({
@@ -179,8 +177,6 @@ export async function prepareBillingDraft(
   model.attendanceFrom = window.from;
   model.attendanceTo = window.to;
   model.considerations = profile?.considerations || previous?.model.considerations || model.considerations;
-  const formulas = published || profile?.formulas;
-  if (formulas) model.formulas = normalizeBillingFormulas(formulas);
 
   const bonuses = new Map<string, { amount: number; concept: string[] }>();
   compensations.forEach((item) => {
@@ -292,7 +288,16 @@ export async function saveClientBilling(input: {
   changes: BillingChange[];
   action?: 'created' | 'saved';
 }): Promise<ClientBillingRecord> {
-  const computed = computeBilling(input.model);
+  let formulas = input.model.formulas;
+  let draft = !input.id;
+  if (input.id) {
+    const { data } = await db.from('client_billings').select('status').eq('id', input.id).maybeSingle();
+    draft = !data || data.status === 'draft';
+  }
+  if (draft) {
+    formulas = (await loadPublishedBillingFormulas()) || undefined;
+  }
+  const computed = computeBilling({ ...input.model, formulas });
   const now = new Date().toISOString();
   const row = {
     unit_id: input.unit.id,
@@ -347,49 +352,6 @@ export async function saveClientBilling(input: {
     await writeAudit(record.id, input.actor, input.action || 'saved', summary, input.changes);
   }
   return record;
-}
-
-/** Recalcula liquidaciones ya guardadas que todavía usan EsSalud como porcentaje. Las emitidas siguen emitidas. */
-export async function convertBillingsEssaludToFixed(
-  records: ClientBillingRecord[],
-  amount: number,
-  actor: BillingActor,
-  onProgress?: (done: number, total: number) => void
-): Promise<{ updated: number; skipped: number; errors: string[] }> {
-  const fixedAmount = Number(amount);
-  if (!Number.isFinite(fixedAmount) || fixedAmount < 0) {
-    throw new Error('Escriba un monto fijo de EsSalud igual o mayor que cero.');
-  }
-  const targets = records.filter((record) => record.status !== 'void' && record.model?.rates?.essaludMode !== 'fixed');
-  let updated = 0;
-  let skipped = records.length - targets.length;
-  const errors: string[] = [];
-  for (let index = 0; index < targets.length; index += 1) {
-    const record = targets[index];
-    onProgress?.(index + 1, targets.length);
-    try {
-      const next = cloneModel(record.model);
-      next.rates = normalizeBillingRates({
-        ...next.rates,
-        essaludMode: 'fixed',
-        essaludFixedAmount: fixedAmount,
-      });
-      await saveClientBilling({
-        id: record.id,
-        unit: { id: record.unitId, name: record.unitName, clientName: record.clientName },
-        periodMonth: record.periodMonth,
-        model: next,
-        actor,
-        changes: diffBillingModels(record.model, next),
-      });
-      updated += 1;
-    } catch (error) {
-      errors.push(
-        `${record.unitName} · ${record.periodMonth}: ${error instanceof Error ? error.message : 'No se pudo guardar'}`
-      );
-    }
-  }
-  return { updated, skipped, errors };
 }
 
 export type BillingNoteKind = 'credit' | 'debit';
@@ -661,26 +623,10 @@ export async function saveBillingProfile(unitId: string, model: ClientBillingMod
     serviceLabel: model.serviceLabel,
     considerations: model.considerations,
     administrative: model.administrative,
-    formulas: model.formulas ? normalizeBillingFormulas(model.formulas) : undefined,
   };
   const { error } = await db.from('client_billing_profiles').upsert({
     unit_id: unitId,
     payload,
-    updated_by_name: actor.name,
-    updated_at: new Date().toISOString(),
-  });
-  if (error) throw mapError(error);
-}
-
-export async function saveUnitBillingFormulas(unitId: string, formulas: BillingFormulaSet, actor: BillingActor): Promise<void> {
-  await assertBillingAdmin(actor);
-  const normalized = normalizeBillingFormulas(formulas);
-  const issues = validateBillingFormulas(normalized);
-  if (issues.length) throw new Error(issues[0].message);
-  const current = (await loadProfile(unitId)) || {};
-  const { error } = await db.from('client_billing_profiles').upsert({
-    unit_id: unitId,
-    payload: { ...current, formulas: normalized },
     updated_by_name: actor.name,
     updated_at: new Date().toISOString(),
   });

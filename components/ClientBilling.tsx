@@ -33,13 +33,12 @@ import {
   listBillingNotes,
   listBillingRuns,
   listClientBillings,
-  convertBillingsEssaludToFixed,
   prepareBillingDraft,
   refreshWorkersFromUnit,
   loadBillingDayGlance,
   BillingDayGlance,
+  loadPublishedBillingFormulas,
   publishBillingFormulas,
-  saveUnitBillingFormulas,
   saveBillingNote,
   saveBillingProfile,
   saveClientBilling,
@@ -73,11 +72,10 @@ import {
   monthDateBounds,
   newBillingId,
   pen,
-  usesPercentEssalud,
   resolveAttendanceWindow,
   workerOverlapsBillingWindow,
 } from '../utils/clientBillingCalc';
-import { BillingFormulaSet, describeFormula } from '../utils/billingFormulas';
+import { BillingFormulaSet, describeFormula, normalizeBillingFormulas } from '../utils/billingFormulas';
 
 interface ClientBillingProps {
   units: Unit[];
@@ -167,7 +165,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createTo, setCreateTo] = useState(() => monthDateBounds(new Date().toISOString().slice(0, 7)).to);
   const [copyPrevious, setCopyPrevious] = useState(true);
   const [appliedAttendanceKey, setAppliedAttendanceKey] = useState('');
-  const [bulkEssaludAmount, setBulkEssaludAmount] = useState('');
+  const [billingSection, setBillingSection] = useState<'liquidaciones' | 'formulas'>('liquidaciones');
+  const [publishedFormulas, setPublishedFormulas] = useState<BillingFormulaSet | null>(null);
+  const [formulaKey, setFormulaKey] = useState('inicial');
+  const formulaAdmin = currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
 
   const loadList = async () => {
     setLoadingList(true);
@@ -196,9 +197,23 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
 
   useEffect(() => {
     void loadList();
+    void loadPublishedBillingFormulas()
+      .then((formulas) => {
+        setPublishedFormulas(formulas);
+        setFormulaKey('publicado');
+      })
+      .catch(() => {
+        setPublishedFormulas(null);
+        setFormulaKey('publicado');
+      });
   }, []);
 
-  const computed = useMemo(() => (editor ? computeBilling(modelInAttendanceWindow(editor.periodMonth, editor.model)) : null), [editor]);
+  const activeFormulas = editor?.status === 'draft' ? publishedFormulas || undefined : editor?.model.formulas;
+  const computed = useMemo(() => {
+    if (!editor) return null;
+    const model = modelInAttendanceWindow(editor.periodMonth, editor.model);
+    return computeBilling({ ...model, formulas: activeFormulas });
+  }, [editor, activeFormulas]);
   const pendingChanges = useMemo(
     () => (editor ? diffBillingModels(editor.baseline, editor.model) : []),
     [editor]
@@ -372,42 +387,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
   };
 
-  const convertVisibleEssalud = async () => {
-    const amount = Number(bulkEssaludAmount);
-    if (!Number.isFinite(amount) || amount < 0 || bulkEssaludAmount.trim() === '') {
-      setBanner('Escriba el monto fijo de EsSalud que se aplicará a las liquidaciones guardadas.');
-      return;
-    }
-    const targets = visibleRecords.filter((record) => record.status !== 'void' && usesPercentEssalud(record.model.rates));
-    if (targets.length === 0) {
-      setBanner('En este listado no hay liquidaciones guardadas con EsSalud en porcentaje.');
-      return;
-    }
-    const issued = targets.filter((record) => record.status === 'issued').length;
-    const confirmed = window.confirm(
-      `Se cambiará EsSalud a S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por trabajador en ${targets.length} liquidación(es) guardada(s) que hoy usan porcentaje${issued ? `, incluidas ${issued} emitida(s)` : ''}. El total se recalcula y el cálculo anterior queda en las corridas. ¿Continuar?`
-    );
-    if (!confirmed) return;
-    setBusy(`Actualizando EsSalud 0 de ${targets.length}`);
-    setBanner(null);
-    try {
-      const result = await convertBillingsEssaludToFixed(targets, amount, actor, (done, total) => {
-        setBusy(`Actualizando EsSalud ${done} de ${total}`);
-      });
-      const errorNote = result.errors.length ? ` ${result.errors.length} no se pudieron guardar.` : '';
-      setBanner(
-        result.updated
-          ? `EsSalud pasó a monto fijo en ${result.updated} liquidación(es).${errorNote}`
-          : `No se actualizó ninguna liquidación.${errorNote}`
-      );
-      await loadList();
-    } catch (error) {
-      setBanner(error instanceof Error ? error.message : 'No se pudo cambiar EsSalud en las liquidaciones guardadas.');
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const save = async () => {
     if (!editor || locked) return;
     setBusy('Guardando');
@@ -569,18 +548,18 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   };
 
   const publishFormulas = async (formulas: BillingFormulaSet) => {
-    if (!editor || editor.status !== 'draft' || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) return;
+    if (!formulaAdmin) return;
     setBusy('Publicando fórmulas');
     setBanner(null);
     try {
-      patchModel({ formulas });
-      await saveUnitBillingFormulas(editor.unitId, formulas, actor);
       const published = await publishBillingFormulas(formulas, actor);
-      setBanner(
-        published.catalog
-          ? 'Fórmulas publicadas. Esta liquidación ya las usa. Guárdela para dejarlas en el borrador. Las liquidaciones nuevas también las toman.'
-          : 'Las fórmulas quedaron en esta unidad. Guarde la liquidación. Para el resto de unidades ejecute migrations/MIGRATION_CLIENT_BILLING_FORMULAS.sql en Supabase.'
-      );
+      if (!published.catalog) {
+        setBanner('Falta la tabla del método. Ejecute migrations/MIGRATION_CLIENT_BILLING_FORMULAS.sql en Supabase y vuelva a publicar.');
+        return;
+      }
+      const next = normalizeBillingFormulas(formulas);
+      setPublishedFormulas(next);
+      setBanner('Método publicado. Todas las liquidaciones, incluidas las nuevas, usan estas fórmulas.');
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudieron publicar las fórmulas.');
     } finally {
@@ -639,6 +618,37 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
               </div>
             </header>
 
+            {formulaAdmin && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBillingSection('liquidaciones')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium ${billingSection === 'liquidaciones' ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-700'}`}
+                >
+                  Liquidaciones
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBillingSection('formulas')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium ${billingSection === 'formulas' ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-700'}`}
+                >
+                  Fórmulas
+                </button>
+              </div>
+            )}
+
+            {banner && <Banner tone="info" text={banner} />}
+
+            {formulaAdmin && billingSection === 'formulas' ? (
+              <BillingFormulaEditor
+                billingKey={formulaKey}
+                formulas={publishedFormulas || undefined}
+                locked={false}
+                publishing={busy === 'Publicando fórmulas'}
+                onPublish={(formulas) => void publishFormulas(formulas)}
+              />
+            ) : (
+            <>
             <section className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
               <InfoCard title="1. Costo laboral" text="Sueldo del personal de la unidad, días trabajados y cargas: vacaciones, gratificación, CTS, EsSalud, Vida Ley y SCTR." />
               <InfoCard title="2. Costo operativo" text="Materiales, equipos y maquinaria del mes. Se cargan como ítems con monto." />
@@ -647,7 +657,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             </section>
 
             {storageError && <Banner tone="danger" text={storageError} />}
-            {banner && <Banner tone="info" text={banner} />}
 
             {(showCompare || notes.length > 0) && (
               <BillingRunCompare
@@ -750,37 +759,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <option value="void">Anuladas</option>
                 </select>
               </div>
-              {canEdit && (
-                <div className="p-3 border-b border-slate-100 bg-slate-50 flex flex-col lg:flex-row lg:items-end gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800">Pasar EsSalud de porcentaje a monto fijo</p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Aplica a las liquidaciones ya guardadas de este listado que todavía calculan EsSalud como porcentaje
-                      {` (${visibleRecords.filter((record) => record.status !== 'void' && usesPercentEssalud(record.model.rates)).length})`}.
-                      Las que ya están en monto fijo no cambian. Las emitidas siguen emitidas, el total se recalcula y el cálculo anterior queda en las corridas.
-                    </p>
-                  </div>
-                  <label className="text-xs text-slate-500 shrink-0">
-                    Monto por trabajador (S/)
-                    <input
-                      className={fieldClass}
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={bulkEssaludAmount}
-                      onChange={(event) => setBulkEssaludAmount(event.target.value)}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={!!busy || visibleRecords.every((record) => record.status === 'void' || !usesPercentEssalud(record.model.rates))}
-                    onClick={() => void convertVisibleEssalud()}
-                    className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-60"
-                  >
-                    Aplicar a las de porcentaje
-                  </button>
-                </div>
-              )}
               {loadingList ? (
                 <div className="p-8 text-center text-slate-500 text-sm">Cargando facturaciones...</div>
               ) : visibleRecords.length === 0 ? (
@@ -835,6 +813,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                 </div>
               )}
             </section>
+            </>
+            )}
           </>
         )}
 
@@ -872,10 +852,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             }}
             onReload={() => void reloadPersonnel()}
             onRemember={() => void rememberConditions()}
-            onApplyFormulas={(formulas) => patchModel({ formulas })}
-            onPublishFormulas={(formulas) => void publishFormulas(formulas)}
-            formulaAdmin={currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN'}
-            onExport={() => exportExcel(editor, computed)}
+            formulas={activeFormulas}
+            onExport={() => exportExcel(editor, computed, activeFormulas)}
             onOpenHelp={onOpenHelp}
             onOpenCompare={() => {
               if (!editor.id) {
@@ -941,9 +919,7 @@ function EditorView(props: {
   onVoid: () => void;
   onReload: () => void;
   onRemember: () => void;
-  onApplyFormulas: (formulas: BillingFormulaSet) => void;
-  onPublishFormulas: (formulas: BillingFormulaSet) => void;
-  formulaAdmin: boolean;
+  formulas?: BillingFormulaSet;
   onExport: () => void;
   onOpenHelp?: () => void;
   onOpenCompare: () => void;
@@ -1053,7 +1029,7 @@ function EditorView(props: {
       </div>
 
       {editor.status === 'issued' && (
-        <Banner tone="info" text="Emitir guardó el cálculo y dejó esta liquidación bloqueada. Para cambiar un sueldo, un costo o la utilidad hay que reabrirla. EsSalud sí se puede pasar de porcentaje a monto fijo en Parámetros, o desde el listado, sin reabrir el resto." />
+        <Banner tone="info" text="Emitir guardó el cálculo y dejó esta liquidación como estaba. Para cambiar un sueldo, un costo o la utilidad hay que reabrirla. EsSalud se cambia en Parámetros de esta liquidación." />
       )}
       {props.banner && <Banner tone="info" text={props.banner} />}
       {props.compareSlot}
@@ -1253,7 +1229,7 @@ function EditorView(props: {
                   workers={filteredWorkers}
                   lines={workerMap}
                   rates={editor.model.rates}
-                  formulas={editor.model.formulas}
+                  formulas={props.formulas}
                   locked={locked}
                   authorName={props.authorName}
                   onPatchWorker={props.onPatchWorker}
@@ -1305,7 +1281,7 @@ function EditorView(props: {
               <section className="bg-white border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
                 <p className="font-medium text-slate-800 mb-2">Costo financiero</p>
                 <p>
-                  {describeFormula('financiero', editor.model.formulas)} Resultado: <strong>{pen(computed.financialAmount)}</strong>.
+                  {describeFormula('financiero', props.formulas)} Resultado: <strong>{pen(computed.financialAmount)}</strong>.
                 </p>
                 <div className="grid sm:grid-cols-2 gap-3 mt-3">
                   <label>
@@ -1339,19 +1315,9 @@ function EditorView(props: {
 
           {props.tab === 'params' && (
             <>
-            {props.formulaAdmin && (
-              <BillingFormulaEditor
-                billingKey={`${editor.id || 'nueva'}:${editor.unitId}:${editor.periodMonth}`}
-                formulas={editor.model.formulas}
-                locked={locked || !props.canEdit}
-                publishing={props.busy === 'Publicando fórmulas'}
-                onApply={props.onApplyFormulas}
-                onPublish={props.onPublishFormulas}
-              />
-            )}
             <ParametersPanel
               rates={editor.model.rates}
-              formulas={editor.model.formulas}
+              formulas={props.formulas}
               considerations={editor.model.considerations}
               locked={locked}
               essaludLocked={!props.canEdit || editor.status === 'void'}
@@ -1415,7 +1381,7 @@ function EditorView(props: {
               </label>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              {describeFormula('baseUtilidad', editor.model.formulas)} {describeFormula('utilidad', editor.model.formulas)}
+              {describeFormula('baseUtilidad', props.formulas)} {describeFormula('utilidad', props.formulas)}
             </p>
             <SummaryRow label="Utilidad" value={computed.profitAmount} share={share(computed.profitAmount, computed.grandTotal)} />
           </div>
@@ -1583,8 +1549,18 @@ function LaborSheet(props: {
   };
   const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-right px-1.5 py-2 whitespace-nowrap border-b border-slate-200';
   const headLeft = `${head} text-left`;
+  const foot = 'sticky bottom-0 z-20 bg-slate-100 px-1.5 py-2 border-t-2 border-slate-300 whitespace-nowrap';
   const say = (id: string) => describeFormula(id, props.formulas);
   const essaludFixed = props.rates.essaludMode === 'fixed';
+  const billed = props.workers.filter((worker) => worker.included);
+  const totalOf = (pick: (worker: BillingWorkerInput, line?: ComputedWorker) => number) =>
+    billed.reduce((sum, worker) => {
+      const value = pick(worker, props.lines.get(worker.id));
+      return sum + (Number.isFinite(value) ? value : 0);
+    }, 0);
+  const shownLine = (amount: number | undefined, extra: number) => (amount || 0) - extra;
+  const shownOvertime = (manual: number | null | undefined, amount: number | undefined, extra: number) =>
+    isManualAmount(manual) ? (manual as number) : roundShown((amount || 0) - extra);
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1751,6 +1727,48 @@ function LaborSheet(props: {
             );
           })}
         </tbody>
+        <tfoot>
+          <tr>
+            <td className={`${foot} sticky left-0 z-30`} />
+            <td className={`${foot} sticky left-8 z-30 text-left font-semibold text-slate-800`}>
+              Total
+              <div className="text-[10px] font-normal text-slate-500">{billed.length} incluido{billed.length === 1 ? '' : 's'}</div>
+            </td>
+            <td className={foot} />
+            <td className={foot} />
+            <td className={foot} />
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.contractualSalary)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.calendarDays || 0)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.absenceDays || 0)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.daysWorked)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => numDays(worker.vacationDays))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.familyAllowance)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.he25Hours)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.he25Manual, line?.he25, adjustmentAmount(worker, 'he25')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.he35Hours)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.he35Manual, line?.he35, adjustmentAmount(worker, 'he35')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.heNight25Hours || 0)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.heNight25Manual, line?.heNight25, adjustmentAmount(worker, 'heNight25')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.heNight35Hours || 0)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.heNight35Manual, line?.heNight35, adjustmentAmount(worker, 'heNight35')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.nightHours)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.nightManual, line?.night, adjustmentAmount(worker, 'night')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.workCondition)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => worker.bonus)} strong /></td>
+            <td className={foot} title="El factor no se suma" />
+            <td className={foot}>{essaludFixed ? <span className="block text-right text-slate-400">—</span> : <GridMoney value={totalOf((_, line) => line?.essaludBase || 0)} strong />}</td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownLine(line?.basic, adjustmentAmount(worker, 'basic')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((_, line) => line?.remLlss || 0)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownLine(line?.vacation, adjustmentAmount(worker, 'vacation')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownLine(line?.gratification, adjustmentAmount(worker, 'gratification')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownLine(line?.cts, adjustmentAmount(worker, 'cts')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownLine(line?.feria, adjustmentAmount(worker, 'feria')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownLine(line?.essalud, adjustmentAmount(worker, 'essalud')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownLine(line?.vidaLey, adjustmentAmount(worker, 'vidaLey')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => shownLine(line?.sctr, adjustmentAmount(worker, 'sctr')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((_, line) => line?.totalCost || 0)} strong /></td>
+          </tr>
+        </tfoot>
       </table>
       {adjustmentEdit && createPortal(
         <AdjustmentDialog
@@ -2145,8 +2163,8 @@ function ParametersPanel(props: {
           <span className="block text-[11px] text-slate-400 mt-1">
             {props.saved
               ? props.issued
-                ? 'La liquidación está emitida. Este botón recalcula y guarda EsSalud en monto fijo sin reabrir el resto ni volver a leer la asistencia.'
-                : 'Guarda esta liquidación ya existente con el EsSalud elegido y recalcula el total, sin volver a leer la asistencia.'
+                ? 'La liquidación está emitida y se mantiene así. Este botón guarda solo el EsSalud de esta liquidación cuando usted lo cambia aquí.'
+                : 'Guarda esta liquidación con el EsSalud elegido y recalcula el total, sin volver a leer la asistencia.'
               : 'Esta liquidación todavía no está guardada. Use Guardar para crearla con este EsSalud.'}
           </span>
         </div>
@@ -2494,14 +2512,15 @@ function describeCreation(model: ClientBillingModel) {
   ];
 }
 
-async function exportExcel(editor: EditorState, computed: BillingComputation) {
+async function exportExcel(editor: EditorState, computed: BillingComputation, formulas?: BillingFormulaSet | null) {
   try {
     const { downloadClientBillingExcel } = await import('../utils/clientBillingExcel');
+    const model = modelInAttendanceWindow(editor.periodMonth, editor.model);
     await downloadClientBillingExcel({
       clientName: editor.clientName,
       unitName: editor.unitName,
       periodMonth: editor.periodMonth,
-      model: modelInAttendanceWindow(editor.periodMonth, editor.model),
+      model: { ...model, formulas: formulas || undefined },
       computed,
     });
   } catch (error) {

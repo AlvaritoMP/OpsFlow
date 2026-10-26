@@ -18,7 +18,7 @@ export function BillingFormulaEditor(props: {
   formulas?: BillingFormulaSet;
   locked: boolean;
   publishing: boolean;
-  onApply: (formulas: BillingFormulaSet) => void;
+  onApply?: (formulas: BillingFormulaSet) => void;
   onPublish: (formulas: BillingFormulaSet) => void;
 }) {
   const [billingKey, setBillingKey] = useState(props.billingKey);
@@ -34,7 +34,7 @@ export function BillingFormulaEditor(props: {
   const apply = (next: BillingFormulaSet) => {
     const found = validateBillingFormulas(next);
     setIssues(found);
-    if (!found.length) props.onApply(normalizeBillingFormulas(next));
+    if (!found.length) props.onApply?.(normalizeBillingFormulas(next));
   };
   const edit = (id: string, expression: string) => {
     const next = { ...draft, [id]: expression };
@@ -44,7 +44,7 @@ export function BillingFormulaEditor(props: {
   const restore = () => {
     setDraft(defaults);
     setIssues([]);
-    props.onApply(defaults);
+    props.onApply?.(defaults);
   };
 
   return (
@@ -53,7 +53,7 @@ export function BillingFormulaEditor(props: {
         <div>
           <h2 className="font-semibold text-slate-900">Editor de fórmulas</h2>
           <p className="text-sm text-slate-500 mt-1 max-w-3xl">
-            Solo administradores. Una fórmula válida recalcula esta liquidación y actualiza su descripción. Publique el método para las liquidaciones nuevas y guarde el borrador para conservarlo aquí.
+            Este método vale para todas las liquidaciones, incluidas las que se creen después. Al publicar, el cálculo y las descripciones de cada celda usan estas fórmulas.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
