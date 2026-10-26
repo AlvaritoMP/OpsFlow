@@ -1349,6 +1349,167 @@ function osSetupError(input: {
   return null;
 }
 
+function orderFieldGaps(model: ClientBillingModel) {
+  const issue = model.opalosisIssue;
+  const dni = (issue?.makerDni || '').trim();
+  return {
+    pes: !(model.opalosisPesCode || '').trim(),
+    start: !model.osStartDate,
+    end: !model.osEndDate,
+    document: !issue?.documentKind,
+    group: !issue?.workGroup,
+    line: !issue?.businessLine,
+    company: !issue?.opaloCompany,
+    dni: dni.length < 8 || dni.length > 20,
+  };
+}
+
+function MissingOrderFields(props: {
+  editor: EditorState;
+  canEdit: boolean;
+  onPatchModel: (patch: Partial<ClientBillingModel>) => void;
+}) {
+  const { editor } = props;
+  const issue = editor.model.opalosisIssue;
+  const [pinned, setPinned] = useState<{ id: string; gaps: ReturnType<typeof orderFieldGaps> } | null>(null);
+  if (editor.id && pinned?.id !== editor.id) {
+    setPinned({ id: editor.id, gaps: orderFieldGaps(editor.model) });
+  }
+  const gaps = pinned?.id === editor.id ? pinned.gaps : null;
+  const [pesChoices, setPesChoices] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!editor.id || !gaps?.pes) return;
+    let cancelled = false;
+    void loadUnitOpalosisSetup(editor.unitId)
+      .then((setup) => {
+        if (!cancelled) setPesChoices(setup.pesChoices);
+      })
+      .catch(() => {
+        if (!cancelled) setPesChoices([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editor.id, editor.unitId, gaps?.pes]);
+
+  if (!gaps || editor.status !== 'draft' || !props.canEdit) return null;
+  const anyMissing = gaps.pes || gaps.start || gaps.end || gaps.document || gaps.group || gaps.line || gaps.company || gaps.dni;
+  if (!anyMissing) return null;
+
+  const patchIssue = (patch: Partial<OpalosisIssueSettings>) => {
+    props.onPatchModel({
+      opalosisIssue: {
+        documentKind: patch.documentKind || issue?.documentKind || ('' as OpalosisDocumentKind),
+        workGroup: issue?.workGroup || '',
+        businessLine: issue?.businessLine || '',
+        opaloCompany: issue?.opaloCompany || '',
+        makerDni: issue?.makerDni || '',
+        ...patch,
+        positionLabel: OPALOSIS_POSITION,
+        clientApplicant: 'first',
+      },
+    });
+  };
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+      <p className="text-sm text-amber-950">
+        Esta liquidación ya estaba creada y le faltan datos para enviarla a OpaloSis. Complete solo lo que aparece aquí. El inicio y la entrega no son el corte de asistencia.
+      </p>
+      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+        {gaps.pes && (
+          <label className="text-sm text-slate-600 md:col-span-2">
+            Código PES de OpaloSis
+            {pesChoices.length > 0 ? (
+              <select
+                className={fieldClass}
+                value={pesChoices.includes(editor.model.opalosisPesCode || '') ? editor.model.opalosisPesCode : '__new__'}
+                onChange={(event) => props.onPatchModel({ opalosisPesCode: event.target.value === '__new__' ? '' : event.target.value })}
+              >
+                {pesChoices.map((code) => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+                <option value="__new__">Otro código</option>
+              </select>
+            ) : null}
+            {(pesChoices.length === 0 || !pesChoices.includes(editor.model.opalosisPesCode || '')) && (
+              <input
+                className={fieldClass}
+                value={editor.model.opalosisPesCode || ''}
+                placeholder="PES-20131211-01"
+                onChange={(event) => props.onPatchModel({ opalosisPesCode: event.target.value })}
+              />
+            )}
+          </label>
+        )}
+        {(gaps.start || gaps.end) && (
+          <>
+            <label className="text-sm text-slate-600">
+              Inicio de la orden de servicio
+              <input className={fieldClass} type="date" value={editor.model.osStartDate || ''} onChange={(event) => props.onPatchModel({ osStartDate: event.target.value })} />
+            </label>
+            <label className="text-sm text-slate-600">
+              Entrega de la orden de servicio
+              <input className={fieldClass} type="date" value={editor.model.osEndDate || ''} onChange={(event) => props.onPatchModel({ osEndDate: event.target.value })} />
+            </label>
+          </>
+        )}
+        {gaps.document && (
+          <label className="text-sm text-slate-600">
+            Documento
+            <select className={fieldClass} value={issue?.documentKind || ''} onChange={(event) => patchIssue({ documentKind: event.target.value as OpalosisDocumentKind })}>
+              <option value="">Seleccione</option>
+              {(Object.keys(OPALOSIS_DOCUMENT_LABELS) as OpalosisDocumentKind[]).map((option) => (
+                <option key={option} value={option}>{OPALOSIS_DOCUMENT_LABELS[option]}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {gaps.group && (
+          <label className="text-sm text-slate-600">
+            Grupo de trabajo
+            <select className={fieldClass} value={issue?.workGroup || ''} onChange={(event) => patchIssue({ workGroup: event.target.value })}>
+              <option value="">Seleccione</option>
+              {OPALOSIS_WORK_GROUPS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {gaps.line && (
+          <label className="text-sm text-slate-600">
+            Línea de negocio
+            <select className={fieldClass} value={issue?.businessLine || ''} onChange={(event) => patchIssue({ businessLine: event.target.value })}>
+              <option value="">Seleccione</option>
+              {OPALOSIS_BUSINESS_LINES.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {gaps.company && (
+          <label className="text-sm text-slate-600">
+            Factura Opalo
+            <select className={fieldClass} value={issue?.opaloCompany || ''} onChange={(event) => patchIssue({ opaloCompany: event.target.value })}>
+              <option value="">Seleccione</option>
+              {OPALOSIS_COMPANIES.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {gaps.dni && (
+          <label className="text-sm text-slate-600">
+            DNI de quien emite
+            <input className={fieldClass} maxLength={20} value={issue?.makerDni || ''} onChange={(event) => patchIssue({ makerDni: event.target.value })} />
+          </label>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EditorView(props: {
   editor: EditorState;
   computed: BillingComputation;
@@ -1507,18 +1668,7 @@ function EditorView(props: {
         </div>
       </div>
 
-      {editor.status === 'draft' && props.canEdit && (
-        <div className="bg-white border border-slate-200 rounded-xl p-3 grid sm:grid-cols-2 gap-3 max-w-xl">
-          <label className="text-sm text-slate-600">
-            Inicio de la orden
-            <input className={fieldClass} type="date" value={editor.model.osStartDate || ''} onChange={(event) => props.onPatchModel({ osStartDate: event.target.value })} />
-          </label>
-          <label className="text-sm text-slate-600">
-            Entrega de la orden
-            <input className={fieldClass} type="date" value={editor.model.osEndDate || ''} onChange={(event) => props.onPatchModel({ osEndDate: event.target.value })} />
-          </label>
-        </div>
-      )}
+      <MissingOrderFields editor={editor} canEdit={props.canEdit} onPatchModel={props.onPatchModel} />
       {editor.status === 'issued' && (
         <Banner
           tone="info"
