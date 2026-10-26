@@ -46,7 +46,13 @@ export async function registerBillingServiceOrder(input: RegisterBillingOsInput)
         }
       }
     }
-    throw new Error(detail || error?.message || 'OpaloSis no registró la orden. La liquidación sigue en borrador.');
+    const raw = detail || error?.message || '';
+    const missingFunction = /failed to send a request|cors|failed to fetch|not_found|404/i.test(raw);
+    throw new Error(
+      missingFunction
+        ? 'No se pudo llamar a OpaloSis: la función billing-opalosis-os no está desplegada en Supabase. La liquidación sigue en borrador.'
+        : raw || 'OpaloSis no registró la orden. La liquidación sigue en borrador.'
+    );
   }
   const registration = data?.registration as OpalosisRegistration | undefined;
   if (!registration?.ordenServicioId || !registration.numeroOrdenServicio) {

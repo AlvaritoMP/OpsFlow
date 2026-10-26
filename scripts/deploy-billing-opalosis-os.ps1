@@ -34,7 +34,7 @@ try {
   } else {
     Write-Host 'Sin OPALOSIS_OS_API_KEY. La función usará OPALOSIS_API_KEY si ya está en Supabase.' -ForegroundColor Yellow
   }
-  npx supabase functions deploy $FunctionName --project-ref $ProjectRef
+  npx supabase functions deploy $FunctionName --project-ref $ProjectRef --no-verify-jwt
 } finally {
   Pop-Location
 }
