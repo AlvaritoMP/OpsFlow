@@ -72,6 +72,7 @@ import {
   monthDateBounds,
   newBillingId,
   pen,
+  presentOvertimeInNightBonus,
   resolveAttendanceWindow,
   workerOverlapsBillingWindow,
 } from '../utils/clientBillingCalc';
@@ -936,6 +937,9 @@ function EditorView(props: {
   });
   const includedCount = windowWorkers.filter((worker) => worker.included).length;
   const [sheetMode, setSheetMode] = useState<'costs' | 'attendance' | 'novedades'>('costs');
+  const [nightView, setNightView] = useState<'real' | 'rolled'>('real');
+  const rollOvertime = editor.model.rates.rollOvertimeIntoNightBonus === true;
+  const showRolled = rollOvertime && nightView === 'rolled' && sheetMode === 'costs';
   const [glance, setGlance] = useState<BillingDayGlance | null>(null);
   const [glanceLoading, setGlanceLoading] = useState(false);
   const [glanceError, setGlanceError] = useState<string | null>(null);
@@ -1142,7 +1146,9 @@ function EditorView(props: {
                   <Users size={16} className="shrink-0" />
                   <span>
                     {sheetMode === 'costs'
-                      ? 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Si gozó vacaciones, indique los días en Días vac.: las cargas se calculan con el sueldo base de esos días. Lo amarillo fue ajustado a mano.'
+                      ? showRolled
+                        ? 'Vista de cliente: las horas extra quedan en cero y su importe está sumado al bono nocturno, además del bono que ya correspondía. Remuneración, cargas y costo siguen el cálculo real. Vuelva a Detalle real para editar las horas.'
+                        : 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Si gozó vacaciones, indique los días en Días vac.: las cargas se calculan con el sueldo base de esos días. Lo amarillo fue ajustado a mano.'
                       : sheetMode === 'attendance'
                         ? 'Asistencia del corte, por día. ✓ marcación completa, ½ incompleta, F falta o sin marcas, T tardanza.'
                         : 'Novedades de tareo del corte, con la misma clave que en la unidad.'}
@@ -1171,6 +1177,27 @@ function EditorView(props: {
                       </button>
                     ))}
                   </div>
+                  {rollOvertime && sheetMode === 'costs' && (
+                    <div className="inline-flex rounded-lg border border-amber-200 bg-amber-50 p-0.5" title="Compare el cálculo real con el detalle que verá el cliente, donde las horas extra están dentro del bono nocturno.">
+                      {(
+                        [
+                          ['real', 'Detalle real'],
+                          ['rolled', 'Bono acumulado'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setNightView(id)}
+                          className={`px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap ${
+                            nightView === id ? 'bg-white text-amber-950 shadow-sm' : 'text-amber-800 hover:text-amber-950'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <input className="w-44 max-w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800" placeholder="Buscar trabajador" value={props.workerQuery} onChange={(event) => props.setWorkerQuery(event.target.value)} />
                   {!locked && (
                     <>
@@ -1231,6 +1258,7 @@ function EditorView(props: {
                   rates={editor.model.rates}
                   formulas={props.formulas}
                   locked={locked}
+                  showRolled={showRolled}
                   authorName={props.authorName}
                   onPatchWorker={props.onPatchWorker}
                   onRemove={(id) => props.onPatchModel({ workers: editor.model.workers.filter((item) => item.id !== id) })}
@@ -1538,6 +1566,7 @@ function LaborSheet(props: {
   rates: BillingRates;
   formulas?: BillingFormulaSet;
   locked: boolean;
+  showRolled: boolean;
   authorName: string;
   onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
   onRemove: (id: string) => void;
@@ -1561,6 +1590,29 @@ function LaborSheet(props: {
   const shownLine = (amount: number | undefined, extra: number) => (amount || 0) - extra;
   const shownOvertime = (manual: number | null | undefined, amount: number | undefined, extra: number) =>
     isManualAmount(manual) ? (manual as number) : roundShown((amount || 0) - extra);
+  const moneySplit = (worker: BillingWorkerInput, line?: ComputedWorker) =>
+    presentOvertimeInNightBonus(
+      {
+        he25: shownOvertime(worker.he25Manual, line?.he25, adjustmentAmount(worker, 'he25')),
+        he35: shownOvertime(worker.he35Manual, line?.he35, adjustmentAmount(worker, 'he35')),
+        heNight25: shownOvertime(worker.heNight25Manual, line?.heNight25, adjustmentAmount(worker, 'heNight25')),
+        heNight35: shownOvertime(worker.heNight35Manual, line?.heNight35, adjustmentAmount(worker, 'heNight35')),
+        night: shownOvertime(worker.nightManual, line?.night, adjustmentAmount(worker, 'night')),
+      },
+      props.showRolled
+    );
+  const hourSplit = (worker: BillingWorkerInput) =>
+    presentOvertimeInNightBonus(
+      {
+        he25: worker.he25Hours,
+        he35: worker.he35Hours,
+        heNight25: worker.heNight25Hours || 0,
+        heNight35: worker.heNight35Hours || 0,
+        night: worker.nightHours,
+      },
+      props.showRolled
+    );
+  const nightHead = props.showRolled ? `${head} !bg-amber-100 !text-amber-950` : head;
   if (props.workers.length === 0) {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
@@ -1580,16 +1632,16 @@ function LaborSheet(props: {
             <th className={head}>Días</th>
             <th className={head} title={say('sueldoVacaciones')}>Días vac.</th>
             <th className={head}>Asig. fam.</th>
-            <th className={head}>HE día 25 h</th>
-            <th className={head} title={say('he25')}>HE día 25 S/</th>
-            <th className={head}>HE día 35 h</th>
-            <th className={head} title={say('he35')}>HE día 35 S/</th>
-            <th className={head} title={say('heNoche25')}>HE noche 25 h</th>
-            <th className={head} title={say('heNoche25')}>HE noche 25 S/</th>
-            <th className={head} title={say('heNoche35')}>HE noche 35 h</th>
-            <th className={head} title={say('heNoche35')}>HE noche 35 S/</th>
-            <th className={head} title={say('bonoNocturno')}>Bono h</th>
-            <th className={head} title={say('bonoNocturno')}>Bono S/</th>
+            <th className={head} title={props.showRolled ? 'En esta vista las horas están en Bono h' : undefined}>HE día 25 h</th>
+            <th className={head} title={props.showRolled ? 'En esta vista el importe está en Bono nocturno' : say('he25')}>HE día 25 S/</th>
+            <th className={head} title={props.showRolled ? 'En esta vista las horas están en Bono h' : undefined}>HE día 35 h</th>
+            <th className={head} title={props.showRolled ? 'En esta vista el importe está en Bono nocturno' : say('he35')}>HE día 35 S/</th>
+            <th className={head} title={props.showRolled ? 'En esta vista las horas están en Bono h' : say('heNoche25')}>HE noche 25 h</th>
+            <th className={head} title={props.showRolled ? 'En esta vista el importe está en Bono nocturno' : say('heNoche25')}>HE noche 25 S/</th>
+            <th className={head} title={props.showRolled ? 'En esta vista las horas están en Bono h' : say('heNoche35')}>HE noche 35 h</th>
+            <th className={head} title={props.showRolled ? 'En esta vista el importe está en Bono nocturno' : say('heNoche35')}>HE noche 35 S/</th>
+            <th className={nightHead} title={props.showRolled ? 'Horas de bono nocturno más todas las horas extra' : say('bonoNocturno')}>Bono h</th>
+            <th className={nightHead} title={props.showRolled ? 'Bono nocturno más el importe de todas las horas extra' : say('bonoNocturno')}>Bono S/</th>
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
             <th className={head}>Factor</th>
@@ -1609,6 +1661,8 @@ function LaborSheet(props: {
         <tbody>
           {props.workers.map((worker) => {
             const line = props.lines.get(worker.id);
+            const hours = hourSplit(worker);
+            const money = moneySplit(worker, line);
             const salary = (value: number) =>
               props.onPatchWorker(worker.id, worker.socialBaseManual ? { contractualSalary: value } : { contractualSalary: value, socialBase: value });
             const dim = worker.included ? '' : 'opacity-50';
@@ -1659,54 +1713,66 @@ function LaborSheet(props: {
                   />
                 </td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'familyAllowance')} title={hint(worker, 'familyAllowance')} disabled={props.locked} value={worker.familyAllowance} onChange={(familyAllowance) => props.onPatchWorker(worker.id, { familyAllowance })} /></td>
-                <OvertimeCells
-                  hours={worker.he25Hours}
-                  manual={worker.he25Manual}
-                  amount={line?.he25}
-                  extra={adjustmentAmount(worker, 'he25')}
-                  locked={props.locked}
-                  formula={say('he25')}
-                  onHours={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })}
-                  onManual={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })}
-                  onAdjust={(event) => openAdjustment(event, worker.id, 'he25')}
-                />
-                <OvertimeCells
-                  hours={worker.he35Hours}
-                  manual={worker.he35Manual}
-                  amount={line?.he35}
-                  extra={adjustmentAmount(worker, 'he35')}
-                  locked={props.locked}
-                  formula={say('he35')}
-                  onHours={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })}
-                  onManual={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })}
-                  onAdjust={(event) => openAdjustment(event, worker.id, 'he35')}
-                />
-                <OvertimeCells
-                  hours={worker.heNight25Hours || 0}
-                  manual={worker.heNight25Manual}
-                  amount={line?.heNight25}
-                  extra={adjustmentAmount(worker, 'heNight25')}
-                  locked={props.locked}
-                  formula={say('heNoche25')}
-                  onHours={(heNight25Hours) => props.onPatchWorker(worker.id, { heNight25Hours, heNight25Manual: null })}
-                  onManual={(heNight25Manual) => props.onPatchWorker(worker.id, { heNight25Manual })}
-                  onAdjust={(event) => openAdjustment(event, worker.id, 'heNight25')}
-                />
-                <OvertimeCells
-                  hours={worker.heNight35Hours || 0}
-                  manual={worker.heNight35Manual}
-                  amount={line?.heNight35}
-                  extra={adjustmentAmount(worker, 'heNight35')}
-                  locked={props.locked}
-                  formula={say('heNoche35')}
-                  onHours={(heNight35Hours) => props.onPatchWorker(worker.id, { heNight35Hours, heNight35Manual: null })}
-                  onManual={(heNight35Manual) => props.onPatchWorker(worker.id, { heNight35Manual })}
-                  onAdjust={(event) => openAdjustment(event, worker.id, 'heNight35')}
-                />
-                <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.nightHours} onChange={(nightHours) => props.onPatchWorker(worker.id, { nightHours, nightManual: null })} /></td>
-                <td className="px-1 py-1" title={say('bonoNocturno')} onContextMenu={(event) => openAdjustment(event, worker.id, 'night')}>
-                  <GridNum amber={worker.nightManual !== null} disabled={props.locked} title={say('bonoNocturno')} value={worker.nightManual !== null ? worker.nightManual : roundShown((line?.night || 0) - adjustmentAmount(worker, 'night'))} onChange={(nightManual) => props.onPatchWorker(worker.id, { nightManual })} />
-                </td>
+                {props.showRolled ? (
+                  <>
+                    <RolledPair hours={hours.he25} amount={money.he25} muted title="Estas horas extra están sumadas en el bono nocturno" />
+                    <RolledPair hours={hours.he35} amount={money.he35} muted title="Estas horas extra están sumadas en el bono nocturno" />
+                    <RolledPair hours={hours.heNight25} amount={money.heNight25} muted title="Estas horas extra están sumadas en el bono nocturno" />
+                    <RolledPair hours={hours.heNight35} amount={money.heNight35} muted title="Estas horas extra están sumadas en el bono nocturno" />
+                    <RolledPair hours={hours.night} amount={money.night} highlight title="Bono nocturno más todas las horas extra. El costo no cambia." />
+                  </>
+                ) : (
+                  <>
+                    <OvertimeCells
+                      hours={worker.he25Hours}
+                      manual={worker.he25Manual}
+                      amount={line?.he25}
+                      extra={adjustmentAmount(worker, 'he25')}
+                      locked={props.locked}
+                      formula={say('he25')}
+                      onHours={(he25Hours) => props.onPatchWorker(worker.id, { he25Hours, he25Manual: null })}
+                      onManual={(he25Manual) => props.onPatchWorker(worker.id, { he25Manual })}
+                      onAdjust={(event) => openAdjustment(event, worker.id, 'he25')}
+                    />
+                    <OvertimeCells
+                      hours={worker.he35Hours}
+                      manual={worker.he35Manual}
+                      amount={line?.he35}
+                      extra={adjustmentAmount(worker, 'he35')}
+                      locked={props.locked}
+                      formula={say('he35')}
+                      onHours={(he35Hours) => props.onPatchWorker(worker.id, { he35Hours, he35Manual: null })}
+                      onManual={(he35Manual) => props.onPatchWorker(worker.id, { he35Manual })}
+                      onAdjust={(event) => openAdjustment(event, worker.id, 'he35')}
+                    />
+                    <OvertimeCells
+                      hours={worker.heNight25Hours || 0}
+                      manual={worker.heNight25Manual}
+                      amount={line?.heNight25}
+                      extra={adjustmentAmount(worker, 'heNight25')}
+                      locked={props.locked}
+                      formula={say('heNoche25')}
+                      onHours={(heNight25Hours) => props.onPatchWorker(worker.id, { heNight25Hours, heNight25Manual: null })}
+                      onManual={(heNight25Manual) => props.onPatchWorker(worker.id, { heNight25Manual })}
+                      onAdjust={(event) => openAdjustment(event, worker.id, 'heNight25')}
+                    />
+                    <OvertimeCells
+                      hours={worker.heNight35Hours || 0}
+                      manual={worker.heNight35Manual}
+                      amount={line?.heNight35}
+                      extra={adjustmentAmount(worker, 'heNight35')}
+                      locked={props.locked}
+                      formula={say('heNoche35')}
+                      onHours={(heNight35Hours) => props.onPatchWorker(worker.id, { heNight35Hours, heNight35Manual: null })}
+                      onManual={(heNight35Manual) => props.onPatchWorker(worker.id, { heNight35Manual })}
+                      onAdjust={(event) => openAdjustment(event, worker.id, 'heNight35')}
+                    />
+                    <td className="px-1 py-1"><GridNum step="0.5" disabled={props.locked} value={worker.nightHours} onChange={(nightHours) => props.onPatchWorker(worker.id, { nightHours, nightManual: null })} /></td>
+                    <td className="px-1 py-1" title={say('bonoNocturno')} onContextMenu={(event) => openAdjustment(event, worker.id, 'night')}>
+                      <GridNum amber={worker.nightManual !== null} disabled={props.locked} title={say('bonoNocturno')} value={worker.nightManual !== null ? worker.nightManual : roundShown((line?.night || 0) - adjustmentAmount(worker, 'night'))} onChange={(nightManual) => props.onPatchWorker(worker.id, { nightManual })} />
+                    </td>
+                  </>
+                )}
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'workCondition')} title={hint(worker, 'workCondition')} disabled={props.locked} value={worker.workCondition} onChange={(workCondition) => props.onPatchWorker(worker.id, { workCondition })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'bonus')} title={worker.bonusConcept || hint(worker, 'bonus')} disabled={props.locked} value={worker.bonus} onChange={(bonus) => props.onPatchWorker(worker.id, { bonus })} /></td>
                 <td className="px-1 py-1"><GridNum amber={!same(worker.factor, 1)} disabled={props.locked} value={worker.factor} onChange={(factor) => props.onPatchWorker(worker.id, { factor })} /></td>
@@ -1743,16 +1809,16 @@ function LaborSheet(props: {
             <td className={foot}><GridMoney value={totalOf((worker) => worker.daysWorked)} strong /></td>
             <td className={foot}><GridMoney value={totalOf((worker) => numDays(worker.vacationDays))} strong /></td>
             <td className={foot}><GridMoney value={totalOf((worker) => worker.familyAllowance)} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker) => worker.he25Hours)} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.he25Manual, line?.he25, adjustmentAmount(worker, 'he25')))} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker) => worker.he35Hours)} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.he35Manual, line?.he35, adjustmentAmount(worker, 'he35')))} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker) => worker.heNight25Hours || 0)} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.heNight25Manual, line?.heNight25, adjustmentAmount(worker, 'heNight25')))} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker) => worker.heNight35Hours || 0)} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.heNight35Manual, line?.heNight35, adjustmentAmount(worker, 'heNight35')))} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker) => worker.nightHours)} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker, line) => shownOvertime(worker.nightManual, line?.night, adjustmentAmount(worker, 'night')))} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => hourSplit(worker).he25)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => moneySplit(worker, line).he25)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => hourSplit(worker).he35)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => moneySplit(worker, line).he35)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => hourSplit(worker).heNight25)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => moneySplit(worker, line).heNight25)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker) => hourSplit(worker).heNight35)} strong /></td>
+            <td className={foot}><GridMoney value={totalOf((worker, line) => moneySplit(worker, line).heNight35)} strong /></td>
+            <td className={`${foot} ${props.showRolled ? '!bg-amber-100' : ''}`}><GridMoney value={totalOf((worker) => hourSplit(worker).night)} strong /></td>
+            <td className={`${foot} ${props.showRolled ? '!bg-amber-100' : ''}`}><GridMoney value={totalOf((worker, line) => moneySplit(worker, line).night)} strong /></td>
             <td className={foot}><GridMoney value={totalOf((worker) => worker.workCondition)} strong /></td>
             <td className={foot}><GridMoney value={totalOf((worker) => worker.bonus)} strong /></td>
             <td className={foot} title="El factor no se suma" />
@@ -1804,6 +1870,20 @@ function LaborSheet(props: {
 
 function isManualAmount(value: number | null | undefined): boolean {
   return value !== null && value !== undefined && Number.isFinite(value);
+}
+
+function RolledPair(props: { hours: number; amount: number; muted?: boolean; highlight?: boolean; title: string }) {
+  const tone = props.highlight ? 'bg-amber-50' : props.muted ? 'text-slate-300' : '';
+  return (
+    <>
+      <td className={`px-1.5 py-1 text-right tabular-nums ${tone}`} title={props.title}>
+        {props.hours.toLocaleString('es-PE', { maximumFractionDigits: 2 })}
+      </td>
+      <td className={`px-1.5 py-1 ${props.highlight ? 'bg-amber-50' : ''}`} title={props.title}>
+        <GridMoney value={props.amount} strong={props.highlight} />
+      </td>
+    </>
+  );
 }
 
 function OvertimeCells(props: {
@@ -2214,6 +2294,21 @@ function ParametersPanel(props: {
             <input type="checkbox" disabled={props.locked} checked={props.rates.nightBonusIncludeFamily} onChange={(event) => props.onRates({ nightBonusIncludeFamily: event.target.checked })} /> Asignación familiar en el bono nocturno
           </label>
         </div>
+        <label className="flex items-start gap-2 text-sm text-slate-700 max-w-3xl">
+          <input
+            type="checkbox"
+            className="mt-1"
+            disabled={props.locked}
+            checked={props.rates.rollOvertimeIntoNightBonus}
+            onChange={(event) => props.onRates({ rollOvertimeIntoNightBonus: event.target.checked })}
+          />
+          <span>
+            Acumular las horas extra en el bono nocturno
+            <span className="block text-xs text-slate-500 mt-0.5">
+              En el Excel del cliente, las horas extra diurnas y nocturnas al 25% y al 35% se suman en la columna de bono nocturno, además del bono que ya corresponda. El costo no cambia. En Personal use Detalle real o Bono acumulado para ver las dos lecturas.
+            </span>
+          </span>
+        </label>
         <FormulaPreview formulas={props.formulas} />
       </div>
       <div className="flex flex-wrap gap-4 text-sm text-slate-700">

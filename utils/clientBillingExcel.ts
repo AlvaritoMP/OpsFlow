@@ -10,6 +10,7 @@ import {
   formatBillingDate,
   formatPeriodLabel,
   inclusiveDayCount,
+  presentOvertimeInNightBonus,
   resolveAttendanceWindow,
 } from './clientBillingCalc';
 import { describeFormula } from './billingFormulas';
@@ -158,6 +159,7 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
     },
   });
 
+  const rollOvertime = input.model.rates.rollOvertimeIntoNightBonus === true;
   const columns = sheetColumns(input.model.rates);
   const lastCol = columns.length;
   columns.forEach((column, index) => {
@@ -188,7 +190,7 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   writeBanner(sheet, row, lastCol, methodNote(input.model), 8, false, 18, false, MUTED);
   row += 1;
 
-  const workers = workerRows(input.model.workers, input.computed);
+  const workers = workerRows(input.model.workers, input.computed, rollOvertime);
   const excluded = input.model.workers.filter((worker) => !worker.included).length;
 
   row = writeSection(sheet, row, lastCol, 'I. Costo de personal');
@@ -346,6 +348,15 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
     kind: 'money',
     pick,
   });
+  const rollOvertime = rates.rollOvertimeIntoNightBonus === true;
+  const overtimeColumns: SheetColumn[] = rollOvertime
+    ? []
+    : [
+        money('HE día 25%', 9, 'sueldo', (row) => row.he25),
+        money('HE día 35%', 9, 'sueldo', (row) => row.he35),
+        money('HE noche 25%', 10, 'sueldo', (row) => row.heNight25),
+        money('HE noche 35%', 10, 'sueldo', (row) => row.heNight35),
+      ];
   const columns: SheetColumn[] = [
     { header: 'Trabajador', width: 18, group: 'personal', kind: 'text', pick: (row) => row.name },
     { header: 'Puesto', width: 14, group: 'personal', kind: 'text', pick: (row) => row.position },
@@ -356,11 +367,8 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
     { header: 'Faltas', width: 6, group: 'personal', kind: 'int', pick: (row) => row.absences },
     money('Rem. básica', 9, 'sueldo', (row) => row.basic),
     money('Asig. fam.', 8.5, 'sueldo', (row) => row.family),
-    money('HE día 25%', 9, 'sueldo', (row) => row.he25),
-    money('HE día 35%', 9, 'sueldo', (row) => row.he35),
-    money('HE noche 25%', 10, 'sueldo', (row) => row.heNight25),
-    money('HE noche 35%', 10, 'sueldo', (row) => row.heNight35),
-    money('Bono noct.', 8.5, 'sueldo', (row) => row.night),
+    ...overtimeColumns,
+    money(rollOvertime ? 'Bono nocturno' : 'Bono noct.', rollOvertime ? 12 : 8.5, 'sueldo', (row) => row.night),
     money('Rem. cargas', 9.5, 'sueldo', (row) => row.remLlss),
     money('Cond. trab.', 8.5, 'sueldo', (row) => row.condition),
     money('Bonos', 8.5, 'sueldo', (row) => row.bonus),
@@ -381,18 +389,28 @@ function sheetColumns(rates: BillingRates): SheetColumn[] {
   return columns;
 }
 
-function workerRows(workers: BillingWorkerInput[], computed: BillingComputation): WorkerRow[] {
+function workerRows(workers: BillingWorkerInput[], computed: BillingComputation, rollOvertime: boolean): WorkerRow[] {
   const lines = new Map(computed.workers.map((line) => [line.id, line]));
   return workers
     .filter((worker) => worker.included)
     .map((worker) => {
       const line = lines.get(worker.id);
-      return toWorkerRow(worker, line);
+      return toWorkerRow(worker, line, rollOvertime);
     });
 }
 
-function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefined): WorkerRow {
+function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefined, rollOvertime: boolean): WorkerRow {
   const amount = (value: number | undefined) => (Number.isFinite(value) ? (value as number) : 0);
+  const overtime = presentOvertimeInNightBonus(
+    {
+      he25: amount(line?.he25),
+      he35: amount(line?.he35),
+      heNight25: amount(line?.heNight25),
+      heNight35: amount(line?.heNight35),
+      night: amount(line?.night),
+    },
+    rollOvertime
+  );
   return {
     name: worker.name.trim() || 'Sin nombre',
     position: worker.position.trim(),
@@ -403,11 +421,11 @@ function toWorkerRow(worker: BillingWorkerInput, line: ComputedWorker | undefine
     absences: amount(worker.absenceDays),
     basic: amount(line?.basic),
     family: amount(worker.familyAllowance),
-    he25: amount(line?.he25),
-    he35: amount(line?.he35),
-    heNight25: amount(line?.heNight25),
-    heNight35: amount(line?.heNight35),
-    night: amount(line?.night),
+    he25: overtime.he25,
+    he35: overtime.he35,
+    heNight25: overtime.heNight25,
+    heNight35: overtime.heNight35,
+    night: overtime.night,
     remLlss: amount(line?.remLlss),
     condition: amount(worker.workCondition),
     bonus: amount(worker.bonus),

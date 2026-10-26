@@ -49,6 +49,11 @@ export interface BillingRates {
   nightPremiumRate: number;
   /** El bono nocturno incluye la asignación familiar en la base. */
   nightBonusIncludeFamily: boolean;
+  /**
+   * En el detalle para el cliente, las horas extra se muestran dentro del bono nocturno.
+   * El cálculo del costo no cambia.
+   */
+  rollOvertimeIntoNightBonus: boolean;
   commercialMonthDays: number;
   hoursPerDay: number;
   financialAnnualRate: number;
@@ -296,6 +301,7 @@ export const DEFAULT_BILLING_RATES: BillingRates = {
   heNightApplyPremium: true,
   nightPremiumRate: 0.35,
   nightBonusIncludeFamily: false,
+  rollOvertimeIntoNightBonus: false,
   commercialMonthDays: 30,
   hoursPerDay: 8,
   financialAnnualRate: 0.2,
@@ -347,6 +353,7 @@ const RATE_LABELS: Record<keyof BillingRates, string> = {
   heNightApplyPremium: 'Recargo nocturno en hora extra nocturna',
   nightPremiumRate: 'Porcentaje de bono nocturno',
   nightBonusIncludeFamily: 'Asignación familiar en bono nocturno',
+  rollOvertimeIntoNightBonus: 'Acumular horas extra en bono nocturno',
   commercialMonthDays: 'Días comerciales del mes',
   hoursPerDay: 'Horas por día',
   financialAnnualRate: 'Tasa anual del costo financiero',
@@ -597,7 +604,33 @@ export function normalizeBillingRates(rates: Partial<BillingRates> | undefined):
   merged.essaludFixedAmount = Number.isFinite(fixed) ? fixed : 0;
   const wage = Number(merged.minimumWage);
   merged.minimumWage = Number.isFinite(wage) && wage > 0 ? wage : DEFAULT_BILLING_RATES.minimumWage;
+  merged.rollOvertimeIntoNightBonus = merged.rollOvertimeIntoNightBonus === true;
   return merged;
+}
+
+export interface OvertimeNightSplit {
+  he25: number;
+  he35: number;
+  heNight25: number;
+  heNight35: number;
+  night: number;
+}
+
+/** Pasa las horas extra a la columna de bono nocturno. Sirve para mostrar el detalle; no altera el costo. */
+export function presentOvertimeInNightBonus(split: OvertimeNightSplit, enabled: boolean): OvertimeNightSplit {
+  const he25 = num(split.he25);
+  const he35 = num(split.he35);
+  const heNight25 = num(split.heNight25);
+  const heNight35 = num(split.heNight35);
+  const night = num(split.night);
+  if (!enabled) return { he25, he35, heNight25, heNight35, night };
+  return {
+    he25: 0,
+    he35: 0,
+    heNight25: 0,
+    heNight35: 0,
+    night: night + he25 + he35 + heNight25 + heNight35,
+  };
 }
 
 export function withWorkerDefaults(worker: BillingWorkerInput): BillingWorkerInput {

@@ -920,7 +920,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'El total principal no incluye IGV. EsSalud en porcentaje usa la REM LLSS más vacaciones y feriados. La REM LLSS reemplaza al sueldo y a la asignación familiar, porque toma los ingresos según los días trabajados. Si esa base queda bajo la remuneración mínima vital, EsSalud se calcula sobre la RMV. Vida Ley y SCTR usan el sueldo establecido más la asignación familiar. El cambio de EsSalud a monto fijo se hace en Parámetros de esa liquidación. Una emitida se queda como está hasta que usted modifique ese parámetro ahí.',
-          'En Parámetros puede cambiar los factores de hora extra, el recargo nocturno, los días y las horas, y si la asignación familiar entra en cada fórmula.',
+          'En Parámetros puede cambiar los factores de hora extra, el recargo nocturno, los días y las horas, y si la asignación familiar entra en cada fórmula. Si marca «Acumular las horas extra en el bono nocturno», el Excel del cliente no muestra las columnas de hora extra y suma esos importes al bono nocturno. En Personal, Detalle real y Bono acumulado muestran las dos lecturas. El costo no cambia.',
           'Cada pestaña tiene una bitácora interna para anotar por qué se consideraron los datos. Esas notas no salen en el Excel, el PDF ni en las corridas.',
           'En Personal, el clic derecho sobre un monto calculado permite sumar un adicional de un caso específico. La grilla sigue mostrando el monto calculado y no muestra el adicional ni su explicación. Sin explicación no se guarda. El monto entra al costo de ese trabajador y no cambia las otras fórmulas.',
           'Guarde las condiciones de la unidad para reutilizar tasas, utilidad y gastos administrativos el mes siguiente.',
