@@ -191,6 +191,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [publishedFormulas, setPublishedFormulas] = useState<BillingFormulaSet | null>(null);
   const [formulaKey, setFormulaKey] = useState('inicial');
   const formulaAdmin = currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
+  const canDiscard = currentUser.role === 'SUPER_ADMIN';
 
   const loadList = async () => {
     setLoadingList(true);
@@ -538,6 +539,30 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       await loadList();
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo guardar.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const discardRecord = async (record: ClientBillingRecord) => {
+    const orderNumber = record.model.opalosisRegistration?.numeroOrdenServicio;
+    const orderNote = orderNumber ? ` La orden ${orderNumber} sigue en OpaloSis; ahí se anula a mano.` : '';
+    const confirmed = window.confirm(
+      `¿Enviar a la papelera la facturación de ${record.unitName} (${formatPeriodLabel(record.periodMonth)})? Deja de ocupar el mes y puede armar otra.${orderNote}`
+    );
+    if (!confirmed) return;
+    setBusy('Enviando a la papelera');
+    setBanner(null);
+    try {
+      await setBillingStatus(record.id, 'void', actor, 'El superadministrador envió la facturación a la papelera.');
+      if (editor?.id === record.id) {
+        setEditor(null);
+        setEditorCompare(false);
+      }
+      setBanner('Quedó en la papelera. El filtro Anuladas la muestra, y ya puede crear otra facturación de ese mes.');
+      await loadList();
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo enviar a la papelera.');
     } finally {
       setBusy(null);
     }
@@ -1116,7 +1141,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <option value="">Borradores y emitidas</option>
                   <option value="draft">Solo borradores</option>
                   <option value="issued">Solo emitidas</option>
-                  <option value="void">Anuladas</option>
+                  <option value="void">Papelera</option>
                 </select>
               </div>
               {loadingList ? (
@@ -1137,6 +1162,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                         <th className="px-3 py-2 font-medium text-right">Utilidad</th>
                         <th className="px-3 py-2 font-medium text-right">Total</th>
                         <th className="px-3 py-2 font-medium">Último ajuste</th>
+                        {canDiscard && <th className="px-3 py-2 font-medium" />}
                       </tr>
                     </thead>
                     <tbody>
@@ -1165,6 +1191,25 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                             {record.updatedByName || record.createdByName || '—'}
                             <div className="text-xs">{new Date(record.updatedAt).toLocaleString('es-PE')}</div>
                           </td>
+                          {canDiscard && (
+                            <td className="px-3 py-3 text-right">
+                              {record.status !== 'void' && (
+                                <button
+                                  type="button"
+                                  title="Enviar a la papelera"
+                                  disabled={!!busy}
+                                  className="inline-flex items-center gap-1 text-red-700 hover:text-red-900 disabled:opacity-50"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void discardRecord(record);
+                                  }}
+                                >
+                                  <Trash2 size={15} />
+                                  Papelera
+                                </button>
+                              )}
+                            </td>
+                          )}
                         </tr>
                         );
                       })}
