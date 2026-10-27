@@ -274,8 +274,18 @@ export interface ClientBillingModel {
   opalosisRegistration?: OpalosisRegistration;
   /** Bitácora interna por pestaña. No se copia a corridas ni al Excel. */
   internalNotes?: BillingInternalNote[];
+  /** Descuento de esta liquidación. Solo resta si el monto es mayor que cero y hay justificación. */
+  discount?: BillingDiscount;
   /** Fórmulas de las celdas. Si falta una, se usa la de fábrica. */
   formulas?: BillingFormulaSet;
+}
+
+/** Descuento aplicado al total de la liquidación, antes del IGV. */
+export interface BillingDiscount {
+  amount: number;
+  reason: string;
+  authorName?: string;
+  createdAt?: string;
 }
 
 export interface AttendanceWindow {
@@ -324,6 +334,8 @@ export interface BillingComputation {
   financialAmount: number;
   profitBaseAmount: number;
   profitAmount: number;
+  /** Descuento que ya restó al total. Cero si falta la justificación. */
+  discountAmount: number;
   grandTotal: number;
   igvAmount: number;
   totalWithIgv: number;
@@ -951,8 +963,12 @@ export function computeBilling(model: ClientBillingModel): BillingComputation {
   billingScope.costoAdministrativo = adminTotal;
   const profitBaseAmount = billingFormula(model.formulas, billingScope, 'baseUtilidad');
   const profitAmount = billingFormula(model.formulas, billingScope, 'utilidad');
-  const grandTotal = laborTotal + operationalTotal + adminTotal + profitAmount;
-  const igvAmount = billingFormula(model.formulas, billingScope, 'igv');
+  const subtotal = laborTotal + operationalTotal + adminTotal + profitAmount;
+  const discountAmount = billingDiscountAmount(model.discount);
+  const grandTotal = subtotal - discountAmount;
+  const igvOnSubtotal = billingFormula(model.formulas, billingScope, 'igv');
+  const igvAmount =
+    discountAmount === 0 ? igvOnSubtotal : subtotal === 0 ? grandTotal * num(rates.igvRate) : (igvOnSubtotal * grandTotal) / subtotal;
   return {
     workers,
     laborTotal,
@@ -963,10 +979,20 @@ export function computeBilling(model: ClientBillingModel): BillingComputation {
     financialAmount,
     profitBaseAmount,
     profitAmount,
+    discountAmount,
     grandTotal,
     igvAmount,
     totalWithIgv: grandTotal + igvAmount,
   };
+}
+
+/** El descuento solo cuenta con monto positivo y una justificación escrita. */
+export function billingDiscountAmount(discount: BillingDiscount | undefined): number {
+  if (!discount) return 0;
+  const amount = Number(discount.amount);
+  const reason = String(discount.reason || '').trim();
+  if (!reason || !Number.isFinite(amount) || amount <= 0) return 0;
+  return amount;
 }
 
 function billingFormula(formulas: BillingFormulaSet | undefined, scope: Record<string, number>, id: string): number {
@@ -1067,6 +1093,7 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
   push('Servicio', before.serviceLabel, after.serviceLabel);
   push('Comentario', before.comment, after.comment);
   push('Consideraciones', before.considerations, after.considerations);
+  push('Descuento', formatDiscount(before.discount), formatDiscount(after.discount));
   push('Inicio del corte de asistencia', formatAttendanceDate(before.attendanceFrom), formatAttendanceDate(after.attendanceFrom));
   push('Fin del corte de asistencia', formatAttendanceDate(before.attendanceTo), formatAttendanceDate(after.attendanceTo));
   push('Inicio de la orden de servicio', formatAttendanceDate(before.osStartDate), formatAttendanceDate(after.osStartDate));
@@ -1129,6 +1156,13 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
     push(BILLING_INTERNAL_TAB_LABELS[tab], internalNoteLog(before.internalNotes, tab), internalNoteLog(after.internalNotes, tab));
   });
   return changes;
+}
+
+function formatDiscount(item: BillingDiscount | undefined): string {
+  const amount = billingDiscountAmount(item);
+  if (!amount || !item) return '';
+  const who = item.authorName ? ` · ${item.authorName}` : '';
+  return `${amount}${who}: ${String(item.reason || '').trim()}`;
 }
 
 function formatAdjustment(item: BillingCellAdjustment | undefined): string {

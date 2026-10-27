@@ -437,6 +437,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setBanner('Esta liquidación ya está guardada con ese monto fijo de EsSalud.');
       return;
     }
+    if (discountNeedsReason(editor.model.discount)) {
+      setBanner('El descuento necesita una justificación. Sin ese texto no se guarda.');
+      return;
+    }
     setBusy('Guardando EsSalud');
     setBanner(null);
     try {
@@ -471,6 +475,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
 
   const save = async () => {
     if (!editor || locked) return;
+    if (discountNeedsReason(editor.model.discount)) {
+      setBanner('El descuento necesita una justificación. Sin ese texto no se guarda.');
+      return;
+    }
     setBusy('Guardando');
     setBanner(null);
     try {
@@ -571,6 +579,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const changeStatus = async (status: BillingStatus, source?: EditorState): Promise<boolean> => {
     const origin = source || editor;
     if (!origin) return false;
+    if (status === 'issued' && discountNeedsReason(origin.model.discount)) {
+      setBanner('El descuento necesita una justificación. Sin ese texto no se emite.');
+      return false;
+    }
     if (status !== 'issued' && !origin.id) {
       setBanner('Guarde la liquidación antes de anularla.');
       return false;
@@ -639,6 +651,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     issue: OpalosisIssueSettings;
   }) => {
     if (!editor) return;
+    if (discountNeedsReason(editor.model.discount)) {
+      setBanner('El descuento necesita una justificación. Sin ese texto no se emite.');
+      return;
+    }
     const next: EditorState = {
       ...editor,
       model: {
@@ -1557,6 +1573,24 @@ function EditorView(props: {
   const showRolled = rollOvertime && nightView === 'rolled' && sheetMode === 'costs';
   const [glance, setGlance] = useState<BillingDayGlance | null>(null);
   const [glanceLoading, setGlanceLoading] = useState(false);
+  const discountAwaitingReason = discountNeedsReason(editor.model.discount);
+  const patchDiscount = (amount?: number, reason?: string) => {
+    const current = editor.model.discount;
+    const nextAmount = amount === undefined ? Number(current?.amount) || 0 : amount;
+    const nextReason = reason === undefined ? current?.reason || '' : reason;
+    if (!(Number(nextAmount) > 0) && !nextReason.trim()) {
+      props.onPatchModel({ discount: undefined });
+      return;
+    }
+    props.onPatchModel({
+      discount: {
+        amount: Number.isFinite(nextAmount) ? nextAmount : 0,
+        reason: nextReason,
+        authorName: props.authorName || 'Usuario',
+        createdAt: new Date().toISOString(),
+      },
+    });
+  };
   const [glanceError, setGlanceError] = useState<string | null>(null);
   const attendance = resolveAttendanceWindow(editor.periodMonth, editor.model.attendanceFrom, editor.model.attendanceTo);
   const attendanceError = attendanceWindowError(attendance.from, attendance.to);
@@ -2056,6 +2090,52 @@ function EditorView(props: {
               {describeFormula('baseUtilidad', props.formulas)} {describeFormula('utilidad', props.formulas)}
             </p>
             <SummaryRow label="Utilidad" value={computed.profitAmount} share={share(computed.profitAmount, computed.grandTotal)} />
+          </div>
+          <div className="border-t border-slate-100 pt-3 space-y-2">
+            <label className="text-xs text-slate-500 block">
+              Descuento (S/)
+              <input
+                className={fieldClass}
+                type="number"
+                min="0"
+                step="0.01"
+                disabled={locked}
+                value={editor.model.discount?.amount ? editor.model.discount.amount : ''}
+                placeholder="0.00"
+                onChange={(event) => {
+                  const raw = event.target.value;
+                  patchDiscount(raw === '' ? 0 : Math.max(0, Number(raw) || 0));
+                }}
+              />
+            </label>
+            <label className="text-xs text-slate-500 block">
+              Justificación del descuento
+              <textarea
+                className={`${fieldClass} min-h-20`}
+                disabled={locked}
+                value={editor.model.discount?.reason || ''}
+                placeholder="Por qué se descuenta este monto en esta liquidación."
+                onChange={(event) => patchDiscount(undefined, event.target.value)}
+              />
+            </label>
+            {discountAwaitingReason && (
+              <p className="text-xs text-red-700">Escriba la justificación. Sin ese texto el descuento no resta ni se guarda.</p>
+            )}
+            {computed.discountAmount > 0 && (
+              <div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600">Descuento aplicado</span>
+                  <span className="font-medium text-red-700">− {pen(computed.discountAmount)}</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">{editor.model.discount?.reason?.trim()}</p>
+                {editor.model.discount?.authorName && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {editor.model.discount.authorName}
+                    {editor.model.discount.createdAt ? ` · ${new Date(editor.model.discount.createdAt).toLocaleString('es-PE')}` : ''}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           <div className="border-t border-slate-100 pt-3">
             <div className="flex justify-between text-sm text-slate-500">
@@ -3057,6 +3137,11 @@ function InfoCard({ title, text }: { title: string; text: string }) {
       <p className="text-xs text-slate-500 mt-1 leading-relaxed">{text}</p>
     </article>
   );
+}
+
+function discountNeedsReason(discount: { amount?: number; reason?: string } | undefined): boolean {
+  const amount = Number(discount?.amount);
+  return Number.isFinite(amount) && amount > 0 && !String(discount?.reason || '').trim();
 }
 
 function SummaryRow({ label, value, share }: { label: string; value: number; share: number }) {

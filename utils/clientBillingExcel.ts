@@ -277,16 +277,25 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   const profitRows = writeProfitBlock(sheet, row, lastCol, describeFormula('utilidad', input.model.formulas), input.computed.profitAmount);
   row = profitRows.nextRow;
 
+  let discountRow = 0;
+  if (input.computed.discountAmount > 0) {
+    const reason = String(input.model.discount?.reason || '').trim();
+    writeAmountRow(sheet, row, lastCol, `Descuento: ${reason}`, -input.computed.discountAmount, false);
+    discountRow = row;
+    row += 1;
+  }
+
   const grandRow = row;
-  writeFormulaRow(
-    sheet,
-    row,
-    lastCol,
-    'TOTAL MENSUAL',
-    `${cellRef(lastCol, laborRow)}+${cellRef(lastCol, operationalRows.subtotalRow)}+${cellRef(lastCol, adminRows.subtotalRow)}+${cellRef(lastCol, profitRows.subtotalRow)}`,
-    input.computed.grandTotal,
-    true
-  );
+  const grandFormula = [
+    cellRef(lastCol, laborRow),
+    cellRef(lastCol, operationalRows.subtotalRow),
+    cellRef(lastCol, adminRows.subtotalRow),
+    cellRef(lastCol, profitRows.subtotalRow),
+    discountRow ? cellRef(lastCol, discountRow) : '',
+  ]
+    .filter(Boolean)
+    .join('+');
+  writeFormulaRow(sheet, row, lastCol, 'TOTAL MENSUAL', grandFormula, input.computed.grandTotal, true);
   row += 1;
 
   const settlement = formulaBook?.writeSettlement({
@@ -307,7 +316,7 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
   }
 
   const finalized = await finalize(workbook, sheet, input, lastCol, groupRow, headerRow, grandRow, row);
-  if (settlement) {
+  if (settlement && !(input.computed.discountAmount > 0)) {
     const igvCell = sheet.getCell(finalized.igvRow, lastCol);
     igvCell.value = { formula: settlement.igv, result: input.computed.igvAmount };
   }

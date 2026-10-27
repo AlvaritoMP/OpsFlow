@@ -146,13 +146,21 @@ function fail(message: string, status = 400, extra?: Record<string, unknown>) {
   return jsonResponse({ ok: false, error: message, ...extra }, status);
 }
 
+/** Nombres de OpsFlow que en el catálogo de OpaloSis se escriben distinto. */
+const CATALOG_ALIASES: Record<string, string[]> = {
+  'opalo intermediacion': ['opinter'],
+  'opalo peru': ['opalo peru sac'],
+  'opalo tercerizacion': ['opalo tercerizacion'],
+};
+
 function matchCatalog(rows: Record<string, unknown>[], wanted: string, label: string): number {
   const target = normalize(wanted);
+  const aliases = [target, ...(CATALOG_ALIASES[target] || [])];
   const items = rows.filter((row) => pickNumber(row, 'id'));
-  const exact = items.find((row) => normalize(pickText(row, 'value')) === target);
+  const exact = items.find((row) => aliases.includes(normalize(pickText(row, 'value'))));
   const partial = items.find((row) => {
     const value = normalize(pickText(row, 'value'));
-    return value && (value.includes(target) || target.includes(value));
+    return value && aliases.some((alias) => value.includes(alias) || alias.includes(value));
   });
   const found = exact || partial;
   const id = pickNumber(found || null, 'id');
