@@ -2,6 +2,12 @@ import React from 'react';
 
 const CHUNK_RELOAD_KEY = 'opsflow-lazy-chunk-reload';
 
+function goToFreshCopy() {
+  const next = new URL(window.location.href);
+  next.searchParams.set('opsflow', String(Date.now()));
+  window.location.replace(next.toString());
+}
+
 function isStaleChunkError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? '');
   return /Failed to fetch dynamically imported module|Loading chunk|error loading dynamically imported module|Importing a module script failed/i.test(
@@ -28,7 +34,7 @@ function lazyView<T extends React.ComponentType<any>>(
           try {
             if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
               sessionStorage.setItem(CHUNK_RELOAD_KEY, Date.now().toString());
-              window.location.reload();
+              goToFreshCopy();
               return new Promise<{ default: T }>(() => {});
             }
           } catch {
@@ -127,24 +133,26 @@ export const KeepAlivePane: React.FC<{
   </div>
 );
 
-type ChunkBoundaryState = { hasError: boolean };
+type ChunkBoundaryState = { hasError: boolean; stale: boolean };
 
 export class ChunkLoadErrorBoundary extends React.Component<
   { children: React.ReactNode },
   ChunkBoundaryState
 > {
-  state: ChunkBoundaryState = { hasError: false };
+  state: ChunkBoundaryState = { hasError: false, stale: false };
 
   static getDerivedStateFromError(): ChunkBoundaryState {
-    return { hasError: true };
+    return { hasError: true, stale: false };
   }
 
   componentDidCatch(error: Error) {
-    if (!isStaleChunkError(error)) return;
+    const stale = isStaleChunkError(error);
+    this.setState({ stale });
+    if (!stale) return;
     try {
       if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
         sessionStorage.setItem(CHUNK_RELOAD_KEY, Date.now().toString());
-        window.location.reload();
+        goToFreshCopy();
       }
     } catch {
       /* ignore */
@@ -156,11 +164,24 @@ export class ChunkLoadErrorBoundary extends React.Component<
     return (
       <div className="flex items-center justify-center h-full min-h-[40vh]">
         <div className="text-center px-4">
-          <p className="text-slate-800 font-medium mb-1">Hay una versión nueva de OpsFlow</p>
-          <p className="text-sm text-slate-500 mb-4">Recarga la página para continuar.</p>
+          <p className="text-slate-800 font-medium mb-1">
+            {this.state.stale ? 'Hay una versión nueva de OpsFlow' : 'No se pudo abrir esta sección'}
+          </p>
+          <p className="text-sm text-slate-500 mb-4">
+            {this.state.stale
+              ? 'Recarga la página para continuar.'
+              : 'Vuelve a cargar OpsFlow. Si sigue igual, cierra la pestaña y entra de nuevo.'}
+          </p>
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              try {
+                sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+              } catch {
+                /* ignore */
+              }
+              goToFreshCopy();
+            }}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
           >
             Recargar
