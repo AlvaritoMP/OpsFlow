@@ -722,7 +722,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       const signed = prepared.model.opalosisIssue?.documentKind === 'credit' ? -Math.abs(total) : Math.abs(total);
       const registration = await registerBillingServiceOrder({
         billingId: savedDraft.id,
-        opsflowCalculoId: savedDraft.model.opalosisRegistration?.opsflowCalculoId,
         pesCode: prepared.model.opalosisPesCode || '',
         osStartDate: prepared.model.osStartDate || '',
         osEndDate: prepared.model.osEndDate || '',
@@ -747,10 +746,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       };
       const issued = await changeStatus('issued', withOrder);
       if (issued) {
-        const existed = registration.alreadyExisted
-          ? ' OpaloSis ya tenía esta orden y no modificó el monto.'
-          : '';
-        setBanner((current) => `${current || ''} Orden ${registration.numeroOrdenServicio}.${existed}${dniNote}`);
+        setBanner((current) => `${current || ''} Se creó la orden ${registration.numeroOrdenServicio}.${dniNote}`);
       }
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'OpaloSis no registró la orden. La liquidación sigue en borrador.');

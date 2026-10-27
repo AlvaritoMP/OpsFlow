@@ -915,7 +915,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Operativo: materiales, equipos, maquinaria, supervisión, capacitación, EPP y uniformes u otros.',
           'Administrativo: costo financiero (tasa anual y días financiados), gestión de RRHH y otros ítems de estructura.',
           'Utilidad: margen sobre el precio de venta o recargo sobre el costo, sobre todo el costo o solo el laboral.',
-          'Al armar la facturación indique el PES, el mes de servicio, las fechas de la orden, el documento, el grupo, la línea, la empresa y el DNI. Emitir OS usa esos datos. El monto es el total sin IGV; en la nota de crédito va en negativo.',
+          'Al armar la facturación indique el PES, el mes de servicio, las fechas de la orden, el documento, el grupo, la línea, la empresa y el DNI. Cada clic en Emitir OS crea una orden nueva en OpaloSis. La anterior queda allá. El monto es el total sin IGV; en la nota de crédito va en negativo.',
           'Una liquidación que ya existía y no tiene esos datos los muestra al abrirla, solo los que faltan. Al completarlos se pueden enviar a OpaloSis. Una liquidación nueva no vuelve a pedirlos dentro.',
           'Un mismo mes puede tener varias liquidaciones de la misma unidad. Nueva facturación siempre crea otra; no reemplaza la que ya está. Un superadministrador envía una a la papelera desde la lista. El filtro Papelera la muestra, y desde ahí se restaura o se elimina del sistema. Las demás del mes no se tocan. Si ya tenía orden en OpaloSis, esa orden se anula allá.',
           'Excel: descarga la liquidación en horizontal, ajustada a una sola hoja A4. En Excel use Imprimir o Exportar a PDF.',

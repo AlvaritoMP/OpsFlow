@@ -3,7 +3,6 @@ import type { OpalosisRegistration } from '../utils/clientBillingCalc';
 
 export interface RegisterBillingOsInput {
   billingId: string;
-  opsflowCalculoId?: number;
   pesCode: string;
   osStartDate: string;
   osEndDate: string;

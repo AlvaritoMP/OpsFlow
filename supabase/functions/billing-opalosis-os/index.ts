@@ -11,7 +11,6 @@ const DEFAULT_BASE = 'https://apiopalosis.opaloperu.com';
 interface RegisterBody {
   action?: string;
   billingId?: string;
-  opsflowCalculoId?: number;
   pesCode?: string;
   osStartDate?: string;
   osEndDate?: string;
@@ -78,11 +77,10 @@ function pickText(record: Record<string, unknown> | null, ...keys: string[]): st
   return '';
 }
 
-function calculoIdFromBilling(billingId: string): number {
-  const hex = billingId.replace(/-/g, '').slice(0, 8);
-  const parsed = Number.parseInt(hex, 16);
-  if (!Number.isFinite(parsed)) return 1;
-  return (parsed % 2147483646) + 1;
+function newCalculoId(): number {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return (bytes[0] % 2147483646) + 1;
 }
 
 function osInstant(date: string): string {
@@ -244,10 +242,7 @@ serve(async (req) => {
     const empresaOpaloId = matchCatalog(asList(companies.data), String(body.opaloCompany || ''), 'la empresa que factura');
     const puestoId = matchCatalog(asList(positions.data), String(body.positionLabel || 'Diversos'), 'el puesto');
 
-    const opsflowCalculoId =
-      Number.isFinite(Number(body.opsflowCalculoId)) && Number(body.opsflowCalculoId) > 0
-        ? Math.trunc(Number(body.opsflowCalculoId))
-        : calculoIdFromBilling(String(body.billingId || '0'));
+    const opsflowCalculoId = newCalculoId();
 
     const kindLabel = body.documentKind === 'credit' ? 'Nota de crédito' : body.documentKind === 'debit' ? 'Nota de débito' : 'Liquidación';
     const payload = {
