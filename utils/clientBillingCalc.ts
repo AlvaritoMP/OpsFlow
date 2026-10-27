@@ -266,6 +266,8 @@ export interface ClientBillingModel {
   osStartDate?: string;
   /** Entrega de la orden de servicio en OpaloSis (YYYY-MM-DD). */
   osEndDate?: string;
+  /** Mes de servicio que se envía a OpaloSis como fechaMesServicio (YYYY-MM). */
+  osServiceMonth?: string;
   /** Código PES de la propuesta económica de esta unidad. */
   opalosisPesCode?: string;
   /** Datos de la orden definidos al armar la liquidación. */
@@ -1098,6 +1100,7 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
   push('Fin del corte de asistencia', formatAttendanceDate(before.attendanceTo), formatAttendanceDate(after.attendanceTo));
   push('Inicio de la orden de servicio', formatAttendanceDate(before.osStartDate), formatAttendanceDate(after.osStartDate));
   push('Entrega de la orden de servicio', formatAttendanceDate(before.osEndDate), formatAttendanceDate(after.osEndDate));
+  push('Mes de servicio', formatPeriodLabel(before.osServiceMonth || ''), formatPeriodLabel(after.osServiceMonth || ''));
   push('Código PES', before.opalosisPesCode, after.opalosisPesCode);
   push(
     'Documento para OpaloSis',

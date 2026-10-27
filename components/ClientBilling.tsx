@@ -179,6 +179,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createTo, setCreateTo] = useState(() => monthDateBounds(new Date().toISOString().slice(0, 7)).to);
   const [createOsFrom, setCreateOsFrom] = useState('');
   const [createOsTo, setCreateOsTo] = useState('');
+  const [createServiceMonth, setCreateServiceMonth] = useState('');
   const [createPes, setCreatePes] = useState('');
   const [pesChoices, setPesChoices] = useState<string[]>([]);
   const [createDocumentKind, setCreateDocumentKind] = useState<OpalosisDocumentKind>('invoice');
@@ -317,6 +318,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     const setupError = osSetupError({
       osStartDate: createOsFrom,
       osEndDate: createOsTo,
+      serviceMonth: createServiceMonth,
       pesCode: createPes,
       workGroup: createWorkGroup,
       businessLine: createBusinessLine,
@@ -337,6 +339,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       );
       model.osStartDate = createOsFrom;
       model.osEndDate = createOsTo;
+      model.osServiceMonth = createServiceMonth;
       model.opalosisPesCode = createPes.trim() || model.opalosisPesCode || '';
       model.opalosisIssue = {
         documentKind: createDocumentKind,
@@ -647,6 +650,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const confirmIssue = async (input: {
     osStartDate: string;
     osEndDate: string;
+    serviceMonth: string;
     pesCode: string;
     issue: OpalosisIssueSettings;
   }) => {
@@ -661,6 +665,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         ...editor.model,
         osStartDate: input.osStartDate,
         osEndDate: input.osEndDate,
+        osServiceMonth: input.serviceMonth,
         opalosisPesCode: input.pesCode.trim(),
         opalosisIssue: input.issue,
       },
@@ -721,6 +726,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         pesCode: prepared.model.opalosisPesCode || '',
         osStartDate: prepared.model.osStartDate || '',
         osEndDate: prepared.model.osEndDate || '',
+        serviceMonth: prepared.model.osServiceMonth || '',
         documentoMaker: prepared.model.opalosisIssue?.makerDni || '',
         documentKind: prepared.model.opalosisIssue?.documentKind || 'invoice',
         workGroup: prepared.model.opalosisIssue?.workGroup || '',
@@ -758,6 +764,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     const error = osSetupError({
       osStartDate: editor.model.osStartDate || '',
       osEndDate: editor.model.osEndDate || '',
+      serviceMonth: editor.model.osServiceMonth || '',
       pesCode: editor.model.opalosisPesCode || '',
       workGroup: issue?.workGroup || '',
       businessLine: issue?.businessLine || '',
@@ -771,6 +778,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     void confirmIssue({
       osStartDate: editor.model.osStartDate || '',
       osEndDate: editor.model.osEndDate || '',
+      serviceMonth: editor.model.osServiceMonth || '',
       pesCode: editor.model.opalosisPesCode || '',
       issue: {
         documentKind: issue?.documentKind || 'invoice',
@@ -1056,6 +1064,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                     </span>
                   </label>
                   <label className="text-sm text-slate-600">
+                    Mes de servicio
+                    <input className={fieldClass} type="month" value={createServiceMonth} onChange={(event) => setCreateServiceMonth(event.target.value)} />
+                  </label>
+                  <label className="text-sm text-slate-600">
                     Inicio de la orden de servicio
                     <input className={fieldClass} type="date" value={createOsFrom} onChange={(event) => setCreateOsFrom(event.target.value)} />
                   </label>
@@ -1118,7 +1130,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   </label>
                 </div>
                 <p className="text-xs text-slate-500">
-                  El inicio y la entrega son el tiempo de vida de la orden y se indican cada mes. El PES, el documento, el grupo, la línea y la empresa quedan para la siguiente liquidación. Emitir OS usa estos datos y envía el total sin IGV; en una nota de crédito va en negativo. Moneda: soles.
+                  El mes de servicio es el que recibe OpaloSis y se indica en cada liquidación. El inicio y la entrega son el tiempo de vida de la orden. El PES, el documento, el grupo, la línea y la empresa quedan para la siguiente liquidación. Emitir OS usa estos datos y envía el total sin IGV; en una nota de crédito va en negativo. Moneda: soles.
                 </p>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={copyPrevious} onChange={(event) => setCopyPrevious(event.target.checked)} />
@@ -1348,6 +1360,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
 function osSetupError(input: {
   osStartDate: string;
   osEndDate: string;
+  serviceMonth: string;
   pesCode: string;
   workGroup: string;
   businessLine: string;
@@ -1356,6 +1369,7 @@ function osSetupError(input: {
 }): string | null {
   if (!input.osStartDate || !input.osEndDate) return 'Indique el inicio y la entrega de la orden de servicio.';
   if (input.osEndDate < input.osStartDate) return 'La entrega de la orden de servicio no puede ser anterior al inicio.';
+  if (!/^\d{4}-\d{2}$/.test(input.serviceMonth)) return 'Indique el mes de servicio.';
   if (!input.pesCode.trim()) return 'Indique el código PES de la unidad.';
   if (!input.workGroup || !input.businessLine || !input.opaloCompany) {
     return 'Elija el grupo de trabajo, la línea de negocio y la empresa que factura.';
@@ -1372,6 +1386,7 @@ function orderFieldGaps(model: ClientBillingModel) {
     pes: !(model.opalosisPesCode || '').trim(),
     start: !model.osStartDate,
     end: !model.osEndDate,
+    service: !/^\d{4}-\d{2}$/.test(model.osServiceMonth || ''),
     document: !issue?.documentKind,
     group: !issue?.workGroup,
     line: !issue?.businessLine,
@@ -1410,7 +1425,7 @@ function MissingOrderFields(props: {
   }, [editor.id, editor.unitId, gaps?.pes]);
 
   if (!gaps || editor.status !== 'draft' || !props.canEdit) return null;
-  const anyMissing = gaps.pes || gaps.start || gaps.end || gaps.document || gaps.group || gaps.line || gaps.company || gaps.dni;
+  const anyMissing = gaps.pes || gaps.start || gaps.end || gaps.service || gaps.document || gaps.group || gaps.line || gaps.company || gaps.dni;
   if (!anyMissing) return null;
 
   const patchIssue = (patch: Partial<OpalosisIssueSettings>) => {
@@ -1457,6 +1472,12 @@ function MissingOrderFields(props: {
                 onChange={(event) => props.onPatchModel({ opalosisPesCode: event.target.value })}
               />
             )}
+          </label>
+        )}
+        {gaps.service && (
+          <label className="text-sm text-slate-600">
+            Mes de servicio
+            <input className={fieldClass} type="month" value={editor.model.osServiceMonth || ''} onChange={(event) => props.onPatchModel({ osServiceMonth: event.target.value })} />
           </label>
         )}
         {(gaps.start || gaps.end) && (
@@ -1639,6 +1660,7 @@ function EditorView(props: {
           </div>
           <p className="text-sm text-slate-500 mt-1">
             {editor.unitName} · {formatPeriodLabel(editor.periodMonth)} · Corte {formatAttendanceRange(attendance.from, attendance.to)}
+            {editor.model.osServiceMonth ? ` · Servicio ${formatPeriodLabel(editor.model.osServiceMonth)}` : ''}
             {editor.model.osStartDate && editor.model.osEndDate
               ? ` · Orden ${formatAttendanceDate(editor.model.osStartDate)} – ${formatAttendanceDate(editor.model.osEndDate)}`
               : ''}

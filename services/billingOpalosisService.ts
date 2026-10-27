@@ -7,6 +7,7 @@ export interface RegisterBillingOsInput {
   pesCode: string;
   osStartDate: string;
   osEndDate: string;
+  serviceMonth: string;
   documentoMaker: string;
   documentKind: string;
   workGroup: string;

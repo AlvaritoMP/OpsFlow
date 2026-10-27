@@ -15,6 +15,7 @@ interface RegisterBody {
   pesCode?: string;
   osStartDate?: string;
   osEndDate?: string;
+  serviceMonth?: string;
   documentoMaker?: string;
   documentKind?: string;
   workGroup?: string;
@@ -190,9 +191,10 @@ serve(async (req) => {
   const documento = String(body.documentoMaker || '').trim();
   const start = String(body.osStartDate || '').slice(0, 10);
   const end = String(body.osEndDate || '').slice(0, 10);
+  const serviceMonth = String(body.serviceMonth || '').slice(0, 7);
   const signed = Number(body.signedTotal);
-  if (!pesCode || !documento || !start || !end || !Number.isFinite(signed)) {
-    return fail('Faltan el PES, el DNI, las fechas o el total de la orden.');
+  if (!pesCode || !documento || !start || !end || !/^\d{4}-\d{2}$/.test(serviceMonth) || !Number.isFinite(signed)) {
+    return fail('Faltan el PES, el DNI, las fechas, el mes de servicio o el total de la orden.');
   }
 
   try {
@@ -263,6 +265,7 @@ serve(async (req) => {
       tipoCambio: 1,
       empresaOpaloId,
       opsflowCalculoId,
+      fechaMesServicio: osInstant(`${serviceMonth}-01`),
       listaOrdenServicioDetalle: [
         {
           requerimientoId,
