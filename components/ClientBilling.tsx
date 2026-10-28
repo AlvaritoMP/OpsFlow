@@ -1600,6 +1600,7 @@ function EditorView(props: {
   appliedAttendanceKey: string;
 }) {
   const { editor, computed, locked } = props;
+  const compositionTotal = computed.laborTotal + computed.operationalTotal + computed.adminTotal + computed.profitAmount;
   const workerMap = new Map(computed.workers.map((worker) => [worker.id, worker]));
   const windowWorkers = workersInAttendanceWindow(editor.periodMonth, editor.model);
   const filteredWorkers = windowWorkers.filter((worker) => {
@@ -2104,10 +2105,13 @@ function EditorView(props: {
         </div>
 
         <aside className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3 xl:sticky xl:top-4">
-          <h2 className="font-semibold text-slate-900">Resumen del mes</h2>
-          <SummaryRow label="Costo laboral" value={computed.laborTotal} share={share(computed.laborTotal, computed.grandTotal)} />
-          <SummaryRow label="Costo operativo" value={computed.operationalTotal} share={share(computed.operationalTotal, computed.grandTotal)} />
-          <SummaryRow label="Gastos administrativos" value={computed.adminTotal} share={share(computed.adminTotal, computed.grandTotal)} />
+          <div>
+            <h2 className="font-semibold text-slate-900">Resumen del mes</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">El porcentaje es la parte de cada rubro en el total antes del descuento. Solo se ve en OpsFlow.</p>
+          </div>
+          <SummaryRow label="Costo laboral" value={computed.laborTotal} share={share(computed.laborTotal, compositionTotal)} />
+          <SummaryRow label="Costo operativo" value={computed.operationalTotal} share={share(computed.operationalTotal, compositionTotal)} />
+          <SummaryRow label="Gastos administrativos" value={computed.adminTotal} share={share(computed.adminTotal, compositionTotal)} />
           <div className="border-t border-slate-100 pt-3 space-y-2">
             <label className="text-xs text-slate-500 block">
               Utilidad
@@ -2132,7 +2136,7 @@ function EditorView(props: {
             <p className="text-[11px] text-slate-500 leading-relaxed">
               {describeFormula('baseUtilidad', props.formulas)} {describeFormula('utilidad', props.formulas)}
             </p>
-            <SummaryRow label="Utilidad" value={computed.profitAmount} share={share(computed.profitAmount, computed.grandTotal)} />
+            <SummaryRow label="Utilidad" value={computed.profitAmount} share={share(computed.profitAmount, compositionTotal)} />
           </div>
           <div className="border-t border-slate-100 pt-3 space-y-2">
             <label className="text-xs text-slate-500 block">
@@ -3188,15 +3192,12 @@ function discountNeedsReason(discount: { amount?: number; reason?: string } | un
 }
 
 function SummaryRow({ label, value, share }: { label: string; value: number; share: number }) {
+  const percent = share.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return (
-    <div>
-      <div className="flex justify-between text-sm">
-        <span className="text-slate-600">{label}</span>
-        <span className="font-medium text-slate-900">{pen(value)}</span>
-      </div>
-      <div className="h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
-        <div className="h-full bg-blue-600 rounded-full" style={{ width: `${Math.max(0, Math.min(100, share))}%` }} />
-      </div>
+    <div className="flex items-baseline justify-between gap-3 text-sm">
+      <span className="text-slate-600">{label}</span>
+      <span className="ml-auto text-xs tabular-nums text-slate-500">{percent}%</span>
+      <span className="font-medium text-slate-900 tabular-nums text-right">{pen(value)}</span>
     </div>
   );
 }
