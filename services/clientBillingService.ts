@@ -1138,7 +1138,8 @@ function workerFromPersonnel(
   const endDate = isIsoDate(person.end_date) ? person.end_date.slice(0, 10) : undefined;
   const activeOnUnit = isOpenPersonnelRecord(person);
   const untilCese = activeOnUnit ? null : payableDaysUntilCese(window, endDate);
-  let calendarDays = untilCese === null ? commercialDaysInWindow(window, startDate, endDate, person.personnel_status) : untilCese;
+  const dayEnd = activeOnUnit ? undefined : endDate;
+  let calendarDays = untilCese === null ? commercialDaysInWindow(window, startDate, dayEnd, person.personnel_status) : untilCese;
   if (!activeOnUnit && !endDate) calendarDays = 0;
   const absenceDays = Math.min(calendarDays, absence?.days || 0);
   const days = untilCese === null ? Math.max(0, calendarDays - absenceDays) : calendarDays;

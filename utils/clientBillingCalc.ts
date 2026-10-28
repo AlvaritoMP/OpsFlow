@@ -561,8 +561,9 @@ export function isOpenPersonnelRecord(person: {
 }
 
 /**
- * Entra a la facturación quien sigue sin fecha de cese,
- * y quien tiene cese solo si esa fecha cae dentro del corte (Desde–Hasta, inclusive).
+ * El corte no restringe al personal vigente de la unidad.
+ * La fecha de fin de contrato es referencial y no saca a nadie.
+ * Quien ya cesó o está archivado entra solo si ese cese cae dentro del corte.
  */
 export function includePersonnelInBilling(
   person: {
@@ -573,25 +574,27 @@ export function includePersonnelInBilling(
   },
   window: AttendanceWindow
 ): boolean {
+  if (isOpenPersonnelRecord(person)) return true;
   const end = isIsoDate(person.end_date) ? person.end_date.slice(0, 10) : '';
+  if (!end) return false;
   const from = window.from.slice(0, 10);
   const to = window.to.slice(0, 10);
-  if (end) return end >= from && end <= to;
-  return isOpenPersonnelRecord(person);
+  return end >= from && end <= to;
 }
 
-/** Quien tiene fecha de cese solo permanece si ese día está dentro del corte. Sin cese, se queda el personal vigente. */
+/** El personal vigente se queda aunque cambie el corte. Quien cesó permanece si el cese cae dentro del corte. */
 export function workerOverlapsBillingWindow(
   worker: { origin?: string; activeOnUnit?: boolean; startDate?: string | null; endDate?: string | null },
   window: AttendanceWindow
 ): boolean {
   if (worker.origin === 'manual') return true;
+  if (worker.activeOnUnit !== false) return true;
   if (!isIsoDate(window.from) || !isIsoDate(window.to) || window.from.slice(0, 10) > window.to.slice(0, 10)) return true;
   const end = isIsoDate(worker.endDate) ? worker.endDate.slice(0, 10) : '';
+  if (!end) return false;
   const from = window.from.slice(0, 10);
   const to = window.to.slice(0, 10);
-  if (end) return end >= from && end <= to;
-  return worker.activeOnUnit !== false;
+  return end >= from && end <= to;
 }
 
 /**
