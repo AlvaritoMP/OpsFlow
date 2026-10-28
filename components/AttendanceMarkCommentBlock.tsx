@@ -4,6 +4,8 @@ import { attendanceReportService } from '../services/attendanceReportService';
 
 export interface AttendanceMarkCommentBlockProps {
   rowId: string;
+  /** worker: comentario del registro del trabajador. file: fila del Excel importado. */
+  record?: 'worker' | 'file';
   fileNotes?: string | null;
   userComment?: string | null;
   canEdit: boolean;
@@ -15,6 +17,7 @@ export interface AttendanceMarkCommentBlockProps {
 
 export const AttendanceMarkCommentBlock: React.FC<AttendanceMarkCommentBlockProps> = ({
   rowId,
+  record = 'file',
   fileNotes,
   userComment,
   canEdit,
@@ -41,7 +44,8 @@ export const AttendanceMarkCommentBlock: React.FC<AttendanceMarkCommentBlockProp
     setLocalErr(null);
     try {
       const v = text.trim() || null;
-      await attendanceReportService.updateRowUserComment(rowId, v);
+      if (record === 'worker') await attendanceReportService.updateWorkerMarkComment(rowId, v);
+      else await attendanceReportService.updateRowUserComment(rowId, v);
       setEditing(false);
       onSaved();
     } catch (e: unknown) {

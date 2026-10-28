@@ -4,7 +4,7 @@ const db = supabase as unknown as {
   from: (table: string) => any;
 };
 import { variableCompensationsService } from './variableCompensationsService';
-import { classifyAttendanceStatus } from './attendanceReportService';
+import { attendanceReportService, classifyAttendanceStatus, effectiveAttendanceDate } from './attendanceReportService';
 import { formatNovedadMatrixCell, resolveKeyEmoji } from './attendanceTareoService';
 import {
   BillingChange,
@@ -898,40 +898,23 @@ async function loadAbsenceDeductions(unitId: string, window: AttendanceWindow): 
   }
 
   try {
-    const { data: imports } = await db
-      .from('attendance_report_imports')
-      .select('id, report_date')
-      .eq('unit_id', unitId)
-      .gte('report_date', from)
-      .lte('report_date', to);
-    const importDate = new Map<string, string>();
-    const ids: string[] = [];
-    (imports || []).forEach((row: any) => {
-      ids.push(row.id);
-      importDate.set(row.id, String(row.report_date || '').slice(0, 10));
+    const marks = await attendanceReportService.listSettledMarks(unitId, from, to);
+    const present = new Set<string>();
+    const faltas: { resourceId: string; day: string }[] = [];
+    marks.forEach((row) => {
+      const resourceId = row.matched_resource_id;
+      if (!resourceId) return;
+      const mark = effectiveAttendanceDate(row, row.import_report_date);
+      if (!mark || mark < from || mark > to) return;
+      const kind = reportDayKind(row.attendance_status);
+      const token = `${resourceId}|${mark}`;
+      if (kind === 'present') present.add(token);
+      else if (kind === 'falta') faltas.push({ resourceId, day: mark });
     });
-    if (ids.length) {
-      const { data: rows } = await db
-        .from('attendance_report_rows')
-        .select('import_id, matched_resource_id, attendance_status, mark_date')
-        .in('import_id', ids);
-      const present = new Set<string>();
-      const faltas: { resourceId: string; day: string }[] = [];
-      (rows || []).forEach((row: any) => {
-        const resourceId = row.matched_resource_id;
-        if (!resourceId) return;
-        const mark = String(row.mark_date || importDate.get(row.import_id) || '').slice(0, 10);
-        if (!mark || mark < from || mark > to) return;
-        const kind = reportDayKind(row.attendance_status);
-        const token = `${resourceId}|${mark}`;
-        if (kind === 'present') present.add(token);
-        else if (kind === 'falta') faltas.push({ resourceId, day: mark });
-      });
-      faltas.forEach((hit) => {
-        if (present.has(`${hit.resourceId}|${hit.day}`)) return;
-        markFalta(hit.resourceId, hit.day, 'Asistencia', 1);
-      });
-    }
+    faltas.forEach((hit) => {
+      if (present.has(`${hit.resourceId}|${hit.day}`)) return;
+      markFalta(hit.resourceId, hit.day, 'Asistencia', 1);
+    });
   } catch {
     /* sin reporte de asistencia no se bloquea la facturación */
   }
@@ -1109,36 +1092,19 @@ export async function loadBillingDayGlance(unitId: string, from: string, to: str
   }
 
   try {
-    const { data: imports } = await db
-      .from('attendance_report_imports')
-      .select('id, report_date')
-      .eq('unit_id', unitId)
-      .gte('report_date', from)
-      .lte('report_date', to);
-    const importDate = new Map<string, string>();
-    const ids: string[] = [];
-    (imports || []).forEach((row: any) => {
-      ids.push(row.id);
-      importDate.set(row.id, String(row.report_date || '').slice(0, 10));
+    const marks = await attendanceReportService.listSettledMarks(unitId, from, to);
+    marks.forEach((row) => {
+      const resourceId = row.matched_resource_id;
+      if (!resourceId) return;
+      const day = effectiveAttendanceDate(row, row.import_report_date);
+      if (!day || day < from || day > to) return;
+      const rank = attendanceRank(row.attendance_status);
+      const token = `${resourceId}|${day}`;
+      if (rank <= (attendanceRankByDay.get(token) || 0)) return;
+      const extra = incidentNote.get(token);
+      putCell(attendance, resourceId, day, attendanceCell(row.attendance_status, extra));
+      attendanceRankByDay.set(token, Math.max(rank, 2));
     });
-    if (ids.length) {
-      const { data: rows } = await db
-        .from('attendance_report_rows')
-        .select('import_id, matched_resource_id, attendance_status, mark_date')
-        .in('import_id', ids);
-      (rows || []).forEach((row: any) => {
-        const resourceId = row.matched_resource_id as string;
-        if (!resourceId) return;
-        const day = String(row.mark_date || importDate.get(row.import_id) || '').slice(0, 10);
-        if (!day || day < from || day > to) return;
-        const rank = attendanceRank(row.attendance_status);
-        const token = `${resourceId}|${day}`;
-        if (rank <= (attendanceRankByDay.get(token) || 0)) return;
-        const extra = incidentNote.get(token);
-        putCell(attendance, resourceId, day, attendanceCell(row.attendance_status, extra));
-        attendanceRankByDay.set(token, Math.max(rank, 2));
-      });
-    }
   } catch {
     /* sin reporte de asistencia no se bloquea la vista */
   }

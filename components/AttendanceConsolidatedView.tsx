@@ -180,11 +180,10 @@ export const AttendanceConsolidatedView: React.FC<AttendanceConsolidatedViewProp
           Consolidado por trabajador y día
         </h4>
         <p className="text-sm text-slate-600 max-w-3xl">
-          Matriz de todos los trabajadores activos de la unidad (con cruce por documento en al menos un Excel).
-          Cada columna es un día calendario del rango seleccionado; la celda resume si la marcación fue{' '}
-          <strong>completa</strong> o <strong>incompleta</strong> (u otros estados del archivo). Los días sin
-          archivo importado aparecen como <em>—</em>. Si subes nuevos reportes, usa <em>Actualizar</em> o vuelve a
-          abrir esta vista.
+          Matriz de los trabajadores activos. Cada marca importada queda en el registro del trabajador; esta
+          grilla lee ese registro. Cada columna es un día del rango y resume si la marcación fue{' '}
+          <strong>completa</strong> o <strong>incompleta</strong>. Los días sin marca guardada aparecen como{' '}
+          <em>—</em>. Si acabas de subir un Excel, usa <em>Actualizar</em>.
           {canComment
             ? ' Puedes pulsar una celda con dato para añadir o revisar el comentario de esa marca.'
             : ' Pulsa una celda con dato para ver el detalle y comentarios guardados.'}
@@ -396,6 +395,7 @@ export const AttendanceConsolidatedView: React.FC<AttendanceConsolidatedViewProp
             </div>
             <AttendanceMarkCommentBlock
               rowId={commentRow.id}
+              record={commentRow.storedOn === 'worker' ? 'worker' : 'file'}
               fileNotes={commentRow.notes}
               userComment={commentRow.userComment}
               canEdit={canComment}

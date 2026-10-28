@@ -165,9 +165,8 @@ export const AttendanceEvolutionView: React.FC<AttendanceEvolutionViewProps> = (
           Evolución por trabajador
         </h4>
         <p className="text-sm text-slate-600 max-w-3xl">
-          Consulta por rango las marcas registradas en los Excel subidos a esta unidad. Solo se incluye personal
-          <strong> activo</strong> hoy y con documento emparejado en el reporte. Los días sin archivo importado no
-          aparecen (no se rellenan datos).
+          Consulta por rango las marcas guardadas en el registro del trabajador. Solo se incluye personal
+          <strong> activo</strong> hoy. Los días sin marca guardada no aparecen.
         </p>
       </div>
 
@@ -394,6 +393,7 @@ export const AttendanceEvolutionView: React.FC<AttendanceEvolutionViewProps> = (
                       <div className="min-w-0">
                         <AttendanceMarkCommentBlock
                           rowId={r.id}
+                          record={r.storedOn === 'worker' ? 'worker' : 'file'}
                           fileNotes={r.notes}
                           userComment={r.userComment}
                           canEdit={canComment}

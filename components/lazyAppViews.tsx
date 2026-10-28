@@ -10,9 +10,39 @@ function goToFreshCopy() {
 
 function isStaleChunkError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? '');
-  return /Failed to fetch dynamically imported module|Loading chunk|error loading dynamically imported module|Importing a module script failed/i.test(
+  // Chrome en español traduce el fallo: "Error al obtener el módulo importado dinámicamente".
+  return /Failed to fetch dynamically imported module|Loading chunk|error loading dynamically imported module|Importing a module script failed|importado dinámicamente|Unable to preload CSS|text\/html/i.test(
     msg
   );
+}
+
+function chunkUrlFromError(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  const match = msg.match(/https?:\/\/[^\s)'"]+\.js/i);
+  return match ? match[0] : null;
+}
+
+/** El chunk de Vite a veces envuelve el componente. Un solo candidato evita elegir otra exportación. */
+function componentFromChunk(mod: Record<string, unknown>): React.ComponentType<any> | null {
+  if (typeof mod.default === 'function') return mod.default as React.ComponentType<any>;
+  const values = Object.values(mod);
+  const functions = values.filter((value) => typeof value === 'function');
+  if (functions.length === 1) return functions[0] as React.ComponentType<any>;
+  const nested = values.flatMap((value) =>
+    value && typeof value === 'object' ? Object.values(value as object).filter((item) => typeof item === 'function') : []
+  );
+  return nested.length === 1 ? (nested[0] as React.ComponentType<any>) : null;
+}
+
+/** Chrome recuerda el fallo de esa URL. Otra consulta obliga a bajar el archivo de nuevo. */
+async function importFreshChunk(err: unknown): Promise<{ default: React.ComponentType<any> } | null> {
+  const raw = chunkUrlFromError(err);
+  if (!raw) return null;
+  const url = new URL(raw);
+  url.searchParams.set('opsflow', String(Date.now()));
+  const mod = (await import(/* @vite-ignore */ url.href)) as Record<string, unknown>;
+  const component = componentFromChunk(mod);
+  return component ? { default: component } : null;
 }
 
 /** Recarga una vez si un chunk lazy desapareció tras un deploy (hashes viejos). */
@@ -29,17 +59,29 @@ function lazyView<T extends React.ComponentType<any>>(
         }
         return mod;
       })
-      .catch((err) => {
-        if (isStaleChunkError(err)) {
-          try {
-            if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
-              sessionStorage.setItem(CHUNK_RELOAD_KEY, Date.now().toString());
-              goToFreshCopy();
-              return new Promise<{ default: T }>(() => {});
+      .catch(async (err) => {
+        if (!isStaleChunkError(err)) throw err;
+        try {
+          const recovered = await importFreshChunk(err);
+          if (recovered) {
+            try {
+              sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+            } catch {
+              /* ignore */
             }
-          } catch {
-            /* ignore */
+            return recovered as { default: T };
           }
+        } catch {
+          /* el reintento tampoco pudo bajar el archivo */
+        }
+        try {
+          if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+            sessionStorage.setItem(CHUNK_RELOAD_KEY, Date.now().toString());
+            goToFreshCopy();
+            return new Promise<{ default: T }>(() => {});
+          }
+        } catch {
+          /* ignore */
         }
         throw err;
       })

@@ -157,13 +157,19 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
     try {
       const { authService } = await import('../services/authService');
       const u = await authService.getCurrentUser();
-      const { importId, rowCount } = await attendanceReportService.uploadAndSave(
+      const { importId, rowCount, settledCount } = await attendanceReportService.uploadAndSave(
         unit,
         file,
         reportDate,
         u?.id || null
       );
-      setMessage({ type: 'ok', text: `Importación guardada (${rowCount} filas).` });
+      setMessage({
+        type: 'ok',
+        text:
+          settledCount == null
+            ? `Importación guardada (${rowCount} filas).`
+            : `Se guardaron ${settledCount} marcas en el registro de los trabajadores (${rowCount} filas en el archivo).`,
+      });
       await loadImports();
       setSelectedId(importId);
     } catch (err: any) {
@@ -201,9 +207,9 @@ export const AttendanceReportsTab: React.FC<AttendanceReportsTabProps> = ({ unit
           </h3>
           {canUpload && (
             <p className="text-sm text-slate-500 mt-1 max-w-3xl">
-              Los datos provienen <strong>solo</strong> de Excel subidos para esta unidad: no se rellenan días sin archivo.
-              Tras cada importación <strong>solo se muestran trabajadores activos en Personal</strong> (no archivados ni
-              cesados) cuyo documento coincide con el personal de la unidad; el resto de filas del Excel no se listan.
+              El Excel solo sirve para cargar. Cada marca que cruza con un trabajador activo se guarda en su
+              registro, y de ahí salen el consolidado, la evolución, el tareo y la facturación. El archivo puede
+              quedar como historial de la carga; no hace falta volver a abrirlo.
             </p>
           )}
         </div>
