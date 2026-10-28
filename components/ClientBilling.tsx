@@ -1422,11 +1422,13 @@ function MissingOrderFields(props: {
   const { editor } = props;
   const issue = editor.model.opalosisIssue;
   const [pinned, setPinned] = useState<{ id: string; gaps: ReturnType<typeof orderFieldGaps> } | null>(null);
-  if (editor.id && pinned?.id !== editor.id) {
-    setPinned({ id: editor.id, gaps: orderFieldGaps(editor.model) });
-  }
-  const gaps = pinned?.id === editor.id ? pinned.gaps : null;
   const [pesChoices, setPesChoices] = useState<string[]>([]);
+  const gaps = pinned && editor.id && pinned.id === editor.id ? pinned.gaps : null;
+
+  useEffect(() => {
+    if (!editor.id) return;
+    setPinned({ id: editor.id, gaps: orderFieldGaps(editor.model) });
+  }, [editor.id]);
 
   useEffect(() => {
     if (!editor.id || !gaps?.pes) return;
