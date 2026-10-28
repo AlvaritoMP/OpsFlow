@@ -258,14 +258,25 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
 
   const activeFormulas = editor?.status === 'draft' ? publishedFormulas || undefined : editor?.model.formulas;
   const computed = useMemo(() => {
-    if (!editor) return null;
-    const model = modelInAttendanceWindow(editor.periodMonth, editor.model);
-    return computeBilling({ ...model, formulas: activeFormulas });
+    if (!editor) return { result: null as BillingComputation | null, error: null as string | null };
+    try {
+      const model = modelInAttendanceWindow(editor.periodMonth, editor.model);
+      return { result: computeBilling({ ...model, formulas: activeFormulas }), error: null as string | null };
+    } catch (error) {
+      return {
+        result: null as BillingComputation | null,
+        error: error instanceof Error ? error.message : 'No se pudo calcular la liquidación.',
+      };
+    }
   }, [editor, activeFormulas]);
-  const pendingChanges = useMemo(
-    () => (editor ? diffBillingModels(editor.baseline, editor.model) : []),
-    [editor]
-  );
+  const pendingChanges = useMemo(() => {
+    if (!editor) return [];
+    try {
+      return diffBillingModels(editor.baseline, editor.model);
+    } catch {
+      return [];
+    }
+  }, [editor]);
   const locked = !canEdit || editor?.status === 'issued' || editor?.status === 'void';
 
   const visibleRecords = records.filter((record) => {
@@ -1061,7 +1072,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   </label>
                   <label className="text-sm text-slate-600">
                     Mes de servicio
-                    <input className={fieldClass} type="month" value={createServiceMonth} onChange={(event) => setCreateServiceMonth(event.target.value)} />
+                    <ServiceMonthField value={createServiceMonth} onChange={setCreateServiceMonth} />
                   </label>
                   <label className="text-sm text-slate-600">
                     Inicio de la orden de servicio
@@ -1276,10 +1287,20 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
           </>
         )}
 
-        {editor && computed && (
+        {editor && computed.error && (
+          <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-sm space-y-2">
+            <p className="font-medium">No se pudo calcular esta liquidación.</p>
+            <p>{computed.error}</p>
+            <button type="button" onClick={() => { setEditor(null); setBanner(null); }} className="px-3 py-1.5 rounded-lg bg-white border border-red-200 text-red-800 text-sm">
+              Volver al listado
+            </button>
+          </div>
+        )}
+
+        {editor && computed.result && (
           <EditorView
             editor={editor}
-            computed={computed}
+            computed={computed.result}
             pendingChanges={pendingChanges}
             locked={locked}
             canEdit={canEdit}
@@ -1311,7 +1332,9 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onReload={() => void reloadPersonnel()}
             onRemember={() => void rememberConditions()}
             formulas={activeFormulas}
-            onExport={(withFormulas) => exportExcel(editor, computed, activeFormulas, withFormulas)}
+            onExport={(withFormulas) => {
+              if (computed.result) void exportExcel(editor, computed.result, activeFormulas, withFormulas);
+            }}
             onOpenHelp={onOpenHelp}
             onOpenCompare={() => {
               if (!editor.id) {
@@ -1473,7 +1496,7 @@ function MissingOrderFields(props: {
         {gaps.service && (
           <label className="text-sm text-slate-600">
             Mes de servicio
-            <input className={fieldClass} type="month" value={editor.model.osServiceMonth || ''} onChange={(event) => props.onPatchModel({ osServiceMonth: event.target.value })} />
+            <ServiceMonthField value={editor.model.osServiceMonth || ''} onChange={(value) => props.onPatchModel({ osServiceMonth: value })} />
           </label>
         )}
         {(gaps.start || gaps.end) && (
@@ -1739,11 +1762,11 @@ function EditorView(props: {
           <div className="bg-white border border-slate-200 rounded-xl p-3 grid md:grid-cols-2 gap-3">
             <label className="text-sm text-slate-600">
               Título de la facturación
-              <input className={fieldClass} disabled={locked} value={editor.model.title} onChange={(event) => props.onPatchModel({ title: event.target.value })} />
+              <input className={fieldClass} disabled={locked} value={editor.model.title || ''} onChange={(event) => props.onPatchModel({ title: event.target.value })} />
             </label>
             <label className="text-sm text-slate-600">
               Servicio facturado
-              <input className={fieldClass} disabled={locked} value={editor.model.serviceLabel} onChange={(event) => props.onPatchModel({ serviceLabel: event.target.value })} />
+              <input className={fieldClass} disabled={locked} value={editor.model.serviceLabel || ''} onChange={(event) => props.onPatchModel({ serviceLabel: event.target.value })} />
             </label>
             <label className="text-sm text-slate-600 md:col-span-2">
               Comentario de esta versión
@@ -1751,7 +1774,7 @@ function EditorView(props: {
                 className={fieldClass}
                 disabled={locked}
                 placeholder="Ej. Se bajó a 6 días a Bazo y se cargó bono nocturno de 224 horas en tres abastecedores."
-                value={editor.model.comment}
+                value={editor.model.comment || ''}
                 onChange={(event) => props.onPatchModel({ comment: event.target.value })}
               />
             </label>
@@ -2414,7 +2437,7 @@ function LaborSheet(props: {
                   <input type="checkbox" checked={worker.included} disabled={props.locked} onChange={(event) => props.onPatchWorker(worker.id, { included: event.target.checked })} />
                 </td>
                 <td className="sticky left-8 z-20 bg-white px-1.5 py-1 min-w-[180px] align-middle">
-                  <input className={gridText} disabled={props.locked} value={worker.name} placeholder="Nombre" onChange={(event) => props.onPatchWorker(worker.id, { name: event.target.value })} />
+                  <input className={gridText} disabled={props.locked} value={worker.name || ''} placeholder="Nombre" onChange={(event) => props.onPatchWorker(worker.id, { name: event.target.value })} />
                   <div className="flex items-center gap-1 text-[10px] text-slate-400 truncate">
                     <span className="truncate">{worker.origin === 'manual' ? 'Manual' : worker.activeOnUnit === false ? 'Cesó; los días del corte llegan hasta su cese' : worker.missingFromUnit ? 'Ya no está en la unidad' : worker.contractualSalary <= 0 ? 'Sin sueldo en ficha' : ''}</span>
                     {worker.origin === 'manual' && !props.locked && (
@@ -2428,7 +2451,7 @@ function LaborSheet(props: {
                 <td className="px-1.5 py-1 whitespace-nowrap tabular-nums text-slate-600" title={worker.endDate ? 'Los días del corte se cuentan hasta esta fecha' : 'Sigue sin fecha de cese'}>
                   {formatBillingDate(worker.endDate) || '—'}
                 </td>
-                <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>
+                <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position || ''} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'contractualSalary')} title={hint(worker, 'contractualSalary')} disabled={props.locked} value={worker.contractualSalary} onChange={salary} /></td>
                 <td className="px-1.5 py-1 text-right tabular-nums text-slate-500">{worker.calendarDays ?? '—'}</td>
                 <td className={`px-1.5 py-1 text-right tabular-nums font-medium ${worker.absenceDays ? 'text-red-700' : 'text-slate-400'}`} title={worker.absenceDetail || 'Sin faltas en el corte'}>
@@ -3208,6 +3231,72 @@ function Field(props: { label: string; hint?: string; adjusted: boolean; childre
 }
 
 const fieldClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
+
+const SERVICE_MONTH_NAMES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
+
+function serviceMonthParts(value: string): { year: string; month: string } {
+  const match = /^(\d{4})-(\d{2})/.exec(value || '');
+  return { year: match?.[1] || '', month: match?.[2] || '' };
+}
+
+function ServiceMonthField(props: { value: string; onChange: (value: string) => void }) {
+  const { year, month } = serviceMonthParts(props.value);
+  const currentYear = new Date().getFullYear();
+  const years = new Set<number>();
+  for (let item = currentYear - 2; item <= currentYear + 3; item += 1) years.add(item);
+  if (/^\d{4}$/.test(year)) years.add(Number(year));
+  const yearList = Array.from(years).sort((a, b) => a - b);
+  const commit = (nextYear: string, nextMonth: string) => {
+    props.onChange(nextYear && nextMonth ? `${nextYear}-${nextMonth}` : '');
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <select
+        className={fieldClass}
+        aria-label="Mes de servicio"
+        value={month}
+        onChange={(event) => commit(year || String(currentYear), event.target.value)}
+      >
+        <option value="">Mes</option>
+        {SERVICE_MONTH_NAMES.map((name, index) => {
+          const value = String(index + 1).padStart(2, '0');
+          return (
+            <option key={value} value={value}>
+              {name}
+            </option>
+          );
+        })}
+      </select>
+      <select
+        className={fieldClass}
+        aria-label="Año de servicio"
+        value={year}
+        onChange={(event) => commit(event.target.value, month)}
+      >
+        <option value="">Año</option>
+        {yearList.map((item) => (
+          <option key={item} value={String(item)}>
+            {item}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 function numDays(value: number | undefined): number {
   return Number.isFinite(value) ? (value as number) : 0;

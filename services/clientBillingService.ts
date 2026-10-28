@@ -183,8 +183,8 @@ export async function prepareBillingDraft(
     .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
   if (options.copyPreviousCosts && previous) {
-    model.operational = cloneLines(previous.model.operational);
-    model.administrative = previous.model.administrative.length
+    model.operational = cloneLines(previous.model.operational || []);
+    model.administrative = previous.model.administrative?.length
       ? cloneLines(previous.model.administrative)
       : defaultAdministrativeLines();
   } else if (profile?.administrative?.length) {

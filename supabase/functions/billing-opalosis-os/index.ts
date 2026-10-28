@@ -260,7 +260,8 @@ serve(async (req) => {
       tipoCambio: 1,
       empresaOpaloId,
       opsflowCalculoId,
-      fechaMesServicio: osInstant(`${serviceMonth}-01`),
+      // DateOnly: OpaloSis rechaza un instante con hora (2026-10-01T00:00:00-05:00).
+      fechaMesServicio: `${serviceMonth}-01`,
       listaOrdenServicioDetalle: [
         {
           requerimientoId,

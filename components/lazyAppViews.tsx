@@ -175,21 +175,23 @@ export const KeepAlivePane: React.FC<{
   </div>
 );
 
-type ChunkBoundaryState = { hasError: boolean; stale: boolean };
+type ChunkBoundaryState = { hasError: boolean; stale: boolean; detail: string };
 
 export class ChunkLoadErrorBoundary extends React.Component<
   { children: React.ReactNode },
   ChunkBoundaryState
 > {
-  state: ChunkBoundaryState = { hasError: false, stale: false };
+  state: ChunkBoundaryState = { hasError: false, stale: false, detail: '' };
 
-  static getDerivedStateFromError(): ChunkBoundaryState {
-    return { hasError: true, stale: false };
+  static getDerivedStateFromError(error: Error): ChunkBoundaryState {
+    const stale = isStaleChunkError(error);
+    const detail = stale ? '' : (error?.message || 'Error al dibujar la sección').slice(0, 500);
+    return { hasError: true, stale, detail };
   }
 
   componentDidCatch(error: Error) {
     const stale = isStaleChunkError(error);
-    this.setState({ stale });
+    this.setState({ stale, detail: stale ? '' : (error?.message || '').slice(0, 500) });
     if (!stale) return;
     try {
       if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
@@ -212,8 +214,17 @@ export class ChunkLoadErrorBoundary extends React.Component<
           <p className="text-sm text-slate-500 mb-4">
             {this.state.stale
               ? 'Recarga la página para continuar.'
-              : 'Vuelve a cargar OpsFlow. Si sigue igual, cierra la pestaña y entra de nuevo.'}
+              : this.state.detail || 'Vuelve a cargar OpsFlow. Si sigue igual, cierra la pestaña y entra de nuevo.'}
           </p>
+          {!this.state.stale && (
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, stale: false, detail: '' })}
+              className="px-4 py-2 mr-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 text-sm"
+            >
+              Volver
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {

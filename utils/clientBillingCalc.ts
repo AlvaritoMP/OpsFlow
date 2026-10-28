@@ -266,7 +266,7 @@ export interface ClientBillingModel {
   osStartDate?: string;
   /** Entrega de la orden de servicio en OpaloSis (YYYY-MM-DD). */
   osEndDate?: string;
-  /** Mes de servicio que se envía a OpaloSis como fechaMesServicio (YYYY-MM). */
+  /** Mes de servicio. OpaloSis lo recibe como fechaMesServicio en formato YYYY-MM-DD. */
   osServiceMonth?: string;
   /** Código PES de la propuesta económica de esta unidad. */
   opalosisPesCode?: string;
@@ -935,11 +935,12 @@ function workerFormulaScope(worker: BillingWorkerInput, rates: BillingRates): Re
 
 export function computeBilling(model: ClientBillingModel): BillingComputation {
   const rates = normalizeBillingRates(model.rates);
-  const workers = model.workers.map((worker) => computeWorker(worker, rates, model.formulas));
-  const included = new Set(model.workers.filter((worker) => worker.included).map((worker) => worker.id));
+  const sourceWorkers = model.workers || [];
+  const workers = sourceWorkers.map((worker) => computeWorker(worker, rates, model.formulas));
+  const included = new Set(sourceWorkers.filter((worker) => worker.included).map((worker) => worker.id));
   const laborTotal = workers.reduce((sum, worker) => (included.has(worker.id) ? sum + worker.totalCost : sum), 0);
 
-  const operational = model.operational.map((line) => ({ id: line.id, amount: num(line.amount), formula: false }));
+  const operational = (model.operational || []).map((line) => ({ id: line.id, amount: num(line.amount), formula: false }));
   const operationalTotal = operational.reduce((sum, line) => sum + line.amount, 0);
 
   const billingScope: Record<string, number> = {
@@ -955,7 +956,7 @@ export function computeBilling(model: ClientBillingModel): BillingComputation {
   };
   const financialAmount = billingFormula(model.formulas, billingScope, 'financiero');
 
-  const administrative = model.administrative.map((line) => {
+  const administrative = (model.administrative || []).map((line) => {
     if (line.kind === 'financiero' && line.formulaLocked) {
       return { id: line.id, amount: financialAmount, formula: true };
     }
@@ -1114,7 +1115,7 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
   push('Orden de servicio', before.opalosisRegistration?.numeroOrdenServicio, after.opalosisRegistration?.numeroOrdenServicio);
 
   (Object.keys(RATE_LABELS) as (keyof BillingRates)[]).forEach((key) => {
-    push(RATE_LABELS[key], before.rates[key], after.rates[key]);
+    push(RATE_LABELS[key], before.rates?.[key], after.rates?.[key]);
   });
 
   const beforeFormulas = normalizeBillingFormulas(before.formulas);
@@ -1123,9 +1124,9 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
     push(`Fórmula de ${item.label}`, beforeFormulas[item.id], afterFormulas[item.id]);
   });
 
-  const beforeWorkers = new Map(before.workers.map((worker) => [worker.id, worker]));
-  const afterWorkers = new Map(after.workers.map((worker) => [worker.id, worker]));
-  after.workers.forEach((worker) => {
+  const beforeWorkers = new Map((before.workers || []).map((worker) => [worker.id, worker]));
+  const afterWorkers = new Map((after.workers || []).map((worker) => [worker.id, worker]));
+  (after.workers || []).forEach((worker) => {
     const prev = beforeWorkers.get(worker.id);
     if (!prev) {
       changes.push({
@@ -1147,14 +1148,14 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
       );
     });
   });
-  before.workers.forEach((worker) => {
+  (before.workers || []).forEach((worker) => {
     if (!afterWorkers.has(worker.id)) {
       changes.push({ label: `Personal quitado: ${worker.name || 'Sin nombre'}`, before: 'En la liquidación', after: 'Eliminado' });
     }
   });
 
-  diffLines(changes, 'Operativo', before.operational, after.operational);
-  diffLines(changes, 'Administrativo', before.administrative, after.administrative);
+  diffLines(changes, 'Operativo', before.operational || [], after.operational || []);
+  diffLines(changes, 'Administrativo', before.administrative || [], after.administrative || []);
   (Object.keys(BILLING_INTERNAL_TAB_LABELS) as BillingInternalTab[]).forEach((tab) => {
     push(BILLING_INTERNAL_TAB_LABELS[tab], internalNoteLog(before.internalNotes, tab), internalNoteLog(after.internalNotes, tab));
   });
