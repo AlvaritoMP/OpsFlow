@@ -148,6 +148,118 @@ async function callOpalosis(
   return { ok: response.ok, status: response.status, data };
 }
 
+const KNOWPLUS_REGISTRO_TIMEOUT_MS = 20_000;
+
+function getKnowplusIngresoConfig(): { baseUrl: string; token: string } | null {
+  const baseUrl = Deno.env.get('KNOWPLUS_API_BASE_URL')?.trim().replace(/\/+$/, '');
+  const token = Deno.env.get('KNOWPLUS_INGRESO_TOKEN')?.trim();
+  if (!baseUrl || !token) return null;
+  return { baseUrl, token };
+}
+
+function readKnowplusField(data: unknown, ...keys: string[]): string | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+  const row = data as Record<string, unknown>;
+  for (const key of keys) {
+    const value = row[key];
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (!text) continue;
+    return text.length > 80 ? text.slice(0, 80) : text;
+  }
+  return undefined;
+}
+
+function isKnowplusRepetido(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const row = data as Record<string, unknown>;
+  const value = row.repetido ?? row.Repetido;
+  return value === true;
+}
+
+/** Status y, si vienen, id / estado / refOperaciones. Nunca el cuerpo (cuenta, CCI, documento). */
+function logKnowplusRegistro(status: number, data: unknown, note?: string) {
+  const parts = [`Know+ registro-ingreso status=${status}`];
+  if (note) parts.push(note);
+  const id = readKnowplusField(data, 'id', 'Id');
+  const estado = readKnowplusField(data, 'estado', 'Estado');
+  const ref = readKnowplusField(data, 'refOperaciones', 'RefOperaciones');
+  if (id) parts.push(`id=${id}`);
+  if (estado) parts.push(`estado=${estado}`);
+  if (ref) parts.push(`refOperaciones=${ref}`);
+  console.log(parts.join(' '));
+}
+
+/**
+ * Segundo POST del mismo RegistroIngresoDTO a Know+.
+ * PayloadJson sigue como string y CamposDetalle como arreglo: se serializa el objeto tal cual.
+ * Si falta URL o token, no llama. Un fallo, timeout o 4xx/5xx no se propaga.
+ */
+async function mirrorRegistroIngresoToKnowplus(payload: unknown): Promise<void> {
+  const config = getKnowplusIngresoConfig();
+  if (!config) return;
+
+  try {
+    const response = await fetch(`${config.baseUrl}/api/opsflow/registro-ingreso`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${config.token}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(KNOWPLUS_REGISTRO_TIMEOUT_MS),
+    });
+
+    const text = await response.text();
+    let data: unknown = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+    }
+
+    if (response.status === 401) {
+      logKnowplusRegistro(401, data, 'token distinto al de Know+');
+      return;
+    }
+    if (response.status === 503) {
+      logKnowplusRegistro(503, data, 'en Know+ falta OPSFLOW_INGRESO_TOKEN');
+      return;
+    }
+    if (response.status === 201) {
+      logKnowplusRegistro(201, data, 'ingreso nuevo');
+      return;
+    }
+    if (response.status === 200 && isKnowplusRepetido(data)) {
+      logKnowplusRegistro(200, data, 'repetido=true');
+      return;
+    }
+    logKnowplusRegistro(response.status, data);
+  } catch (err) {
+    const name = err && typeof err === 'object' && 'name' in err ? String((err as { name?: string }).name) : '';
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      console.log('Know+ registro-ingreso timeout');
+      return;
+    }
+    console.log('Know+ registro-ingreso error de red');
+  }
+}
+
+/** POST a Opalosis y, en paralelo, el mismo cuerpo a Know+. El resultado es solo el de Opalosis. */
+async function postRegistroIngreso(
+  payload: unknown,
+): Promise<{ ok: boolean; status: number; data: unknown }> {
+  const knowplus = mirrorRegistroIngresoToKnowplus(payload);
+  try {
+    return await callOpalosis(PATHS.registro, { method: 'POST', body: payload });
+  } finally {
+    await knowplus;
+  }
+}
+
 function pickString(...values: unknown[]): string {
   for (const v of values) {
     if (v !== null && v !== undefined && String(v).trim()) return String(v).trim();
@@ -800,7 +912,7 @@ async function registerWorkerInOpalosis(
   if (mock) {
     responseData = simulateRegistroResponse(documento);
   } else {
-    const result = await callOpalosis(PATHS.registro, { method: 'POST', body: payload });
+    const result = await postRegistroIngreso(payload);
     httpStatus = result.status;
     responseData = (result.data ?? {}) as Record<string, unknown>;
 
@@ -957,7 +1069,7 @@ serve(async (req) => {
         });
       }
 
-      const result = await callOpalosis(PATHS.registro, { method: 'POST', body: payload });
+      const result = await postRegistroIngreso(payload);
       return jsonResponse({
         simulated: false,
         endpoint: PATHS.registro,

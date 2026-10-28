@@ -114,6 +114,17 @@ Edge Function → EasyPanel /api/opalosis-proxy/* → Onyx
 
 Con el proxy configurado, `OPALOSIS_API_KEY` **ya no es necesaria** en Supabase (la key vive solo en EasyPanel).
 
+### Réplica del alta a Know+
+
+El mismo `RegistroIngresoDTO` del POST a Opalosis se envía además a `{KNOWPLUS_API_BASE_URL}/api/opsflow/registro-ingreso`. Si falta la URL o el token, ese segundo POST no se hace y Opalosis sigue igual.
+
+**Secrets en Supabase (Edge Function `hr-opalosis-integration`):**
+
+| Variable | Valor |
+|----------|-------|
+| `KNOWPLUS_API_BASE_URL` | URL pública de la web Know+, sin slash final. Ejemplo: `https://knowplus.ejemplo.com` |
+| `KNOWPLUS_INGRESO_TOKEN` | Token que Know+ espera en `Authorization: Bearer` (el mismo valor que `OPSFLOW_INGRESO_TOKEN` en Know+) |
+
 ## Mattermost — faltas de asistencia (`/falta`)
 
 Integración servidor (EasyPanel). **No** uses prefijo `VITE_` (no deben ir al frontend).

@@ -93,6 +93,11 @@ if (-not $env:OPALOSIS_API_KEY) {
 if ($env:OPALOSIS_USE_MOCK) {
   npx supabase secrets set "OPALOSIS_USE_MOCK=$env:OPALOSIS_USE_MOCK"
 }
+if ($env:KNOWPLUS_API_BASE_URL -and $env:KNOWPLUS_INGRESO_TOKEN) {
+  npx supabase secrets set "KNOWPLUS_API_BASE_URL=$($env:KNOWPLUS_API_BASE_URL.TrimEnd('/'))" "KNOWPLUS_INGRESO_TOKEN=$env:KNOWPLUS_INGRESO_TOKEN"
+} else {
+  Write-Host 'KNOWPLUS_API_BASE_URL o KNOWPLUS_INGRESO_TOKEN no definidas — el alta no se replica a Know+.' -ForegroundColor Yellow
+}
 
 Write-Step 'Desplegando Edge Function'
 npx supabase functions deploy $FunctionName --project-ref $ProjectRef
