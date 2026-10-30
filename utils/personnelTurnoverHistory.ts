@@ -105,11 +105,19 @@ function countPeople(resources: TurnoverResource[], matches: (resource: Turnover
   return { total: unique + shared, unique, shared };
 }
 
-function resourcesInScope(units: TurnoverUnit[], clients: string[] | null): TurnoverResource[] {
-  const allowed = clients == null ? null : new Set(clients);
+function unitsInScope(units: TurnoverUnit[], clients: string[] | null, unitIds: string[] | null): TurnoverUnit[] {
+  const allowedClients = clients == null ? null : new Set(clients);
+  const allowedUnits = unitIds == null ? null : new Set(unitIds);
+  return units.filter((unit) => {
+    if (allowedUnits && !allowedUnits.has(unit.id)) return false;
+    if (allowedClients && !allowedClients.has(clientLabel(unit.clientName))) return false;
+    return true;
+  });
+}
+
+function resourcesInScope(units: TurnoverUnit[]): TurnoverResource[] {
   const resources: TurnoverResource[] = [];
   units.forEach((unit) => {
-    if (allowed && !allowed.has(clientLabel(unit.clientName))) return;
     (unit.resources || []).forEach((resource) => {
       if (isPersonnel(resource)) resources.push(resource);
     });
@@ -117,21 +125,15 @@ function resourcesInScope(units: TurnoverUnit[], clients: string[] | null): Turn
   return resources;
 }
 
-function archivedInScope(units: TurnoverUnit[], archived: ArchivedTurnoverResource[], clients: string[] | null): ArchivedTurnoverResource[] {
-  const allowed = clients == null ? null : new Set(clients);
-  const clientByUnitId = new Map(units.map((unit) => [unit.id, clientLabel(unit.clientName)]));
-  return archived.filter((person) => {
-    if (!person.originalUnitId) return false;
-    const client = clientByUnitId.get(person.originalUnitId);
-    if (!client) return false;
-    return allowed == null || allowed.has(client);
-  });
+function archivedInScope(units: TurnoverUnit[], archived: ArchivedTurnoverResource[]): ArchivedTurnoverResource[] {
+  const allowed = new Set(units.map((unit) => unit.id));
+  return archived.filter((person) => !!person.originalUnitId && allowed.has(person.originalUnitId));
 }
 
-function employmentSpells(units: TurnoverUnit[], archived: ArchivedTurnoverResource[], clients: string[] | null): TurnoverResource[] {
-  const onUnits = resourcesInScope(units, clients);
+function employmentSpells(units: TurnoverUnit[], archived: ArchivedTurnoverResource[]): TurnoverResource[] {
+  const onUnits = resourcesInScope(units);
   const seenIds = new Set(onUnits.map((resource) => resource.id).filter((id): id is string => !!id));
-  const fromArchive = archivedInScope(units, archived, clients)
+  const fromArchive = archivedInScope(units, archived)
     .filter((person) => !person.id || !seenIds.has(person.id))
     .map((person) => ({ ...person, archived: true }));
   return [...onUnits, ...fromArchive];
@@ -142,12 +144,14 @@ export function computePersonnelTurnoverHistory(
   archived: ArchivedTurnoverResource[],
   clients: string[] | null,
   today = new Date(),
-  months = 12
+  months = 12,
+  unitIds: string[] | null = null
 ): TurnoverMonthPoint[] {
   const horizon = Math.max(1, months);
-  const personnel = employmentSpells(units, archived, clients);
-  const unitIds = new Set(
-    resourcesInScope(units, clients).map((resource) => resource.id).filter((id): id is string => !!id)
+  const scoped = unitsInScope(units, clients, unitIds);
+  const personnel = employmentSpells(scoped, archived);
+  const activeResourceIds = new Set(
+    resourcesInScope(scoped).map((resource) => resource.id).filter((id): id is string => !!id)
   );
   const points: TurnoverMonthPoint[] = [];
 
@@ -179,8 +183,8 @@ export function computePersonnelTurnoverHistory(
       const endDate = parseCalendarDate(resource.endDate);
       return isCountedExit(resource) && !!endDate && inInclusiveRange(endDate, firstDay, closeDate);
     };
-    const salidasDeUnidades = countPeople(personnel, (resource) => !!resource.id && unitIds.has(resource.id) && leftInMonth(resource)).total;
-    const salidasArchivados = countPeople(personnel, (resource) => (!resource.id || !unitIds.has(resource.id)) && leftInMonth(resource)).total;
+    const salidasDeUnidades = countPeople(personnel, (resource) => !!resource.id && activeResourceIds.has(resource.id) && leftInMonth(resource)).total;
+    const salidasArchivados = countPeople(personnel, (resource) => (!resource.id || !activeResourceIds.has(resource.id)) && leftInMonth(resource)).total;
     const salidas = salidasDeUnidades + salidasArchivados;
 
     points.push({
