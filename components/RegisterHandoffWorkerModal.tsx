@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Building2, Loader2, Sparkles, UserPlus, X } from 'lucide-react';
 import { inboundWorkerHandoffService } from '../services/inboundWorkerHandoffService';
 import { hrOutboundIngresoService } from '../services/hrOutboundIngresoService';
-import { resourcesService } from '../services/resourcesService';
+import { formatPersonnelDocumentAlert, PersonnelDocumentMatch, resourcesService } from '../services/resourcesService';
+import { normalizeDocumentNumber } from '../utils/documentNumber';
 import {
   InboundHandoffItem,
   ResourceType,
@@ -58,6 +59,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
 }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicateDniMatches, setDuplicateDniMatches] = useState<PersonnelDocumentMatch[]>([]);
   const [unitId, setUnitId] = useState(item.assignedWorkUnitId ?? '');
   const [selectedPositionKey, setSelectedPositionKey] = useState('');
   const [form, setForm] = useState<HandoffWorkerPrefill>(() =>
@@ -112,6 +114,28 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
     }));
   };
 
+  useEffect(() => {
+    const dni = normalizeDocumentNumber(form.dni);
+    if (dni.length < 5) {
+      setDuplicateDniMatches([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const matches = await resourcesService.findPersonnelByDocument(dni);
+        if (!cancelled) setDuplicateDniMatches(matches);
+      } catch (lookupError) {
+        console.warn('No se pudo verificar DNI duplicado:', lookupError);
+        if (!cancelled) setDuplicateDniMatches([]);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [form.dni]);
+
   const isPrefilled = (field: string) => form.prefilledFields.includes(field);
   const storedAtsFieldCount = countStoredAtsFields(item.workerSnapshot);
   const displayName = resolveHandoffDisplayName({
@@ -144,6 +168,21 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
     setSaving(true);
     setError(null);
     try {
+      const dni = normalizeDocumentNumber(form.dni);
+      if (dni) {
+        const matches = await resourcesService.findPersonnelByDocument(dni);
+        setDuplicateDniMatches(matches);
+        if (matches.length > 0) {
+          const proceed = confirm(
+            `${formatPersonnelDocumentAlert(dni, matches)}\n\nSi continúas, se creará otra ficha con el mismo documento.\n\n¿Registrar de todas formas?`
+          );
+          if (!proceed) {
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
       const resource = await resourcesService.create(
         {
           name: form.name.trim(),
@@ -153,7 +192,7 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
           assignedZones: zones,
           assignedShift: form.shift || undefined,
           compliancePercentage: 100,
-          dni: form.dni.trim() || undefined,
+          dni: dni || undefined,
           phone: form.phone.trim() || undefined,
           email: form.email.trim() || undefined,
           puesto: form.puesto.trim() || undefined,
@@ -342,8 +381,23 @@ export const RegisterHandoffWorkerModal: React.FC<RegisterHandoffWorkerModalProp
                 type="text"
                 value={form.dni}
                 onChange={(e) => setForm({ ...form, dni: e.target.value })}
-                className="w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+                className={`w-full rounded-lg border p-2 text-sm outline-none focus:border-blue-500 ${
+                  duplicateDniMatches.length > 0 ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
+                }`}
               />
+              {duplicateDniMatches.length > 0 && (
+                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-semibold">DNI ya registrado</p>
+                  <ul className="mt-1 space-y-1">
+                    {duplicateDniMatches.map((match) => (
+                      <li key={match.id}>
+                        {match.name} — {match.unitName} ({match.statusLabel})
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs">Al registrar se pedirá confirmación antes de crear otra ficha con este documento.</p>
+                </div>
+              )}
             </div>
 
             <div>

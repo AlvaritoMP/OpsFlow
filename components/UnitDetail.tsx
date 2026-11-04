@@ -36,7 +36,8 @@ import {
 import { isUnitOperational } from '../utils/unitStatus';
 import { nextZoneLayout, withVisibleLayouts, zoneBelongsToLayer } from '../utils/blueprintLayout';
 import { formatDateDisplay } from '../utils/dateFormat';
-import { normalizeDocumentNumber } from '../utils/documentNumber';
+import { documentNumbersMatch, normalizeDocumentNumber } from '../utils/documentNumber';
+import { formatPersonnelDocumentAlert, PersonnelDocumentMatch } from '../services/resourcesService';
 import { DateInput } from './DateInput';
 import {
   TERMINATION_REASON_PRESETS,
@@ -953,6 +954,34 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
   const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; email?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number; familyAllowance?: boolean }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
+  const [duplicateDniMatches, setDuplicateDniMatches] = useState<PersonnelDocumentMatch[]>([]);
+
+  useEffect(() => {
+    if (!showAddWorkerModal) {
+      setDuplicateDniMatches([]);
+      return;
+    }
+    const dni = normalizeDocumentNumber(newWorkerForm.dni);
+    if (dni.length < 5) {
+      setDuplicateDniMatches([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const { resourcesService } = await import('../services/resourcesService');
+        const matches = await resourcesService.findPersonnelByDocument(dni);
+        if (!cancelled) setDuplicateDniMatches(matches);
+      } catch (error) {
+        console.warn('No se pudo verificar DNI duplicado:', error);
+        if (!cancelled) setDuplicateDniMatches([]);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [showAddWorkerModal, newWorkerForm.dni]);
   
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -2684,6 +2713,17 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setIsSavingWorker(true);
     try {
       const { resourcesService } = await import('../services/resourcesService');
+      const dni = normalizeDocumentNumber(newWorkerForm.dni);
+      if (dni) {
+        const matches = await resourcesService.findPersonnelByDocument(dni);
+        setDuplicateDniMatches(matches);
+        if (matches.length > 0) {
+          const proceed = confirm(
+            `${formatPersonnelDocumentAlert(dni, matches)}\n\nSi continúas, se creará otra ficha con el mismo documento.\n\n¿Crear de todas formas?`
+          );
+          if (!proceed) return;
+        }
+      }
       const finalWorkerImage = await uploadWorkerImageIfNeeded(newWorkerForm.image);
       const newWorker = await resourcesService.create({
       name: newWorkerForm.name,
@@ -2694,7 +2734,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         assignedZones: newWorkerForm.zones,
       assignedShift: newWorkerForm.shift,
       compliancePercentage: 100,
-        dni: normalizeDocumentNumber(newWorkerForm.dni) || undefined,
+        dni: dni || undefined,
         puesto: newWorkerForm.puesto || undefined,
         localidad: newWorkerForm.localidad?.trim() || undefined,
         phone: newWorkerForm.phone?.trim() || undefined,
@@ -2817,6 +2857,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       // Crear trabajadores
       const createdWorkers: Resource[] = [];
       const errors: Array<{ row: number; error: string }> = [];
+      const duplicateWarnings: Array<{ row: number; warning: string; data: any }> = [];
+      const documentIndex = await resourcesService.listPersonnelDocuments();
+      const usedInFile = new Map<string, number>();
       
       for (let i = 0; i < personnelData.length; i++) {
         const row = personnelData[i];
@@ -2835,6 +2878,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             else if (shiftLower.includes('mixto')) shift = 'Mixto';
           }
           
+          const dni = normalizeDocumentNumber(row.dni);
+          const rowNumber = i + 2;
+          if (dni) {
+            const alreadyInFile = usedInFile.get(dni);
+            const existing = documentIndex.filter((match) => documentNumbersMatch(match.dni, dni));
+            if (existing.length > 0 || alreadyInFile) {
+              const detail = existing.length > 0
+                ? formatPersonnelDocumentAlert(dni, existing).replace(/\n/g, ' ')
+                : `el DNI ${dni} ya aparece en la fila ${alreadyInFile} de este archivo`;
+              duplicateWarnings.push({
+                row: rowNumber,
+                warning: `No se creó: ${detail}.`,
+                data: row,
+              });
+              continue;
+            }
+            usedInFile.set(dni, rowNumber);
+          }
+
           const newWorker = await resourcesService.create({
             name: row.nombre.trim(),
             type: ResourceType.PERSONNEL,
@@ -2843,7 +2905,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             assignedZones: zones,
             assignedShift: shift || undefined,
             compliancePercentage: 100,
-            dni: normalizeDocumentNumber(row.dni) || undefined,
+            dni: dni || undefined,
             puesto: row.puesto?.trim() || undefined,
             localidad: row.localidad?.trim() || undefined,
             phone: row.telefono?.trim() || undefined,
@@ -2893,19 +2955,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       onUpdate({ ...unit, resources: updatedResources });
       
       // Mostrar resultado
-      if (createdWorkers.length > 0) {
+      if (createdWorkers.length > 0 || duplicateWarnings.length > 0) {
         setNotification({ 
-          type: enqueuedCount < createdWorkers.length ? 'warning' : 'success', 
-          message: `Se importaron ${createdWorkers.length} trabajador(es). ${enqueuedCount} encolado(s) para Envío Opalosis${errors.length > 0 ? `. ${errors.length} aviso(s).` : '.'}` 
+          type: duplicateWarnings.length > 0 || enqueuedCount < createdWorkers.length ? 'warning' : 'success', 
+          message: `Se importaron ${createdWorkers.length} trabajador(es). ${enqueuedCount} encolado(s) para Envío Opalosis.${duplicateWarnings.length > 0 ? ` ${duplicateWarnings.length} no se crearon por DNI duplicado.` : ''}${errors.length > 0 ? ` ${errors.length} aviso(s).` : ''}` 
         });
-        setTimeout(() => setNotification(null), 6000);
+        setTimeout(() => setNotification(null), 8000);
       }
       
-      if (errors.length > 0) {
+      if (errors.length > 0 || duplicateWarnings.length > 0) {
         setImportResult({
           ...result,
-          failed: errors.length,
-          errors: [...result.errors, ...errors]
+          successful: createdWorkers.length,
+          failed: result.failed + errors.length,
+          errors: [...result.errors, ...errors.map((error) => ({ ...error, data: null }))],
+          warnings: [...result.warnings, ...duplicateWarnings],
         });
       }
     } catch (error: any) {
@@ -7467,18 +7531,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                 setTimeout(() => setNotification(null), 3000);
                                             } catch (error) {
                                                 console.error('Error al eliminar trabajador:', error);
-                                                // Si falla el servicio, eliminar localmente de todas formas
-                                                const currentTab = activeTabRef.current;
-                                                const updatedUnit = { ...unit };
-                                                updatedUnit.resources = updatedUnit.resources.filter(r => r.id !== worker.id);
-                                                onUpdate(updatedUnit);
-                                                setTimeout(() => {
-                                                    if (activeTab !== currentTab) {
-                                                        setActiveTab(currentTab);
-                                                    }
-                                                }, 100);
-                                                setNotification({ type: 'success', message: 'Trabajador eliminado de la unidad' });
-                                                setTimeout(() => setNotification(null), 3000);
+                                                const detail = error instanceof Error ? error.message : '';
+                                                const message = detail.includes('client_requests')
+                                                  ? 'No se pudo eliminar: el trabajador sigue vinculado a un requerimiento del cliente.'
+                                                  : 'No se pudo eliminar el trabajador. Sigue en la unidad.';
+                                                setNotification({ type: 'error', message });
+                                                setTimeout(() => setNotification(null), 5000);
                                             }
                                         }
                                     }}
@@ -9984,8 +10042,21 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">DNI / documento</label>
-                  <input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.dni || ''} onChange={e => setNewWorkerForm({...newWorkerForm, dni: e.target.value})} placeholder="DNI, CE o pasaporte" />
+                  <input type="text" className={`w-full border rounded-lg p-2 outline-none ${duplicateDniMatches.length > 0 ? 'border-amber-400 bg-amber-50' : 'border-slate-300'}`} value={newWorkerForm.dni || ''} onChange={e => setNewWorkerForm({...newWorkerForm, dni: e.target.value})} placeholder="DNI, CE o pasaporte" />
                   <p className="mt-1 text-xs text-slate-500">Puede incluir letras (p. ej. pasaporte). Necesario para que el referido complete la ficha en /ficha y para el envío a Opalosis.</p>
+                  {duplicateDniMatches.length > 0 && (
+                    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                      <p className="font-semibold">DNI ya registrado</p>
+                      <ul className="mt-1 space-y-1">
+                        {duplicateDniMatches.map((match) => (
+                          <li key={match.id}>
+                            {match.name} — {match.unitName} ({match.statusLabel})
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-xs">Al guardar se pedirá confirmación antes de crear otra ficha con este documento.</p>
+                    </div>
+                  )}
                 </div>
                 
                 <div>

@@ -3,6 +3,81 @@ import { Resource, ResourceType, Training, AssignedAsset, DailyShift, Maintenanc
 import { normalizeShiftTime, isVacationWithCoverage } from '../utils/rosterHours';
 import { mapContractFromDB } from './contractService';
 import { todayLocalISODate } from '../utils/queryBatch';
+import { documentNumbersMatch, normalizeDocumentNumber } from '../utils/documentNumber';
+
+export interface PersonnelDocumentMatch {
+  id: string;
+  name: string;
+  dni: string;
+  unitId?: string;
+  unitName: string;
+  statusLabel: 'Activo' | 'Cesado' | 'Archivado';
+}
+
+function personnelDocumentStatus(
+  archived: boolean | null | undefined,
+  personnelStatus: string | null | undefined,
+): PersonnelDocumentMatch['statusLabel'] {
+  if (archived || personnelStatus === 'archivado') return 'Archivado';
+  if (personnelStatus === 'cesado') return 'Cesado';
+  return 'Activo';
+}
+
+export function formatPersonnelDocumentAlert(dni: string, matches: PersonnelDocumentMatch[]): string {
+  const title = matches.length === 1
+    ? `Ya existe un trabajador con el DNI ${dni}:`
+    : `Ya existen ${matches.length} trabajadores con el DNI ${dni}:`;
+  const lines = matches.map((match) => `• ${match.name} — ${match.unitName} (${match.statusLabel})`);
+  return `${title}\n\n${lines.join('\n')}`;
+}
+
+async function listPersonnelDocumentIndex(): Promise<PersonnelDocumentMatch[]> {
+  const pageSize = 1000;
+  const rows: Array<{
+    id: string;
+    name: string | null;
+    dni: string | null;
+    unit_id: string | null;
+    archived: boolean | null;
+    personnel_status: string | null;
+  }> = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('resources')
+      .select('id, name, dni, unit_id, archived, personnel_status')
+      .eq('type', 'Personal')
+      .not('dni', 'is', null)
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    const page = (data || []) as any as typeof rows;
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  const unitIds = [...new Set(rows.map((row) => row.unit_id).filter((id): id is string => Boolean(id)))];
+  const unitNames = new Map<string, string>();
+  for (let i = 0; i < unitIds.length; i += pageSize) {
+    const slice = unitIds.slice(i, i + pageSize);
+    const { data, error } = await supabase.from('units').select('id, name').in('id', slice);
+    if (error) throw error;
+    for (const unit of (data || []) as Array<{ id: string; name: string | null }>) {
+      unitNames.set(unit.id, unit.name || 'Unidad sin nombre');
+    }
+  }
+
+  return rows
+    .filter((row) => normalizeDocumentNumber(row.dni))
+    .map((row) => ({
+      id: row.id,
+      name: row.name?.trim() || 'Trabajador',
+      dni: normalizeDocumentNumber(row.dni),
+      unitId: row.unit_id || undefined,
+      unitName: (row.unit_id && unitNames.get(row.unit_id)) || 'Sin unidad',
+      statusLabel: personnelDocumentStatus(row.archived, row.personnel_status),
+    }));
+}
 
 // ============================================
 // CRUD PARA RESOURCES
@@ -195,6 +270,23 @@ export const resourcesService = {
       handleSupabaseError(error);
       return [];
     }
+  },
+
+  /** Índice de documentos del personal, para revisar varios DNI sin repetir la consulta. */
+  async listPersonnelDocuments(): Promise<PersonnelDocumentMatch[]> {
+    return listPersonnelDocumentIndex();
+  },
+
+  /** Personal ya registrado con el mismo DNI, CE o pasaporte, en cualquier unidad. */
+  async findPersonnelByDocument(dni?: string | null, excludeId?: string): Promise<PersonnelDocumentMatch[]> {
+    const normalized = normalizeDocumentNumber(dni);
+    if (!normalized) return [];
+
+    const index = await listPersonnelDocumentIndex();
+    const rank = { Activo: 0, Cesado: 1, Archivado: 2 };
+    return index
+      .filter((row) => row.id !== excludeId && documentNumbersMatch(row.dni, normalized))
+      .sort((a, b) => rank[a.statusLabel] - rank[b.statusLabel] || a.unitName.localeCompare(b.unitName) || a.name.localeCompare(b.name));
   },
 
   // Obtener un recurso por ID
@@ -442,6 +534,23 @@ export const resourcesService = {
       );
       await safe('variable_compensations', () =>
         supabase.from('variable_compensations').delete().eq('resource_id', id)
+      );
+
+      // El requerimiento del cliente se conserva; solo se suelta el vínculo al recurso.
+      // Sin esto, el DELETE de resources falla con 23503 (client_requests_related_resource_id_fkey).
+      const { error: requestLinkError } = await supabase
+        .from('client_requests')
+        .update({ related_resource_id: null })
+        .eq('related_resource_id', id);
+      if (requestLinkError && requestLinkError.code !== '42P01') throw requestLinkError;
+      await safe('resources.rehired_from_resource_id', () =>
+        supabase.from('resources').update({ rehired_from_resource_id: null }).eq('rehired_from_resource_id', id)
+      );
+      await safe('worker_rehire_events.source', () =>
+        supabase.from('worker_rehire_events').delete().eq('source_resource_id', id)
+      );
+      await safe('worker_rehire_events.new', () =>
+        supabase.from('worker_rehire_events').delete().eq('new_resource_id', id)
       );
 
       const { error } = await supabase.from('resources').delete().eq('id', id);
