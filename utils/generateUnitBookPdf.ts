@@ -242,6 +242,7 @@ const HEADER_RED = 3.2;
 const HEADER_BODY = 18;
 const HEADER_H = HEADER_RED + HEADER_BODY;
 const CONTENT_TOP = HEADER_H + 3.2;
+const PAGE_BOTTOM = PAGE_H - FOOTER_H - 3;
 
 function drawHeaderBar(doc: jsPDF, logo: LoadedImage | null) {
   doc.setFillColor(...RED);
@@ -307,8 +308,26 @@ function ensureSpace(
   pageRef: { n: number },
   unitName: string,
 ): number {
-  if (y + needed <= PAGE_H - FOOTER_H - 3) return y;
+  if (y + needed <= PAGE_BOTTOM) return y;
+  if (y <= CONTENT_TOP + 1) return y;
   return newContentPage(doc, logo, pageRef, unitName);
+}
+
+/** Parte el texto con la fuente ya activa y vuelve a cortar si una línea aún se sale. */
+function wrapText(doc: jsPDF, value: string, maxWidth: number): string[] {
+  const width = Math.max(8, maxWidth);
+  const source = String(value ?? '');
+  if (!source.trim()) return [];
+  const lines = doc.splitTextToSize(source, width) as string[];
+  const fitted: string[] = [];
+  lines.forEach((line) => {
+    if (!line || doc.getTextWidth(line) <= width + 0.5) {
+      fitted.push(line);
+      return;
+    }
+    fitted.push(...(doc.splitTextToSize(line, width * 0.96) as string[]));
+  });
+  return fitted;
 }
 
 function writeLines(
@@ -318,13 +337,55 @@ function writeLines(
   y: number,
   maxWidth: number,
   lineH: number,
-  maxLines: number,
 ): number {
-  const lines = (doc.splitTextToSize(value, maxWidth) as string[]).slice(0, maxLines);
-  lines.forEach((line) => {
-    doc.text(line, x, y);
+  wrapText(doc, value, maxWidth).forEach((line) => {
+    if (line) doc.text(line, x, y);
     y += lineH;
   });
+  return y;
+}
+
+/** Recuadro de color que crece con el texto y sigue en la página siguiente si no cabe. */
+function drawFilledLines(
+  doc: jsPDF,
+  y: number,
+  lines: string[],
+  lineH: number,
+  logo: LoadedImage | null,
+  pageRef: { n: number },
+  unitName: string,
+  fill: [number, number, number],
+  accent: [number, number, number],
+  textColor: [number, number, number],
+  applyFont: (doc: jsPDF) => void,
+): number {
+  if (!lines.length) return y;
+  const padTop = 4.2;
+  const padBottom = 2.2;
+  const textX = MARGIN + 5;
+  let index = 0;
+  while (index < lines.length) {
+    y = ensureSpace(doc, y, padTop + padBottom + lineH, logo, pageRef, unitName);
+    const room = PAGE_BOTTOM - y - padTop - padBottom;
+    const count = Math.min(lines.length - index, Math.max(1, Math.floor(room / lineH)));
+    const chunk = lines.slice(index, index + count);
+    const boxH = padTop + padBottom + chunk.length * lineH;
+    doc.setFillColor(...fill);
+    doc.roundedRect(MARGIN, y, CONTENT_W, boxH, 1.5, 1.5, 'F');
+    doc.setFillColor(...accent);
+    doc.rect(MARGIN, y, 1.8, boxH, 'F');
+    applyFont(doc);
+    doc.setTextColor(...textColor);
+    let ty = y + padTop + lineH * 0.72;
+    chunk.forEach((line) => {
+      if (line) doc.text(line, textX, ty);
+      ty += lineH;
+    });
+    index += count;
+    y += boxH;
+    if (index < lines.length) y = newContentPage(doc, logo, pageRef, unitName);
+    else y += 4;
+  }
   return y;
 }
 
@@ -411,14 +472,31 @@ function drawLeadersSection(
 ): number {
   if (!leaders.length) return y;
 
-  y = ensureSpace(doc, y, 44, logo, pageRef, unitName);
-  y = sectionLabel(doc, 'Tus líderes', y);
-
   const gap = 3;
   const cardW = (CONTENT_W - gap * (leaders.length - 1)) / leaders.length;
   const photo = 18;
-  const cardH = 34;
-  y = ensureSpace(doc, y, cardH + 2, logo, pageRef, unitName);
+  const cardH = Math.max(
+    34,
+    ...leaders.map((leader) => {
+      const tw = Math.max(12, cardW - photo - 9);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      const names = wrapText(doc, leader.name, tw);
+      doc.setFontSize(6.5);
+      const roles = wrapText(doc, leader.role, tw);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      const contacts = [leader.phone, leader.email]
+        .filter(Boolean)
+        .flatMap((value) => wrapText(doc, value, tw));
+      const textH = 5 + names.length * 3.4 + roles.length * 3.1 + contacts.length * 3.1 + 3;
+      return Math.max(photo + 8, textH);
+    }),
+  );
+
+  y = ensureSpace(doc, y, Math.min(cardH + 12, PAGE_BOTTOM - CONTENT_TOP), logo, pageRef, unitName);
+  if (y + cardH + 8 > PAGE_BOTTOM) y = newContentPage(doc, logo, pageRef, unitName);
+  y = sectionLabel(doc, 'Tus líderes', y);
 
   leaders.forEach((leader, index) => {
     const x = MARGIN + index * (cardW + gap);
@@ -445,7 +523,7 @@ function drawLeadersSection(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...BLUE);
-    const names = (doc.splitTextToSize(leader.name, tw) as string[]).slice(0, 2);
+    const names = wrapText(doc, leader.name, tw);
     let ty = y + 6.2;
     names.forEach((line) => {
       doc.text(line, tx, ty);
@@ -455,8 +533,7 @@ function drawLeadersSection(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
     doc.setTextColor(...RED);
-    const roles = (doc.splitTextToSize(leader.role, tw) as string[]).slice(0, 2);
-    roles.forEach((line) => {
+    wrapText(doc, leader.role, tw).forEach((line) => {
       doc.text(line, tx, ty);
       ty += 3.1;
     });
@@ -465,9 +542,7 @@ function drawLeadersSection(
     doc.setFontSize(6.5);
     doc.setTextColor(...INK);
     [leader.phone, leader.email].filter(Boolean).forEach((value) => {
-      const lines = (doc.splitTextToSize(value, tw) as string[]).slice(0, value.includes('@') ? 2 : 1);
-      lines.forEach((line) => {
-        if (ty > y + cardH - 2) return;
+      wrapText(doc, value, tw).forEach((line) => {
         doc.text(line, tx, ty);
         ty += 3.1;
       });
@@ -490,6 +565,179 @@ function drawPhotoPlaceholder(doc: jsPDF, x: number, y: number, w: number, h: nu
   doc.setFontSize(8);
   doc.setTextColor(...WHITE);
   doc.text(initials || '—', x + w / 2, y + h / 2 + 2.4, { align: 'center' });
+}
+
+type CardItem = { h: number; paint: (doc: jsPDF, x: number, top: number) => void };
+
+function layoutMemberCard(
+  doc: jsPDF,
+  member: UnitBookPdfMember,
+  cardW: number,
+  photo: LoadedImage | null | undefined,
+): CardItem[] {
+  const photoW = 16;
+  const photoH = 21.5;
+  const innerW = cardW - 8;
+  const tw = Math.max(12, cardW - photoW - 12);
+  const displayName = sanitizePersonName(member.resource.name || '') || 'Colaborador';
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  const nameLines = wrapText(doc, displayName, tw);
+  doc.setFontSize(7);
+  const puestoLines = wrapText(doc, text(member.resource.puesto) || 'Sin puesto', tw);
+  const meta = [
+    member.age,
+    member.tenure ? `${member.tenure} en Opalo` : '',
+    member.workZone,
+    member.resource.assignedShift,
+  ]
+    .filter(Boolean)
+    .join('  ·  ');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  const metaLines = meta ? wrapText(doc, meta, tw) : [];
+  const fnLines = text(member.functions) ? wrapText(doc, member.functions, innerW) : [];
+  const exLines = text(member.experience) ? wrapText(doc, member.experience, innerW) : [];
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(6.5);
+  const msgLines = text(member.colleagueMessage)
+    ? wrapText(doc, `“${member.colleagueMessage}”`, innerW)
+    : [];
+
+  const nameLH = 3.5;
+  const puestoLH = 3.4;
+  const metaLH = 3.1;
+  const textH = 4 + nameLines.length * nameLH + puestoLines.length * puestoLH + metaLines.length * metaLH + 2;
+  const headH = Math.max(photoH + 7, textH);
+  const items: CardItem[] = [{
+    h: headH,
+    paint: (target, x, top) => {
+      const px = x + 3.5;
+      const py = top + 2;
+      if (photo?.dataUrl) {
+        try {
+          target.addImage(photo.dataUrl, photo.format, px, py, photoW, photoH);
+        } catch {
+          drawPhotoPlaceholder(target, px, py, photoW, photoH, displayName);
+        }
+      } else {
+        drawPhotoPlaceholder(target, px, py, photoW, photoH, displayName);
+      }
+      const tx = px + photoW + 3;
+      let ty = top + 5.2;
+      target.setFont('helvetica', 'bold');
+      target.setFontSize(8);
+      target.setTextColor(...BLUE);
+      nameLines.forEach((line) => {
+        if (line) target.text(line, tx, ty);
+        ty += nameLH;
+      });
+      target.setFontSize(7);
+      target.setTextColor(...RED);
+      puestoLines.forEach((line) => {
+        if (line) target.text(line, tx, ty);
+        ty += puestoLH;
+      });
+      target.setFont('helvetica', 'normal');
+      target.setFontSize(6.5);
+      target.setTextColor(...MUTED);
+      metaLines.forEach((line) => {
+        if (line) target.text(line, tx, ty);
+        ty += metaLH;
+      });
+    },
+  }];
+
+  const pushSection = (label: string, lines: string[]) => {
+    if (!lines.length) return;
+    items.push({
+      h: 3.2,
+      paint: (target, x, top) => {
+        target.setFont('helvetica', 'bold');
+        target.setFontSize(6);
+        target.setTextColor(...BLUE);
+        target.text(label, x + 3.5, top + 2.4);
+      },
+    });
+    lines.forEach((line) => {
+      items.push({
+        h: 2.8,
+        paint: (target, x, top) => {
+          target.setFont('helvetica', 'normal');
+          target.setFontSize(6.5);
+          target.setTextColor(...INK);
+          if (line) target.text(line, x + 3.5, top + 2.1);
+        },
+      });
+    });
+    items.push({ h: 1.1, paint: () => undefined });
+  };
+
+  pushSection('FUNCIONES', fnLines);
+  pushSection('EXPERIENCIA', exLines);
+  if (msgLines.length) {
+    msgLines.forEach((line) => {
+      items.push({
+        h: 2.8,
+        paint: (target, x, top) => {
+          target.setFont('helvetica', 'italic');
+          target.setFontSize(6.5);
+          target.setTextColor(...RED);
+          if (line) target.text(line, x + 3.5, top + 2.1);
+        },
+      });
+    });
+    items.push({ h: 1, paint: () => undefined });
+  }
+  return items;
+}
+
+function memberCardHeight(items: CardItem[]): number {
+  return items.reduce((sum, item) => sum + item.h, 0) + 3;
+}
+
+function paintMemberCard(doc: jsPDF, x: number, y: number, w: number, items: CardItem[], height = memberCardHeight(items)) {
+  doc.setFillColor(...BLUE_SOFT);
+  doc.roundedRect(x, y, w, height, 1.4, 1.4, 'F');
+  doc.setFillColor(...RED);
+  doc.rect(x, y, 1.5, height, 'F');
+  let cursor = y + 1.5;
+  items.forEach((item) => {
+    item.paint(doc, x, cursor);
+    cursor += item.h;
+  });
+}
+
+function drawMemberFlow(
+  doc: jsPDF,
+  y: number,
+  cardW: number,
+  items: CardItem[],
+  logo: LoadedImage | null,
+  pageRef: { n: number },
+  unitName: string,
+): number {
+  let index = 0;
+  let cursor = y;
+  while (index < items.length) {
+    cursor = ensureSpace(doc, cursor, Math.min(items[index].h + 4, 28), logo, pageRef, unitName);
+    const room = PAGE_BOTTOM - cursor - 2;
+    let used = 0;
+    let end = index;
+    while (end < items.length && used + items[end].h <= room) {
+      used += items[end].h;
+      end += 1;
+    }
+    if (end === index) {
+      end = index + 1;
+      used = items[index].h;
+    }
+    paintMemberCard(doc, MARGIN, cursor, cardW, items.slice(index, end), used + 3);
+    index = end;
+    cursor += used + 4.5;
+  }
+  return cursor;
 }
 
 export async function generateUnitBookPdf(opts: {
@@ -537,14 +785,14 @@ export async function generateUnitBookPdf(opts: {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(...BLUE);
-  y = writeLines(doc, unitName, MARGIN, y + 4, CONTENT_W * 0.62, 6.2, 2);
+  y = writeLines(doc, unitName, MARGIN, y + 4, CONTENT_W * 0.62, 6.2);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(...MUTED);
   const introBits = [text(unit.clientName), text(unit.address)].filter(Boolean);
   introBits.forEach((bit) => {
-    y = writeLines(doc, bit, MARGIN, y, CONTENT_W * 0.62, 4.2, 2);
+    y = writeLines(doc, bit, MARGIN, y, CONTENT_W * 0.62, 4.2);
   });
 
   const coverBoxW = CONTENT_W * 0.36;
@@ -561,22 +809,25 @@ export async function generateUnitBookPdf(opts: {
 
   const welcome = text(book.welcomeMessage);
   if (welcome) {
-    y = ensureSpace(doc, y, 16, logo, pageRef, unitName);
-    doc.setFillColor(...RED_SOFT);
-    const welcomeLines = (doc.splitTextToSize(`“${welcome}”`, CONTENT_W - 8) as string[]).slice(0, 3);
-    const boxH = 5 + welcomeLines.length * 4.2;
-    doc.roundedRect(MARGIN, y, CONTENT_W, boxH, 1.5, 1.5, 'F');
-    doc.setFillColor(...RED);
-    doc.rect(MARGIN, y, 1.8, boxH, 'F');
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8.5);
-    doc.setTextColor(...BLUE);
-    let wy = y + 5;
-    welcomeLines.forEach((line) => {
-      doc.text(line, MARGIN + 5, wy);
-      wy += 4.2;
-    });
-    y += boxH + 4;
+    const welcomeLines = wrapText(doc, `“${welcome}”`, CONTENT_W - 12);
+    y = drawFilledLines(
+      doc,
+      y,
+      welcomeLines,
+      4.2,
+      logo,
+      pageRef,
+      unitName,
+      RED_SOFT,
+      RED,
+      BLUE,
+      (target) => {
+        target.setFont('helvetica', 'italic');
+        target.setFontSize(8.5);
+      },
+    );
   }
 
   // Datos clave en fila
@@ -586,21 +837,37 @@ export async function generateUnitBookPdf(opts: {
   ].filter((f) => f.value);
 
   if (facts.length) {
-    y = ensureSpace(doc, y, 16, logo, pageRef, unitName);
     const colW = CONTENT_W / facts.length;
-    facts.forEach((fact, i) => {
-      const x = MARGIN + i * colW;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.setTextColor(...RED);
-      doc.text(fact.label.toUpperCase(), x, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(...INK);
-      const lines = (doc.splitTextToSize(fact.value, colW - 3) as string[]).slice(0, 2);
-      lines.forEach((line, li) => doc.text(line, x, y + 4.2 + li * 3.6));
-    });
-    y += 14;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    const columns = facts.map((fact) => ({
+      label: fact.label,
+      lines: wrapText(doc, fact.value, colW - 6),
+    }));
+    const lineH = 3.6;
+    const rowCount = Math.max(...columns.map((column) => column.lines.length));
+    let start = 0;
+    while (start < rowCount) {
+      y = ensureSpace(doc, y, 10, logo, pageRef, unitName);
+      const room = PAGE_BOTTOM - y - 6;
+      const count = Math.max(1, Math.min(rowCount - start, Math.floor(room / lineH)));
+      columns.forEach((column, i) => {
+        const x = MARGIN + i * colW;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(...RED);
+        doc.text(column.label.toUpperCase(), x, y);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(...INK);
+        column.lines.slice(start, start + count).forEach((line, li) => {
+          if (line) doc.text(line, x, y + 4.2 + li * lineH);
+        });
+      });
+      y += 6 + count * lineH + 2;
+      start += count;
+      if (start < rowCount) y = newContentPage(doc, logo, pageRef, unitName);
+    }
   }
 
   y = drawLeadersSection(doc, y, leaders, leaderImgMap, logo, pageRef, unitName);
@@ -622,21 +889,34 @@ export async function generateUnitBookPdf(opts: {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(...INK);
-    const lines = doc.splitTextToSize(text(block.body), CONTENT_W) as string[];
+    const lines = wrapText(doc, text(block.body), CONTENT_W - 1);
     for (const line of lines) {
       y = ensureSpace(doc, y, 5, logo, pageRef, unitName);
-      doc.text(line, MARGIN, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...INK);
+      if (line) doc.text(line, MARGIN, y);
       y += 3.8;
     }
     y += 2.5;
   }
 
-  // Mapas (solo folleto)
+  // Mapas (solo folleto). Si queda espacio, se achican en vez de saltar de página.
   if (maps.near || maps.wide) {
-    y = ensureSpace(doc, y, 78, logo, pageRef, unitName);
+    const mapChrome = 16;
+    const naturalMapH = 58;
+    const minMapH = 36;
+    let room = PAGE_BOTTOM - y - 8 - mapChrome;
+    let mapH = naturalMapH;
+    if (naturalMapH > room) {
+      if (room >= minMapH) mapH = room;
+      else if (y > CONTENT_TOP + 1) {
+        y = newContentPage(doc, logo, pageRef, unitName);
+        mapH = naturalMapH;
+      }
+    }
     y = sectionLabel(doc, 'Ubicación', y);
     const mapW = (CONTENT_W - 4) / 2;
-    const mapH = 58;
     const nearImg: LoadedImage | null = maps.near ? { dataUrl: maps.near, format: 'JPEG' } : null;
     const wideImg: LoadedImage | null = maps.wide ? { dataUrl: maps.wide, format: 'JPEG' } : null;
     addImageSafe(doc, nearImg, MARGIN, y, mapW, mapH);
@@ -651,175 +931,155 @@ export async function generateUnitBookPdf(opts: {
     doc.setFontSize(6.5);
     doc.setTextColor(...MUTED);
     const mapNote = text(unit.address) || 'Ubicación de la unidad';
-    doc.text(mapNote.slice(0, 90), MARGIN, y + mapH + 8);
-    y += mapH + 12;
+    const noteLines = wrapText(doc, mapNote, CONTENT_W);
+    noteLines.forEach((line, index) => {
+      if (line) doc.text(line, MARGIN, y + mapH + 8 + index * 3);
+    });
+    y += mapH + 8 + Math.max(noteLines.length, 1) * 3 + 4;
   }
 
-  // Galería 3 columnas. Cada foto conserva su proporción (no se estira al recuadro).
+  // Galería 3 columnas. El título viaja con la primera fila.
+  // Si queda un hueco, las fotos se achican un poco y siguen en la misma página.
   const gallery = photoImgs.filter((p) => p.img?.dataUrl);
   if (gallery.length) {
-    y = ensureSpace(doc, y, 36, logo, pageRef, unitName);
-    y = sectionLabel(doc, 'Fotos de la unidad', y);
     const cols = 3;
     const gap = 2.5;
     const colW = (CONTENT_W - gap * (cols - 1)) / cols;
     const maxImgH = 46;
+    const minImgH = 30;
+    let headingDrawn = false;
+
     for (let i = 0; i < gallery.length; i += cols) {
-      const row = gallery.slice(i, i + cols).map((item) => ({
+      const row = gallery.slice(i, i + cols);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(6.5);
+      const captions = row.map((item) =>
+        text(item.photo.caption) ? wrapText(doc, item.photo.caption || '', colW) : [],
+      );
+      const captionRows = Math.max(0, ...captions.map((lines) => lines.length));
+      const captionKeep = captionRows ? Math.min(captionRows, 2) * 2.8 + 1.4 : 0;
+      const naturalMax = Math.max(
+        ...row.map((item) => fitInside(colW, maxImgH, item.img?.aspect).h),
+      );
+      const blockH = (imgH: number) => imgH + captionKeep + 3.2;
+      const headingH = headingDrawn ? 0 : 8;
+
+      let imgMax = naturalMax;
+      let room = PAGE_BOTTOM - y - headingH;
+      if (blockH(naturalMax) > room) {
+        const shrunk = room - captionKeep - 3.2;
+        if (shrunk >= minImgH) {
+          imgMax = Math.min(naturalMax, shrunk);
+        } else if (y > CONTENT_TOP + 1) {
+          y = newContentPage(doc, logo, pageRef, unitName);
+          room = PAGE_BOTTOM - y - (headingDrawn ? 0 : 8);
+          const shrunkTop = room - captionKeep - 3.2;
+          imgMax = blockH(naturalMax) <= room || shrunkTop < minImgH
+            ? naturalMax
+            : Math.min(naturalMax, shrunkTop);
+        }
+      }
+
+      if (!headingDrawn) {
+        y = sectionLabel(doc, 'Fotos de la unidad', y);
+        headingDrawn = true;
+      }
+
+      const fitted = row.map((item) => ({
         ...item,
-        ...fitInside(colW, maxImgH, item.img?.aspect),
+        ...fitInside(colW, imgMax, item.img?.aspect),
       }));
-      const rowImgH = Math.max(...row.map((item) => item.h));
-      const hasCaption = row.some((item) => text(item.photo.caption));
-      const captionSpace = hasCaption ? 5 : 0;
-      y = ensureSpace(doc, y, rowImgH + captionSpace + 3, logo, pageRef, unitName);
-      row.forEach((item, col) => {
+      const rowImgH = Math.max(...fitted.map((item) => item.h));
+      fitted.forEach((item, col) => {
         const x = MARGIN + col * (colW + gap);
         const imgX = x + (colW - item.w) / 2;
-        addImageSafe(doc, item.img, imgX, y, item.w, item.h);
-        if (text(item.photo.caption)) {
-          doc.setFont('helvetica', 'italic');
-          doc.setFontSize(6.5);
-          doc.setTextColor(...MUTED);
-          doc.text(
-            (doc.splitTextToSize(item.photo.caption || '', colW) as string[])[0] || '',
-            x,
-            y + rowImgH + 3.2,
-          );
-        }
+        const imgY = y + (rowImgH - item.h);
+        addImageSafe(doc, item.img, imgX, imgY, item.w, item.h);
       });
-      y += rowImgH + captionSpace + 3;
+      let captionY = y + rowImgH + 3.2;
+      for (let li = 0; li < captionRows; li += 1) {
+        if (captionY + 3 > PAGE_BOTTOM) captionY = newContentPage(doc, logo, pageRef, unitName);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...MUTED);
+        row.forEach((_, col) => {
+          const line = captions[col][li];
+          if (!line) return;
+          const x = MARGIN + col * (colW + gap);
+          doc.text(line, x + colW / 2, captionY, { align: 'center' });
+        });
+        captionY += 2.8;
+      }
+      y = (captionRows ? captionY : y + rowImgH) + 2.5;
     }
   }
 
-  // Equipo compacto 2 columnas
-  y = ensureSpace(doc, y, 50, logo, pageRef, unitName);
-  y = sectionLabel(doc, 'Tu equipo', y);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(...MUTED);
-  doc.text(
-    members.length
-      ? `${members.length} colaboradores de la unidad.`
-      : 'Aún no hay colaboradores incluidos.',
-    MARGIN,
-    y,
-  );
-  y += 5;
-
+  // El título del equipo viaja con la primera ficha.
   const gap = 3;
   const cardW = (CONTENT_W - gap) / 2;
-  const photoW = 16;
-  const photoH = 21.5;
+  const pageInner = PAGE_BOTTOM - CONTENT_TOP;
   let col = 0;
   let rowY = y;
   let leftH = 0;
-
-  const cardHeightFor = (member: UnitBookPdfMember): number => {
-    let h = 28.5;
-    if (text(member.functions)) h += 8;
-    if (text(member.experience)) h += 7;
-    if (text(member.colleagueMessage)) h += 7;
-    return Math.min(h, 46);
+  let teamHeading = false;
+  const paintTeamHeading = () => {
+    if (teamHeading) return;
+    rowY = sectionLabel(doc, 'Tu equipo', rowY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text(
+      members.length
+        ? `${members.length} colaboradores de la unidad.`
+        : 'Aún no hay colaboradores incluidos.',
+      MARGIN,
+      rowY,
+    );
+    rowY += 5;
+    teamHeading = true;
   };
+  if (!members.length) {
+    if (rowY + 18 > PAGE_BOTTOM && rowY > CONTENT_TOP + 1) rowY = newContentPage(doc, logo, pageRef, unitName);
+    paintTeamHeading();
+  }
 
   for (const member of members) {
-    const cardH = cardHeightFor(member);
-    if (col === 0) {
+    const photo = memberImgMap.get(member.resource.id);
+    let items = layoutMemberCard(doc, member, cardW, photo);
+    let cardH = memberCardHeight(items);
+
+    if (cardH > pageInner - 1) {
+      if (col === 1) {
+        rowY += leftH + 2.2;
+        col = 0;
+      }
+      if (!teamHeading && rowY + 18 > PAGE_BOTTOM && rowY > CONTENT_TOP + 1) {
+        rowY = newContentPage(doc, logo, pageRef, unitName);
+      }
+      paintTeamHeading();
+      const wideItems = layoutMemberCard(doc, member, CONTENT_W, photo);
+      rowY = drawMemberFlow(doc, rowY, CONTENT_W, wideItems, logo, pageRef, unitName);
+      continue;
+    }
+
+    if (!teamHeading) {
+      if (rowY + 14 + cardH > PAGE_BOTTOM && rowY > CONTENT_TOP + 1) {
+        rowY = newContentPage(doc, logo, pageRef, unitName);
+      }
+      paintTeamHeading();
+      leftH = cardH;
+      col = 0;
+    } else if (col === 0) {
       rowY = ensureSpace(doc, rowY, cardH + 2, logo, pageRef, unitName);
       leftH = cardH;
-    } else if (rowY + cardH > PAGE_H - FOOTER_H - 3) {
+    } else if (rowY + cardH > PAGE_BOTTOM) {
       rowY = newContentPage(doc, logo, pageRef, unitName);
       col = 0;
       leftH = cardH;
     }
 
     const x = MARGIN + col * (cardW + gap);
-    const cardY = rowY;
-
-    doc.setFillColor(...BLUE_SOFT);
-    doc.roundedRect(x, cardY, cardW, cardH, 1.4, 1.4, 'F');
-    doc.setFillColor(...RED);
-    doc.rect(x, cardY, 1.5, cardH, 'F');
-
-    const displayName = sanitizePersonName(member.resource.name || '') || 'Colaborador';
-    const photo = memberImgMap.get(member.resource.id);
-    const px = x + 3.5;
-    const py = cardY + 3.5;
-    if (photo?.dataUrl) {
-      try {
-        doc.addImage(photo.dataUrl, photo.format, px, py, photoW, photoH);
-      } catch {
-        drawPhotoPlaceholder(doc, px, py, photoW, photoH, displayName);
-      }
-    } else {
-      drawPhotoPlaceholder(doc, px, py, photoW, photoH, displayName);
-    }
-
-    const tx = px + photoW + 3;
-    const tw = cardW - photoW - 10;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...BLUE);
-    const names = (doc.splitTextToSize(displayName, tw) as string[]).slice(0, 2);
-    let ty = cardY + 7;
-    names.forEach((line) => {
-      doc.text(line, tx, ty);
-      ty += 3.5;
-    });
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(...RED);
-    doc.text((text(member.resource.puesto) || 'Sin puesto').slice(0, 42), tx, ty);
-    ty += 3.6;
-
-    const meta = [
-      member.age,
-      member.tenure ? `${member.tenure} en Opalo` : '',
-      member.workZone,
-      member.resource.assignedShift,
-    ]
-      .filter(Boolean)
-      .join('  ·  ');
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(...MUTED);
-    if (meta) {
-      const metaLines = (doc.splitTextToSize(meta, tw) as string[]).slice(0, 2);
-      metaLines.forEach((line) => {
-        doc.text(line, tx, ty);
-        ty += 3.1;
-      });
-    }
-
-    let by = Math.max(py + photoH + 3.5, ty + 1);
-    const addMini = (label: string, value: string, lines: number) => {
-      if (!text(value) || by > cardY + cardH - 4) return;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6);
-      doc.setTextColor(...BLUE);
-      doc.text(label, x + 3.5, by);
-      by += 2.8;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(...INK);
-      const wrapped = (doc.splitTextToSize(value, cardW - 7) as string[]).slice(0, lines);
-      wrapped.forEach((line) => {
-        if (by > cardY + cardH - 2.5) return;
-        doc.text(line, x + 3.5, by);
-        by += 2.8;
-      });
-      by += 0.6;
-    };
-    addMini('FUNCIONES', member.functions, 2);
-    addMini('EXPERIENCIA', member.experience, 1);
-    if (text(member.colleagueMessage) && by < cardY + cardH - 4) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(6.5);
-      doc.setTextColor(...RED);
-      const q = (doc.splitTextToSize(`“${member.colleagueMessage}”`, cardW - 7) as string[])[0];
-      if (q) doc.text(q, x + 3.5, by);
-    }
+    paintMemberCard(doc, x, rowY, cardW, items, cardH);
 
     if (col === 1) {
       rowY += Math.max(leftH, cardH) + 2.2;

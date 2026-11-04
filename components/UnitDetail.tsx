@@ -5328,6 +5328,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
      return id;
   };
 
+  const resolveTeamContact = (contact?: UnitContact): UnitContact | undefined => {
+    if (!contact) return undefined;
+    const staffMember = contact.id ? availableStaff.find((member) => member.id === contact.id) : undefined;
+    if (!staffMember) return contact;
+    const email = (staffMember.email || contact.email || '').trim();
+    const phone = (staffMember.phone || contact.phone || '').trim();
+    return {
+      id: staffMember.id,
+      name: staffMember.name || contact.name,
+      photo: staffMember.photo || contact.photo,
+      phone: phone || undefined,
+      email: email || undefined,
+    };
+  };
+
+  const coordinatorContact = resolveTeamContact(unit.coordinator);
+  const residentContact = resolveTeamContact(unit.residentSupervisor);
+  const rovingContact = resolveTeamContact(unit.rovingSupervisor);
+
   // Helper component for multi-zone selection
   const ZoneMultiSelect = ({ selectedZones, onChange }: { selectedZones: string[], onChange: (zones: string[]) => void }) => {
      const toggleZone = (zoneName: string) => {
@@ -6299,25 +6318,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-blue-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
                         <SafeImage 
-                            src={unit.coordinator?.photo} 
-                            alt={unit.coordinator?.name || "Coordinador"} 
+                            src={coordinatorContact?.photo} 
+                            alt={coordinatorContact?.name || "Coordinador"} 
                             className="w-full h-full object-cover"
                             bucket="unit-images"
                             fallback={<div className="w-full h-full flex items-center justify-center text-blue-400 font-bold text-4xl">CO</div>}
                         />
                     </div>
-                    <p className="text-base font-bold text-slate-800 mb-1">{unit.coordinator?.name || "Sin Asignar"}</p>
+                    <p className="text-base font-bold text-slate-800 mb-1">{coordinatorContact?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-blue-700 bg-blue-100 px-3 py-1 rounded-full font-medium mb-3">
                         <BadgeCheck size={12} className="mr-1"/> Coordinador General
                     </div>
-                    {unit.coordinator?.phone && (
+                    {coordinatorContact?.phone && (
                         <div className="flex items-center text-sm text-slate-600 mb-1">
-                            <Phone size={14} className="mr-2 text-slate-400"/> {unit.coordinator.phone}
+                            <Phone size={14} className="mr-2 text-slate-400"/> {coordinatorContact.phone}
                         </div>
                     )}
-                    {unit.coordinator?.email && (
-                        <div className="flex items-center text-sm text-slate-600">
-                            <Mail size={14} className="mr-2 text-slate-400"/> {unit.coordinator.email}
+                    {coordinatorContact?.email && (
+                        <div className="flex items-center text-sm text-slate-600 break-all">
+                            <Mail size={14} className="mr-2 text-slate-400 shrink-0"/> {coordinatorContact.email}
                         </div>
                     )}
                 </div>
@@ -6325,20 +6344,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-indigo-100 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
                         <SafeImage 
-                            src={unit.residentSupervisor?.photo} 
-                            alt={unit.residentSupervisor?.name || "Supervisor Residente"} 
+                            src={residentContact?.photo} 
+                            alt={residentContact?.name || "Supervisor Residente"} 
                             className="w-full h-full object-cover"
                             bucket="unit-images"
                             fallback={<div className="w-full h-full flex items-center justify-center text-indigo-400 font-bold text-4xl">SR</div>}
                         />
                     </div>
-                    <p className="text-base font-bold text-slate-800 mb-1">{unit.residentSupervisor?.name || "Sin Asignar"}</p>
+                    <p className="text-base font-bold text-slate-800 mb-1">{residentContact?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-indigo-700 bg-indigo-100 px-3 py-1 rounded-full font-medium mb-3">
                         <ShieldCheck size={12} className="mr-1"/> Supervisor Residente
                     </div>
-                    {unit.residentSupervisor?.phone && (
+                    {residentContact?.phone && (
                         <div className="flex items-center text-sm text-slate-600 mb-1">
-                            <Phone size={14} className="mr-2 text-slate-400"/> {unit.residentSupervisor.phone}
+                            <Phone size={14} className="mr-2 text-slate-400"/> {residentContact.phone}
+                        </div>
+                    )}
+                    {residentContact?.email && (
+                        <div className="flex items-center text-sm text-slate-600 break-all">
+                            <Mail size={14} className="mr-2 text-slate-400 shrink-0"/> {residentContact.email}
                         </div>
                     )}
                 </div>
@@ -6346,20 +6370,25 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                 <div className="flex flex-col items-center text-center p-6 bg-slate-50 rounded-xl border border-slate-100 hover:shadow-md transition-shadow">
                     <div className="w-40 h-40 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 border-4 border-white shadow-md mb-4">
                         <SafeImage 
-                            src={unit.rovingSupervisor?.photo} 
-                            alt={unit.rovingSupervisor?.name || "Supervisor de Ronda"} 
+                            src={rovingContact?.photo} 
+                            alt={rovingContact?.name || "Supervisor de Ronda"} 
                             className="w-full h-full object-cover"
                             bucket="unit-images"
                             fallback={<div className="w-full h-full flex items-center justify-center text-slate-500 font-bold text-4xl">RO</div>}
                         />
                     </div>
-                    <p className="text-base font-bold text-slate-800 mb-1">{unit.rovingSupervisor?.name || "Sin Asignar"}</p>
+                    <p className="text-base font-bold text-slate-800 mb-1">{rovingContact?.name || "Sin Asignar"}</p>
                     <div className="flex items-center text-xs text-slate-700 bg-slate-200 px-3 py-1 rounded-full font-medium mb-3">
                         <UserCheck size={12} className="mr-1"/> Supervisor de Ronda
                     </div>
-                    {unit.rovingSupervisor?.phone && (
+                    {rovingContact?.phone && (
                         <div className="flex items-center text-sm text-slate-600 mb-1">
-                            <Phone size={14} className="mr-2 text-slate-400"/> {unit.rovingSupervisor.phone}
+                            <Phone size={14} className="mr-2 text-slate-400"/> {rovingContact.phone}
+                        </div>
+                    )}
+                    {rovingContact?.email && (
+                        <div className="flex items-center text-sm text-slate-600 break-all">
+                            <Mail size={14} className="mr-2 text-slate-400 shrink-0"/> {rovingContact.email}
                         </div>
                     )}
                 </div>
@@ -6393,6 +6422,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              staff.role === 'RESIDENT_SUPERVISOR' ? 'Supervisor Residente' : 
                              'Supervisor de Ronda'}
                           </p>
+                          {staff.email && (
+                            <p className="text-xs text-slate-500 truncate flex items-center mt-0.5">
+                              <Mail size={11} className="mr-1 text-slate-400 shrink-0"/> {staff.email}
+                            </p>
+                          )}
                         </div>
                       </div>
                     );
