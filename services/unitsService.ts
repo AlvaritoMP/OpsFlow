@@ -344,16 +344,21 @@ export const unitsService = {
             }
           }
 
-          // Insertar nuevas relaciones
-          if (unit.assignedStaff.length > 0) {
-            const staffRecords = unit.assignedStaff.map(staffId => ({
+          // Insertar nuevas relaciones. Upsert evita el 23505 si el mismo
+          // miembro ya quedó asociado (guardado doble o IDs repetidos).
+          const uniqueStaffIds = [...new Set(unit.assignedStaff.filter((staffId): staffId is string => Boolean(staffId)))];
+          if (uniqueStaffIds.length > 0) {
+            const staffRecords = uniqueStaffIds.map(staffId => ({
               unit_id: id,
               management_staff_id: staffId,
             }));
 
             const { error: insertError } = await supabase
               .from('unit_management_staff')
-              .insert(staffRecords);
+              .upsert(staffRecords, {
+                onConflict: 'unit_id,management_staff_id',
+                ignoreDuplicates: true,
+              });
 
             if (insertError) {
               // Si la tabla no existe, solo registrar un warning

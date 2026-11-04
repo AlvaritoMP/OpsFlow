@@ -239,13 +239,31 @@ export const retenesService = {
         created_by: assignment.created_by || null,
       };
 
+      const { data: existingSlot, error: existingError } = await supabase
+        .from('reten_assignments')
+        .select('id')
+        .eq('reten_id', assignmentData.reten_id)
+        .eq('assignment_date', assignmentData.assignment_date)
+        .eq('start_time', assignmentData.start_time)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+      if (existingSlot) {
+        throw new Error('Este retén ya tiene una asignación en esa fecha y hora de inicio.');
+      }
+
       const { data, error } = await supabase
         .from('reten_assignments')
         .insert(assignmentData)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '23505' && String(error.message || '').includes('reten_assignments_reten_id_assignment_date_start_time')) {
+          throw new Error('Este retén ya tiene una asignación en esa fecha y hora de inicio.');
+        }
+        throw error;
+      }
 
       // Actualizar estado del retén a 'asignado' si está disponible
       const reten = await this.getById(assignment.reten_id!);
@@ -285,12 +303,33 @@ export const retenesService = {
       }
       if (assignment.updated_by) assignmentData.updated_by = assignment.updated_by;
 
+      if (assignmentData.reten_id && assignmentData.assignment_date && assignmentData.start_time) {
+        const { data: existingSlot, error: existingError } = await supabase
+          .from('reten_assignments')
+          .select('id')
+          .eq('reten_id', assignmentData.reten_id)
+          .eq('assignment_date', assignmentData.assignment_date)
+          .eq('start_time', assignmentData.start_time)
+          .neq('id', id)
+          .maybeSingle();
+
+        if (existingError) throw existingError;
+        if (existingSlot) {
+          throw new Error('Este retén ya tiene una asignación en esa fecha y hora de inicio.');
+        }
+      }
+
       const { error } = await supabase
         .from('reten_assignments')
         .update(assignmentData)
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '23505' && String(error.message || '').includes('reten_assignments_reten_id_assignment_date_start_time')) {
+          throw new Error('Este retén ya tiene una asignación en esa fecha y hora de inicio.');
+        }
+        throw error;
+      }
 
       // Obtener asignación actualizada
       const { data } = await supabase

@@ -64,12 +64,28 @@ export function extractHandoffNameParts(
   };
 }
 
+/** Marcadores que RRHH usa cuando falta un apellido (no son parte del nombre). */
+const PLACEHOLDER_NAME_PART = /^(x{2,}|nm|s\/n|n\/a|sn|nd)$/i;
+
+export function isPlaceholderNamePart(value: string): boolean {
+  return PLACEHOLDER_NAME_PART.test(value.trim());
+}
+
+/** Quita tokens como "xx" o "Nm" que vienen pegados al nombre. */
+export function sanitizePersonName(value: string): string {
+  return value
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !isPlaceholderNamePart(part))
+    .join(' ')
+    .trim();
+}
+
 /** Compone nombre completo: Nombres + Apellido Paterno + Apellido Materno. */
 export function composeFullNameFromParts(parts: HandoffNameParts): string {
-  return [parts.nombres, parts.apellidoPaterno, parts.apellidoMaterno]
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(' ');
+  return sanitizePersonName(
+    [parts.nombres, parts.apellidoPaterno, parts.apellidoMaterno].filter(Boolean).join(' '),
+  );
 }
 
 export function hasStructuredNameParts(parts: HandoffNameParts): boolean {
@@ -90,9 +106,11 @@ export function resolveHandoffDisplayName(options: {
   const composed = composeFullNameFromParts(parts);
   if (composed) return composed;
 
-  return pickFirst(
-    options.identity?.fullName,
-    options.snapshot?.identity?.fullName,
-    options.workerName,
+  return sanitizePersonName(
+    pickFirst(
+      options.identity?.fullName,
+      options.snapshot?.identity?.fullName,
+      options.workerName,
+    ),
   );
 }

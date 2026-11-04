@@ -24,6 +24,7 @@ import {
   formatZones,
   newCustomSectionId,
 } from '../utils/unitBookHelpers';
+import { sanitizePersonName } from '../utils/handoffNameParts';
 import { buildPdfMembers, generateUnitBookPdf } from '../utils/generateUnitBookPdf';
 
 interface UnitBookTabProps {
@@ -708,7 +709,7 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
                       className="flex-1 text-left min-w-0"
                       onClick={() => setOpenMemberId(open ? null : resource.id)}
                     >
-                      <p className="font-medium text-slate-800 truncate">{resource.name}</p>
+                      <p className="font-medium text-slate-800 truncate">{sanitizePersonName(resource.name) || resource.name}</p>
                       <p className="text-xs text-slate-500 truncate">
                         {resource.puesto || 'Sin puesto'}
                         {age ? ` · ${age}` : ''}

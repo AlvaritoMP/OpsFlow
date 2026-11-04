@@ -212,7 +212,7 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
       loadAssignments();
     } catch (error) {
       console.error('Error guardando asignación:', error);
-      alert('Error al guardar la asignación');
+      alert(error instanceof Error ? error.message : 'Error al guardar la asignación');
     }
   };
 

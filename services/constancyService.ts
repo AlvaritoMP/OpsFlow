@@ -15,6 +15,14 @@ function todayIsoLocal(): string {
   return `${y}-${m}-${d}`;
 }
 
+let deliveryCodeRpcReady: boolean | null = null;
+
+function isMissingRpc(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === 'PGRST202'
+    || /does not exist|Could not find the function|schema cache/i.test(error.message || '');
+}
+
 function resolveAssetDeliveryDate(asset: AssignedAsset): string | undefined {
   return toDateOnly(asset.dateAssigned || (asset as { date_assigned?: string }).date_assigned);
 }
@@ -27,37 +35,54 @@ export const constancyService = {
   // Generar código correlativo único
   async generateConstancyCode(): Promise<string> {
     try {
-      // Obtener el último código generado
-      const { data, error } = await supabase
-        .from('delivery_constancies')
-        .select('code')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        // Si no hay registros, empezar desde 1
-        if (error.code === 'PGRST116') {
-          return this.formatConstancyCode(1);
+      if (deliveryCodeRpcReady !== false) {
+        const { data, error } = await supabase.rpc('next_delivery_constancy_code');
+        if (!error && typeof data === 'string' && data.length > 0) {
+          deliveryCodeRpcReady = true;
+          return data;
         }
-        throw error;
+        if (isMissingRpc(error)) deliveryCodeRpcReady = false;
       }
 
+      const year = new Date().getFullYear();
+      const prefix = `CONST-${year}-`;
+      const { data: rows, error: queryError } = await supabase
+        .from('delivery_constancies')
+        .select('code')
+        .like('code', `${prefix}%`)
+        .order('code', { ascending: false })
+        .limit(1);
+
+      if (queryError) throw queryError;
+
       let nextNumber = 1;
-      if (data?.code) {
-        // Extraer el número del código (formato: CONST-YYYY-000001)
-        const match = data.code.match(/-(\d+)$/);
-        if (match) {
-          nextNumber = parseInt(match[1], 10) + 1;
-        }
+      const lastCode = rows?.[0]?.code as string | undefined;
+      const match = lastCode?.match(/-(\d+)$/);
+      if (match) {
+        nextNumber = parseInt(match[1], 10) + 1;
       }
 
       return this.formatConstancyCode(nextNumber);
     } catch (error) {
       console.error('Error al generar código de constancia:', error);
-      // Fallback: usar timestamp
       return this.formatConstancyCode(Date.now());
     }
+  },
+
+  async insertConstancyRow(row: Record<string, unknown>) {
+    let lastMessage = 'código duplicado';
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const code = await this.generateConstancyCode();
+      const { data, error } = await supabase
+        .from('delivery_constancies')
+        .insert({ ...row, code })
+        .select();
+
+      if (!error) return { code, data };
+      lastMessage = error.message || lastMessage;
+      if (error.code !== '23505') break;
+    }
+    throw new Error(`Error al guardar constancia: ${lastMessage}`);
   },
 
   // Formatear código de constancia (CONST-YYYY-000001)
@@ -88,9 +113,6 @@ export const constancyService = {
         generatedBy
       });
 
-      const code = await this.generateConstancyCode();
-      console.log(`🔢 Código generado: ${code}`);
-
       const items: ConstancyItem[] = assets.map(asset => {
         const dateAssigned = resolveAssetDeliveryDate(asset);
         return {
@@ -111,8 +133,31 @@ export const constancyService = {
 
       console.log(`📦 Items de constancia:`, items);
 
+      const constancyId = crypto.randomUUID();
+      const generatedAt = new Date().toISOString();
+
+      console.log(`💾 Guardando constancia en BD:`, {
+        workerName,
+        workerDni,
+        itemsCount: items.length
+      });
+
+      const { code } = await this.insertConstancyRow({
+        id: constancyId,
+        type: 'ASSET',
+        worker_id: workerId,
+        worker_name: workerName,
+        worker_dni: workerDni,
+        unit_id: unitId,
+        unit_name: unitName,
+        items: items,
+        date: date,
+        generated_at: generatedAt,
+        generated_by: generatedBy,
+      });
+
       const constancy: DeliveryConstancy = {
-        id: crypto.randomUUID(),
+        id: constancyId,
         code,
         type: 'ASSET',
         workerId,
@@ -122,43 +167,11 @@ export const constancyService = {
         unitName,
         items,
         date,
-        generatedAt: new Date().toISOString(),
+        generatedAt,
         generatedBy,
       };
 
-      console.log(`💾 Guardando constancia en BD:`, {
-        code: constancy.code,
-        workerName: constancy.workerName,
-        workerDni: constancy.workerDni,
-        itemsCount: constancy.items.length
-      });
-
-      // Guardar en base de datos
-      const { data, error: dbError } = await supabase
-        .from('delivery_constancies')
-        .insert({
-          id: constancy.id,
-          code: constancy.code,
-          type: constancy.type,
-          worker_id: workerId,
-          worker_name: workerName,
-          worker_dni: workerDni,
-          unit_id: unitId,
-          unit_name: unitName,
-          items: items,
-          date: date,
-          generated_at: constancy.generatedAt,
-          generated_by: generatedBy,
-        })
-        .select();
-
-      if (dbError) {
-        console.error('❌ Error al guardar constancia en BD:', dbError);
-        console.error('❌ Detalles del error:', JSON.stringify(dbError, null, 2));
-        throw new Error(`Error al guardar constancia: ${dbError.message}`);
-      }
-
-      console.log(`✅ Constancia guardada exitosamente en BD:`, data?.[0]?.code || constancy.code);
+      console.log(`✅ Constancia guardada exitosamente en BD:`, code);
       return constancy;
     } catch (error) {
       console.error('❌ Error al generar constancia de activos:', error);
@@ -177,7 +190,6 @@ export const constancyService = {
     generatedBy?: string
   ): Promise<DeliveryConstancy> {
     try {
-      const code = await this.generateConstancyCode();
       const date = todayIsoLocal();
 
       const items: ConstancyItem[] = [{
@@ -188,8 +200,25 @@ export const constancyService = {
         condition: equipment.status || 'Buen estado',
       }];
 
+      const constancyId = crypto.randomUUID();
+      const generatedAt = new Date().toISOString();
+
+      const { code } = await this.insertConstancyRow({
+        id: constancyId,
+        type: 'EQUIPMENT',
+        worker_id: workerId,
+        worker_name: workerName,
+        worker_dni: workerDni,
+        unit_id: unitId,
+        unit_name: unitName,
+        items: items,
+        date: date,
+        generated_at: generatedAt,
+        generated_by: generatedBy,
+      });
+
       const constancy: DeliveryConstancy = {
-        id: crypto.randomUUID(),
+        id: constancyId,
         code,
         type: 'EQUIPMENT',
         workerId,
@@ -199,32 +228,9 @@ export const constancyService = {
         unitName,
         items,
         date,
-        generatedAt: new Date().toISOString(),
+        generatedAt,
         generatedBy,
       };
-
-      // Guardar en base de datos
-      const { error: dbError } = await supabase
-        .from('delivery_constancies')
-        .insert({
-          id: constancy.id,
-          code: constancy.code,
-          type: constancy.type,
-          worker_id: workerId,
-          worker_name: workerName,
-          worker_dni: workerDni,
-          unit_id: unitId,
-          unit_name: unitName,
-          items: items,
-          date: date,
-          generated_at: constancy.generatedAt,
-          generated_by: generatedBy,
-        });
-
-      if (dbError) {
-        console.error('Error al guardar constancia en BD:', dbError);
-        // Continuar aunque falle el guardado en BD
-      }
 
       return constancy;
     } catch (error) {

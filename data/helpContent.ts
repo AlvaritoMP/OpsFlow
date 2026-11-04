@@ -245,6 +245,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'La foto, el puesto, la edad y el tiempo en Opalo salen del personal de la unidad; las funciones y el mensaje se editan solo para el folleto.',
+          'Tus líderes toma al coordinador y a los supervisores designados en la unidad. Si no hay ninguno, ese acápite no sale en el PDF.',
           'Si la unidad tiene coordenadas, el PDF incluye dos mapas: alrededores (5 cuadras) y contexto de 10 km. No se muestran en la pestaña.',
           'La experiencia se precarga desde la ficha complementaria si existe, y se puede reescribir para el Unit Book.',
         ],

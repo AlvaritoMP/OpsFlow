@@ -1,5 +1,6 @@
 import type { jsPDF } from 'jspdf';
-import type { Resource, Unit, UnitBook, UnitBookMember, UnitBookPhoto } from '../types';
+import type { Resource, Unit, UnitBook, UnitBookMember, UnitBookPhoto, UnitContact } from '../types';
+import { sanitizePersonName } from './handoffNameParts';
 import { formatAgeFromBirthDate, formatOpaloTenure, safeUnitBookFilename } from './unitBookHelpers';
 import { buildUnitBookLocationMaps, hasUnitCoordinates } from './unitBookStaticMap';
 
@@ -370,6 +371,112 @@ function addImageSafe(
   }
 }
 
+type UnitBookLeader = {
+  id: string;
+  role: string;
+  name: string;
+  phone: string;
+  email: string;
+  photo?: string;
+};
+
+function unitLeaders(unit: Unit): UnitBookLeader[] {
+  const slots: Array<{ id: string; role: string; contact?: UnitContact }> = [
+    { id: 'coordinator', role: 'Coordinador', contact: unit.coordinator },
+    { id: 'resident', role: 'Supervisor residente', contact: unit.residentSupervisor },
+    { id: 'roving', role: 'Supervisor de ronda', contact: unit.rovingSupervisor },
+  ];
+  return slots.flatMap((slot) => {
+    const name = text(slot.contact?.name);
+    if (!name) return [];
+    return [{
+      id: slot.id,
+      role: slot.role,
+      name,
+      phone: text(slot.contact?.phone),
+      email: text(slot.contact?.email),
+      photo: slot.contact?.photo,
+    }];
+  });
+}
+
+function drawLeadersSection(
+  doc: jsPDF,
+  y: number,
+  leaders: UnitBookLeader[],
+  images: Map<string, LoadedImage | null>,
+  logo: LoadedImage | null,
+  pageRef: { n: number },
+  unitName: string,
+): number {
+  if (!leaders.length) return y;
+
+  y = ensureSpace(doc, y, 44, logo, pageRef, unitName);
+  y = sectionLabel(doc, 'Tus líderes', y);
+
+  const gap = 3;
+  const cardW = (CONTENT_W - gap * (leaders.length - 1)) / leaders.length;
+  const photo = 18;
+  const cardH = 34;
+  y = ensureSpace(doc, y, cardH + 2, logo, pageRef, unitName);
+
+  leaders.forEach((leader, index) => {
+    const x = MARGIN + index * (cardW + gap);
+    doc.setFillColor(...BLUE_SOFT);
+    doc.roundedRect(x, y, cardW, cardH, 1.4, 1.4, 'F');
+    doc.setFillColor(...RED);
+    doc.rect(x, y, 1.5, cardH, 'F');
+
+    const px = x + 3.2;
+    const py = y + (cardH - photo) / 2;
+    const img = images.get(leader.id);
+    if (img?.dataUrl) {
+      try {
+        doc.addImage(img.dataUrl, img.format, px, py, photo, photo);
+      } catch {
+        drawPhotoPlaceholder(doc, px, py, photo, photo, leader.name);
+      }
+    } else {
+      drawPhotoPlaceholder(doc, px, py, photo, photo, leader.name);
+    }
+
+    const tx = px + photo + 2.4;
+    const tw = Math.max(12, cardW - photo - 9);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...BLUE);
+    const names = (doc.splitTextToSize(leader.name, tw) as string[]).slice(0, 2);
+    let ty = y + 6.2;
+    names.forEach((line) => {
+      doc.text(line, tx, ty);
+      ty += 3.4;
+    });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...RED);
+    const roles = (doc.splitTextToSize(leader.role, tw) as string[]).slice(0, 2);
+    roles.forEach((line) => {
+      doc.text(line, tx, ty);
+      ty += 3.1;
+    });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...INK);
+    [leader.phone, leader.email].filter(Boolean).forEach((value) => {
+      const lines = (doc.splitTextToSize(value, tw) as string[]).slice(0, value.includes('@') ? 2 : 1);
+      lines.forEach((line) => {
+        if (ty > y + cardH - 2) return;
+        doc.text(line, tx, ty);
+        ty += 3.1;
+      });
+    });
+  });
+
+  return y + cardH + 4;
+}
+
 function drawPhotoPlaceholder(doc: jsPDF, x: number, y: number, w: number, h: number, name: string) {
   doc.setFillColor(...BLUE);
   doc.rect(x, y, w, h, 'F');
@@ -410,6 +517,14 @@ export async function generateUnitBookPdf(opts: {
     })),
   );
   const memberImgMap = new Map(memberImgs.map((m) => [m.id, m.img]));
+  const leaders = unitLeaders(unit);
+  const leaderImgs = await Promise.all(
+    leaders.map(async (leader) => ({
+      id: leader.id,
+      img: leader.photo ? await loadCoverCroppedImage(leader.photo, 280, 280) : null,
+    })),
+  );
+  const leaderImgMap = new Map(leaderImgs.map((item) => [item.id, item.img]));
 
   const coordsOk = hasUnitCoordinates(unit);
   const maps = coordsOk
@@ -468,12 +583,6 @@ export async function generateUnitBookPdf(opts: {
   const facts = [
     { label: 'Pisos', value: book.floorCount != null ? String(book.floorCount) : '' },
     { label: 'Zonas', value: (unit.zones || []).map((z) => z.name).filter(Boolean).join(', ') },
-    {
-      label: 'Supervisión',
-      value: [unit.coordinator?.name, unit.residentSupervisor?.name, unit.rovingSupervisor?.name]
-        .filter(Boolean)
-        .join(' · '),
-    },
   ].filter((f) => f.value);
 
   if (facts.length) {
@@ -493,6 +602,8 @@ export async function generateUnitBookPdf(opts: {
     });
     y += 14;
   }
+
+  y = drawLeadersSection(doc, y, leaders, leaderImgMap, logo, pageRef, unitName);
 
   const blocks: Array<{ title: string; body?: string }> = [
     { title: 'Objetivo del servicio', body: book.serviceObjective },
@@ -631,6 +742,7 @@ export async function generateUnitBookPdf(opts: {
     doc.setFillColor(...RED);
     doc.rect(x, cardY, 1.5, cardH, 'F');
 
+    const displayName = sanitizePersonName(member.resource.name || '') || 'Colaborador';
     const photo = memberImgMap.get(member.resource.id);
     const px = x + 3.5;
     const py = cardY + 3.5;
@@ -638,10 +750,10 @@ export async function generateUnitBookPdf(opts: {
       try {
         doc.addImage(photo.dataUrl, photo.format, px, py, photoW, photoH);
       } catch {
-        drawPhotoPlaceholder(doc, px, py, photoW, photoH, member.resource.name);
+        drawPhotoPlaceholder(doc, px, py, photoW, photoH, displayName);
       }
     } else {
-      drawPhotoPlaceholder(doc, px, py, photoW, photoH, member.resource.name);
+      drawPhotoPlaceholder(doc, px, py, photoW, photoH, displayName);
     }
 
     const tx = px + photoW + 3;
@@ -649,7 +761,7 @@ export async function generateUnitBookPdf(opts: {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...BLUE);
-    const names = (doc.splitTextToSize(member.resource.name || 'Colaborador', tw) as string[]).slice(0, 2);
+    const names = (doc.splitTextToSize(displayName, tw) as string[]).slice(0, 2);
     let ty = cardY + 7;
     names.forEach((line) => {
       doc.text(line, tx, ty);

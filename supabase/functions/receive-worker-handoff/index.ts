@@ -103,20 +103,34 @@ function composeNameFromParts(item: HandoffItemPayload): string {
     fields.maternalSurname,
     complementary.apellidoMaterno,
   );
-  return [nombres, apellidoPaterno, apellidoMaterno].filter(Boolean).join(' ');
+  const placeholder = /^(x{2,}|nm|s\/n|n\/a|sn|nd)$/i;
+  return [nombres, apellidoPaterno, apellidoMaterno]
+    .map((part) => part.trim())
+    .filter((part) => part && !placeholder.test(part))
+    .join(' ');
+}
+
+function sanitizeWorkerName(value: string): string {
+  const placeholder = /^(x{2,}|nm|s\/n|n\/a|sn|nd)$/i;
+  return value
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !placeholder.test(part))
+    .join(' ')
+    .trim();
 }
 
 function resolveWorkerName(item: HandoffItemPayload): string | null {
-  const composed = composeNameFromParts(item);
+  const composed = sanitizeWorkerName(composeNameFromParts(item));
   if (composed) return composed;
 
-  const fromField = item.workerName?.trim();
+  const fromField = sanitizeWorkerName(item.workerName?.trim() || '');
   if (fromField) return fromField;
 
   const identity = item.workerSnapshot?.identity;
-  const fullName = identity?.fullName?.trim();
+  const fullName = sanitizeWorkerName(identity?.fullName?.trim() || '');
   const dni = identity?.dni?.trim();
-  const complementaryName = asTrimmedString(item.workerSnapshot?.complementary?.fullName);
+  const complementaryName = sanitizeWorkerName(asTrimmedString(item.workerSnapshot?.complementary?.fullName));
 
   if (fullName) return fullName;
   if (complementaryName) return complementaryName;
