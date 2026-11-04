@@ -684,6 +684,14 @@ export const unitsService = {
 // FUNCIONES DE TRANSFORMACIÓN
 // ============================================
 
+function parseCoordinate(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  const raw = typeof value === 'number' ? String(value) : String(value).trim().replace(',', '.');
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed;
+}
+
 function transformUnitFromDB(
   data: any,
   resources: any[] = [],
@@ -701,8 +709,8 @@ function transformUnitFromDB(
     status: data.status as UnitStatus,
     unitClass: (data.unit_class === 'BPO' ? 'BPO' : 'STANDARD') as UnitClass,
     description: data.description,
-    latitude: data.latitude ? Number(data.latitude) : undefined,
-    longitude: data.longitude ? Number(data.longitude) : undefined,
+    latitude: parseCoordinate(data.latitude),
+    longitude: parseCoordinate(data.longitude),
     // Filtrar blob URLs (no deberían estar en la BD, pero por si acaso) y ordenar por display_order
     images: (data.unit_images
       ?.filter((img: any) => {

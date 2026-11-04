@@ -1076,8 +1076,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const canEditGeneral = checkPermission(userRole, 'UNIT_OVERVIEW', 'edit');
   const canViewPersonnel = checkPermission(userRole, 'PERSONNEL', 'view');
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
-  const canViewUnitBook = userRole !== 'CLIENT' && checkPermission(userRole, 'UNIT_BOOK', 'view');
-  const canEditUnitBook = canViewUnitBook && checkPermission(userRole, 'UNIT_BOOK', 'edit');
+  const canViewUnitBook = checkPermission(userRole, 'UNIT_BOOK', 'view');
+  const canEditUnitBook = userRole !== 'CLIENT' && canViewUnitBook && checkPermission(userRole, 'UNIT_BOOK', 'edit');
   const canViewWorkPlan = userRole !== 'CLIENT' && checkPermission(userRole, 'WORK_PLAN', 'view');
   const canEditWorkPlan = canViewWorkPlan && checkPermission(userRole, 'WORK_PLAN', 'edit');
   const canEditLogistics = checkPermission(userRole, 'LOGISTICS', 'edit');
@@ -9219,7 +9219,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         {activeTab === 'requests' && renderClientRequests()}
         {activeTab === 'documents' && renderDocuments()}
         {activeTab === 'unitbook' && canViewUnitBook && (
-          <UnitBookTab unit={unit} canEdit={canEditUnitBook} currentUserId={currentUser?.id} />
+          <UnitBookTab
+            unit={unit}
+            canEdit={canEditUnitBook}
+            currentUserId={currentUser?.id}
+            downloadOnly={userRole === 'CLIENT'}
+          />
         )}
         {activeTab === 'workplan' && canViewWorkPlan && (
           <UnitWorkPlanTab unit={unit} canEdit={canEditWorkPlan} currentUserId={currentUser?.id} currentUserName={currentUser?.name} />

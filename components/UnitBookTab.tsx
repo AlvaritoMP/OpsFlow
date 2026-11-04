@@ -31,6 +31,8 @@ interface UnitBookTabProps {
   unit: Unit;
   canEdit: boolean;
   currentUserId?: string;
+  /** Cliente: solo descarga el PDF, sin el formulario que edita operaciones. */
+  downloadOnly?: boolean;
 }
 
 type MemberDraft = {
@@ -59,7 +61,7 @@ function draftFrom(resource: Resource, profile?: UnitBookMember): MemberDraft {
   };
 }
 
-export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, currentUserId }) => {
+export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, currentUserId, downloadOnly = false }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -93,7 +95,7 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
 
   const applyBook = (next: UnitBook) => {
     setBook(next);
-    setServiceObjective(next.serviceObjective || unit.description || '');
+    setServiceObjective(downloadOnly ? (next.serviceObjective || '') : (next.serviceObjective || unit.description || ''));
     setFloorCount(next.floorCount != null ? String(next.floorCount) : '');
     setWelcomeMessage(next.welcomeMessage || '');
     setWorkSchedule(next.workSchedule || '');
@@ -108,11 +110,22 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
     setMessage(null);
     try {
       const [nextBook, nextPhotos, nextMembers] = await Promise.all([
-        unitBookService.getOrCreate(unit.id),
+        downloadOnly ? unitBookService.getByUnitId(unit.id) : unitBookService.getOrCreate(unit.id),
         unitBookService.getPhotos(unit.id),
         unitBookService.getMembers(unit.id),
       ]);
-      applyBook(nextBook);
+      if (nextBook) applyBook(nextBook);
+      else {
+        setBook(null);
+        setServiceObjective('');
+        setFloorCount('');
+        setWelcomeMessage('');
+        setWorkSchedule('');
+        setDressCode('');
+        setAccessInstructions('');
+        setImportantNotes('');
+        setCustomSections([]);
+      }
       setPhotos(nextPhotos);
       setMembers(nextMembers);
 
@@ -129,7 +142,7 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
     }
     // personnel is derived from unit; we re-seed drafts after load
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unit.id]);
+  }, [unit.id, downloadOnly]);
 
   useEffect(() => {
     loadAll();
@@ -322,7 +335,7 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      if (canEdit) {
+      if (canEdit && !downloadOnly) {
         await unitBookService.saveBook(
           unit.id,
           {
@@ -380,6 +393,36 @@ export const UnitBookTab: React.FC<UnitBookTabProps> = ({ unit, canEdit, current
     return (
       <div className="flex items-center justify-center py-20 text-slate-500">
         <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Cargando Unit Book…
+      </div>
+    );
+  }
+
+  if (downloadOnly) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center">
+              <BookOpen className="w-5 h-5 mr-2 text-indigo-600" /> Unit Book
+            </h3>
+            <p className="text-slate-500 text-sm mt-1 max-w-xl">
+              Descargue el folleto de incorporación de esta unidad. El equipo de operaciones prepara el contenido.
+            </p>
+          </div>
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-60 shadow-sm shrink-0"
+          >
+            {downloading ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
+            Descargar folleto PDF
+          </button>
+        </div>
+        {message && (
+          <div className={`mt-4 px-4 py-2.5 rounded-lg text-sm ${message.type === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+            {message.text}
+          </div>
+        )}
       </div>
     );
   }

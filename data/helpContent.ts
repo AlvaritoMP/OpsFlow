@@ -60,7 +60,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'SUPER_ADMIN / ADMIN: acceso completo, configuración y auditoría.',
           'OPERATIONS / OPERATIONS_SUPERVISOR: operación diaria de unidades, retenes, ATS y vacaciones.',
-          'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control, headcount y consulta de vacaciones (saldos y calendario, sin edición).',
+          'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control, headcount, consulta de vacaciones y descarga del Unit Book (sin ver ni editar el contenido).',
         ],
       },
       {
@@ -248,6 +248,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Tus líderes toma al coordinador y a los supervisores designados en la unidad. Si no hay ninguno, ese acápite no sale en el PDF.',
           'Si la unidad tiene coordenadas, el PDF incluye dos mapas: alrededores (5 cuadras) y contexto de 10 km. No se muestran en la pestaña.',
           'La experiencia se precarga desde la ficha complementaria si existe, y se puede reescribir para el Unit Book.',
+          'El perfil cliente ve la pestaña Unit Book solo para descargar el folleto. No ve el formulario que edita operaciones.',
         ],
       },
       {

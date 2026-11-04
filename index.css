@@ -56,3 +56,36 @@ body {
   }
 }
 
+/* Leaflet: Tailwind preflight aplasta teselas, iconos y controles */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  font-family: inherit;
+  z-index: 0;
+  background: #e2e8f0;
+}
+.leaflet-container img,
+.leaflet-container canvas,
+.leaflet-pane img {
+  max-width: none !important;
+  max-height: none !important;
+}
+.leaflet-div-icon {
+  background: transparent;
+  border: none;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+}
+.leaflet-popup-content {
+  margin: 12px 14px;
+  line-height: 1.4;
+}
+.leaflet-container button,
+.leaflet-container a,
+.leaflet-popup button,
+.leaflet-popup a {
+  min-height: 0;
+  min-width: 0;
+}
+

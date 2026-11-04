@@ -1722,6 +1722,7 @@ const App: React.FC = () => {
         if (cleanPermissions.CLIENT) {
           cleanPermissions.CLIENT = {
             ...cleanPermissions.CLIENT,
+            UNIT_BOOK: { view: true, edit: false },
             VACATIONS: {
               view: cleanPermissions.CLIENT.VACATIONS?.view ?? true,
               edit: false,
@@ -2465,20 +2466,23 @@ const App: React.FC = () => {
                                         {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'].map(roleStr => {
                                             const role = roleStr as UserRole;
                                             const perm = permissions[role][feature];
-                                            const lockedForClient = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN');
+                                            const clientUnitBookViewOnly = role === 'CLIENT' && feature === 'UNIT_BOOK';
+                                            const lockedForClient = role === 'CLIENT' && feature === 'WORK_PLAN';
+                                            const viewLocked = lockedForClient || clientUnitBookViewOnly;
+                                            const viewChecked = clientUnitBookViewOnly ? true : lockedForClient ? false : perm.view;
                                             const lockedClientEdit = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN' || feature === 'VACATIONS');
                                             return (
                                                 <td key={role} className="px-4 py-3 text-center border-l border-slate-200">
                                                     <div className="flex flex-col items-center gap-2">
-                                                        <label className={`flex items-center space-x-2 text-xs ${lockedForClient ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                                                        <label className={`flex items-center space-x-2 text-xs ${viewLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} title={clientUnitBookViewOnly ? 'El cliente solo descarga el folleto' : undefined}>
                                                             <input 
                                                                 type="checkbox" 
                                                                 className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                                                checked={lockedForClient ? false : perm.view}
-                                                                disabled={lockedForClient}
+                                                                checked={viewChecked}
+                                                                disabled={viewLocked}
                                                                 onChange={(e) => handlePermissionChange(role, feature, 'view', e.target.checked)}
                                                             />
-                                                            <span className={perm.view && !lockedForClient ? 'text-slate-700' : 'text-slate-400'}>Ver</span>
+                                                            <span className={viewChecked ? 'text-slate-700' : 'text-slate-400'}>Ver</span>
                                                         </label>
                                                         <label className={`flex items-center space-x-2 text-xs ${lockedClientEdit || !perm.view ? 'cursor-not-allowed' : 'cursor-pointer'} ${lockedClientEdit ? 'opacity-50' : ''}`}>
                                                             <input 
