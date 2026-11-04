@@ -95,6 +95,7 @@ export type AppFeature =
   | 'SUPERVISION_PLANNING'
   | 'RETENES'
   | 'VACATIONS'
+  | 'TRAININGS'
   | 'ASSETS_CATALOG'
   | 'INVENTORY'
   | 'DOCUMENTS'
@@ -204,6 +205,51 @@ export interface Training {
   status: 'Completado' | 'Programado' | 'Vencido';
   score?: number; // Optional evaluation score
   certificateUrl?: string;
+}
+
+export type TrainingDocumentType = 'certificado' | 'acta';
+
+export interface TrainingTopic {
+  id: string;
+  name: string;
+  description?: string;
+  hours?: number;
+  isActive: boolean;
+  positionIds: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface TrainingCertificate {
+  id: string;
+  code: string;
+  documentType: TrainingDocumentType;
+  topicId?: string;
+  topicName: string;
+  description?: string;
+  hours?: number;
+  resourceId: string;
+  unitId: string;
+  workerName: string;
+  workerDni?: string;
+  positionName?: string;
+  unitName: string;
+  clientName?: string;
+  trainingDate: string;
+  status: 'Completado' | 'Programado';
+  score?: number;
+  instructor?: string;
+  notes?: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
+/** Alta o baja de una capacitación emitida, para refrescar el récord en memoria. */
+export interface WorkerTrainingRecordChange {
+  unitId: string;
+  resourceId: string;
+  action: 'add' | 'remove';
+  training: Training;
 }
 
 export interface AssignedAsset {

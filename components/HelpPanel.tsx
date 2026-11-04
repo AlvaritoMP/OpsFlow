@@ -22,6 +22,7 @@ export type HelpPanelView =
   | 'supervision-planning'
   | 'headcount'
   | 'vacations'
+  | 'trainings'
   | 'archive'
   | 'workers-management'
   | 'ats-reception'

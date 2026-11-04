@@ -14,6 +14,7 @@ export type AppHelpView =
   | 'supervision-planning'
   | 'headcount'
   | 'vacations'
+  | 'trainings'
   | 'archive'
   | 'workers-management'
   | 'ats-reception'
@@ -60,7 +61,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'SUPER_ADMIN / ADMIN: acceso completo, configuración y auditoría.',
           'OPERATIONS / OPERATIONS_SUPERVISOR: operación diaria de unidades, retenes, ATS y vacaciones.',
-          'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control, headcount, consulta de vacaciones y descarga del Unit Book (sin ver ni editar el contenido).',
+          'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control, headcount, consulta de vacaciones, certificados de capacitación (consulta y PDF) y descarga del Unit Book (sin ver ni editar el contenido).',
         ],
       },
       {
@@ -1085,6 +1086,36 @@ export const HELP_TOPICS: HelpTopic[] = [
         tips: [
           'Use Actualizar, junto a la tabla de personal, para volver a leer sueldos, bonos y faltas del corte.',
           'Las unidades BPO no se facturan por este método.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'trainings',
+    title: 'Capacitaciones',
+    navLabel: 'Capacitaciones',
+    summary:
+      'Temas por puesto, certificados y actas asignados a un trabajador. El registro queda en su récord y el PDF se puede descargar, también desde el usuario cliente.',
+    sections: [
+      {
+        heading: 'Temas',
+        body: 'Un tema describe la capacitación y puede asociarse a uno o varios puestos. Si no marcas puestos, sirve para cualquiera.',
+        steps: [
+          'Abre Capacitaciones y entra a Temas y puestos.',
+          'Crea el tema con nombre, horas y los puestos a los que aplica.',
+        ],
+      },
+      {
+        heading: 'Emitir certificado o acta',
+        body: 'Cada trabajador recibe su propio documento. El código queda en sus capacitaciones, dentro de la ficha de la unidad.',
+        steps: [
+          'Elige certificado o acta, la unidad y uno o más trabajadores activos.',
+          'Usa un tema del catálogo o escribe otro, e indica la fecha. Horas, instructor y nota son opcionales.',
+          'Al guardar, el registro se suma al récord de cada trabajador seleccionado.',
+        ],
+        tips: [
+          'El puesto impreso es el puesto actual de la ficha.',
+          'El cliente ve las capacitaciones de sus unidades y puede descargar el PDF. No puede crear ni eliminar registros.',
         ],
       },
     ],

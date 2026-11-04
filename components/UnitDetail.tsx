@@ -280,6 +280,10 @@ const rosterShiftGroupRowClass: Record<RosterShiftGroupKey, string> = {
 type RosterWeekCount = 1 | 2 | 4;
 
 type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shift' | 'jornada' | 'compliance' | 'salary' | 'zones' | 'localidad' | 'phone';
+
+function isIssuedTrainingCode(value?: string): boolean {
+  return !!value && /^(CERT|ACTA)-\d{4}-\d+$/.test(value);
+}
 type SortDirection = 'asc' | 'desc';
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, replaceUnitInState, onPersonnelMoved, googleMapsApiKey }) => {
@@ -2926,6 +2930,24 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setShowAssetAssignmentModal(true);
   };
   
+  const handleDownloadTrainingCertificate = async (code: string) => {
+      try {
+          const { trainingService } = await import('../services/trainingService');
+          const { downloadTrainingCertificatePdf } = await import('../utils/generateTrainingCertificatePdf');
+          const certificate = await trainingService.getByCode(code);
+          if (!certificate) {
+              setNotification({ type: 'error', message: 'No se encontró el certificado.' });
+              setTimeout(() => setNotification(null), 3000);
+              return;
+          }
+          await downloadTrainingCertificatePdf(certificate);
+      } catch (error) {
+          console.error('Error al descargar certificado:', error);
+          setNotification({ type: 'error', message: 'No se pudo generar el PDF de la capacitación.' });
+          setTimeout(() => setNotification(null), 4000);
+      }
+  };
+
   const handleDeleteTraining = async (resourceId: string, trainingId: string) => {
       if(!onUpdate) return;
       
@@ -2933,9 +2955,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           const { resourcesService } = await import('../services/resourcesService');
           const resource = unit.resources.find(r => r.id === resourceId);
           if (!resource) return;
+          const removed = resource.trainings?.find(t => t.id === trainingId);
           
           const updatedTrainings = resource.trainings?.filter(t => t.id !== trainingId) || [];
           await resourcesService.update(resourceId, { trainings: updatedTrainings });
+          if (isIssuedTrainingCode(removed?.certificateUrl)) {
+              const { trainingService } = await import('../services/trainingService');
+              await trainingService.deleteByCode(removed!.certificateUrl!);
+          }
           
           // Actualizar estado local después de guardar en BD
       const updatedResources = unit.resources.map(r => {
@@ -7690,9 +7717,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         <div>
                                             <p className="font-medium text-slate-700">{t.topic}</p>
                                             <p className="text-xs text-slate-500">{t.date} • {t.status}</p>
+                                            {isIssuedTrainingCode(t.certificateUrl) && (
+                                                <p className="text-[11px] text-blue-600">{t.certificateUrl}</p>
+                                            )}
                                         </div>
                                         <div className="flex items-center">
                                             {t.score && <span className={`text-xs font-bold px-1.5 py-0.5 rounded mr-2 ${t.score >= 13 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{t.score}</span>}
+                                            {isIssuedTrainingCode(t.certificateUrl) && (
+                                                <button type="button" onClick={() => handleDownloadTrainingCertificate(t.certificateUrl!)} className="text-slate-400 hover:text-blue-600 mr-2" title="Descargar PDF"><Download size={12}/></button>
+                                            )}
                                             {canEditPersonnel && <button onClick={() => handleDeleteTraining(worker.id, t.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={12}/></button>}
                                         </div>
                                     </div>
@@ -10361,6 +10394,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              </div>
              <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
                 <p className="text-sm text-slate-600">Asignando a <span className="font-bold">{selectedPersonnelIds.length}</span> colaboradores seleccionados.</p>
+                <p className="text-xs text-slate-500">Este apunte queda en la ficha. Para emitir un certificado o un acta con PDF, usa la sección Capacitaciones.</p>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Tema / Curso</label><input type="text" className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.topic} onChange={e => setMassTrainingForm({...massTrainingForm, topic: e.target.value})} /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label><DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={massTrainingForm.date} onChange={date => setMassTrainingForm({...massTrainingForm, date})} /></div>
                 <div>

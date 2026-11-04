@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
-import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes, Route, Receipt } from 'lucide-react';
+import { LayoutDashboard, Building, Settings, Menu, X, Plus, MapPin, Users, ChevronDown, Trash2, UserPlus, Camera, Image as ImageIcon, Briefcase, LayoutList, Package, Globe, Server, Key, Save, CheckCircle2, ToggleRight, ToggleLeft, Sparkles, Palette, Shield, Lock, FileBarChart, Bell, MessageCircle, Edit2, Archive as ArchiveIcon, Activity, UserCheck, Moon, Search, Inbox, Send, Palmtree, ClipboardList, Boxes, Route, Receipt, Award } from 'lucide-react';
 import { Login } from './components/Login';
 import {
   Dashboard,
@@ -15,6 +15,7 @@ import {
   SupervisionPlanning,
   Headcount,
   Vacations,
+  Trainings,
   Archive,
   WorkersManagement,
   InboundWorkerHandoff,
@@ -28,7 +29,7 @@ import {
   ViewFallback,
   ChunkLoadErrorBoundary,
 } from './components/lazyAppViews';
-import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position, UnitClass } from './types';
+import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position, UnitClass, WorkerTrainingRecordChange } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
 import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission, canDeleteAttendanceIncidents } from './services/permissionService';
@@ -71,7 +72,7 @@ const App: React.FC = () => {
   const authRequestRef = useRef(0);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'mattermost' | 'billing'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'trainings' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'mattermost' | 'billing'>('dashboard');
   const [mountedViews, setMountedViews] = useState<Set<string>>(() => new Set(['dashboard']));
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
@@ -92,6 +93,7 @@ const App: React.FC = () => {
 
   const [pendingVacationAuthCount, setPendingVacationAuthCount] = useState(0);
   const [vacationsNavTab, setVacationsNavTab] = useState<'approvals' | undefined>();
+  const [trainingsRefresh, setTrainingsRefresh] = useState(0);
 
   const [atsPresentationPending, setAtsPresentationPending] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
@@ -1659,6 +1661,7 @@ const App: React.FC = () => {
   const handlePermissionChange = (role: UserRole, feature: AppFeature, type: 'view' | 'edit', value: boolean) => {
     if (role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN')) return;
     if (role === 'CLIENT' && feature === 'VACATIONS' && type === 'edit') return;
+    if (role === 'CLIENT' && feature === 'TRAININGS' && type === 'edit') return;
     try {
       setPermissions(prev => {
         // Crear una copia profunda para evitar mutaciones
@@ -1725,6 +1728,10 @@ const App: React.FC = () => {
             UNIT_BOOK: { view: true, edit: false },
             VACATIONS: {
               view: cleanPermissions.CLIENT.VACATIONS?.view ?? true,
+              edit: false,
+            },
+            TRAININGS: {
+              view: cleanPermissions.CLIENT.TRAININGS?.view ?? true,
               edit: false,
             },
           };
@@ -1960,6 +1967,33 @@ const App: React.FC = () => {
             currentUser={currentUser}
             initialActiveView={vacationsNavTab}
             onPendingAuthCountChange={setPendingVacationAuthCount}
+          />
+        ))}
+        {renderCachedView('trainings', (
+          <Trainings
+            units={operationalUnits}
+            currentUser={currentUser}
+            canEdit={checkPermission(currentUser.role, 'TRAININGS', 'edit')}
+            refreshToken={trainingsRefresh}
+            onWorkerRecordChange={(change: WorkerTrainingRecordChange) => {
+              const unit = units.find((item) => item.id === change.unitId);
+              if (!unit) return;
+              const resources = (unit.resources || []).map((resource) => {
+                if (resource.id !== change.resourceId) return resource;
+                const current = resource.trainings || [];
+                if (change.action === 'add') {
+                  if (current.some((item) => item.certificateUrl === change.training.certificateUrl)) return resource;
+                  return { ...resource, trainings: [change.training, ...current] };
+                }
+                return {
+                  ...resource,
+                  trainings: current.filter(
+                    (item) => item.id !== change.training.id && item.certificateUrl !== change.training.certificateUrl
+                  ),
+                };
+              });
+              replaceUnitInState({ ...unit, resources });
+            }}
           />
         ))}
         {renderCachedView('workers-management', (
@@ -2470,7 +2504,7 @@ const App: React.FC = () => {
                                             const lockedForClient = role === 'CLIENT' && feature === 'WORK_PLAN';
                                             const viewLocked = lockedForClient || clientUnitBookViewOnly;
                                             const viewChecked = clientUnitBookViewOnly ? true : lockedForClient ? false : perm.view;
-                                            const lockedClientEdit = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN' || feature === 'VACATIONS');
+                                            const lockedClientEdit = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN' || feature === 'VACATIONS' || feature === 'TRAININGS');
                                             return (
                                                 <td key={role} className="px-4 py-3 text-center border-l border-slate-200">
                                                     <div className="flex flex-col items-center gap-2">
@@ -3661,6 +3695,16 @@ const App: React.FC = () => {
                     <span className="truncate min-w-0">Headcount</span>
                   </button>
               )}
+
+              {checkPermission(currentUser.role, 'TRAININGS', 'view') && (
+                  <button
+                    onClick={() => { setTrainingsRefresh((n) => n + 1); setCurrentView('trainings'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'trainings' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Award size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Capacitaciones</span>
+                  </button>
+              )}
             </>
           ) : (
             <>
@@ -3766,6 +3810,16 @@ const App: React.FC = () => {
                   >
                     <Users size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Headcount</span>
+                  </button>
+              )}
+
+              {checkPermission(currentUser.role, 'TRAININGS', 'view') && (
+                  <button
+                    onClick={() => { setTrainingsRefresh((n) => n + 1); setCurrentView('trainings'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'trainings' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Award size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Capacitaciones</span>
                   </button>
               )}
 

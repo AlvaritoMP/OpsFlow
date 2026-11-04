@@ -124,6 +124,9 @@ export const Headcount = lazyView(() =>
 export const Vacations = lazyView(() =>
   import('./Vacations').then((m) => ({ default: m.Vacations }))
 );
+export const Trainings = lazyView(() =>
+  import('./Trainings').then((m) => ({ default: m.Trainings }))
+);
 export const Archive = lazyView(() =>
   import('./Archive').then((m) => ({ default: m.Archive }))
 );

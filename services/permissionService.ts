@@ -20,6 +20,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     SUPERVISION_PLANNING: { view: true, edit: true },
     RETENES: { view: true, edit: true },
     VACATIONS: { view: true, edit: true },
+    TRAININGS: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     INVENTORY: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
@@ -48,6 +49,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     SUPERVISION_PLANNING: { view: true, edit: true },
     RETENES: { view: true, edit: true },
     VACATIONS: { view: true, edit: true },
+    TRAININGS: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     INVENTORY: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
@@ -76,6 +78,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     SUPERVISION_PLANNING: { view: true, edit: true },
     RETENES: { view: true, edit: true },
     VACATIONS: { view: true, edit: true },
+    TRAININGS: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     INVENTORY: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
@@ -104,6 +107,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     SUPERVISION_PLANNING: { view: true, edit: true },
     RETENES: { view: true, edit: true },
     VACATIONS: { view: true, edit: true },
+    TRAININGS: { view: true, edit: true },
     ASSETS_CATALOG: { view: true, edit: true },
     INVENTORY: { view: true, edit: true },
     DOCUMENTS: { view: true, edit: true },
@@ -132,6 +136,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     SUPERVISION_PLANNING: { view: false, edit: false },
     RETENES: { view: false, edit: false },
     VACATIONS: { view: true, edit: false },
+    TRAININGS: { view: true, edit: false },
     ASSETS_CATALOG: { view: false, edit: false },
     INVENTORY: { view: false, edit: false },
     DOCUMENTS: { view: true, edit: false },
@@ -216,6 +221,7 @@ export const checkPermission = (role: UserRole, feature: AppFeature, action: 'vi
   if (role === 'CLIENT' && feature === 'UNIT_BOOK') return action === 'view';
   if (role === 'CLIENT' && feature === 'WORK_PLAN') return false;
   if (role === 'CLIENT' && feature === 'VACATIONS' && action === 'edit') return false;
+  if (role === 'CLIENT' && feature === 'TRAININGS' && action === 'edit') return false;
 
   const config = getPermissions();
   const roleConfig = config[role];
@@ -250,6 +256,7 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   SUPERVISION_PLANNING: 'Supervisión de campo',
   RETENES: 'Retenes',
   VACATIONS: 'Control de Vacaciones',
+  TRAININGS: 'Capacitaciones',
   ASSETS_CATALOG: 'Catálogo de Activos',
   INVENTORY: 'Inventario',
   DOCUMENTS: 'Documentos',
