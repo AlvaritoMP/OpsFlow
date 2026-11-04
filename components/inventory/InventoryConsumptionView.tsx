@@ -3,15 +3,16 @@ import { MinusCircle } from 'lucide-react';
 import { useInventory } from './InventoryContext';
 import { InvButton, InvCard, InvInput, InvSelect, InvTextarea } from './InventoryUi';
 import { INV_CONSUMPTION_REASON_LABELS, type InvConsumptionReason, type InvProduct } from '../../types';
+import { companyLabel, lotsInWarehouse, unassignedQuantity } from '../../utils/inventoryLots';
 
 export const InventoryConsumptionView = () => {
-  const { products, inventory, permittedWarehouses, units, canEdit, actions } = useInventory();
+  const { products, inventory, companyStock, myCompanies, permittedWarehouses, units, canEdit, actions } = useInventory();
   const [warehouseId, setWarehouseId] = useState('');
   const [reason, setReason] = useState<InvConsumptionReason>('ENTREGA_PERSONAL');
   const [recipient, setRecipient] = useState('');
   const [details, setDetails] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [items, setItems] = useState<{ product: InvProduct; quantity: number; maxQuantity: number }[]>([]);
+  const [items, setItems] = useState<{ product: InvProduct; quantity: number; maxQuantity: number; companyId: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -57,7 +58,7 @@ export const InventoryConsumptionView = () => {
       setMessage(null);
       await actions.consumeStock({
         warehouseId,
-        items: items.filter((i) => i.quantity > 0).map((i) => ({ productId: i.product.id, quantity: i.quantity })),
+        items: items.filter((i) => i.quantity > 0).map((i) => ({ productId: i.product.id, quantity: i.quantity, companyId: i.companyId || undefined })),
         reason,
         recipient: recipient.trim() || undefined,
         details,
@@ -153,7 +154,13 @@ export const InventoryConsumptionView = () => {
                       key={row.product.id}
                       className="px-3 py-2 hover:bg-slate-50 cursor-pointer text-sm flex justify-between"
                       onClick={() => {
-                        setItems((prev) => [...prev, { product: row.product, quantity: 1, maxQuantity: row.quantity }]);
+                        const lots = lotsInWarehouse(companyStock, row.product.id, warehouseId);
+                        const loose = unassignedQuantity(row.quantity, lots);
+                        const companyId = lots.length === 1 && loose <= 0 ? lots[0].companyId : '';
+                        const maxQuantity = companyId
+                          ? lots.find((lot) => lot.companyId === companyId)?.quantity || row.quantity
+                          : lots.length > 0 ? (loose || row.quantity) : row.quantity;
+                        setItems((prev) => [...prev, { product: row.product, quantity: 1, maxQuantity, companyId }]);
                         setSearchTerm('');
                       }}
                     >
@@ -174,6 +181,7 @@ export const InventoryConsumptionView = () => {
               <thead className="text-slate-500 border-b">
                 <tr>
                   <th className="text-left py-2">Producto</th>
+                  <th className="text-left py-2">Empresa</th>
                   <th className="text-right py-2 w-40">Cantidad a descargar</th>
                   <th className="w-16" />
                 </tr>
@@ -184,6 +192,31 @@ export const InventoryConsumptionView = () => {
                     <td className="py-2">
                       <p className="font-medium">{item.product.name}</p>
                       <p className="text-xs font-mono text-slate-500">{item.product.sku}</p>
+                    </td>
+                    <td className="py-2">
+                      {lotsInWarehouse(companyStock, item.product.id, warehouseId).length > 0 ? (
+                        <select
+                          value={item.companyId}
+                          onChange={(e) => {
+                            const nextCompany = e.target.value;
+                            const lots = lotsInWarehouse(companyStock, item.product.id, warehouseId);
+                            const total = inventory.find((row) => row.productId === item.product.id && row.warehouseId === warehouseId)?.quantity || 0;
+                            const loose = unassignedQuantity(total, lots);
+                            const maxQuantity = nextCompany
+                              ? lots.find((lot) => lot.companyId === nextCompany)?.quantity || 0
+                              : loose;
+                            setItems((prev) => prev.map((row) => row.product.id === item.product.id ? { ...row, companyId: nextCompany, maxQuantity, quantity: Math.min(row.quantity, maxQuantity || 1) } : row));
+                          }}
+                          className="border rounded px-2 py-1 text-xs"
+                        >
+                          <option value="">Sin empresa</option>
+                          {lotsInWarehouse(companyStock, item.product.id, warehouseId).map((lot) => (
+                            <option key={lot.companyId} value={lot.companyId}>{companyLabel(myCompanies, lot.companyId)} ({lot.quantity})</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-slate-400">Stock anterior</span>
+                      )}
                     </td>
                     <td className="py-2 text-right">
                       <input

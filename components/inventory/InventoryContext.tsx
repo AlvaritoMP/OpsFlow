@@ -15,6 +15,8 @@ import type {
   InvWarehouseAccess,
   InvUnitOption,
   InvConsumptionReason,
+  InvCompanyStock,
+  InvRequisition,
   User,
 } from '../../types';
 
@@ -39,6 +41,9 @@ interface InventoryState {
   purchaseOrders: InvPurchaseOrder[];
   scheduledPurchases: InvScheduledPurchase[];
   warehouseAccess: InvWarehouseAccess[];
+  companyStock: InvCompanyStock[];
+  requisitions: InvRequisition[];
+  logisticsReady: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -53,7 +58,7 @@ interface InventoryActions {
   updateWarehouse: (warehouse: InvWarehouse) => Promise<void>;
   consumeStock: (payload: {
     warehouseId: string;
-    items: { productId: string; quantity: number }[];
+    items: { productId: string; quantity: number; companyId?: string }[];
     reason: InvConsumptionReason;
     recipient?: string;
     details: string;
@@ -64,6 +69,7 @@ interface InventoryActions {
     quantityChange: number;
     type: InvLogType;
     details: string;
+    companyId?: string;
   }) => Promise<void>;
   transferStock: (payload: {
     productId: string;
@@ -71,12 +77,28 @@ interface InventoryActions {
     toWarehouseId: string;
     quantity: number;
     details: string;
+    companyId?: string;
   }) => Promise<void>;
   bulkTransferStock: (payload: {
-    items: { productId: string; quantity: number }[];
+    items: { productId: string; quantity: number; companyId?: string }[];
     fromWarehouseId: string;
     toWarehouseId: string;
     details: string;
+    companyId?: string;
+  }) => Promise<void>;
+  createRequisition: (payload: {
+    unitId: string;
+    unitName: string;
+    notes: string;
+    items: { productId: string; quantity: number }[];
+  }) => Promise<void>;
+  cancelRequisition: (requisitionId: string) => Promise<void>;
+  rejectRequisition: (requisitionId: string, note: string) => Promise<void>;
+  fulfillRequisition: (payload: {
+    requisitionId: string;
+    sourceWarehouseId: string;
+    note: string;
+    lines: { itemId: string; quantity: number; companyId?: string }[];
   }) => Promise<void>;
   updateSettings: (settings: InvAppSettings) => Promise<void>;
   addCompany: (company: Omit<InvCompany, 'id'>) => Promise<void>;
@@ -98,6 +120,7 @@ interface InventoryContextValue extends InventoryState {
   units: InvUnitOption[];
   canEdit: boolean;
   isAdmin: boolean;
+  canFulfillRequisitions: boolean;
   permittedWarehouses: InvWarehouse[];
   actions: InventoryActions;
 }
@@ -111,7 +134,8 @@ export const InventoryProvider: React.FC<{
   units: InvUnitOption[];
   canEdit: boolean;
 }> = ({ children, currentUser, opsflowUsers, units, canEdit }) => {
-  const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
+  const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'WAREHOUSE_ADMIN';
+  const canFulfillRequisitions = isAdmin;
   const [state, setState] = useState<InventoryState>({
     products: [],
     warehouses: [],
@@ -123,6 +147,9 @@ export const InventoryProvider: React.FC<{
     purchaseOrders: [],
     scheduledPurchases: [],
     warehouseAccess: [],
+    companyStock: [],
+    requisitions: [],
+    logisticsReady: true,
     loading: true,
     error: null,
   });
@@ -196,6 +223,8 @@ export const InventoryProvider: React.FC<{
         .map((item) => ({
           product: state.products.find((p) => p.id === item.productId)!,
           quantity: item.quantity,
+          companyId: item.companyId,
+          companyName: state.myCompanies.find((c) => c.id === item.companyId)?.profileName,
         }))
         .filter((item) => item.product && item.quantity > 0);
       await stockInventoryService.consumeStock({
@@ -220,6 +249,8 @@ export const InventoryProvider: React.FC<{
         type: payload.type,
         details: payload.details,
         userName: currentUser.name,
+        companyId: payload.companyId,
+        companyName: state.myCompanies.find((c) => c.id === payload.companyId)?.profileName,
       });
       await reload({ silent: true });
     },
@@ -236,6 +267,8 @@ export const InventoryProvider: React.FC<{
         quantity: payload.quantity,
         details: payload.details,
         userName: currentUser.name,
+        companyId: payload.companyId,
+        companyName: state.myCompanies.find((c) => c.id === payload.companyId)?.profileName,
       });
       await reload({ silent: true });
     },
@@ -248,6 +281,8 @@ export const InventoryProvider: React.FC<{
         .map((item) => ({
           product: state.products.find((p) => p.id === item.productId)!,
           quantity: item.quantity,
+          companyId: item.companyId || payload.companyId,
+          companyName: state.myCompanies.find((c) => c.id === (item.companyId || payload.companyId))?.profileName,
         }))
         .filter((item) => item.product);
       await stockInventoryService.bulkTransfer({
@@ -256,6 +291,8 @@ export const InventoryProvider: React.FC<{
         toWarehouse,
         details: payload.details,
         userName: currentUser.name,
+        companyId: payload.companyId,
+        companyName: state.myCompanies.find((c) => c.id === payload.companyId)?.profileName,
       });
       await reload({ silent: true });
     },
@@ -331,6 +368,73 @@ export const InventoryProvider: React.FC<{
       await stockInventoryService.setUserWarehouseAccess(userId, warehouseIds);
       await reload({ silent: true });
     },
+    createRequisition: async (payload) => {
+      const items = payload.items
+        .map((item) => ({
+          product: state.products.find((p) => p.id === item.productId)!,
+          quantity: item.quantity,
+        }))
+        .filter((item) => item.product && item.quantity > 0);
+      await stockInventoryService.createRequisition({
+        unitId: payload.unitId,
+        unitName: payload.unitName,
+        notes: payload.notes,
+        requestedBy: currentUser.name,
+        requestedByUserId: currentUser.id,
+        items,
+      });
+      await reload({ silent: true });
+    },
+    cancelRequisition: async (requisitionId) => {
+      const row = state.requisitions.find((r) => r.id === requisitionId);
+      const owns = row?.requestedByUserId === currentUser.id;
+      if (!owns && !canFulfillRequisitions) throw new Error('Solo quien lo pidió o el almacén puede cancelarlo.');
+      await stockInventoryService.setRequisitionStatus({
+        requisitionId,
+        status: 'CANCELADO',
+        decidedBy: currentUser.name,
+        note: 'Cancelado',
+      });
+      await reload({ silent: true });
+    },
+    rejectRequisition: async (requisitionId, note) => {
+      if (!canFulfillRequisitions) throw new Error('Solo el administrador de almacén puede rechazar pedidos.');
+      await stockInventoryService.setRequisitionStatus({
+        requisitionId,
+        status: 'RECHAZADO',
+        decidedBy: currentUser.name,
+        note,
+      });
+      await reload({ silent: true });
+    },
+    fulfillRequisition: async (payload) => {
+      if (!canFulfillRequisitions) throw new Error('Solo el administrador de almacén puede despachar pedidos.');
+      const requisition = state.requisitions.find((r) => r.id === payload.requisitionId);
+      const sourceWarehouse = state.warehouses.find((w) => w.id === payload.sourceWarehouseId);
+      if (!requisition || !sourceWarehouse) throw new Error('Pedido o almacén no encontrado');
+      const lines = payload.lines
+        .map((line) => {
+          const item = requisition.items.find((i) => i.id === line.itemId);
+          const product = state.products.find((p) => p.id === item?.productId);
+          if (!item || !product) return null;
+          return {
+            itemId: line.itemId,
+            product,
+            quantity: line.quantity,
+            companyId: line.companyId,
+            companyName: state.myCompanies.find((c) => c.id === line.companyId)?.profileName,
+          };
+        })
+        .filter((line): line is NonNullable<typeof line> => !!line);
+      await stockInventoryService.fulfillRequisition({
+        requisition,
+        sourceWarehouse,
+        lines,
+        userName: currentUser.name,
+        note: payload.note,
+      });
+      await reload({ silent: true });
+    },
   };
 
   const value: InventoryContextValue = {
@@ -340,6 +444,7 @@ export const InventoryProvider: React.FC<{
     units,
     canEdit,
     isAdmin,
+    canFulfillRequisitions,
     permittedWarehouses,
     actions,
   };

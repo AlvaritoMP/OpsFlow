@@ -3,12 +3,15 @@ import { Plus } from 'lucide-react';
 import { useInventory } from './InventoryContext';
 import { InvButton, InvCard, InvInput, InvModal } from './InventoryUi';
 import type { InvProduct } from '../../types';
+import { companyLabel } from '../../utils/inventoryLots';
 
 export const InventoryBulkTransferModal = ({ onClose }: { onClose: () => void }) => {
-  const { products, warehouses, inventory, actions } = useInventory();
+  const { products, warehouses, inventory, companyStock, myCompanies, actions } = useInventory();
   const [fromWarehouseId, setFromWarehouseId] = useState('');
   const [toWarehouseId, setToWarehouseId] = useState('');
+  const [companyId, setCompanyId] = useState('');
   const [details, setDetails] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<{ product: InvProduct; quantity: number; maxQuantity: number }[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -33,7 +36,7 @@ export const InventoryBulkTransferModal = ({ onClose }: { onClose: () => void })
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Origen</label>
-            <select value={fromWarehouseId} onChange={(e) => { setFromWarehouseId(e.target.value); setItems([]); }} className="w-full border border-slate-300 rounded-lg px-3 py-2">
+            <select value={fromWarehouseId} onChange={(e) => { setFromWarehouseId(e.target.value); setCompanyId(''); setItems([]); }} className="w-full border border-slate-300 rounded-lg px-3 py-2">
               <option value="">Seleccione...</option>
               {warehouses.filter((w) => w.kind !== 'UNIT').length > 0 && (
                 <optgroup label="Centrales">
@@ -64,6 +67,17 @@ export const InventoryBulkTransferModal = ({ onClose }: { onClose: () => void })
             </select>
           </div>
         </div>
+        {fromWarehouseId && companyStock.some((row) => row.warehouseId === fromWarehouseId && row.quantity > 0) && (
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">Empresa adquiriente</label>
+            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2">
+              <option value="">Sin empresa (solo stock antiguo)</option>
+              {myCompanies
+                .filter((company) => companyStock.some((row) => row.warehouseId === fromWarehouseId && row.companyId === company.id && row.quantity > 0))
+                .map((company) => <option key={company.id} value={company.id}>{companyLabel(myCompanies, company.id)}</option>)}
+            </select>
+          </div>
+        )}
         {fromWarehouseId && (
           <div className="relative">
             <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar producto..." className="w-full border border-slate-300 rounded-lg px-3 py-2" />
@@ -104,18 +118,25 @@ export const InventoryBulkTransferModal = ({ onClose }: { onClose: () => void })
           </table>
         )}
         <textarea value={details} onChange={(e) => setDetails(e.target.value)} rows={2} placeholder="Detalle / razón" className="w-full border border-slate-300 rounded-lg px-3 py-2" />
+        {error && <p className="text-sm text-red-700">{error}</p>}
         <div className="flex justify-end gap-2">
           <InvButton className="bg-slate-100 text-slate-700" onClick={onClose}>Cancelar</InvButton>
           <InvButton
             disabled={disabled}
             onClick={async () => {
-              await actions.bulkTransferStock({
-                items: items.filter((i) => i.quantity > 0).map((i) => ({ productId: i.product.id, quantity: i.quantity })),
-                fromWarehouseId,
-                toWarehouseId,
-                details: details || `Transferencia de ${items.length} productos.`,
-              });
-              onClose();
+              try {
+                setError(null);
+                await actions.bulkTransferStock({
+                  items: items.filter((i) => i.quantity > 0).map((i) => ({ productId: i.product.id, quantity: i.quantity })),
+                  fromWarehouseId,
+                  toWarehouseId,
+                  companyId: companyId || undefined,
+                  details: details || `Transferencia de ${items.length} productos.`,
+                });
+                onClose();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'No se pudo transferir');
+              }
             }}
           >
             Confirmar

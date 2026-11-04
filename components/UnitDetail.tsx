@@ -5,6 +5,7 @@ import { ArrowLeft, UserCheck, Box, ClipboardList, MapPin, Calendar, CalendarClo
 import { syncResourceWithInventory } from '../services/inventoryService';
 import { unitsService } from '../services/unitsService';
 import { checkPermission, canDeleteAttendanceIncidents } from '../services/permissionService';
+import { UnitWarehouseOrders } from './inventory/UnitWarehouseOrders';
 import { nightSupervisionService } from '../services/nightSupervisionService';
 import { requestsService, requestCommentIsFromViewer } from '../services/requestsService';
 import { variableCompensationsService } from '../services/variableCompensationsService';
@@ -8550,6 +8551,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   const renderLogistics = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+       <UnitWarehouseOrders
+         unitId={unit.id}
+         unitName={unit.name}
+         requestedBy={currentUser?.name || 'Operaciones'}
+         requestedByUserId={currentUser?.id || ''}
+         canRequest={canEditLogistics}
+       />
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h3 className="text-lg font-semibold text-slate-800">Logística y Equipamiento</h3>

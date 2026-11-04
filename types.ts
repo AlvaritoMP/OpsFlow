@@ -75,7 +75,7 @@ export interface PayrollAttendanceIncident {
   unitName?: string;
 }
 
-export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'CLIENT';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'WAREHOUSE_ADMIN' | 'CLIENT';
 export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 
 // --- PERMISSIONS SYSTEM ---
@@ -1770,6 +1770,55 @@ export interface InvLogEntry {
   transactionId?: string;
   recipient?: string;
   consumptionReason?: InvConsumptionReason;
+  /** Empresa que adquirió el bien. Viaja con el stock en ingresos, traslados y descargos. */
+  companyId?: string;
+  companyName?: string;
+}
+
+export interface InvCompanyStock {
+  productId: string;
+  warehouseId: string;
+  companyId: string;
+  quantity: number;
+}
+
+export type InvRequisitionStatus = 'SOLICITADO' | 'DESPACHADO' | 'PARCIAL' | 'RECHAZADO' | 'CANCELADO';
+
+export const INV_REQUISITION_STATUS_LABELS: Record<InvRequisitionStatus, string> = {
+  SOLICITADO: 'Solicitado',
+  DESPACHADO: 'Despachado',
+  PARCIAL: 'Despacho parcial',
+  RECHAZADO: 'Rechazado',
+  CANCELADO: 'Cancelado',
+};
+
+export interface InvRequisitionItem {
+  id: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  quantityRequested: number;
+  quantityApproved: number;
+  companyId?: string;
+  companyName?: string;
+}
+
+export interface InvRequisition {
+  id: string;
+  code: string;
+  unitId: string;
+  unitName: string;
+  status: InvRequisitionStatus;
+  notes: string;
+  requestedBy: string;
+  requestedByUserId?: string;
+  decidedBy?: string;
+  decisionNote: string;
+  sourceWarehouseId?: string;
+  destinationWarehouseId?: string;
+  createdAt: string;
+  decidedAt?: string;
+  items: InvRequisitionItem[];
 }
 
 export interface InvWarehouseAccess {
@@ -1853,6 +1902,8 @@ export type InventorySectionView =
   | 'products'
   | 'warehouses'
   | 'consumption'
+  | 'requisitions'
+  | 'reconciliation'
   | 'log'
   | 'access'
   | 'settings'

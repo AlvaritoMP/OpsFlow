@@ -6,6 +6,7 @@ import { InventoryBulkTransferModal } from './InventoryBulkTransferModal';
 import { InventoryMovementDocumentModal } from './InventoryMovementDocumentModal';
 import { stockInventoryService } from '../../services/stockInventoryService';
 import { INV_CONSUMPTION_REASON_LABELS, type InvConsumptionReason, type InvLogEntry, type InvLogType, type InvProduct, type InvWarehouse, type User } from '../../types';
+import { companyLabel, lotsInWarehouse, unassignedQuantity } from '../../utils/inventoryLots';
 
 function compressImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -174,9 +175,11 @@ const ProductFormModal = ({
 }: {
   product?: InvProduct;
   onClose: () => void;
-  onSave: (p: Omit<InvProduct, 'id'>) => void;
+  onSave: (p: Omit<InvProduct, 'id'>) => Promise<void> | void;
 }) => {
   const { settings } = useInventory();
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     name: product?.name || '',
     sku: product?.sku || '',
@@ -221,14 +224,29 @@ const ProductFormModal = ({
     <InvModal isOpen onClose={onClose} title={product ? 'Editar producto' : 'Añadir producto'}>
       <form
         className="space-y-3"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          if (!imagesReady) return;
-          onSave({ ...formData, images });
+          if (!imagesReady || saving) return;
+          const name = formData.name.trim();
+          const sku = formData.sku.trim();
+          if (!name || !sku) {
+            setFormError('El nombre y el SKU son obligatorios.');
+            return;
+          }
+          try {
+            setSaving(true);
+            setFormError(null);
+            await onSave({ ...formData, name, sku, images });
+          } catch (error) {
+            setFormError(error instanceof Error ? error.message : 'No se pudo guardar el producto. Si el SKU ya existe, edite ese producto.');
+          } finally {
+            setSaving(false);
+          }
         }}
       >
         <InvInput label="Nombre" name="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
         <InvInput label="SKU" name="sku" value={formData.sku} onChange={(e) => setFormData({ ...formData, sku: e.target.value })} required />
+        <p className="text-xs text-slate-500 -mt-1">Código único en todo el catálogo. Si ya existe, edite el producto en lugar de crearlo otra vez.</p>
         <InvInput label="Categoría" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} />
         <InvInput label="Precio" type="number" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })} />
         <InvInput label="Umbral de stock bajo" type="number" value={formData.lowStockThreshold} onChange={(e) => setFormData({ ...formData, lowStockThreshold: parseInt(e.target.value, 10) || 0 })} />
@@ -254,9 +272,10 @@ const ProductFormModal = ({
             </>
           )}
         </div>
+        {formError && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{formError}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <InvButton onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700">Cancelar</InvButton>
-          <InvButton type="submit" disabled={!imagesReady}>{product ? 'Guardar' : 'Añadir'}</InvButton>
+          <InvButton type="submit" disabled={!imagesReady || saving}>{saving ? 'Guardando...' : product ? 'Guardar' : 'Añadir'}</InvButton>
         </div>
       </form>
     </InvModal>
@@ -524,45 +543,87 @@ const ProductDetailModal = ({ product, onClose }: { product: InvProduct; onClose
 };
 
 const StockAdjustModal = ({ product, warehouses, onClose }: { product: InvProduct; warehouses: InvWarehouse[]; onClose: () => void }) => {
-  const { inventory, actions } = useInventory();
+  const { inventory, actions, myCompanies, companyStock } = useInventory();
   const [warehouseId, setWarehouseId] = useState('');
   const [quantityChange, setQuantityChange] = useState(0);
-  const [type, setType] = useState<InvLogType>('AJUSTE');
+  const [type, setType] = useState<InvLogType>('ENTRADA');
   const [details, setDetails] = useState('');
+  const [companyId, setCompanyId] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const currentStock = inventory.find((i) => i.productId === product.id && i.warehouseId === warehouseId)?.quantity || 0;
+  const lots = warehouseId ? lotsInWarehouse(companyStock, product.id, warehouseId) : [];
+  const loose = unassignedQuantity(currentStock, lots);
+  const inbound = quantityChange > 0;
+  const needsCompany = inbound && myCompanies.length > 0;
   return (
     <InvModal isOpen onClose={onClose} title={`Ajustar stock: ${product.name}`}>
-      <form className="space-y-3" onSubmit={async (e) => { e.preventDefault(); await actions.adjustStock({ productId: product.id, warehouseId, quantityChange, type, details }); onClose(); }}>
-        <InvSelect label="Almacén" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
+      <form className="space-y-3" onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          setError(null);
+          if (needsCompany && !companyId) {
+            setError('Indique la empresa que adquirió este ingreso.');
+            return;
+          }
+          await actions.adjustStock({ productId: product.id, warehouseId, quantityChange, type, details, companyId: companyId || undefined });
+          onClose();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'No se pudo ajustar el stock');
+        }
+      }}>
+        <InvSelect label="Almacén" value={warehouseId} onChange={(e) => { setWarehouseId(e.target.value); setCompanyId(''); }} required>
           <option value="">Seleccione...</option>
           {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </InvSelect>
         {warehouseId && <p className="text-xs text-slate-500">Stock actual: <strong>{currentStock}</strong></p>}
         <InvSelect label="Tipo" value={type} onChange={(e) => setType(e.target.value as InvLogType)}>
-          <option value="AJUSTE">Ajuste manual</option>
-          <option value="ENTRADA">Entrada</option>
+          <option value="ENTRADA">Entrada (compra / recepción)</option>
           <option value="SALIDA">Salida</option>
+          <option value="AJUSTE">Ajuste manual</option>
         </InvSelect>
-        <InvInput label="Cantidad (+/-)" type="number" value={quantityChange} onChange={(e) => setQuantityChange(parseInt(e.target.value, 10) || 0)} required />
+        <InvInput label="Cantidad (+ ingreso / − salida)" type="number" value={quantityChange} onChange={(e) => setQuantityChange(parseInt(e.target.value, 10) || 0)} required />
+        <InvSelect label="Empresa adquiriente" value={companyId} onChange={(e) => setCompanyId(e.target.value)} required={needsCompany}>
+          <option value="">{inbound ? 'Seleccione quién compró este stock...' : loose > 0 ? `Sin empresa (stock antiguo: ${loose})` : 'Seleccione la empresa de la que sale...'}</option>
+          {(inbound ? myCompanies.map((company) => ({ id: company.id, quantity: undefined as number | undefined })) : lots.map((lot) => ({ id: lot.companyId, quantity: lot.quantity }))).map((option) => (
+            <option key={option.id} value={option.id}>
+              {companyLabel(myCompanies, option.id)}{option.quantity != null ? ` · ${option.quantity} disp.` : ''}
+            </option>
+          ))}
+        </InvSelect>
+        <p className="text-xs text-slate-500">En un ingreso, la empresa es quien adquirió el bien. Así el cuadre del almacén se puede separar por empresa.</p>
         <InvTextarea label="Detalle" rows={2} value={details} onChange={(e) => setDetails(e.target.value)} required />
         {warehouseId && <div className="p-3 bg-slate-50 rounded-lg text-center"><p className="text-xs text-slate-500">Nuevo stock</p><p className="text-2xl font-bold">{Math.max(0, currentStock + quantityChange)}</p></div>}
-        <div className="flex justify-end gap-2"><InvButton onClick={onClose} className="bg-slate-100 text-slate-700">Cancelar</InvButton><InvButton type="submit">Confirmar</InvButton></div>
+        {error && <p className="text-sm text-red-700">{error}</p>}
+        <div className="flex justify-end gap-2"><InvButton onClick={onClose} className="bg-slate-100 text-slate-700">Cancelar</InvButton><InvButton type="submit" disabled={needsCompany && !companyId}>Confirmar</InvButton></div>
       </form>
     </InvModal>
   );
 };
 
 const StockTransferModal = ({ product, warehouses, onClose }: { product: InvProduct; warehouses: InvWarehouse[]; onClose: () => void }) => {
-  const { inventory, actions } = useInventory();
+  const { inventory, actions, companyStock, myCompanies } = useInventory();
   const [fromWarehouseId, setFromWarehouseId] = useState('');
   const [toWarehouseId, setToWarehouseId] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [details, setDetails] = useState('');
+  const [companyId, setCompanyId] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const maxQuantity = inventory.find((i) => i.productId === product.id && i.warehouseId === fromWarehouseId)?.quantity || 0;
+  const lots = fromWarehouseId ? lotsInWarehouse(companyStock, product.id, fromWarehouseId) : [];
+  const loose = unassignedQuantity(maxQuantity, lots);
   return (
     <InvModal isOpen onClose={onClose} title={`Transferir: ${product.name}`}>
-      <form className="space-y-3" onSubmit={async (e) => { e.preventDefault(); await actions.transferStock({ productId: product.id, fromWarehouseId, toWarehouseId, quantity, details }); onClose(); }}>
-        <InvSelect label="Origen" value={fromWarehouseId} onChange={(e) => setFromWarehouseId(e.target.value)} required>
+      <form className="space-y-3" onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          setError(null);
+          await actions.transferStock({ productId: product.id, fromWarehouseId, toWarehouseId, quantity, details, companyId: companyId || undefined });
+          onClose();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'No se pudo transferir');
+        }
+      }}>
+        <InvSelect label="Origen" value={fromWarehouseId} onChange={(e) => { setFromWarehouseId(e.target.value); setCompanyId(''); }} required>
           <option value="">Seleccione...</option>
           {warehouses.filter((w) => w.kind !== 'UNIT').length > 0 && (
             <optgroup label="Centrales">
@@ -575,7 +636,13 @@ const StockTransferModal = ({ product, warehouses, onClose }: { product: InvProd
             </optgroup>
           )}
         </InvSelect>
-        {fromWarehouseId && <p className="text-xs text-slate-500">Disponible: <strong>{maxQuantity}</strong></p>}
+        {fromWarehouseId && <p className="text-xs text-slate-500">Disponible: <strong>{maxQuantity}</strong>{loose > 0 && lots.length > 0 ? ` · sin empresa: ${loose}` : ''}</p>}
+        {lots.length > 0 && (
+          <InvSelect label="Empresa adquiriente que se traslada" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+            <option value="">{loose > 0 ? `Sin empresa (stock antiguo: ${loose})` : 'Seleccione...'}</option>
+            {lots.map((lot) => <option key={lot.companyId} value={lot.companyId}>{companyLabel(myCompanies, lot.companyId)} · {lot.quantity}</option>)}
+          </InvSelect>
+        )}
         <InvSelect label="Destino" value={toWarehouseId} onChange={(e) => setToWarehouseId(e.target.value)} required disabled={!fromWarehouseId}>
           <option value="">Seleccione...</option>
           {warehouses.filter((w) => w.id !== fromWarehouseId && w.kind !== 'UNIT').length > 0 && (
@@ -591,6 +658,7 @@ const StockTransferModal = ({ product, warehouses, onClose }: { product: InvProd
         </InvSelect>
         <InvInput label="Cantidad" type="number" min={1} max={maxQuantity} value={quantity} onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value, 10) || 1)))} />
         <InvTextarea label="Detalle" rows={2} value={details} onChange={(e) => setDetails(e.target.value)} />
+        {error && <p className="text-sm text-red-700">{error}</p>}
         <div className="flex justify-end gap-2"><InvButton onClick={onClose} className="bg-slate-100 text-slate-700">Cancelar</InvButton><InvButton type="submit" disabled={!fromWarehouseId || !toWarehouseId || quantity > maxQuantity}>Confirmar</InvButton></div>
       </form>
     </InvModal>
@@ -598,13 +666,18 @@ const StockTransferModal = ({ product, warehouses, onClose }: { product: InvProd
 };
 
 const StockConsumeModal = ({ product, warehouses, onClose }: { product: InvProduct; warehouses: InvWarehouse[]; onClose: () => void }) => {
-  const { inventory, units, actions } = useInventory();
+  const { inventory, units, actions, companyStock, myCompanies } = useInventory();
   const [warehouseId, setWarehouseId] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState<InvConsumptionReason>('ENTREGA_PERSONAL');
   const [recipient, setRecipient] = useState('');
   const [details, setDetails] = useState('');
+  const [companyId, setCompanyId] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const maxQuantity = inventory.find((i) => i.productId === product.id && i.warehouseId === warehouseId)?.quantity || 0;
+  const lots = warehouseId ? lotsInWarehouse(companyStock, product.id, warehouseId) : [];
+  const loose = unassignedQuantity(maxQuantity, lots);
+  const cap = companyId ? (lots.find((lot) => lot.companyId === companyId)?.quantity || 0) : (lots.length > 0 ? loose : maxQuantity);
   const selectedWarehouse = warehouses.find((w) => w.id === warehouseId);
   const workers = units.find((u) => u.id === selectedWarehouse?.unitId)?.workers || [];
 
@@ -616,17 +689,22 @@ const StockConsumeModal = ({ product, warehouses, onClose }: { product: InvProdu
           alert('Indique a quién se entrega.');
           return;
         }
-        await actions.consumeStock({
-          warehouseId,
-          items: [{ productId: product.id, quantity }],
-          reason,
-          recipient: recipient.trim() || undefined,
-          details,
-        });
-        onClose();
+        try {
+          setError(null);
+          await actions.consumeStock({
+            warehouseId,
+            items: [{ productId: product.id, quantity, companyId: companyId || undefined }],
+            reason,
+            recipient: recipient.trim() || undefined,
+            details,
+          });
+          onClose();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'No se pudo descargar');
+        }
       }}>
         <p className="text-sm text-slate-500">Esta acción saca el producto del inventario (entrega, consumo, merma o baja). No es un traslado.</p>
-        <InvSelect label="Almacén desde el que se descarga" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
+        <InvSelect label="Almacén desde el que se descarga" value={warehouseId} onChange={(e) => { setWarehouseId(e.target.value); setCompanyId(''); }} required>
           <option value="">Seleccione...</option>
           {warehouses.filter((w) => w.kind === 'UNIT').length > 0 && (
             <optgroup label="Unidades">
@@ -639,7 +717,13 @@ const StockConsumeModal = ({ product, warehouses, onClose }: { product: InvProdu
             </optgroup>
           )}
         </InvSelect>
-        {warehouseId && <p className="text-xs text-slate-500">Disponible: <strong>{maxQuantity}</strong></p>}
+        {warehouseId && <p className="text-xs text-slate-500">Disponible: <strong>{cap}</strong>{lots.length > 0 ? ' de la empresa elegida' : ''}</p>}
+        {lots.length > 0 && (
+          <InvSelect label="Empresa adquiriente" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+            <option value="">{loose > 0 ? `Sin empresa (stock antiguo: ${loose})` : 'Seleccione...'}</option>
+            {lots.map((lot) => <option key={lot.companyId} value={lot.companyId}>{companyLabel(myCompanies, lot.companyId)} · {lot.quantity}</option>)}
+          </InvSelect>
+        )}
         <InvSelect label="Motivo" value={reason} onChange={(e) => setReason(e.target.value as InvConsumptionReason)}>
           {(Object.keys(INV_CONSUMPTION_REASON_LABELS) as InvConsumptionReason[]).map((key) => (
             <option key={key} value={key}>{INV_CONSUMPTION_REASON_LABELS[key]}</option>
@@ -655,11 +739,12 @@ const StockConsumeModal = ({ product, warehouses, onClose }: { product: InvProdu
             )}
           </>
         )}
-        <InvInput label="Cantidad" type="number" min={1} max={maxQuantity} value={quantity} onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value, 10) || 1)))} />
+        <InvInput label="Cantidad" type="number" min={1} max={cap} value={quantity} onChange={(e) => setQuantity(Math.max(1, Math.min(cap || 1, parseInt(e.target.value, 10) || 1)))} />
         <InvTextarea label="Observaciones" rows={2} value={details} onChange={(e) => setDetails(e.target.value)} />
+        {error && <p className="text-sm text-red-700">{error}</p>}
         <div className="flex justify-end gap-2">
           <InvButton onClick={onClose} className="bg-slate-100 text-slate-700">Cancelar</InvButton>
-          <InvButton type="submit" disabled={!warehouseId || quantity > maxQuantity || maxQuantity <= 0} className="bg-orange-600 hover:bg-orange-700 text-white">Descargar</InvButton>
+          <InvButton type="submit" disabled={!warehouseId || quantity > cap || cap <= 0} className="bg-orange-600 hover:bg-orange-700 text-white">Descargar</InvButton>
         </div>
       </form>
     </InvModal>
@@ -858,7 +943,7 @@ export const InventoryLogView = () => {
                   <tr key={log.id} className="border-b border-slate-100">
                     <td className="p-3 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
                     <td className="p-3"><p className="font-medium">{log.productName}</p><p className="text-xs font-mono text-slate-500">{log.sku}</p></td>
-                    <td className="p-3">{log.warehouseName}</td>
+                    <td className="p-3">{log.warehouseName}{log.companyName ? <span className="block text-xs text-slate-500">{log.companyName}</span> : null}</td>
                     <td className="p-3"><span className={`px-2 py-0.5 text-xs rounded-full ${
                       log.type === 'SALIDA' || log.type === 'CONSUMO' || log.type === 'ENTREGA' ? 'bg-red-50 text-red-700'
                       : log.type === 'ENTRADA' || log.type === 'CREACIÓN' ? 'bg-green-50 text-green-700'
@@ -914,7 +999,7 @@ export const InventoryAccessView = () => {
           <tbody>
             {staff.map((user) => {
               const assigned = warehouseAccess.filter((a) => a.userId === user.id).map((a) => warehouses.find((w) => w.id === a.warehouseId)?.name).filter(Boolean);
-              const admin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN';
+              const admin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'WAREHOUSE_ADMIN';
               return (
                 <tr key={user.id} className="border-b border-slate-100">
                   <td className="p-3"><p className="font-medium">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></td>

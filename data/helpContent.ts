@@ -60,7 +60,8 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'Cada usuario tiene un rol que define qué puede ver y editar.',
         steps: [
           'SUPER_ADMIN / ADMIN: acceso completo, configuración y auditoría.',
-          'OPERATIONS / OPERATIONS_SUPERVISOR: operación diaria de unidades, retenes, ATS y vacaciones.',
+          'OPERATIONS / OPERATIONS_SUPERVISOR: operación diaria de unidades, retenes, ATS y vacaciones. Desde la logística de la unidad piden materiales al almacén.',
+          'WAREHOUSE_ADMIN (Almacén Admin): controla el inventario completo, autoriza pedidos de las unidades y despacha stock.',
           'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control, headcount, consulta de vacaciones, certificados de capacitación (consulta y PDF) y descarga del Unit Book (sin ver ni editar el contenido).',
         ],
       },
@@ -818,7 +819,8 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'Catálogo con SKU, categoría, precio y umbral. El stock total suma todos los almacenes. Cada fila tiene acciones de edición, ajuste, traslado y descarga.',
         steps: [
           'Añadir: alta individual. También puede importar CSV (nombre, sku, categoría, precio, umbral, descripción).',
-          'Ajustar stock: corrección o ingreso/salida genérica. Use cantidad positiva o negativa según el tipo (Entrada, Salida o Ajuste). No reemplaza a Consumo / entregas.',
+          'Ajustar stock: en una Entrada elija la empresa que adquirió el bien. Esa empresa viaja en traslados y descargos para el cuadre.',
+          'Si el SKU ya existe, el alta no se guarda y se muestra el motivo. Edite el producto existente en lugar de crearlo de nuevo.',
           'Transferir: mueve cantidad de un almacén a otro (el stock no desaparece).',
           'Transferencia múltiple: varios productos en un solo envío central → unidad (o entre almacenes).',
           'Descargar / entregar (↓): saca el producto del inventario con motivo y, si es entrega, destinatario.',
@@ -879,13 +881,13 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Accesos, ajustes y permisos',
-        body: 'ADMIN y SUPER_ADMIN ven todos los almacenes. Al resto se les puede asignar almacenes concretos en Accesos; si no tienen ninguno asignado, ven todos. CLIENT no usa este módulo. La edición (altas, traslados, descargas, OC) requiere permiso de edición de Inventario.',
+        body: 'ADMIN, SUPER_ADMIN y Almacén Admin ven todos los almacenes y autorizan pedidos. Operaciones pide desde la logística de cada unidad. El cuadre por empresa separa el stock según quién lo compró. CLIENT no usa este módulo.',
         steps: [
           'Accesos: asigne almacenes a usuarios operativos (solo administradores).',
           'Ajustes: empresa emisora de documentos, prefijo de OC, umbral por defecto y colores de alerta (en stock / bajo / agotado).',
         ],
         tips: [
-          'Si las tablas aún no existen, ejecute en Supabase MIGRATION_INVENTORY.sql y después MIGRATION_INVENTORY_CONSUMPTION.sql.',
+          'Si las tablas aún no existen, ejecute en Supabase MIGRATION_INVENTORY.sql, después MIGRATION_INVENTORY_CONSUMPTION.sql y luego MIGRATION_INVENTORY_LOGISTICS.sql.',
         ],
       },
     ],

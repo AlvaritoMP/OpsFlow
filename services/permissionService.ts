@@ -120,6 +120,35 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     MATTERMOST: { view: true, edit: true },
     BILLING: { view: true, edit: true },
   },
+  WAREHOUSE_ADMIN: {
+    DASHBOARD: { view: true, edit: false },
+    UNIT_OVERVIEW: { view: true, edit: false },
+    PERSONNEL: { view: false, edit: false },
+    LOGISTICS: { view: true, edit: false },
+    LOGS: { view: false, edit: false },
+    BLUEPRINT: { view: false, edit: false },
+    CONTROL_CENTER: { view: false, edit: false },
+    REPORTS: { view: false, edit: false },
+    CLIENT_REQUESTS: { view: false, edit: false },
+    HEADCOUNT: { view: false, edit: false },
+    POSITIONS_MANAGEMENT: { view: false, edit: false },
+    NIGHT_SUPERVISION: { view: false, edit: false },
+    SUPERVISION_PLANNING: { view: false, edit: false },
+    RETENES: { view: false, edit: false },
+    VACATIONS: { view: false, edit: false },
+    TRAININGS: { view: false, edit: false },
+    ASSETS_CATALOG: { view: false, edit: false },
+    INVENTORY: { view: true, edit: true },
+    DOCUMENTS: { view: false, edit: false },
+    UNIT_BOOK: { view: false, edit: false },
+    WORK_PLAN: { view: false, edit: false },
+    ARCHIVE: { view: false, edit: false },
+    SETTINGS: { view: false, edit: false },
+    ATS_RECEPTION: { view: false, edit: false },
+    HR_OPALOSIS: { view: false, edit: false },
+    MATTERMOST: { view: false, edit: false },
+    BILLING: { view: false, edit: false },
+  },
   CLIENT: {
     DASHBOARD: { view: true, edit: false },
     UNIT_OVERVIEW: { view: true, edit: false },
@@ -239,6 +268,19 @@ export const canDeleteAttendanceIncidents = (user: { role: UserRole; canDeleteAt
   if (user.role === 'SUPER_ADMIN') return true;
   return user.canDeleteAttendanceIncidents === true;
 };
+
+export const USER_ROLE_LABELS: Record<UserRole, string> = {
+  SUPER_ADMIN: 'Super Admin',
+  ADMIN: 'Administrador',
+  OPERATIONS: 'Operaciones',
+  OPERATIONS_SUPERVISOR: 'Supervisor de operaciones',
+  WAREHOUSE_ADMIN: 'Almacén Admin',
+  CLIENT: 'Cliente',
+};
+
+/** Control total del almacén: ve todos los depósitos y autoriza pedidos. */
+export const canManageWarehouse = (role: UserRole | string | undefined): boolean =>
+  role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'WAREHOUSE_ADMIN';
 
 export const FEATURE_LABELS: Record<AppFeature, string> = {
   DASHBOARD: 'Dashboard Principal',

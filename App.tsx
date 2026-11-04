@@ -32,7 +32,7 @@ import {
 import { Unit, UnitStatus, User, UserRole, ManagementStaff, ManagementRole, ResourceType, InventoryApiConfig, PermissionConfig, AppFeature, Client, ClientRepresentative, Position, UnitClass, WorkerTrainingRecordChange } from './types';
 import { getApiConfig, saveApiConfig } from './services/inventoryService';
 import { getGeminiApiKey, saveGeminiApiKey } from './services/geminiService';
-import { getPermissions, savePermissions, FEATURE_LABELS, checkPermission, canDeleteAttendanceIncidents } from './services/permissionService';
+import { getPermissions, savePermissions, FEATURE_LABELS, USER_ROLE_LABELS, checkPermission, canDeleteAttendanceIncidents } from './services/permissionService';
 import { useUnits } from './hooks/useUnits';
 import { useUsers } from './hooks/useUsers';
 import { useManagementStaff } from './hooks/useManagementStaff';
@@ -1325,7 +1325,11 @@ const App: React.FC = () => {
       setUserForm({ name: '', email: '', dni: '', password: '', role: 'OPERATIONS', linkedClientNames: [], canDeleteAttendanceIncidents: false });
     } catch (error: any) {
       console.error('Error al guardar usuario:', error);
-      alert(error.message || 'Error al guardar el usuario. Por favor, intente nuevamente.');
+      const raw = String(error?.message || '');
+      const roleCheck = /users_role_check|WAREHOUSE_ADMIN/i.test(raw);
+      alert(roleCheck
+        ? 'El rol Almacén Admin aún no está habilitado en la base de datos. Ejecute migrations/MIGRATION_INVENTORY_LOGISTICS.sql en Supabase y vuelva a intentarlo.'
+        : (error.message || 'Error al guardar el usuario. Por favor, intente nuevamente.'));
     } finally {
       setUserOperationLoading({ type: null });
     }
@@ -1694,14 +1698,16 @@ const App: React.FC = () => {
 
         // Crear una copia limpia del objeto para evitar referencias circulares
         const cleanPermissions: PermissionConfig = {
+          SUPER_ADMIN: { ...permissions.SUPER_ADMIN },
           ADMIN: { ...permissions.ADMIN },
           OPERATIONS: { ...permissions.OPERATIONS },
           OPERATIONS_SUPERVISOR: { ...permissions.OPERATIONS_SUPERVISOR },
+          WAREHOUSE_ADMIN: { ...permissions.WAREHOUSE_ADMIN },
           CLIENT: { ...permissions.CLIENT }
         };
 
         // Validar estructura de cada rol
-        const roles: UserRole[] = ['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'];
+        const roles: UserRole[] = ['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'CLIENT'];
         for (const role of roles) {
           if (!cleanPermissions[role] || typeof cleanPermissions[role] !== 'object') {
             throw new Error(`Invalid permissions structure for role: ${role}`);
@@ -2486,9 +2492,9 @@ const App: React.FC = () => {
                             <thead>
                                 <tr>
                                     <th className="px-4 py-3 bg-slate-50 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10">Módulo / Función</th>
-                                    {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'].map(role => (
+                                    {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'CLIENT'].map(role => (
                                         <th key={role} className="px-4 py-3 bg-slate-50 text-center text-xs font-bold text-slate-500 uppercase tracking-wider border-l border-slate-200">
-                                            {role === 'ADMIN' ? 'Admin' : role === 'OPERATIONS' ? 'Operaciones' : role === 'OPERATIONS_SUPERVISOR' ? 'Sup. Ops' : 'Cliente'}
+                                            {role === 'ADMIN' ? 'Admin' : role === 'OPERATIONS' ? 'Operaciones' : role === 'OPERATIONS_SUPERVISOR' ? 'Sup. Ops' : role === 'WAREHOUSE_ADMIN' ? 'Almacén' : 'Cliente'}
                                         </th>
                                     ))}
                                 </tr>
@@ -2497,7 +2503,7 @@ const App: React.FC = () => {
                                 {(Object.keys(FEATURE_LABELS) as AppFeature[]).map(feature => (
                                     <tr key={feature} className="hover:bg-slate-50">
                                         <td className="px-4 py-3 text-sm font-medium text-slate-700 sticky left-0 bg-white">{FEATURE_LABELS[feature]}</td>
-                                        {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'CLIENT'].map(roleStr => {
+                                        {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'CLIENT'].map(roleStr => {
                                             const role = roleStr as UserRole;
                                             const perm = permissions[role][feature];
                                             const clientUnitBookViewOnly = role === 'CLIENT' && feature === 'UNIT_BOOK';
@@ -2673,7 +2679,7 @@ const App: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{u.email}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-xs font-medium bg-slate-100 px-2 py-1 rounded-full text-slate-600">{u.role}</span>
+                          <span className="text-xs font-medium bg-slate-100 px-2 py-1 rounded-full text-slate-600">{USER_ROLE_LABELS[u.role] || u.role}</span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">
                           {u.temporaryPassword ? (
@@ -3154,6 +3160,7 @@ const App: React.FC = () => {
                         <select className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value as UserRole})}>
                           <option value="OPERATIONS">Operaciones</option>
                           <option value="OPERATIONS_SUPERVISOR">Supervisor Operaciones</option>
+                          <option value="WAREHOUSE_ADMIN">Almacén Admin</option>
                           <option value="CLIENT">Cliente</option>
                           <option value="ADMIN">Administrador</option>
                           {currentUser?.role === 'SUPER_ADMIN' && (

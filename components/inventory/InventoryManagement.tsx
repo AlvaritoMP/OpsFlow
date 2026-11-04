@@ -14,6 +14,8 @@ import { InventorySuppliersView } from './InventoryBulkTransferModal';
 import { InventoryPurchaseCalendarView, InventoryPurchaseOrdersView } from './InventoryPurchasing';
 import { InventorySettingsView } from './InventorySettingsView';
 import { InventoryConsumptionView } from './InventoryConsumptionView';
+import { InventoryRequisitionsView } from './InventoryRequisitionsView';
+import { InventoryReconciliationView } from './InventoryReconciliationView';
 import type { InventorySectionView, InvProduct, InvUnitOption, User } from '../../types';
 
 interface InventoryManagementProps {
@@ -41,7 +43,9 @@ const InventoryShell = () => {
     { id: 'purchaseOrders' as const, label: 'Órdenes de compra', icon: ClipboardList, show: canEdit },
     { id: 'purchaseCalendar' as const, label: 'Calendario', icon: CalendarDays, show: canEdit },
     { id: 'warehouses' as const, label: 'Almacenes', icon: Warehouse, show: true },
+    { id: 'requisitions' as const, label: 'Pedidos', icon: ClipboardList, show: true },
     { id: 'consumption' as const, label: 'Consumo / entregas', icon: MinusCircle, show: canEdit },
+    { id: 'reconciliation' as const, label: 'Cuadre empresas', icon: Boxes, show: true },
     { id: 'log' as const, label: 'Movimientos', icon: Boxes, show: true },
     { id: 'access' as const, label: 'Accesos', icon: Users, show: isAdmin },
     { id: 'settings' as const, label: 'Ajustes', icon: Settings, show: isAdmin || canEdit },
@@ -70,6 +74,10 @@ const InventoryShell = () => {
         return <InventoryWarehousesView />;
       case 'consumption':
         return <InventoryConsumptionView />;
+      case 'requisitions':
+        return <InventoryRequisitionsView />;
+      case 'reconciliation':
+        return <InventoryReconciliationView />;
       case 'log':
         return <InventoryLogView />;
       case 'access':
@@ -114,7 +122,7 @@ const InventoryShell = () => {
               {error}
               {/relation|does not exist|schema cache|PGRST205|42P01/i.test(error) && (
                 <>
-                  {' '}Ejecute en Supabase <code>migrations/MIGRATION_INVENTORY.sql</code> y luego <code>migrations/MIGRATION_INVENTORY_CONSUMPTION.sql</code> si las tablas aún no existen.
+                  {' '}Ejecute en Supabase <code>migrations/MIGRATION_INVENTORY.sql</code>, luego <code>migrations/MIGRATION_INVENTORY_CONSUMPTION.sql</code> y <code>migrations/MIGRATION_INVENTORY_LOGISTICS.sql</code> si las tablas aún no existen.
                 </>
               )}
             </div>
