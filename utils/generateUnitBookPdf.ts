@@ -62,14 +62,15 @@ async function loadImageAsDataUrl(src: string, maxEdge = 900): Promise<LoadedIma
       });
     }
 
-    const resized = await new Promise<string | null>((resolve) => {
+    const resized = await new Promise<{ dataUrl: string; aspect?: number } | null>((resolve) => {
       const img = new Image();
       img.onload = () => {
         try {
           const w = img.naturalWidth || img.width;
           const h = img.naturalHeight || img.height;
+          const aspect = w > 0 && h > 0 ? w / h : undefined;
           if (!w || !h) {
-            resolve(dataUrl);
+            resolve({ dataUrl, aspect });
             return;
           }
           const scale = Math.min(1, maxEdge / Math.max(w, h));
@@ -80,15 +81,15 @@ async function loadImageAsDataUrl(src: string, maxEdge = 900): Promise<LoadedIma
           canvas.height = ch;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            resolve(dataUrl);
+            resolve({ dataUrl, aspect });
             return;
           }
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, cw, ch);
           ctx.drawImage(img, 0, 0, cw, ch);
-          resolve(canvas.toDataURL('image/jpeg', 0.82));
+          resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.82), aspect: cw / ch });
         } catch {
-          resolve(dataUrl);
+          resolve({ dataUrl });
         }
       };
       img.onerror = () => resolve(null);
@@ -96,7 +97,7 @@ async function loadImageAsDataUrl(src: string, maxEdge = 900): Promise<LoadedIma
     });
 
     if (!resized) return null;
-    return { dataUrl: resized, format: imageFormat(resized) };
+    return { dataUrl: resized.dataUrl, format: imageFormat(resized.dataUrl), aspect: resized.aspect };
   } catch (error) {
     console.warn('No se pudo cargar imagen para Unit Book:', src, error);
     return null;
@@ -336,6 +337,18 @@ function sectionLabel(doc: jsPDF, title: string, y: number): number {
   return y + 8;
 }
 
+/** Encaja la foto dentro del recuadro sin estirarla. */
+function fitInside(maxW: number, maxH: number, aspect?: number): { w: number; h: number } {
+  const safe = aspect && Number.isFinite(aspect) && aspect > 0 ? aspect : maxW / maxH;
+  let w = maxW;
+  let h = w / safe;
+  if (h > maxH) {
+    h = maxH;
+    w = h * safe;
+  }
+  return { w, h };
+}
+
 function addImageSafe(
   doc: jsPDF,
   img: LoadedImage | null | undefined,
@@ -344,9 +357,9 @@ function addImageSafe(
   w: number,
   h: number,
 ) {
-  if (!img?.dataUrl) {
+  if (!img?.dataUrl || w <= 0 || h <= 0) {
     doc.setFillColor(...BLUE_SOFT);
-    doc.rect(x, y, w, h, 'F');
+    doc.rect(x, y, Math.max(w, 0.2), Math.max(h, 0.2), 'F');
     return;
   }
   try {
@@ -419,11 +432,17 @@ export async function generateUnitBookPdf(opts: {
     y = writeLines(doc, bit, MARGIN, y, CONTENT_W * 0.62, 4.2, 2);
   });
 
+  const coverBoxW = CONTENT_W * 0.36;
+  const coverBoxH = 42;
+  let coverBottom = CONTENT_TOP;
   if (cover?.dataUrl) {
-    addImageSafe(doc, cover, MARGIN + CONTENT_W * 0.64, CONTENT_TOP, CONTENT_W * 0.36, 38);
+    const fitted = fitInside(coverBoxW, coverBoxH, cover.aspect);
+    const coverX = PAGE_W - MARGIN - fitted.w;
+    addImageSafe(doc, cover, coverX, CONTENT_TOP, fitted.w, fitted.h);
+    coverBottom = CONTENT_TOP + fitted.h;
   }
 
-  y = Math.max(y, CONTENT_TOP + 38 + 2);
+  y = Math.max(y, coverBottom + 2);
 
   const welcome = text(book.welcomeMessage);
   if (welcome) {
@@ -525,29 +544,41 @@ export async function generateUnitBookPdf(opts: {
     y += mapH + 12;
   }
 
-  // Galería compacta 3 columnas
+  // Galería 3 columnas. Cada foto conserva su proporción (no se estira al recuadro).
   const gallery = photoImgs.filter((p) => p.img?.dataUrl);
   if (gallery.length) {
-    y = ensureSpace(doc, y, 42, logo, pageRef, unitName);
+    y = ensureSpace(doc, y, 36, logo, pageRef, unitName);
     y = sectionLabel(doc, 'Fotos de la unidad', y);
     const cols = 3;
     const gap = 2.5;
     const colW = (CONTENT_W - gap * (cols - 1)) / cols;
-    const imgH = 32;
-    gallery.forEach((item, i) => {
-      const col = i % cols;
-      if (col === 0 && i > 0) y += imgH + (item.photo.caption ? 8 : 3);
-      y = ensureSpace(doc, y, imgH + 8, logo, pageRef, unitName);
-      const x = MARGIN + col * (colW + gap);
-      addImageSafe(doc, item.img, x, y, colW, imgH);
-      if (item.photo.caption) {
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(6.5);
-        doc.setTextColor(...MUTED);
-        doc.text((doc.splitTextToSize(item.photo.caption, colW) as string[])[0] || '', x, y + imgH + 3.2);
-      }
-      if (i === gallery.length - 1) y += imgH + (item.photo.caption ? 8 : 4);
-    });
+    const maxImgH = 46;
+    for (let i = 0; i < gallery.length; i += cols) {
+      const row = gallery.slice(i, i + cols).map((item) => ({
+        ...item,
+        ...fitInside(colW, maxImgH, item.img?.aspect),
+      }));
+      const rowImgH = Math.max(...row.map((item) => item.h));
+      const hasCaption = row.some((item) => text(item.photo.caption));
+      const captionSpace = hasCaption ? 5 : 0;
+      y = ensureSpace(doc, y, rowImgH + captionSpace + 3, logo, pageRef, unitName);
+      row.forEach((item, col) => {
+        const x = MARGIN + col * (colW + gap);
+        const imgX = x + (colW - item.w) / 2;
+        addImageSafe(doc, item.img, imgX, y, item.w, item.h);
+        if (text(item.photo.caption)) {
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(6.5);
+          doc.setTextColor(...MUTED);
+          doc.text(
+            (doc.splitTextToSize(item.photo.caption || '', colW) as string[])[0] || '',
+            x,
+            y + rowImgH + 3.2,
+          );
+        }
+      });
+      y += rowImgH + captionSpace + 3;
+    }
   }
 
   // Equipo compacto 2 columnas
