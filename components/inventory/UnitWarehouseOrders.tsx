@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Package } from 'lucide-react';
 import { stockInventoryService } from '../../services/stockInventoryService';
+import { WorkerAssignmentsPanel } from './WorkerAssignmentsPanel';
 import {
   INV_REQUISITION_STATUS_LABELS,
   type InvOrderTemplate,
   type InvProduct,
   type InvRequisition,
   type InvRequisitionStatus,
+  type InvWorkerAssignment,
 } from '../../types';
 
 const STATUS_CLASS: Record<InvRequisitionStatus, string> = {
@@ -28,6 +30,7 @@ interface UnitWarehouseOrdersProps {
   requestedBy: string;
   requestedByUserId: string;
   canRequest: boolean;
+  workers: { id: string; name: string; dni?: string }[];
 }
 
 function mergeLines(current: Line[], incoming: Line[]): Line[] {
@@ -46,11 +49,14 @@ export const UnitWarehouseOrders: React.FC<UnitWarehouseOrdersProps> = ({
   requestedBy,
   requestedByUserId,
   canRequest,
+  workers,
 }) => {
   const [products, setProducts] = useState<InvProduct[]>([]);
   const [orders, setOrders] = useState<InvRequisition[]>([]);
   const [templates, setTemplates] = useState<InvOrderTemplate[]>([]);
   const [plansReady, setPlansReady] = useState(true);
+  const [assignments, setAssignments] = useState<InvWorkerAssignment[]>([]);
+  const [assignmentsReady, setAssignmentsReady] = useState(true);
   const [ready, setReady] = useState(true);
   const [search, setSearch] = useState('');
   const [notes, setNotes] = useState('');
@@ -65,6 +71,8 @@ export const UnitWarehouseOrders: React.FC<UnitWarehouseOrdersProps> = ({
     setOrders(data.requisitions.filter((row) => row.unitId === unitId));
     setTemplates(data.orderTemplates.filter((row) => row.unitId === unitId));
     setPlansReady(data.plansReady);
+    setAssignments(data.workerAssignments.filter((row) => row.unitId === unitId));
+    setAssignmentsReady(data.assignmentsReady);
     setReady(data.logisticsReady);
   };
 
@@ -350,11 +358,28 @@ export const UnitWarehouseOrders: React.FC<UnitWarehouseOrdersProps> = ({
               )}
             </div>
             {(order.status === 'DESPACHADO' || order.status === 'PARCIAL') && (
-              <p className="text-xs text-indigo-700 mt-2">Ya está en el almacén de la unidad. Descárguelo en Inventario → Consumo / entregas.</p>
+              <p className="text-xs text-indigo-700 mt-2">
+                Ya está en el almacén de la unidad.
+                {order.items.some((item) => products.find((product) => product.id === item.productId)?.assignToWorker)
+                  ? ' Los equipos asignables se entregan a un trabajador más abajo.'
+                  : ' El consumo se descarga en Inventario → Consumo / entregas.'}
+              </p>
             )}
           </div>
         ))}
       </div>
+
+      <WorkerAssignmentsPanel
+        unitId={unitId}
+        workers={workers}
+        products={products}
+        requisitions={orders}
+        assignments={assignments}
+        assignmentsReady={assignmentsReady}
+        canEdit={canRequest}
+        userName={requestedBy}
+        onChanged={reload}
+      />
     </div>
   );
 };

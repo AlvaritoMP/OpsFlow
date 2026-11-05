@@ -16,7 +16,7 @@ const STATUS_CLASS: Record<InvRequisitionStatus, string> = {
 export const InventoryRequisitionsView = () => {
   const {
     requisitions, products, warehouses, inventory, companyStock, myCompanies,
-    units, logisticsReady, canEdit, canFulfillRequisitions, actions,
+    units, logisticsReady, canEdit, canFulfillRequisitions, actions, workerAssignments,
     monthlyOrders, plansReady, currentUser,
   } = useInventory();
   const [panel, setPanel] = useState<'units' | 'month'>('units');
@@ -110,6 +110,11 @@ export const InventoryRequisitionsView = () => {
                         {item.productName} <span className="font-mono text-slate-500">{item.sku}</span> · pedido {item.quantityRequested}
                         {item.quantityApproved > 0 ? ` · despachado ${item.quantityApproved}` : ''}
                         {item.companyName ? ` · ${item.companyName}` : ''}
+                        {products.find((product) => product.id === item.productId)?.assignToWorker ? ' · se asigna a un trabajador' : ''}
+                        {workerAssignments
+                          .filter((assignment) => assignment.requisitionItemId === item.id && assignment.status === 'ASIGNADO')
+                          .map((assignment) => ` · ${assignment.workerName}${assignment.itemLabel ? ` (${assignment.itemLabel})` : ''}`)
+                          .join('')}
                       </p>
                     ))}
                   </td>
@@ -156,6 +161,7 @@ export const InventoryRequisitionsView = () => {
           inventory={inventory}
           companyStock={companyStock}
           companies={myCompanies}
+          products={products}
           onClose={() => setFulfilling(null)}
         />
       )}
@@ -269,6 +275,7 @@ const FulfillModal = ({
   inventory,
   companyStock,
   companies,
+  products,
   onClose,
 }: {
   requisition: InvRequisition;
@@ -276,6 +283,7 @@ const FulfillModal = ({
   inventory: { productId: string; warehouseId: string; quantity: number }[];
   companyStock: { productId: string; warehouseId: string; companyId: string; quantity: number }[];
   companies: { id: string; profileName: string }[];
+  products: { id: string; assignToWorker?: boolean }[];
   onClose: () => void;
 }) => {
   const { actions } = useInventory();
@@ -330,7 +338,7 @@ const FulfillModal = ({
         }}
       >
         <p className="text-sm text-slate-600">
-          Unidad: <strong>{requisition.unitName}</strong>. El despacho mueve el stock del almacén elegido al almacén de la unidad y conserva la empresa que lo adquirió.
+          Unidad: <strong>{requisition.unitName}</strong>. El despacho descarga el almacén de origen y deja el stock en el almacén de la unidad, con la empresa que lo adquirió. Si el producto se asigna a un trabajador, la unidad indica el titular después.
         </p>
         <InvSelect label="Almacén de origen" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
           {central.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
@@ -340,7 +348,10 @@ const FulfillModal = ({
             <div className="flex justify-between gap-2 text-sm">
               <div>
                 <p className="font-medium">{line.name}</p>
-                <p className="text-xs font-mono text-slate-500">{line.sku} · pedido {line.requested} · en origen {line.total}</p>
+                <p className="text-xs font-mono text-slate-500">
+                  {line.sku} · pedido {line.requested} · en origen {line.total}
+                  {products.find((product) => product.id === line.productId)?.assignToWorker ? ' · se asignará a un trabajador en la unidad' : ''}
+                </p>
               </div>
               <input
                 type="number"

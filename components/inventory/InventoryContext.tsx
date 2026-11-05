@@ -19,6 +19,7 @@ import type {
   InvRequisition,
   InvOrderTemplate,
   InvMonthlyOrder,
+  InvWorkerAssignment,
   User,
 } from '../../types';
 
@@ -49,6 +50,8 @@ interface InventoryState {
   orderTemplates: InvOrderTemplate[];
   monthlyOrders: InvMonthlyOrder[];
   plansReady: boolean;
+  workerAssignments: InvWorkerAssignment[];
+  assignmentsReady: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -158,6 +161,8 @@ export const InventoryProvider: React.FC<{
     orderTemplates: [],
     monthlyOrders: [],
     plansReady: true,
+    workerAssignments: [],
+    assignmentsReady: true,
     loading: true,
     error: null,
   });

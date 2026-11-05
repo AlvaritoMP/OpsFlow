@@ -1793,7 +1793,7 @@ const App: React.FC = () => {
         id: unit.id,
         name: unit.name,
         workers: (unit.resources || [])
-          .filter((resource) => resource.type === ResourceType.PERSONNEL && resource.archived !== true && resource.personnelStatus !== 'archivado')
+          .filter((resource) => resource.type === ResourceType.PERSONNEL && resource.archived !== true && resource.personnelStatus !== 'archivado' && resource.personnelStatus !== 'cesado')
           .map((resource) => ({ id: resource.id, name: resource.name, dni: resource.dni })),
       })),
     [operationalUnits]

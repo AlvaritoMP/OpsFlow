@@ -796,7 +796,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'Siga este orden para uniformes e insumos que viajan a unidades. Si entrega o consume en sede, puede descargar directo del central (queda menos trazabilidad de unidad).',
         steps: [
           'Almacenes: un central (depósito propio) y un almacén de unidad por sede. Use el botón masivo si faltan almacenes de unidades.',
-          'Productos: cree el catálogo (nombre, SKU, categoría, precio, umbral de stock bajo).',
+          'Productos: cree el catálogo (nombre, SKU, categoría, precio, umbral de stock bajo). Marque «Se asigna a un trabajador» solo en equipos de cómputo, herramientas o bienes de uso personal.',
           'Ingreso: reciba una orden de compra o use Ajustar stock → Entrada en el almacén central.',
           'Traslado a campo: Transferir (o Transferencia múltiple) desde el central hacia el almacén de la unidad.',
           'Descarga: en Consumo / entregas (o el botón naranja ↓ del producto) saque el ítem del almacén de unidad: entrega a personal, uso interno, merma o baja.',
@@ -825,7 +825,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           'El pedido general del mes lo arma operaciones en el menú Pedidos al almacén (no hace falta tener acceso a Inventario): elige pedidos anteriores de cada unidad, los suma y puede agregar ítems puntuales. El almacén lo atiende en Inventario.',
           'Transferir: mueve cantidad de un almacén a otro (el stock no desaparece).',
           'Transferencia múltiple: varios productos en un solo envío central → unidad (o entre almacenes).',
-          'Descargar / entregar (↓): saca el producto del inventario con motivo y, si es entrega, destinatario.',
+          'Descargar / entregar (↓): saca el producto del inventario con motivo y, si es entrega, destinatario. No use esta descarga para un equipo que debe quedar a nombre de un trabajador: ese caso se asigna desde la logística de la unidad y el stock sigue en el almacén de la unidad.',
+          'Asignaciones: después de despachar el pedido, la unidad elige el trabajador, la cantidad y, si hace falta, la serie. Inventario → Asignaciones muestra esa trazabilidad al almacén.',
         ],
         tips: [
           'El umbral de stock bajo alimenta las alertas del resumen y la OC sugerida.',

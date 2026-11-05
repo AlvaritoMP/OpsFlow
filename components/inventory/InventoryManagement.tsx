@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Boxes, CalendarDays, ClipboardList, LayoutDashboard, MinusCircle, Package, Settings, Truck, Users, Warehouse,
+  Boxes, CalendarDays, ClipboardList, LayoutDashboard, MinusCircle, Package, Settings, Truck, UserRound, Users, Warehouse,
 } from 'lucide-react';
 import { InventoryProvider, useInventory } from './InventoryContext';
 import {
@@ -16,6 +16,7 @@ import { InventorySettingsView } from './InventorySettingsView';
 import { InventoryConsumptionView } from './InventoryConsumptionView';
 import { InventoryRequisitionsView } from './InventoryRequisitionsView';
 import { InventoryReconciliationView } from './InventoryReconciliationView';
+import { WorkerAssignmentsPanel } from './WorkerAssignmentsPanel';
 import type { InventorySectionView, InvProduct, InvUnitOption, User } from '../../types';
 
 interface InventoryManagementProps {
@@ -31,6 +32,31 @@ export const InventoryManagement: React.FC<InventoryManagementProps> = React.mem
   </InventoryProvider>
 ));
 
+const InventoryAssignmentsView = () => {
+  const { products, requisitions, workerAssignments, assignmentsReady, units, canEdit, currentUser, actions } = useInventory();
+  const [unitId, setUnitId] = useState('');
+  const workers = units.find((unit) => unit.id === unitId)?.workers || [];
+  return (
+    <div className="space-y-3">
+      <select value={unitId} onChange={(e) => setUnitId(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
+        <option value="">Todas las unidades</option>
+        {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+      </select>
+      <WorkerAssignmentsPanel
+        unitId={unitId || undefined}
+        workers={workers}
+        products={products}
+        requisitions={requisitions}
+        assignments={workerAssignments}
+        assignmentsReady={assignmentsReady}
+        canEdit={canEdit}
+        userName={currentUser.name}
+        onChanged={() => actions.reload()}
+      />
+    </div>
+  );
+};
+
 const InventoryShell = () => {
   const { loading, error, actions, isAdmin, canEdit } = useInventory();
   const [view, setView] = useState<InventorySectionView>('dashboard');
@@ -44,6 +70,7 @@ const InventoryShell = () => {
     { id: 'purchaseCalendar' as const, label: 'Calendario', icon: CalendarDays, show: canEdit },
     { id: 'warehouses' as const, label: 'Almacenes', icon: Warehouse, show: true },
     { id: 'requisitions' as const, label: 'Pedidos', icon: ClipboardList, show: true },
+    { id: 'assignments' as const, label: 'Asignaciones', icon: UserRound, show: true },
     { id: 'consumption' as const, label: 'Consumo / entregas', icon: MinusCircle, show: canEdit },
     { id: 'reconciliation' as const, label: 'Cuadre empresas', icon: Boxes, show: true },
     { id: 'log' as const, label: 'Movimientos', icon: Boxes, show: true },
@@ -76,6 +103,8 @@ const InventoryShell = () => {
         return <InventoryConsumptionView />;
       case 'requisitions':
         return <InventoryRequisitionsView />;
+      case 'assignments':
+        return <InventoryAssignmentsView />;
       case 'reconciliation':
         return <InventoryReconciliationView />;
       case 'log':
@@ -122,7 +151,7 @@ const InventoryShell = () => {
               {error}
               {/relation|does not exist|schema cache|PGRST205|42P01/i.test(error) && (
                 <>
-                  {' '}Ejecute en Supabase <code>migrations/MIGRATION_INVENTORY.sql</code>, luego <code>migrations/MIGRATION_INVENTORY_CONSUMPTION.sql</code> y <code>migrations/MIGRATION_INVENTORY_LOGISTICS.sql</code> si las tablas aún no existen.
+                  {' '}Ejecute en Supabase <code>migrations/MIGRATION_INVENTORY.sql</code>, luego <code>migrations/MIGRATION_INVENTORY_CONSUMPTION.sql</code>, <code>migrations/MIGRATION_INVENTORY_LOGISTICS.sql</code> y <code>migrations/MIGRATION_INVENTORY_ASSIGNMENTS.sql</code> si las tablas aún no existen.
                 </>
               )}
             </div>

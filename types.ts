@@ -1746,6 +1746,8 @@ export interface InvProduct {
   lowStockThreshold: number;
   description: string;
   images: string[];
+  /** Equipo o bien que, al llegar a la unidad, debe quedar a nombre de un trabajador. */
+  assignToWorker: boolean;
 }
 
 export interface InvStockItem {
@@ -1942,10 +1944,39 @@ export interface InvScheduledPurchase {
   createdBy: string;
 }
 
+export type InvWorkerAssignmentStatus = 'ASIGNADO' | 'DEVUELTO';
+
+export interface InvWorkerAssignment {
+  id: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  unitId: string;
+  unitName: string;
+  warehouseId?: string;
+  requisitionId?: string;
+  requisitionCode: string;
+  requisitionItemId?: string;
+  workerId: string;
+  workerName: string;
+  workerDocument: string;
+  quantity: number;
+  itemLabel: string;
+  status: InvWorkerAssignmentStatus;
+  companyId?: string;
+  companyName: string;
+  notes: string;
+  assignedBy: string;
+  assignedAt: string;
+  returnedBy?: string;
+  returnedAt?: string;
+}
+
 export type InventorySectionView =
   | 'dashboard'
   | 'products'
   | 'warehouses'
+  | 'assignments'
   | 'consumption'
   | 'requisitions'
   | 'reconciliation'

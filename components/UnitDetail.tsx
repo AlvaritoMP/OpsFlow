@@ -8613,6 +8613,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          requestedBy={currentUser?.name || 'Operaciones'}
          requestedByUserId={currentUser?.id || ''}
          canRequest={canEditLogistics}
+         workers={(unit.resources || [])
+           .filter((resource) => resource.type === ResourceType.PERSONNEL && !resource.archived && resource.personnelStatus !== 'cesado' && resource.personnelStatus !== 'archivado')
+           .map((resource) => ({ id: resource.id, name: resource.name, dni: resource.dni }))}
        />
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>

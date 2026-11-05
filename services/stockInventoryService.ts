@@ -24,6 +24,7 @@ import type {
   InvMonthlyOrder,
   InvMonthlyExtra,
   InvMonthlyOrderStatus,
+  InvWorkerAssignment,
 } from '../types';
 
 const db = (table: string) => supabase.from(table as never);
@@ -54,6 +55,7 @@ const mapProduct = (row: Record<string, unknown>): InvProduct => ({
   lowStockThreshold: Number(row.low_stock_threshold ?? 0),
   description: String(row.description ?? ''),
   images: asArray(row.images),
+  assignToWorker: row.assign_to_worker === true,
 });
 
 const mapWarehouse = (row: Record<string, unknown>): InvWarehouse => ({
@@ -110,6 +112,9 @@ function isMissingColumn(error: { message?: string; code?: string } | null, colu
 
 const LOGISTICS_MIGRATION_HINT =
   'Falta aplicar migrations/MIGRATION_INVENTORY_LOGISTICS.sql en Supabase (empresa adquiriente, stock por empresa y pedidos).';
+
+const ASSIGNMENTS_MIGRATION_HINT =
+  'Falta aplicar migrations/MIGRATION_INVENTORY_ASSIGNMENTS.sql en Supabase para asignar equipos a un trabajador.';
 
 const mapCompany = (row: Record<string, unknown>): InvCompany => ({
   id: String(row.id),
@@ -505,6 +510,79 @@ async function assertUniqueSku(sku: string, exceptId?: string): Promise<string> 
   return normalized;
 }
 
+function mapWorkerAssignment(row: Record<string, unknown>): InvWorkerAssignment {
+  const status = row.status === 'DEVUELTO' ? 'DEVUELTO' : 'ASIGNADO';
+  return {
+    id: String(row.id),
+    productId: row.product_id ? String(row.product_id) : '',
+    sku: String(row.sku ?? ''),
+    productName: String(row.product_name ?? ''),
+    unitId: String(row.unit_id ?? ''),
+    unitName: String(row.unit_name ?? ''),
+    warehouseId: row.warehouse_id ? String(row.warehouse_id) : undefined,
+    requisitionId: row.requisition_id ? String(row.requisition_id) : undefined,
+    requisitionCode: String(row.requisition_code ?? ''),
+    requisitionItemId: row.requisition_item_id ? String(row.requisition_item_id) : undefined,
+    workerId: String(row.worker_id ?? ''),
+    workerName: String(row.worker_name ?? ''),
+    workerDocument: String(row.worker_document ?? ''),
+    quantity: Number(row.quantity ?? 0),
+    itemLabel: String(row.item_label ?? ''),
+    status,
+    companyId: row.company_id ? String(row.company_id) : undefined,
+    companyName: String(row.company_name ?? ''),
+    notes: String(row.notes ?? ''),
+    assignedBy: String(row.assigned_by ?? ''),
+    assignedAt: String(row.assigned_at ?? ''),
+    returnedBy: row.returned_by ? String(row.returned_by) : undefined,
+    returnedAt: row.returned_at ? String(row.returned_at) : undefined,
+  };
+}
+
+async function loadWorkerAssignments(): Promise<{
+  workerAssignments: InvWorkerAssignment[];
+  assignmentsReady: boolean;
+}> {
+  const { data, error } = await db('inv_worker_assignments').select('*').order('assigned_at', { ascending: false });
+  if (error) {
+    if (isMissingRelation(error)) return { workerAssignments: [], assignmentsReady: false };
+    throw error;
+  }
+  return {
+    assignmentsReady: true,
+    workerAssignments: ((data as Record<string, unknown>[]) || []).map(mapWorkerAssignment),
+  };
+}
+
+function productRow(product: Omit<InvProduct, 'id'>, sku: string): Record<string, unknown> {
+  return {
+    name: product.name.trim(),
+    sku,
+    category: product.category.trim(),
+    price: product.price,
+    low_stock_threshold: product.lowStockThreshold,
+    description: product.description,
+    images: product.images || [],
+    assign_to_worker: product.assignToWorker === true,
+  };
+}
+
+async function withoutAssignColumn<T>(
+  row: Record<string, unknown>,
+  write: (payload: Record<string, unknown>) => Promise<{ data: T; error: { message?: string; code?: string } | null }>
+): Promise<T> {
+  const attempt = await write(row);
+  if (!attempt.error) return attempt.data;
+  if (isMissingColumn(attempt.error, 'assign_to_worker')) {
+    if (row.assign_to_worker === true) throw new Error(ASSIGNMENTS_MIGRATION_HINT);
+    const { assign_to_worker: _drop, ...rest } = row;
+    const retry = await write(rest);
+    if (retry.error) throw retry.error;
+    return retry.data;
+  }
+  throw attempt.error;
+}
+
 export const stockInventoryService = {
   async loadAll(): Promise<{
     products: InvProduct[];
@@ -523,6 +601,8 @@ export const stockInventoryService = {
     orderTemplates: InvOrderTemplate[];
     monthlyOrders: InvMonthlyOrder[];
     plansReady: boolean;
+    workerAssignments: InvWorkerAssignment[];
+    assignmentsReady: boolean;
   }> {
     try {
       const [
@@ -537,7 +617,7 @@ export const stockInventoryService = {
         scheduledRes,
         accessRes,
       ] = await Promise.all([
-        db('inv_products').select(PRODUCT_LIST_COLUMNS).order('name'),
+        db('inv_products').select(`${PRODUCT_LIST_COLUMNS},assign_to_worker`).order('name'),
         db('inv_warehouses').select('*').order('name'),
         db('inv_stock').select('*'),
         db('inv_movements').select('*').order('timestamp', { ascending: false }).limit(500),
@@ -549,8 +629,15 @@ export const stockInventoryService = {
         db('inv_warehouse_access').select('*'),
       ]);
 
+      let productRows = (productsRes.data as Record<string, unknown>[]) || [];
+      if (productsRes.error) {
+        if (!isMissingColumn(productsRes.error, 'assign_to_worker')) throw productsRes.error;
+        const retry = await db('inv_products').select(PRODUCT_LIST_COLUMNS).order('name');
+        if (retry.error) throw retry.error;
+        productRows = (retry.data as Record<string, unknown>[]) || [];
+      }
       const firstError = [
-        productsRes, warehousesRes, stockRes, logsRes, settingsRes,
+        warehousesRes, stockRes, logsRes, settingsRes,
         companiesRes, suppliersRes, poRes, scheduledRes, accessRes,
       ].find((r) => r.error)?.error;
       if (firstError) throw firstError;
@@ -568,7 +655,7 @@ export const stockInventoryService = {
         : DEFAULT_SETTINGS;
 
       return {
-        products: ((productsRes.data as Record<string, unknown>[]) || []).map(mapProduct),
+        products: productRows.map(mapProduct),
         warehouses: ((warehousesRes.data as Record<string, unknown>[]) || []).map(mapWarehouse),
         inventory: ((stockRes.data as { product_id: string; warehouse_id: string; quantity: number }[]) || []).map((row) => ({
           productId: row.product_id,
@@ -587,6 +674,7 @@ export const stockInventoryService = {
         })),
         ...(await loadLogisticsExtras()),
         ...(await loadOrderPlans()),
+        ...(await loadWorkerAssignments()),
       };
     } catch (error) {
       handleSupabaseError(error);
@@ -610,19 +698,15 @@ export const stockInventoryService = {
     const name = product.name.trim();
     if (!name) throw new Error('El nombre del producto es obligatorio.');
     const sku = await assertUniqueSku(product.sku);
-    const { data, error } = await db('inv_products')
-      .insert({
-        name,
-        sku,
-        category: product.category.trim(),
-        price: product.price,
-        low_stock_threshold: product.lowStockThreshold,
-        description: product.description,
-        images: product.images || [],
-      })
-      .select('*')
-      .single();
-    if (error) throw new Error(formatInventoryError(error, 'No se pudo crear el producto'));
+    let data: unknown;
+    try {
+      data = await withoutAssignColumn(productRow({ ...product, name }, sku), async (payload) => {
+        const result = await db('inv_products').insert(payload).select('*').single();
+        return { data: result.data, error: result.error };
+      });
+    } catch (error) {
+      throw new Error(formatInventoryError(error, 'No se pudo crear el producto'));
+    }
     const created = mapProduct(data as Record<string, unknown>);
     await insertLog({
       timestamp: new Date().toISOString(),
@@ -646,19 +730,17 @@ export const stockInventoryService = {
 
   async updateProduct(product: InvProduct): Promise<void> {
     const sku = await assertUniqueSku(product.sku, product.id);
-    const { error } = await db('inv_products')
-      .update({
-        name: product.name.trim(),
-        sku,
-        category: product.category,
-        price: product.price,
-        low_stock_threshold: product.lowStockThreshold,
-        description: product.description,
-        images: product.images || [],
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', product.id);
-    if (error) throw new Error(formatInventoryError(error, 'No se pudo actualizar el producto'));
+    try {
+      await withoutAssignColumn(
+        { ...productRow(product, sku), updated_at: new Date().toISOString() },
+        async (payload) => {
+          const result = await db('inv_products').update(payload).eq('id', product.id);
+          return { data: null, error: result.error };
+        }
+      );
+    } catch (error) {
+      throw new Error(formatInventoryError(error, 'No se pudo actualizar el producto'));
+    }
   },
 
   async deleteProduct(productId: string): Promise<void> {
@@ -1311,5 +1393,141 @@ export const stockInventoryService = {
   async deleteMonthlyOrder(orderId: string): Promise<void> {
     const { error } = await db('inv_monthly_orders').delete().eq('id', orderId);
     if (error) throw error;
+  },
+
+  async assignRequisitionItem(params: {
+    requisition: InvRequisition;
+    item: InvRequisitionItem;
+    product: InvProduct;
+    worker: { id: string; name: string; dni?: string };
+    quantity: number;
+    itemLabel: string;
+    assignedBy: string;
+  }): Promise<void> {
+    if (!params.product.assignToWorker) {
+      throw new Error('Este producto no se asigna a un trabajador. Márquelo así en el catálogo si es un equipo de uso personal.');
+    }
+    if (params.requisition.status !== 'DESPACHADO' && params.requisition.status !== 'PARCIAL') {
+      throw new Error('Solo se asignan ítems de un pedido ya despachado a la unidad.');
+    }
+    const quantity = Number(params.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Indique una cantidad mayor a cero.');
+    const label = params.itemLabel.trim();
+    if (label && quantity > 1) throw new Error('Si indica serie o identificación, asigne de uno en uno.');
+    const workerName = params.worker.name.trim();
+    if (!params.worker.id || !workerName) throw new Error('Elija el trabajador de la unidad.');
+    if (params.item.quantityApproved + 0.0001 < quantity) {
+      throw new Error('La cantidad supera lo que el almacén despachó en este pedido.');
+    }
+
+    const { data: takenRows, error: takenError } = await db('inv_worker_assignments')
+      .select('quantity')
+      .eq('requisition_item_id', params.item.id)
+      .eq('status', 'ASIGNADO');
+    if (takenError) {
+      if (isMissingRelation(takenError)) throw new Error(ASSIGNMENTS_MIGRATION_HINT);
+      throw takenError;
+    }
+    const already = ((takenRows as { quantity: number }[]) || []).reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    if (already + quantity > params.item.quantityApproved + 0.0001) {
+      throw new Error(`De este pedido quedan ${Math.max(0, params.item.quantityApproved - already)} sin asignar.`);
+    }
+
+    let warehouse: InvWarehouse | null = null;
+    if (params.requisition.destinationWarehouseId) {
+      const { data, error } = await db('inv_warehouses').select('*').eq('id', params.requisition.destinationWarehouseId).maybeSingle();
+      if (error) throw error;
+      if (data) warehouse = mapWarehouse(data as Record<string, unknown>);
+    }
+    if (!warehouse) {
+      warehouse = await this.ensureUnitWarehouse(params.requisition.unitId, params.requisition.unitName);
+    }
+    const stock = await getStockQuantity(params.product.id, warehouse.id);
+    const { data: heldRows, error: heldError } = await db('inv_worker_assignments')
+      .select('quantity')
+      .eq('product_id', params.product.id)
+      .eq('warehouse_id', warehouse.id)
+      .eq('status', 'ASIGNADO');
+    if (heldError) throw heldError;
+    const held = ((heldRows as { quantity: number }[]) || []).reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    if (held + quantity > stock + 0.0001) {
+      throw new Error(`En el almacén de la unidad hay ${stock} y ya hay ${held} asignados. No se puede asignar más de lo que llegó.`);
+    }
+
+    const { error } = await db('inv_worker_assignments').insert({
+      product_id: params.product.id,
+      sku: params.product.sku,
+      product_name: params.product.name,
+      unit_id: params.requisition.unitId,
+      unit_name: params.requisition.unitName,
+      warehouse_id: warehouse.id,
+      requisition_id: params.requisition.id,
+      requisition_code: params.requisition.code,
+      requisition_item_id: params.item.id,
+      worker_id: params.worker.id,
+      worker_name: workerName,
+      worker_document: params.worker.dni?.trim() || '',
+      quantity,
+      item_label: label,
+      status: 'ASIGNADO',
+      company_id: params.item.companyId || null,
+      company_name: params.item.companyName || '',
+      assigned_by: params.assignedBy,
+    });
+    if (error) {
+      if (isMissingRelation(error)) throw new Error(ASSIGNMENTS_MIGRATION_HINT);
+      throw new Error(formatInventoryError(error, 'No se pudo asignar el ítem'));
+    }
+
+    const who = label ? `${workerName} · ${label}` : workerName;
+    await insertLog({
+      timestamp: new Date().toISOString(),
+      productName: params.product.name,
+      sku: params.product.sku,
+      warehouseName: warehouse.name,
+      type: 'AJUSTE',
+      quantityChange: 0,
+      newQuantityInWarehouse: stock,
+      details: `Asignado a ${who}. Pedido ${params.requisition.code}. El stock sigue en el almacén de la unidad.`,
+      user: params.assignedBy,
+      recipient: workerName,
+      companyId: params.item.companyId,
+      companyName: params.item.companyName,
+    }).catch(() => undefined);
+  },
+
+  async returnWorkerAssignment(assignmentId: string, returnedBy: string): Promise<void> {
+    const { data, error } = await db('inv_worker_assignments').select('*').eq('id', assignmentId).maybeSingle();
+    if (error) {
+      if (isMissingRelation(error)) throw new Error(ASSIGNMENTS_MIGRATION_HINT);
+      throw error;
+    }
+    if (!data) throw new Error('Asignación no encontrada.');
+    const current = mapWorkerAssignment(data as Record<string, unknown>);
+    if (current.status !== 'ASIGNADO') throw new Error('Esa asignación ya fue devuelta.');
+    const { error: updateError } = await db('inv_worker_assignments')
+      .update({
+        status: 'DEVUELTO',
+        returned_by: returnedBy,
+        returned_at: new Date().toISOString(),
+      })
+      .eq('id', assignmentId)
+      .eq('status', 'ASIGNADO');
+    if (updateError) throw updateError;
+    const stock = current.warehouseId && current.productId
+      ? await getStockQuantity(current.productId, current.warehouseId)
+      : 0;
+    await insertLog({
+      timestamp: new Date().toISOString(),
+      productName: current.productName,
+      sku: current.sku,
+      warehouseName: current.unitName,
+      type: 'AJUSTE',
+      quantityChange: 0,
+      newQuantityInWarehouse: stock,
+      details: `Dejó de estar asignado a ${current.workerName}. Pedido ${current.requisitionCode}. El stock sigue en la unidad.`,
+      user: returnedBy,
+      recipient: current.workerName,
+    }).catch(() => undefined);
   },
 };

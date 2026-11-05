@@ -187,6 +187,7 @@ const ProductFormModal = ({
     price: product?.price || 0,
     lowStockThreshold: product?.lowStockThreshold || settings.alerts.defaultLowStockThreshold || 0,
     description: product?.description || '',
+    assignToWorker: product?.assignToWorker === true,
   });
   const [images, setImages] = useState<string[]>(product?.images || []);
   const [imagesReady, setImagesReady] = useState(!product?.id);
@@ -251,6 +252,17 @@ const ProductFormModal = ({
         <InvInput label="Precio" type="number" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })} />
         <InvInput label="Umbral de stock bajo" type="number" value={formData.lowStockThreshold} onChange={(e) => setFormData({ ...formData, lowStockThreshold: parseInt(e.target.value, 10) || 0 })} />
         <InvTextarea label="Descripción" rows={3} value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
+        <label className="flex items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={formData.assignToWorker}
+            onChange={(e) => setFormData({ ...formData, assignToWorker: e.target.checked })}
+          />
+          <span>
+            Se asigna a un trabajador (equipo de cómputo, herramienta o bien de uso personal). Al despachar el pedido, el almacén central se descarga, el ítem queda en el almacén de la unidad y operaciones indica quién lo tiene. Los insumos de consumo no llevan esta marca.
+          </span>
+        </label>
         <div>
           <p className="text-sm font-medium text-slate-600 mb-2">Imágenes (hasta 4)</p>
           <div className="grid grid-cols-4 gap-2 mb-2">
@@ -335,7 +347,7 @@ export const InventoryProductsView = () => {
         if (name && sku && !isNaN(price) && !isNaN(lowStockThreshold)) {
           newProducts.push({
             name: name.trim(), sku: sku.trim(), category: (category || '').trim(),
-            price, lowStockThreshold, description: description ? description.trim() : '', images: [],
+            price, lowStockThreshold, description: description ? description.trim() : '', images: [], assignToWorker: false,
           });
         }
       });
@@ -443,6 +455,7 @@ export const InventoryProductsView = () => {
                         <div>
                           <button className="font-semibold text-slate-800 text-left" onClick={() => { setSelectedProduct(p); setModal('detail'); }}>{p.name}</button>
                           <p className="text-xs text-slate-500 font-mono">{p.sku}</p>
+                          {p.assignToWorker && <p className="text-[11px] font-semibold text-indigo-700">Asignable a un trabajador</p>}
                         </div>
                       </div>
                     </td>
@@ -551,6 +564,7 @@ const ProductDetailModal = ({ product, onClose }: { product: InvProduct; onClose
         <div><p className="text-slate-500">Categoría</p><p>{product.category || '—'}</p></div>
         <div><p className="text-slate-500">Precio</p><p className="font-bold text-emerald-700">S/ {product.price.toFixed(2)}</p></div>
         <div><p className="text-slate-500">Umbral</p><p>{product.lowStockThreshold}</p></div>
+        <div className="col-span-2"><p className="text-slate-500">Destino</p><p>{product.assignToWorker ? 'Se asigna a un trabajador de la unidad' : 'Consumo o stock de la unidad, sin titular'}</p></div>
       </div>
       <h4 className="font-semibold mt-4 pt-4 border-t border-slate-200">Stock por almacén</h4>
       {stockByWarehouse.length === 0 ? <p className="text-slate-500 text-sm mt-2">Sin stock.</p> : (
