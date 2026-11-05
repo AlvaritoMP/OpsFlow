@@ -22,6 +22,7 @@ import {
   AtsPresentations,
   HrOpalosisIngreso,
   InventoryManagement,
+  WarehouseRequestsDesk,
   AuditLogs,
   MattermostIncidents,
   ClientBilling,
@@ -72,7 +73,7 @@ const App: React.FC = () => {
   const authRequestRef = useRef(0);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'trainings' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'mattermost' | 'billing'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'trainings' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'warehouse-orders' | 'mattermost' | 'billing'>('dashboard');
   const [mountedViews, setMountedViews] = useState<Set<string>>(() => new Set(['dashboard']));
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
@@ -1952,6 +1953,13 @@ const App: React.FC = () => {
             canEdit={checkPermission(currentUser.role, 'INVENTORY', 'edit')}
           />
         ))}
+        {renderCachedView('warehouse-orders', (
+          <WarehouseRequestsDesk
+            units={inventoryUnitOptions}
+            userName={currentUser.name}
+            canEdit={currentUser.role !== 'CLIENT' && checkPermission(currentUser.role, 'LOGISTICS', 'edit')}
+          />
+        ))}
         {renderCachedView('billing', (
           <ClientBilling
             units={operationalUnits}
@@ -3786,6 +3794,16 @@ const App: React.FC = () => {
                   >
                     <MessageCircle size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Mattermost</span>
+                  </button>
+              )}
+
+              {currentUser.role !== 'CLIENT' && checkPermission(currentUser.role, 'LOGISTICS', 'view') && (
+                  <button
+                    onClick={() => { setCurrentView('warehouse-orders'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'warehouse-orders' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <ClipboardList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Pedidos al almacén</span>
                   </button>
               )}
 

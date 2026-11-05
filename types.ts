@@ -1821,6 +1821,51 @@ export interface InvRequisition {
   items: InvRequisitionItem[];
 }
 
+export interface InvOrderTemplateItem {
+  id: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface InvOrderTemplate {
+  id: string;
+  unitId: string;
+  unitName: string;
+  name: string;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+  items: InvOrderTemplateItem[];
+}
+
+export type InvMonthlyOrderStatus = 'BORRADOR' | 'CONFIRMADO';
+
+export interface InvMonthlyExtra {
+  id: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  quantity: number;
+  unitId?: string;
+  unitName?: string;
+  notes: string;
+}
+
+export interface InvMonthlyOrder {
+  id: string;
+  code: string;
+  period: string;
+  title: string;
+  notes: string;
+  status: InvMonthlyOrderStatus;
+  createdBy: string;
+  createdAt: string;
+  sourceRequisitionIds: string[];
+  extras: InvMonthlyExtra[];
+}
+
 export interface InvWarehouseAccess {
   userId: string;
   warehouseId: string;

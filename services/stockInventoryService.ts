@@ -19,6 +19,11 @@ import type {
   InvRequisition,
   InvRequisitionItem,
   InvRequisitionStatus,
+  InvOrderTemplate,
+  InvOrderTemplateItem,
+  InvMonthlyOrder,
+  InvMonthlyExtra,
+  InvMonthlyOrderStatus,
 } from '../types';
 
 const db = (table: string) => supabase.from(table as never);
@@ -395,6 +400,98 @@ async function loadLogisticsExtras(): Promise<{
   };
 }
 
+function mapTemplateItem(row: Record<string, unknown>): InvOrderTemplateItem {
+  return {
+    id: String(row.id),
+    productId: row.product_id ? String(row.product_id) : '',
+    sku: String(row.sku ?? ''),
+    productName: String(row.product_name ?? ''),
+    quantity: Number(row.quantity ?? 0),
+  };
+}
+
+function mapMonthlyExtra(row: Record<string, unknown>): InvMonthlyExtra {
+  return {
+    id: String(row.id),
+    productId: row.product_id ? String(row.product_id) : '',
+    sku: String(row.sku ?? ''),
+    productName: String(row.product_name ?? ''),
+    quantity: Number(row.quantity ?? 0),
+    unitId: row.unit_id ? String(row.unit_id) : undefined,
+    unitName: row.unit_name ? String(row.unit_name) : undefined,
+    notes: String(row.notes ?? ''),
+  };
+}
+
+async function loadOrderPlans(): Promise<{
+  orderTemplates: InvOrderTemplate[];
+  monthlyOrders: InvMonthlyOrder[];
+  plansReady: boolean;
+}> {
+  const [tplRes, tplItemRes, monthRes, sourceRes, extraRes] = await Promise.all([
+    db('inv_order_templates').select('*').order('name'),
+    db('inv_order_template_items').select('*'),
+    db('inv_monthly_orders').select('*').order('period', { ascending: false }),
+    db('inv_monthly_order_sources').select('*'),
+    db('inv_monthly_order_extras').select('*'),
+  ]);
+  const errors = [tplRes.error, tplItemRes.error, monthRes.error, sourceRes.error, extraRes.error].filter(Boolean);
+  if (errors.some((error) => isMissingRelation(error))) {
+    return { orderTemplates: [], monthlyOrders: [], plansReady: false };
+  }
+  if (errors[0]) throw errors[0];
+
+  const templateItems = ((tplItemRes.data as Record<string, unknown>[]) || []).map(mapTemplateItem);
+  const itemsByTemplate = new Map<string, InvOrderTemplateItem[]>();
+  ((tplItemRes.data as { template_id?: string }[]) || []).forEach((row, index) => {
+    const key = String(row.template_id || '');
+    const list = itemsByTemplate.get(key) || [];
+    list.push(templateItems[index]);
+    itemsByTemplate.set(key, list);
+  });
+
+  const sourcesByOrder = new Map<string, string[]>();
+  ((sourceRes.data as { monthly_order_id?: string; requisition_id?: string }[]) || []).forEach((row) => {
+    const key = String(row.monthly_order_id || '');
+    const list = sourcesByOrder.get(key) || [];
+    if (row.requisition_id) list.push(String(row.requisition_id));
+    sourcesByOrder.set(key, list);
+  });
+  const extrasByOrder = new Map<string, InvMonthlyExtra[]>();
+  ((extraRes.data as Record<string, unknown>[]) || []).forEach((row) => {
+    const key = String(row.monthly_order_id || '');
+    const list = extrasByOrder.get(key) || [];
+    list.push(mapMonthlyExtra(row));
+    extrasByOrder.set(key, list);
+  });
+
+  return {
+    plansReady: true,
+    orderTemplates: ((tplRes.data as Record<string, unknown>[]) || []).map((row) => ({
+      id: String(row.id),
+      unitId: String(row.unit_id ?? ''),
+      unitName: String(row.unit_name ?? ''),
+      name: String(row.name ?? ''),
+      notes: String(row.notes ?? ''),
+      createdBy: String(row.created_by ?? ''),
+      createdAt: String(row.created_at ?? ''),
+      items: itemsByTemplate.get(String(row.id)) || [],
+    })),
+    monthlyOrders: ((monthRes.data as Record<string, unknown>[]) || []).map((row) => ({
+      id: String(row.id),
+      code: String(row.code ?? ''),
+      period: String(row.period ?? ''),
+      title: String(row.title ?? ''),
+      notes: String(row.notes ?? ''),
+      status: ((row.status as InvMonthlyOrderStatus) || 'BORRADOR'),
+      createdBy: String(row.created_by ?? ''),
+      createdAt: String(row.created_at ?? ''),
+      sourceRequisitionIds: sourcesByOrder.get(String(row.id)) || [],
+      extras: extrasByOrder.get(String(row.id)) || [],
+    })),
+  };
+}
+
 async function assertUniqueSku(sku: string, exceptId?: string): Promise<string> {
   const normalized = sku.trim();
   if (!normalized) throw new Error('El SKU es obligatorio.');
@@ -423,6 +520,9 @@ export const stockInventoryService = {
     companyStock: InvCompanyStock[];
     requisitions: InvRequisition[];
     logisticsReady: boolean;
+    orderTemplates: InvOrderTemplate[];
+    monthlyOrders: InvMonthlyOrder[];
+    plansReady: boolean;
   }> {
     try {
       const [
@@ -486,6 +586,7 @@ export const stockInventoryService = {
           warehouseId: row.warehouse_id,
         })),
         ...(await loadLogisticsExtras()),
+        ...(await loadOrderPlans()),
       };
     } catch (error) {
       handleSupabaseError(error);
@@ -562,7 +663,13 @@ export const stockInventoryService = {
 
   async deleteProduct(productId: string): Promise<void> {
     const { error } = await db('inv_products').delete().eq('id', productId);
-    if (error) throw error;
+    if (error) {
+      const code = (error as { code?: string }).code;
+      if (code === '23503') {
+        throw new Error('No se puede eliminar: el producto está usado en un pedido, plantilla u otro registro. Cancele ese uso o deje el producto en el catálogo.');
+      }
+      throw new Error(formatInventoryError(error, 'No se pudo eliminar el producto'));
+    }
   },
 
   async createWarehouse(warehouse: Omit<InvWarehouse, 'id'>): Promise<InvWarehouse> {
@@ -1067,6 +1174,142 @@ export const stockInventoryService = {
       })
       .eq('id', params.requisition.id)
       .eq('status', 'SOLICITADO');
+    if (error) throw error;
+  },
+
+  async saveOrderTemplate(params: {
+    unitId: string;
+    unitName: string;
+    name: string;
+    notes: string;
+    createdBy: string;
+    items: { product: InvProduct; quantity: number }[];
+  }): Promise<void> {
+    const lines = params.items.filter((item) => item.quantity > 0);
+    if (!params.name.trim()) throw new Error('Ponga un nombre a la plantilla.');
+    if (lines.length === 0) throw new Error('Agregue al menos un producto a la plantilla.');
+    const { data, error } = await db('inv_order_templates')
+      .insert({
+        unit_id: params.unitId,
+        unit_name: params.unitName,
+        name: params.name.trim(),
+        notes: params.notes.trim(),
+        created_by: params.createdBy,
+      })
+      .select('id')
+      .single();
+    if (error) {
+      if (isMissingRelation(error)) throw new Error('Falta aplicar migrations/MIGRATION_INVENTORY_ORDER_PLANS.sql en Supabase para guardar plantillas.');
+      throw error;
+    }
+    const templateId = String((data as { id: string }).id);
+    const { error: itemError } = await db('inv_order_template_items').insert(
+      lines.map((line) => ({
+        template_id: templateId,
+        product_id: line.product.id,
+        sku: line.product.sku,
+        product_name: line.product.name,
+        quantity: line.quantity,
+      }))
+    );
+    if (itemError) throw itemError;
+  },
+
+  async deleteOrderTemplate(templateId: string): Promise<void> {
+    const { error } = await db('inv_order_templates').delete().eq('id', templateId);
+    if (error) throw error;
+  },
+
+  async saveMonthlyOrder(params: {
+    id?: string;
+    period: string;
+    title: string;
+    notes: string;
+    status: InvMonthlyOrderStatus;
+    createdBy: string;
+    sourceRequisitionIds: string[];
+    extras: Omit<InvMonthlyExtra, 'id'>[];
+  }): Promise<string> {
+    const title = params.title.trim();
+    if (!params.period) throw new Error('Indique el mes del pedido consolidado.');
+    if (!title) throw new Error('Indique un título para el pedido del mes.');
+    let id = params.id;
+    if (!id) {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const code = `MES-${params.period.replace('-', '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+        const { data, error } = await db('inv_monthly_orders')
+          .insert({
+            code,
+            period: params.period,
+            title,
+            notes: params.notes.trim(),
+            status: params.status,
+            created_by: params.createdBy,
+          })
+          .select('id')
+          .single();
+        if (!error) {
+          id = String((data as { id: string }).id);
+          break;
+        }
+        if (isMissingRelation(error)) throw new Error('Falta aplicar migrations/MIGRATION_INVENTORY_ORDER_PLANS.sql en Supabase.');
+        if ((error as { code?: string }).code === '23505') {
+          lastError = error;
+          continue;
+        }
+        throw error;
+      }
+      if (!id) throw new Error(formatInventoryError(lastError, 'No se pudo crear el pedido del mes'));
+    } else {
+      const { error } = await db('inv_monthly_orders')
+        .update({
+          period: params.period,
+          title,
+          notes: params.notes.trim(),
+          status: params.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+      if (error) {
+        if (isMissingRelation(error)) throw new Error('Falta aplicar migrations/MIGRATION_INVENTORY_ORDER_PLANS.sql en Supabase.');
+        throw error;
+      }
+    }
+
+    const { error: delSources } = await db('inv_monthly_order_sources').delete().eq('monthly_order_id', id);
+    if (delSources) throw delSources;
+    const { error: delExtras } = await db('inv_monthly_order_extras').delete().eq('monthly_order_id', id);
+    if (delExtras) throw delExtras;
+
+    const sourceIds = Array.from(new Set(params.sourceRequisitionIds.filter(Boolean)));
+    if (sourceIds.length > 0) {
+      const { error } = await db('inv_monthly_order_sources').insert(
+        sourceIds.map((requisitionId) => ({ monthly_order_id: id, requisition_id: requisitionId }))
+      );
+      if (error) throw error;
+    }
+    const extras = params.extras.filter((line) => line.quantity > 0 && line.productId);
+    if (extras.length > 0) {
+      const { error } = await db('inv_monthly_order_extras').insert(
+        extras.map((line) => ({
+          monthly_order_id: id,
+          product_id: line.productId,
+          sku: line.sku,
+          product_name: line.productName,
+          quantity: line.quantity,
+          unit_id: line.unitId || null,
+          unit_name: line.unitName || '',
+          notes: line.notes || '',
+        }))
+      );
+      if (error) throw error;
+    }
+    return id;
+  },
+
+  async deleteMonthlyOrder(orderId: string): Promise<void> {
+    const { error } = await db('inv_monthly_orders').delete().eq('id', orderId);
     if (error) throw error;
   },
 };

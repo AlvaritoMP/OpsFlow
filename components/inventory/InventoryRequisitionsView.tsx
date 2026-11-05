@@ -3,6 +3,7 @@ import { useInventory } from './InventoryContext';
 import { InvButton, InvCard, InvInput, InvModal, InvSelect, InvTextarea } from './InventoryUi';
 import { INV_REQUISITION_STATUS_LABELS, type InvRequisition, type InvRequisitionStatus } from '../../types';
 import { companyLabel, lotsInWarehouse, unassignedQuantity } from '../../utils/inventoryLots';
+import { InventoryMonthlyOrders } from './InventoryMonthlyOrders';
 
 const STATUS_CLASS: Record<InvRequisitionStatus, string> = {
   SOLICITADO: 'bg-amber-50 text-amber-800',
@@ -16,7 +17,9 @@ export const InventoryRequisitionsView = () => {
   const {
     requisitions, products, warehouses, inventory, companyStock, myCompanies,
     units, logisticsReady, canEdit, canFulfillRequisitions, actions,
+    monthlyOrders, plansReady, currentUser,
   } = useInventory();
+  const [panel, setPanel] = useState<'units' | 'month'>('units');
   const [statusFilter, setStatusFilter] = useState<InvRequisitionStatus | ''>('SOLICITADO');
   const [creating, setCreating] = useState(false);
   const [fulfilling, setFulfilling] = useState<InvRequisition | null>(null);
@@ -38,11 +41,31 @@ export const InventoryRequisitionsView = () => {
 
   return (
     <div className="space-y-4">
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setPanel('units')} className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${panel === 'units' ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Pedidos recibidos</button>
+        {canFulfillRequisitions && (
+          <button type="button" onClick={() => setPanel('month')} className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${panel === 'month' ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Consolidados del mes</button>
+        )}
+      </div>
+      {panel === 'month' && (
+        <InventoryMonthlyOrders
+          products={products}
+          requisitions={requisitions}
+          units={units}
+          userName={currentUser.name}
+          canEdit={canEdit}
+          plansReady={plansReady}
+          monthlyOrders={monthlyOrders}
+          onChanged={() => actions.reload()}
+        />
+      )}
+      {panel === 'units' && (
+      <div className="space-y-4">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Pedidos de unidades</h1>
           <p className="text-slate-500 text-sm">
-            La unidad pide. El almacén autoriza y despacha al almacén de esa unidad. Después la unidad descarga el consumo.
+            Estos pedidos los envían las unidades y, el del mes, operaciones desde Pedidos al almacén. Aquí el almacén los autoriza y despacha.
           </p>
         </div>
         <div className="flex gap-2">
@@ -136,6 +159,8 @@ export const InventoryRequisitionsView = () => {
           onClose={() => setFulfilling(null)}
         />
       )}
+      </div>
+      )}
     </div>
   );
 };
@@ -226,11 +251,12 @@ const NewRequisitionModal = ({
             <button type="button" className="text-red-600" onClick={() => setLines((prev) => prev.filter((row) => row.productId !== line.productId))}>Quitar</button>
           </div>
         ))}
+        <p className="text-xs text-slate-500">Todos los productos de esta lista salen en un solo pedido.</p>
         <InvTextarea label="Notas para el almacén" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         {error && <p className="text-sm text-red-700">{error}</p>}
         <div className="flex justify-end gap-2">
           <InvButton type="button" className="bg-slate-100 text-slate-700" onClick={onClose}>Cancelar</InvButton>
-          <InvButton type="submit" disabled={saving || lines.length === 0 || !unitId}>{saving ? 'Enviando...' : 'Enviar pedido'}</InvButton>
+          <InvButton type="submit" disabled={saving || lines.length === 0 || !unitId}>{saving ? 'Enviando...' : `Enviar pedido (${lines.length} ítem${lines.length === 1 ? '' : 's'})`}</InvButton>
         </div>
       </form>
     </InvModal>

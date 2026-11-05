@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeftRight, FileDown, FileUp, Filter, Package, Plus, RefreshCw, Search, SlidersHorizontal, Warehouse as WarehouseIcon, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, FileDown, FileUp, Filter, Package, Plus, RefreshCw, Search, SlidersHorizontal, Trash2, Warehouse as WarehouseIcon, XCircle } from 'lucide-react';
 import { useInventory } from './InventoryContext';
 import { InvButton, InvCard, InvInput, InvModal, InvSelect, InvTextarea, exportToCsv } from './InventoryUi';
 import { InventoryBulkTransferModal } from './InventoryBulkTransferModal';
@@ -289,6 +289,7 @@ export const InventoryProductsView = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState({ category: '', stockStatus: '' });
   const [showFilters, setShowFilters] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const productTotals = useMemo(
@@ -416,6 +417,7 @@ export const InventoryProductsView = () => {
             </select>
           </div>
         )}
+        {deleteError && <p className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{deleteError}</p>}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-slate-500">
@@ -457,6 +459,24 @@ export const InventoryProductsView = () => {
                           <InvButton title="Ajustar stock" onClick={() => { setSelectedProduct(p); setModal('adjust'); }} className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2"><RefreshCw size={14} /></InvButton>
                           <InvButton title="Transferir" onClick={() => { setSelectedProduct(p); setModal('transfer'); }} className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2"><ArrowLeftRight size={14} /></InvButton>
                           <InvButton title="Descargar / entregar" onClick={() => { setSelectedProduct(p); setModal('consume'); }} className="bg-orange-50 hover:bg-orange-100 text-orange-700 p-2">↓</InvButton>
+                          <InvButton
+                            title="Eliminar"
+                            className="bg-red-50 hover:bg-red-100 text-red-700 p-2"
+                            onClick={async () => {
+                              const stockNote = p.totalQuantity > 0
+                                ? ` Tiene ${p.totalQuantity} en stock y ese stock también se eliminará.`
+                                : '';
+                              if (!window.confirm(`¿Eliminar «${p.name}» (${p.sku})?${stockNote} No se puede deshacer.`)) return;
+                              try {
+                                setDeleteError(null);
+                                await actions.deleteProduct(p.id);
+                              } catch (error) {
+                                setDeleteError(error instanceof Error ? error.message : 'No se pudo eliminar el producto');
+                              }
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </InvButton>
                         </div>
                       </td>
                     )}

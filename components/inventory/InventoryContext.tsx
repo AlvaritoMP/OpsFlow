@@ -17,6 +17,8 @@ import type {
   InvConsumptionReason,
   InvCompanyStock,
   InvRequisition,
+  InvOrderTemplate,
+  InvMonthlyOrder,
   User,
 } from '../../types';
 
@@ -44,6 +46,9 @@ interface InventoryState {
   companyStock: InvCompanyStock[];
   requisitions: InvRequisition[];
   logisticsReady: boolean;
+  orderTemplates: InvOrderTemplate[];
+  monthlyOrders: InvMonthlyOrder[];
+  plansReady: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -150,6 +155,9 @@ export const InventoryProvider: React.FC<{
     companyStock: [],
     requisitions: [],
     logisticsReady: true,
+    orderTemplates: [],
+    monthlyOrders: [],
+    plansReady: true,
     loading: true,
     error: null,
   });

@@ -4386,15 +4386,19 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const handleDeleteResource = async () => {
-    if (!onUpdate || !editingResource) return;
+    if ((!onUpdate && !replaceUnitInState) || !editingResource) return;
     if (!confirm('¿Estás seguro de eliminar este recurso?')) return;
 
     setIsDeletingResource(true);
     try {
       const { resourcesService } = await import('../services/resourcesService');
       await resourcesService.delete(editingResource.id);
-      const updatedResources = unit.resources.filter((r) => r.id !== editingResource.id);
-      await onUpdate({ ...unit, resources: updatedResources });
+      const nextUnit = {
+        ...unit,
+        resources: unit.resources.filter((r) => r.id !== editingResource.id),
+      };
+      if (replaceUnitInState) replaceUnitInState(nextUnit);
+      else await onUpdate?.(nextUnit);
       setEditingResource(null);
       setNotification({ type: 'success', message: 'Recurso eliminado.' });
       setTimeout(() => setNotification(null), 3000);
@@ -7511,22 +7515,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     <button 
                                         onClick={async () => {
                                             if (confirm(`¿Está seguro de eliminar a ${worker.name}? Esta acción no se puede deshacer.`)) {
-                                            if (!onUpdate) return;
+                                            if (!onUpdate && !replaceUnitInState) return;
                                             try {
                                                 const { resourcesService } = await import('../services/resourcesService');
-                                                // Intentar eliminar desde el servicio
                                                 await resourcesService.delete(worker.id);
-                                                // Actualizar localmente
-                                                const currentTab = activeTabRef.current;
-                                                const updatedUnit = { ...unit };
-                                                updatedUnit.resources = updatedUnit.resources.filter(r => r.id !== worker.id);
-                                                onUpdate(updatedUnit);
-                                                // Asegurar que el tab se mantenga
-                                                setTimeout(() => {
-                                                    if (activeTab !== currentTab) {
-                                                        setActiveTab(currentTab);
-                                                    }
-                                                }, 100);
+                                                const nextUnit = {
+                                                    ...unit,
+                                                    resources: unit.resources.filter(r => r.id !== worker.id),
+                                                };
+                                                if (replaceUnitInState) replaceUnitInState(nextUnit);
+                                                else await onUpdate?.(nextUnit);
                                                 setNotification({ type: 'success', message: 'Trabajador eliminado correctamente' });
                                                 setTimeout(() => setNotification(null), 3000);
                                             } catch (error) {

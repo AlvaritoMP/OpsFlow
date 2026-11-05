@@ -145,6 +145,9 @@ export const HrOpalosisIngreso = lazyView(() =>
 export const InventoryManagement = lazyView(() =>
   import('./inventory/InventoryManagement').then((m) => ({ default: m.InventoryManagement }))
 );
+export const WarehouseRequestsDesk = lazyView(() =>
+  import('./inventory/WarehouseRequestsDesk').then((m) => ({ default: m.WarehouseRequestsDesk }))
+);
 export const AuditLogs = lazyView(() =>
   import('./AuditLogs').then((m) => ({ default: m.AuditLogs }))
 );

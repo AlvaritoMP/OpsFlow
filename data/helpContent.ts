@@ -821,6 +821,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Añadir: alta individual. También puede importar CSV (nombre, sku, categoría, precio, umbral, descripción).',
           'Ajustar stock: en una Entrada elija la empresa que adquirió el bien. Esa empresa viaja en traslados y descargos para el cuadre.',
           'Si el SKU ya existe, el alta no se guarda y se muestra el motivo. Edite el producto existente en lugar de crearlo de nuevo.',
+          'Desde la logística de la unidad se arman pedidos con varios productos. Ese pedido queda guardado: se puede repetir o guardar como plantilla.',
+          'El pedido general del mes lo arma operaciones en el menú Pedidos al almacén (no hace falta tener acceso a Inventario): elige pedidos anteriores de cada unidad, los suma y puede agregar ítems puntuales. El almacén lo atiende en Inventario.',
           'Transferir: mueve cantidad de un almacén a otro (el stock no desaparece).',
           'Transferencia múltiple: varios productos en un solo envío central → unidad (o entre almacenes).',
           'Descargar / entregar (↓): saca el producto del inventario con motivo y, si es entrega, destinatario.',
