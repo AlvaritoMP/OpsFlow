@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Propuesta Económica - Opalo</title>
+  <style>
+    @page { 
+      size: 210mm 297mm; 
+      margin: 0; 
+    }
+    *, *::before, *::after { 
+      box-sizing: border-box; 
+    }
+    html, body { 
+      margin: 0; 
+      padding: 0; 
+    }
+    html { 
+      background-color: #ffffff; 
+    }
+    body {
+      margin: 0 auto;
+      font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+      color: #111827;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      width: 210mm;
+      height: 297mm;
+      margin: 0 auto;
+      padding: 16mm 18mm 14mm 18mm;
+      background-color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .page-content {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .page-content > * + * {
+      margin-top: 13px;
+    }
+    .page-content > :is(h1, h2, h3, h4) + * {
+      margin-top: 6px;
+    }
+
+    .page-footer {
+      flex-shrink: 0;
+      margin-top: auto;
+      padding-top: 3.5mm;
+      border-top: 1px solid #cbd5e1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 8.5pt;
+      color: #475569;
+    }
+
+    @media print {
+      *, *::before, *::after {
+        box-shadow: none !important;
+        text-shadow: none !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      body { padding: 0; background: none; }
+      .page {
+        margin: 0;
+        border: none;
+        break-after: page;
+        page-break-after: always;
+      }
+      .page:last-child { break-after: auto; page-break-after: auto; }
+    }
+
+    :root {
+      --corp-navy: #142b52;
+      --corp-red: #b3141f;
+      --corp-bg-soft: #f8fafc;
+      --corp-line: #cbd5e1;
+      --corp-dark: #0f172a;
+    }
+
+    /* Cabecera superior con recorte del logo al ras izquierdo */
+    .top-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid var(--corp-navy);
+      padding-bottom: 8px;
+    }
+    .logo-frame {
+      width: 175px;
+      height: 48px;
+      overflow: hidden;
+      position: relative;
+      margin-left: 0;
+    }
+    .logo-img {
+      position: absolute;
+      left: -48px;
+      top: -38px;
+      width: 250px;
+      height: auto;
+      display: block;
+    }
+    .top-meta {
+      text-align: right;
+    }
+    .top-meta .doc-code {
+      font-size: 11pt;
+      font-weight: bold;
+      color: var(--corp-navy);
+      letter-spacing: 0.5px;
+    }
+    .top-meta .doc-date {
+      font-size: 9pt;
+      color: #334155;
+      margin-top: 3px;
+    }
+
+    /* Banner de Título */
+    .title-banner {
+      background-color: var(--corp-navy);
+      color: #ffffff;
+      padding: 9px 14px;
+      border-left: 5px solid var(--corp-red);
+    }
+    .title-banner h1 {
+      margin: 0;
+      font-size: 11.5pt;
+      font-weight: bold;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: #ffffff;
+    }
+    .title-banner .subtext {
+      margin-top: 3px;
+      font-size: 9pt;
+      color: #e2e8f0;
+      font-weight: normal;
+    }
+
+    /* Bloque del Cliente */
+    .client-card {
+      border: 1px solid var(--corp-line);
+      background-color: var(--corp-bg-soft);
+      padding: 9px 12px;
+    }
+    .client-grid {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9pt;
+    }
+    .client-grid td {
+      padding: 2.5px 4px;
+      vertical-align: top;
+      color: #1e293b;
+    }
+    .client-grid .lbl {
+      width: 15%;
+      font-weight: bold;
+      color: var(--corp-navy);
+      font-size: 8.5pt;
+      text-transform: uppercase;
+    }
+    .client-grid .val {
+      width: 85%;
+    }
+
+    .letter-salute {
+      font-size: 9.5pt;
+      font-weight: bold;
+      color: var(--corp-dark);
+      margin-bottom: 4px;
+    }
+    p.letter-body {
+      font-size: 9.2pt;
+      line-height: 1.55;
+      color: #1e293b;
+      margin: 0 0 10px 0;
+      text-align: justify;
+    }
+
+    h2.section-heading {
+      font-size: 9.5pt;
+      font-weight: bold;
+      color: var(--corp-navy);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      border-bottom: 1.5px solid var(--corp-navy);
+      padding-bottom: 3px;
+      margin-top: 12px;
+      margin-bottom: 8px;
+    }
+
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8.5pt;
+      margin-bottom: 10px;
+    }
+    table.data-table th {
+      background-color: var(--corp-navy);
+      color: #ffffff;
+      font-weight: bold;
+      text-align: left;
+      padding: 5px 8px;
+      font-size: 8pt;
+      border: 1px solid var(--corp-navy);
+    }
+    table.data-table td {
+      padding: 4.5px 7px;
+      border: 1px solid #cbd5e1;
+      color: #1e293b;
+      vertical-align: middle;
+    }
+    .subhead-row td {
+      background-color: #f1f5f9;
+      font-weight: bold;
+      font-size: 8pt;
+      color: var(--corp-navy);
+      text-transform: uppercase;
+      border-top: 1.5px solid #94a3b8;
+    }
+    .row-highlight td {
+      background-color: #f8fafc;
+      font-weight: bold;
+    }
+    .row-total td {
+      background-color: #e2e8f0;
+      font-weight: bold;
+      color: #0f172a;
+      font-size: 8.5pt;
+    }
+    .row-total-final td {
+      background-color: var(--corp-navy);
+      color: #ffffff;
+      font-weight: bold;
+      font-size: 8.8pt;
+      border: 1px solid var(--corp-navy);
+    }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+
+    ol.terms-list {
+      margin: 0;
+      padding-left: 17px;
+      font-size: 8.8pt;
+      line-height: 1.5;
+      color: #1e293b;
+    }
+    ol.terms-list li {
+      margin-bottom: 5px;
+      text-align: justify;
+    }
+
+    /* Estilos del Anexo (Página 2) */
+    .page-anexo {
+      break-before: page;
+      page-break-before: always;
+    }
+    .anexo-header-box {
+      border-left: 5px solid var(--corp-red);
+      background-color: #f8fafc;
+      padding: 8px 12px;
+      border-top: 1px solid var(--corp-line);
+      border-right: 1px solid var(--corp-line);
+      border-bottom: 1px solid var(--corp-line);
+    }
+    .anexo-title {
+      font-size: 11pt;
+      font-weight: bold;
+      color: var(--corp-navy);
+      text-transform: uppercase;
+      margin: 0;
+    }
+    .anexo-subtitle {
+      font-size: 8.5pt;
+      color: #475569;
+      margin-top: 3px;
+    }
+    .notice-note {
+      font-size: 8pt;
+      color: #475569;
+      line-height: 1.45;
+      margin-top: 6px;
+      border-left: 2px solid #94a3b8;
+      padding-left: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================== -->
+  <!-- HOJA 1: CARTA COMERCIAL Y RESUMEN          -->
+  <!-- ========================================== -->
+  <section class="page">
+    <div class="page-content">
+
+      <!-- CABECERA -->
+      <div class="top-header">
+        <div class="logo-frame">
+          <img src="{{logoUrl}}" alt="Opalo" class="logo-img">
+        </div>
+        <div class="top-meta">
+          <div class="doc-code">{{codigoCotizacion}}</div>
+          <div class="doc-date">{{fechaEmision}}</div>
+        </div>
+      </div>
+
+      <!-- TÍTULO DE LA PROPUESTA -->
+      <div class="title-banner">
+        <h1>{{tituloPropuesta}}</h1>
+        <div class="subtext">{{nombreServicio}}</div>
+      </div>
+
+      <!-- DATOS DEL CLIENTE -->
+      <div class="client-card">
+        <table class="client-grid">
+          <tbody>
+            <tr>
+              <td class="lbl">Cliente:</td>
+              <td class="val"><strong>{{cliente.razonSocial}}</strong></td>
+            </tr>
+            <tr>
+              <td class="lbl">Dirección:</td>
+              <td class="val">{{cliente.direccion}}</td>
+            </tr>
+            <tr>
+              <td class="lbl">Atención:</td>
+              <td class="val">{{cliente.atencion}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- CUERPO DE LA CARTA -->
+      <div class="letter-salute">De nuestra consideración:</div>
+
+      <p class="letter-body">
+        La presente se relaciona con las coordinaciones sostenidas con nuestro equipo de trabajo, en las que nos manifestaron el interés de contar con los servicios de <strong>Opalo</strong>.
+      </p>
+
+      <p class="letter-body">
+        Al respecto, ponemos a su disposición nuestra propuesta económica, la cual contiene la especificación de los requerimientos, condiciones operativas y valores comerciales calculados conforme a sus necesidades. Nuestra sólida experiencia en servicios de soporte operativo y gestión técnica para organizaciones de diversos rubros nos permite garantizar los más altos estándares de cumplimiento, supervisión y rigurosidad laboral.
+      </p>
+
+      <!-- TABLA RESUMEN -->
+      <h2 class="section-heading">1. Resumen de la Oferta Económica</h2>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 10%;" class="text-center">ÍTEM</th>
+            <th style="width: 10%;" class="text-center">CANT.</th>
+            <th style="width: 58%;">DESCRIPCIÓN DEL PUESTO / SERVICIO</th>
+            <th style="width: 22%;" class="text-right">TOTAL MES (SIN IGV)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- LOOP PARA CURSOR: {{#each resumenItems}} -->
+          <tr>
+            <td class="text-center">{{itemNumero}}</td>
+            <td class="text-center">{{cantidad}}</td>
+            <td><strong>{{descripcionPuesto}}</strong></td>
+            <td class="text-right">{{moneda}} {{costoMesSinIgv}}</td>
+          </tr>
+          <!-- {{/each}} -->
+
+          <tr class="row-highlight">
+            <td colspan="3" class="text-right">SUBTOTAL MENSUAL (SIN IGV)</td>
+            <td class="text-right">{{moneda}} {{subtotalMesSinIgv}}</td>
+          </tr>
+          <tr>
+            <td colspan="3" class="text-right">IMPUESTO GENERAL A LAS VENTAS (IGV {{porcentajeIgv}}%)</td>
+            <td class="text-right">{{moneda}} {{igvMes}}</td>
+          </tr>
+          <tr class="row-total">
+            <td colspan="3" class="text-right">TOTAL FACTURABLE MENSUAL (CON IGV)</td>
+            <td class="text-right">{{moneda}} {{totalMesConIgv}}</td>
+          </tr>
+          <tr class="row-total-final">
+            <td colspan="3" class="text-right" style="color: #ffffff;">MONTO TOTAL POR EL PERIODO CONTRATADO ({{mesesPeriodo}} MESES CON IGV)</td>
+            <td class="text-right" style="color: #ffffff;">{{moneda}} {{totalPeriodoConIgv}}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- TÉRMINOS Y CONDICIONES -->
+      <h2 class="section-heading">2. Condiciones del Servicio y Operación</h2>
+      <ol class="terms-list">
+        <li><strong>Firma contractual:</strong> Para el inicio del servicio se requerirá tener el Contrato de Servicio previamente firmado por ambas partes.</li>
+        <li><strong>Plazo de implementación:</strong> La implementación e inicio del servicio tomará un tiempo aproximado de 7 días calendario luego de la suscripción contractual.</li>
+        <li><strong>Supervisión:</strong> Esta propuesta incluye supervisión directa al personal por parte del equipo especializado de Opalo.</li>
+        <li><strong>Selección y reemplazos:</strong> Se incluye el servicio de reclutamiento y selección en caso se deba reponer el personal o se requieran nuevas posiciones a través de Opalo.</li>
+        <li><strong>Facturación adicional:</strong> Los conceptos no considerados serán refacturados al cliente con un recargo del 10%. Horas adicionales requerirán autorización previa y se liquidarán según tareo mensual aprobado.</li>
+        <li><strong>Absorción de personal:</strong> Es factible absorber al personal actual previa coordinación y evaluación con el colaborador.</li>
+        <li><strong>Seguridad y Beneficios:</strong> Incluye Póliza de Responsabilidad Civil, Sistema de Gestión SST y aguinaldos corporativos a cargo de Opalo.</li>
+        <li><strong>Condiciones comerciales:</strong> Facturación los primeros días de cada mes con plazo de cancelación de 30 días. Propuesta calculada sobre {{mesesPeriodo}} meses de servicio y con vigencia de 12 meses desde su activación.</li>
+      </ol>
+
+    </div>
+
+    <!-- PIE DE PÁGINA 1 -->
+    <footer class="page-footer">
+      <span>Opalo - Propuesta de Servicios</span>
+      <span>{{codigoCotizacion}} | Página 1 de 2</span>
+    </footer>
+  </section>
+
+
+  <!-- ============================================================== -->
+  <!-- HOJA 2: ANEXO 1 - ESTRUCTURA DE COSTOS POR POSICIÓN (ESCALABLE) -->
+  <!-- ============================================================== -->
+  <section class="page page-anexo">
+    <div class="page-content">
+
+      <!-- CABECERA ANEXO -->
+      <div class="top-header">
+        <div class="logo-frame">
+          <img src="{{logoUrl}}" alt="Opalo" class="logo-img">
+        </div>
+        <div class="top-meta">
+          <div class="doc-code">ANEXO 1</div>
+          <div class="doc-date">Ref: {{codigoCotizacion}}</div>
+        </div>
+      </div>
+
+      <div class="anexo-header-box">
+        <h2 class="anexo-title">Anexo 1: Desglose y Estructura Económica de Personal</h2>
+        <div class="anexo-subtitle">
+          Cliente: <strong>{{cliente.razonSocial}}</strong> | Expresado en {{monedaNombre}} ({{moneda}})
+        </div>
+      </div>
+
+      <p class="letter-body" style="margin-top: 10px;">
+        A continuación se detalla la composición mensual del costo por posición requerida, desagregando los conceptos remunerativos, provisiones y aportes de ley vigentes, así como los gastos de gestión operativa y margen de Opalo.
+      </p>
+
+      <!-- TABLA MULTIPOSICIÓN: En Cursor iteras columnas sobre posiciones[] -->
+      <table class="data-table" style="margin-top: 8px;">
+        <thead>
+          <tr>
+            <th style="width: 46%;">CONCEPTO / RUBRO ECONÓMICO</th>
+            <!-- LOOP CABECERA EN CURSOR: {{#each posiciones}} -->
+            <th style="width: 27%;" class="text-right">
+              {{this.nombrePuesto}}<br>
+              <span style="font-weight: normal; font-size: 7.5pt;">({{this.vacantes}} vacante{{#if this.plural}}s{{/if}} - {{this.sede}})</span>
+            </th>
+            <!-- {{/each}} -->
+            <th style="width: 27%;" class="text-right">
+              TOTAL MENSUAL CONSOLIDADO<br>
+              <span style="font-weight: normal; font-size: 7.5pt;">({{monedaNombre}} {{moneda}})</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- GRUPO I: Ingresos Directos -->
+          <tr class="subhead-row">
+            <td colspan="{{totalColumnas}}">I. Ingresos Directos del Trabajador</td>
+          </tr>
+          <tr>
+            <td>Remuneración Básica Mensual</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.remBasica}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.remBasica}}</td>
+          </tr>
+          <tr>
+            <td>Asignación Familiar (Ley N° 25129)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.asigFam}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.asigFam}}</td>
+          </tr>
+          <tr>
+            <td>Condición de Trabajo (Movilidad / Refrigerio Supeditado)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.condTrabajo}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.condTrabajo}}</td>
+          </tr>
+          <tr class="row-highlight">
+            <td>Subtotal Ingresos Directos (I)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{../moneda}} {{this.subtotalIngresos}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{moneda}} {{totales.subtotalIngresos}}</td>
+          </tr>
+
+          <!-- GRUPO II: Provisiones Legales -->
+          <tr class="subhead-row">
+            <td colspan="{{totalColumnas}}">II. Beneficios Sociales y Provisiones Legales</td>
+          </tr>
+          <tr>
+            <td>Gratificaciones de Fiestas Patrias y Navidad (Ley 27735 + Ley 29351)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.gratificaciones}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.gratificaciones}}</td>
+          </tr>
+          <tr>
+            <td>Compensación por Tiempo de Servicios (CTS - D. Leg. 650)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.cts}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.cts}}</td>
+          </tr>
+          <tr>
+            <td>Descanso Vacacional Anual (D. Leg. 713)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.vacaciones}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.vacaciones}}</td>
+          </tr>
+          <tr class="row-highlight">
+            <td>Subtotal Provisiones y Beneficios Sociales (II)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{../moneda}} {{this.subtotalBeneficios}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{moneda}} {{totales.subtotalBeneficios}}</td>
+          </tr>
+
+          <!-- GRUPO III: Aportes del Empleador -->
+          <tr class="subhead-row">
+            <td colspan="{{totalColumnas}}">III. Aportes Obligatorios del Empleador y Seguros</td>
+          </tr>
+          <tr>
+            <td>EsSalud (Contribución al Seguro Social de Salud - 9%)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.essalud}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.essalud}}</td>
+          </tr>
+          <tr>
+            <td>Seguro Complementario de Trabajo de Riesgo (SCTR Salud y Pensión)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.sctr}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.sctr}}</td>
+          </tr>
+          <tr>
+            <td>Seguro de Vida Ley (D.U. 044-2019)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.vidaLey}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.vidaLey}}</td>
+          </tr>
+          <tr class="row-highlight">
+            <td>Subtotal Aportes y Seguros (III)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{../moneda}} {{this.subtotalAportes}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{moneda}} {{totales.subtotalAportes}}</td>
+          </tr>
+
+          <!-- TOTAL COSTO LABORAL INTEGRAL -->
+          <tr class="row-total">
+            <td>TOTAL COSTO LABORAL INTEGRAL (I + II + III)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{../moneda}} {{this.costoLaboralTotal}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{moneda}} {{totales.costoLaboralTotal}}</td>
+          </tr>
+
+          <!-- GRUPO IV: Costos Operativos y Margen -->
+          <tr class="subhead-row">
+            <td colspan="{{totalColumnas}}">IV. Costos de Gestión Operativa y Margen</td>
+          </tr>
+          <tr>
+            <td>Gestión de Recursos Humanos, Supervisión Operativa y EPPs</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.gastosOperativos}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.gastosOperativos}}</td>
+          </tr>
+          <tr>
+            <td>Utilidad Comercial Opalo ({{porcentajeUtilidad}}%)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right">{{this.utilidad}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right">{{totales.utilidad}}</td>
+          </tr>
+
+          <!-- TOTAL FACTURABLE MENSUAL -->
+          <tr class="row-total-final">
+            <td style="color: #ffffff;">COSTO MENSUAL DEL SERVICIO POR PUESTO (SIN IGV)</td>
+            <!-- {{#each posiciones}} -->
+            <td class="text-right" style="color: #ffffff;">{{../moneda}} {{this.costoMensualFinal}}</td>
+            <!-- {{/each}} -->
+            <td class="text-right" style="color: #ffffff;">{{moneda}} {{totales.costoMensualFinal}}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- NOTAS TÉCNICAS -->
+      <div class="notice-note">
+        <strong>Notas de cálculo y consideraciones laborales:</strong><br>
+        • Los montos consignados en el presente anexo no incluyen el Impuesto General a las Ventas (IGV {{porcentajeIgv}}%).<br>
+        • La Asignación Familiar aplica conforme a la Ley N° 25129 para colaboradores con carga familiar acreditada.<br>
+        • El costo laboral contempla la cobertura total del Seguro Complementario de Trabajo de Riesgo (SCTR) y Seguro Vida Ley.<br>
+        • No se incluyen conceptos de alimentación ni horas extraordinarias no programadas, los cuales deberán contar con autorización previa del cliente.
+      </div>
+
+    </div>
+
+    <!-- PIE DE PÁGINA 2 -->
+    <footer class="page-footer">
+      <span>Opalo - Anexo de Costos de Personal</span>
+      <span>{{codigoCotizacion}} | Página 2 de 2</span>
+    </footer>
+  </section>
+
+</body>
+</html>

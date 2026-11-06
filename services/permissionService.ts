@@ -32,6 +32,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     HR_OPALOSIS: { view: true, edit: true },
     MATTERMOST: { view: true, edit: true },
     BILLING: { view: true, edit: true },
+    QUOTES: { view: true, edit: true },
   },
   ADMIN: {
     DASHBOARD: { view: true, edit: true },
@@ -61,6 +62,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     HR_OPALOSIS: { view: true, edit: true },
     MATTERMOST: { view: true, edit: true },
     BILLING: { view: true, edit: true },
+    QUOTES: { view: true, edit: true },
   },
   OPERATIONS: {
     DASHBOARD: { view: true, edit: false },
@@ -90,6 +92,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     HR_OPALOSIS: { view: true, edit: true },
     MATTERMOST: { view: true, edit: true },
     BILLING: { view: true, edit: true },
+    QUOTES: { view: false, edit: false },
   },
   OPERATIONS_SUPERVISOR: {
     DASHBOARD: { view: true, edit: false },
@@ -119,6 +122,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     HR_OPALOSIS: { view: true, edit: true },
     MATTERMOST: { view: true, edit: true },
     BILLING: { view: true, edit: true },
+    QUOTES: { view: false, edit: false },
   },
   WAREHOUSE_ADMIN: {
     DASHBOARD: { view: true, edit: false },
@@ -148,6 +152,37 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     HR_OPALOSIS: { view: false, edit: false },
     MATTERMOST: { view: false, edit: false },
     BILLING: { view: false, edit: false },
+    QUOTES: { view: false, edit: false },
+  },
+  COMMERCIAL: {
+    DASHBOARD: { view: false, edit: false },
+    UNIT_OVERVIEW: { view: false, edit: false },
+    PERSONNEL: { view: false, edit: false },
+    LOGISTICS: { view: false, edit: false },
+    LOGS: { view: false, edit: false },
+    BLUEPRINT: { view: false, edit: false },
+    CONTROL_CENTER: { view: false, edit: false },
+    REPORTS: { view: false, edit: false },
+    CLIENT_REQUESTS: { view: false, edit: false },
+    HEADCOUNT: { view: false, edit: false },
+    POSITIONS_MANAGEMENT: { view: false, edit: false },
+    NIGHT_SUPERVISION: { view: false, edit: false },
+    SUPERVISION_PLANNING: { view: false, edit: false },
+    RETENES: { view: false, edit: false },
+    VACATIONS: { view: false, edit: false },
+    TRAININGS: { view: false, edit: false },
+    ASSETS_CATALOG: { view: false, edit: false },
+    INVENTORY: { view: false, edit: false },
+    DOCUMENTS: { view: false, edit: false },
+    UNIT_BOOK: { view: false, edit: false },
+    WORK_PLAN: { view: false, edit: false },
+    ARCHIVE: { view: false, edit: false },
+    SETTINGS: { view: false, edit: false },
+    ATS_RECEPTION: { view: false, edit: false },
+    HR_OPALOSIS: { view: false, edit: false },
+    MATTERMOST: { view: false, edit: false },
+    BILLING: { view: false, edit: false },
+    QUOTES: { view: true, edit: true },
   },
   CLIENT: {
     DASHBOARD: { view: true, edit: false },
@@ -177,6 +212,7 @@ const DEFAULT_PERMISSIONS: PermissionConfig = {
     HR_OPALOSIS: { view: false, edit: false },
     MATTERMOST: { view: false, edit: false },
     BILLING: { view: false, edit: false },
+    QUOTES: { view: false, edit: false },
   }
 };
 
@@ -247,6 +283,9 @@ export const savePermissions = (config: PermissionConfig) => {
 };
 
 export const checkPermission = (role: UserRole, feature: AppFeature, action: 'view' | 'edit'): boolean => {
+  if (feature === 'QUOTES') {
+    return role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'COMMERCIAL';
+  }
   if (role === 'CLIENT' && feature === 'UNIT_BOOK') return action === 'view';
   if (role === 'CLIENT' && feature === 'WORK_PLAN') return false;
   if (role === 'CLIENT' && feature === 'VACATIONS' && action === 'edit') return false;
@@ -275,6 +314,7 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   OPERATIONS: 'Operaciones',
   OPERATIONS_SUPERVISOR: 'Supervisor de operaciones',
   WAREHOUSE_ADMIN: 'Almacén Admin',
+  COMMERCIAL: 'Comercial',
   CLIENT: 'Cliente',
 };
 
@@ -310,4 +350,5 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   HR_OPALOSIS: 'Envío Opalosis (RRHH)',
   MATTERMOST: 'Mattermost (/falta)',
   BILLING: 'Facturación de clientes',
+  QUOTES: 'Cotizador de propuestas',
 };

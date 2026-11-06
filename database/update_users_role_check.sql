@@ -9,7 +9,7 @@ DROP CONSTRAINT IF EXISTS users_role_check;
 -- Paso 2: Crear una nueva restricción CHECK que incluya SUPER_ADMIN
 ALTER TABLE public.users
 ADD CONSTRAINT users_role_check 
-CHECK (role IN ('SUPER_ADMIN', 'ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'CLIENT'));
+CHECK (role IN ('SUPER_ADMIN', 'ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'COMMERCIAL', 'CLIENT'));
 
 -- Verificar que la restricción se creó correctamente
 SELECT 

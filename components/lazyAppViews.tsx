@@ -157,6 +157,9 @@ export const MattermostIncidents = lazyView(() =>
 export const ClientBilling = lazyView(() =>
   import('./ClientBilling').then((m) => ({ default: m.ClientBilling }))
 );
+export const QuoteProposals = lazyView(() =>
+  import('./QuoteProposals').then((m) => ({ default: m.QuoteProposals }))
+);
 
 export const ViewFallback: React.FC<{ message?: string }> = ({ message = 'Cargando sección...' }) => (
   <div className="flex items-center justify-center h-full min-h-[40vh]">

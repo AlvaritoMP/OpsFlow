@@ -75,7 +75,7 @@ export interface PayrollAttendanceIncident {
   unitName?: string;
 }
 
-export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'WAREHOUSE_ADMIN' | 'CLIENT';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATIONS' | 'OPERATIONS_SUPERVISOR' | 'WAREHOUSE_ADMIN' | 'COMMERCIAL' | 'CLIENT';
 export type ManagementRole = 'COORDINATOR' | 'RESIDENT_SUPERVISOR' | 'ROVING_SUPERVISOR';
 
 // --- PERMISSIONS SYSTEM ---
@@ -106,7 +106,8 @@ export type AppFeature =
   | 'ATS_RECEPTION'
   | 'HR_OPALOSIS'
   | 'MATTERMOST'
-  | 'BILLING';
+  | 'BILLING'
+  | 'QUOTES';
 
 export interface PermissionRule {
   view: boolean;

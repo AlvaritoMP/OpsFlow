@@ -1,0 +1,150 @@
+import { supabase } from './supabase';
+import { buildQuoteView, normalizeQuotePayload, QuoteProposalPayload } from '../utils/quoteProposal';
+
+const db = supabase as unknown as {
+  from: (table: string) => any;
+};
+
+export type QuoteStatus = 'draft' | 'issued' | 'void';
+
+export interface QuoteActor {
+  id: string;
+  name: string;
+}
+
+export interface QuoteRecord {
+  id: string;
+  code: string;
+  clientName: string;
+  serviceName: string;
+  status: QuoteStatus;
+  payload: QuoteProposalPayload;
+  laborTotal: number;
+  grandTotal: number;
+  totalWithIgv: number;
+  createdByName?: string;
+  updatedByName?: string;
+  issuedAt?: string;
+  issuedByName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export class QuoteStorageError extends Error {
+  code: 'missing_table' | 'duplicate' | 'unknown';
+  constructor(code: QuoteStorageError['code'], message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+export async function listQuotes(): Promise<QuoteRecord[]> {
+  const { data, error } = await db.from('commercial_quotes').select('*').order('updated_at', { ascending: false }).limit(300);
+  if (error) throw mapError(error);
+  return (data || []).map(mapRecord);
+}
+
+export async function saveQuote(input: {
+  id?: string;
+  code: string;
+  clientName: string;
+  payload: QuoteProposalPayload;
+  actor: QuoteActor;
+}): Promise<QuoteRecord> {
+  const payload = normalizeQuotePayload(input.payload);
+  const view = buildQuoteView(payload);
+  const now = new Date().toISOString();
+  const row = {
+    code: input.code.trim(),
+    client_name: input.clientName.trim(),
+    service_name: payload.model.serviceLabel.trim() || 'Servicio',
+    payload,
+    labor_total: roundMoney(view.computed.laborTotal),
+    grand_total: roundMoney(view.computed.grandTotal),
+    total_with_igv: roundMoney(view.computed.totalWithIgv),
+    updated_by: input.actor.id || null,
+    updated_by_name: input.actor.name,
+    updated_at: now,
+  };
+  if (!row.code) throw new Error('Indique el código de la propuesta.');
+  if (!row.client_name) throw new Error('Indique el cliente.');
+  const query = input.id
+    ? db.from('commercial_quotes').update(row).eq('id', input.id).select('*').single()
+    : db
+        .from('commercial_quotes')
+        .insert({
+          ...row,
+          status: 'draft',
+          created_by: input.actor.id || null,
+          created_by_name: input.actor.name,
+        })
+        .select('*')
+        .single();
+  const { data, error } = await query;
+  if (error) throw mapError(error);
+  return mapRecord(data);
+}
+
+export async function setQuoteStatus(id: string, status: QuoteStatus, actor: QuoteActor): Promise<QuoteRecord> {
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    status,
+    updated_by: actor.id || null,
+    updated_by_name: actor.name,
+    updated_at: now,
+  };
+  if (status === 'issued') {
+    patch.issued_at = now;
+    patch.issued_by_name = actor.name;
+  }
+  if (status === 'draft') {
+    patch.issued_at = null;
+    patch.issued_by_name = null;
+  }
+  const { data, error } = await db.from('commercial_quotes').update(patch).eq('id', id).select('*').single();
+  if (error) throw mapError(error);
+  return mapRecord(data);
+}
+
+export async function deleteQuote(id: string): Promise<void> {
+  const { error } = await db.from('commercial_quotes').delete().eq('id', id);
+  if (error) throw mapError(error);
+}
+
+function mapRecord(row: any): QuoteRecord {
+  return {
+    id: row.id,
+    code: row.code,
+    clientName: row.client_name,
+    serviceName: row.service_name,
+    status: row.status,
+    payload: normalizeQuotePayload(row.payload),
+    laborTotal: Number(row.labor_total) || 0,
+    grandTotal: Number(row.grand_total) || 0,
+    totalWithIgv: Number(row.total_with_igv) || 0,
+    createdByName: row.created_by_name || undefined,
+    updatedByName: row.updated_by_name || undefined,
+    issuedAt: row.issued_at || undefined,
+    issuedByName: row.issued_by_name || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function roundMoney(value: number): number {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+}
+
+function mapError(error: any): Error {
+  const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  if (error?.code === '42P01' || /commercial_quotes|schema cache|does not exist/i.test(message)) {
+    return new QuoteStorageError(
+      'missing_table',
+      'Falta la tabla de propuestas. Ejecute migrations/MIGRATION_COMMERCIAL_QUOTES.sql en Supabase.'
+    );
+  }
+  if (error?.code === '23505' || /duplicate key/i.test(message)) {
+    return new QuoteStorageError('duplicate', 'Ya existe una propuesta con ese código. Cámbielo e intente de nuevo.');
+  }
+  return new QuoteStorageError('unknown', error?.message || 'No se pudo guardar la propuesta.');
+}

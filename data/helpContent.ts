@@ -21,7 +21,9 @@ export type AppHelpView =
   | 'ats-presentations'
   | 'hr-opalosis'
   | 'inventory'
-  | 'billing';
+  | 'warehouse-orders'
+  | 'billing'
+  | 'quotes';
 
 export interface HelpSection {
   heading: string;
@@ -51,7 +53,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'Use el menú lateral izquierdo para cambiar de módulo. En móvil, abra el menú con el ícono de tres líneas. La opción Ayuda (ícono ?) está siempre disponible y se adapta a la pantalla en la que se encuentre.',
         tips: [
           'Los módulos visibles dependen de su rol y permisos.',
-          'Inventario agrupa productos, almacenes, compras y movimientos en una sola sección.',
+          'Inventario agrupa productos, almacenes, compras, pedidos, asignaciones y movimientos. Pedidos al almacén es otra pantalla: ahí operaciones arma el pedido del mes sin entrar a Inventario.',
           'Puede cerrar sesión desde el menú del usuario al pie de la barra lateral.',
         ],
       },
@@ -60,8 +62,8 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'Cada usuario tiene un rol que define qué puede ver y editar.',
         steps: [
           'SUPER_ADMIN / ADMIN: acceso completo, configuración y auditoría.',
-          'OPERATIONS / OPERATIONS_SUPERVISOR: operación diaria de unidades, retenes, ATS y vacaciones. Desde la logística de la unidad piden materiales al almacén.',
-          'WAREHOUSE_ADMIN (Almacén Admin): controla el inventario completo, autoriza pedidos de las unidades y despacha stock.',
+          'OPERATIONS / OPERATIONS_SUPERVISOR: operación diaria de unidades, retenes, ATS y vacaciones. Desde la logística de la unidad piden materiales al almacén y asignan los equipos a cada trabajador. En Pedidos al almacén arman el pedido general del mes, aunque no tengan permiso de Inventario.',
+          'WAREHOUSE_ADMIN (Almacén Admin): controla el inventario completo, ve el cuadre por empresa, autoriza los pedidos de las unidades y despacha el stock. No hace falta que sea administrador general.',
           'CLIENT: vista limitada a dashboard, unidades asignadas, centro de control, headcount, consulta de vacaciones, certificados de capacitación (consulta y PDF) y descarga del Unit Book (sin ver ni editar el contenido).',
         ],
       },
@@ -71,7 +73,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Revisar el Dashboard o el Centro de Control para el estado general.',
           'Entrar a una Unidad para personal, asistencia, bitácora o requerimientos.',
-          'Gestionar Retenes, Vacaciones, Supervisión de campo, Supervisión Nocturna o Inventario según la necesidad del día.',
+          'Gestionar Retenes, Vacaciones, Supervisión de campo, Supervisión Nocturna, pedidos al almacén o Inventario según la necesidad del día.',
           'En Presentaciones ATS: revisar ficha, aprobar o rechazar candidatos a entrevista.',
           'Solo si el aprobado iniciará labores: registrar en unidad (fecha de ingreso) y luego Envío Opalosis.',
         ],
@@ -172,7 +174,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Asistencia: tareo / marcas del personal.',
           'Vacaciones: control de goce por persona en la unidad. El cliente solo consulta Saldos y Control y el Calendario, sin modificar.',
           'Variables: conceptos variables de compensación (si aplica).',
-          'Logística: equipos y materiales (unidades de Operaciones).',
+          'Logística: pedidos al almacén central, asignación de equipos a trabajadores y el inventario propio de la unidad (equipos y materiales).',
           'Supervisión / Actividades: bitácora de eventos e incidencias.',
           'Plano: planos y ubicación.',
           'Requerimientos: solicitudes del cliente.',
@@ -180,6 +182,23 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Plan de trabajo: turnos, horarios y actividades de la unidad, con cronograma y PDF.',
           'Unit Book: folleto de incorporación (objetivo, fotos, equipo) para candidatos nuevos.',
           'Contactos / Bancos: solo en unidades BPO.',
+        ],
+      },
+      {
+        heading: 'Pedidos al almacén y equipos del personal',
+        body: 'Arriba de Logística está el pedido de esa unidad al almacén central. Un mismo pedido lleva varios productos. El almacén lo autoriza en Inventario y el stock pasa al almacén virtual de la unidad.',
+        steps: [
+          'Busque productos, indique cantidades y envíe el pedido. Puede vaciar la lista antes de enviar.',
+          'Guardar plantilla deja ese pedido con un nombre para reutilizarlo. Repetir este pedido copia las líneas de uno ya enviado a un borrador nuevo.',
+          'Mientras el pedido está Solicitado, quien lo creó puede cancelarlo.',
+          'Cuando el estado es Despachado o Despacho parcial, la mercadería ya está en la unidad.',
+          'Si el producto está marcado como asignable a un trabajador, en Asignar a personal de la unidad elija la persona, la cantidad y, si hace falta, la serie o la placa. Con serie se asigna de uno en uno.',
+          'Quitar titular devuelve el equipo al stock libre de la unidad para asignarlo a otra persona. La cantidad no sale del inventario.',
+          'La lejía y los demás consumibles no se asignan a una persona. Siguen en el almacén de la unidad hasta que se descargan en Inventario → Consumo / entregas.',
+        ],
+        tips: [
+          'El pedido de varias unidades juntas se arma en el menú Pedidos al almacén, no dentro de esta ficha.',
+          'Solo el personal activo de la unidad aparece para recibir un equipo.',
         ],
       },
       {
@@ -746,6 +765,8 @@ export const HELP_TOPICS: HelpTopic[] = [
         tips: [
           'Solo roles con permiso SETTINGS acceden a este módulo.',
           'Cambios de permisos afectan de inmediato la navegación del menú.',
+          'El rol Almacén Admin se crea en Usuarios. Si el sistema rechaza ese rol, ejecute migrations/MIGRATION_INVENTORY_LOGISTICS.sql en Supabase.',
+          'El rol Comercial se crea en Usuarios y entra solo al Cotizador. Si el sistema rechaza ese rol, ejecute migrations/MIGRATION_COMMERCIAL_ROLE.sql en Supabase.',
         ],
       },
     ],
@@ -781,56 +802,127 @@ export const HELP_TOPICS: HelpTopic[] = [
     ],
   },
   {
+    id: 'warehouse-orders',
+    title: 'Pedidos al almacén',
+    navLabel: 'Pedidos al almacén',
+    summary:
+      'Pantalla de operaciones para armar el pedido general del mes hacia el almacén, sin necesidad de entrar a Inventario.',
+    sections: [
+      {
+        heading: 'Quién la usa',
+        body: 'La ve quien no es cliente y tiene permiso de ver Logística. Puede usarla aunque no tenga acceso a la sección Inventario. El almacén no despacha aquí: recibe y autoriza el pedido en Inventario → Pedidos.',
+      },
+      {
+        heading: 'Pedido general del mes',
+        body: 'Junta en un solo documento los pedidos que cada unidad ya envió y, si hace falta, agrega ítems nuevos. El código queda como MES-AAAAMM-####.',
+        steps: [
+          'Elija el mes y un título. Puede guardar borrador y volver a abrirlo.',
+          'Marque los pedidos anteriores de las unidades que entran en este mes. El filtro «solo este mes» acota la lista. El mismo producto de varias unidades se suma.',
+          'Agregue ítems puntuales. Si elige una unidad, esa línea se convierte en un pedido real de esa unidad para que el almacén pueda despacharla. Si no elige unidad, queda como línea general del consolidado.',
+          'Confirme el pedido. Un segundo guardado actualiza el mismo documento y no duplica los pedidos puntuales ya creados.',
+        ],
+        tips: [
+          'El pedido de una sola unidad se hace en la ficha de la unidad, pestaña Logística, no en esta pantalla.',
+          'Las plantillas y la opción Repetir este pedido también viven en la logística de cada unidad.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'inventory',
     title: 'Inventario',
     navLabel: 'Inventario',
     summary:
-      'Control de productos, almacenes (central y de unidad), compras, traslados y descarga por entrega o consumo. Usa la misma sesión de OpsFlow; no hay login aparte.',
+      'Stock por almacén y por empresa compradora, pedidos de las unidades, asignación de equipos al personal y descarga de consumibles. Usa la misma sesión de OpsFlow.',
     sections: [
       {
         heading: 'Para qué sirve',
-        body: 'Lleva el stock físico de uniformes, consumibles y otros ítems. El modelo operativo es: comprar o ingresar al almacén central, trasladar a almacenes virtuales de unidad cuando el material sale a campo, y descargar cuando se entrega al personal o se consume. Un traslado no es una descarga: el stock sigue existiendo, solo cambia de almacén.',
+        body: 'El almacén central recibe lo comprado por una o varias empresas. Al despachar un pedido, ese stock pasa al almacén virtual de la unidad. Los equipos de uso personal quedan a nombre de un trabajador. Los consumibles se descargan cuando se acaban. Un traslado no es un consumo: la cantidad sigue existiendo, solo cambia de almacén.',
       },
       {
-        heading: 'Flujo operativo recomendado',
-        body: 'Siga este orden para uniformes e insumos que viajan a unidades. Si entrega o consume en sede, puede descargar directo del central (queda menos trazabilidad de unidad).',
+        heading: 'Dos clases de producto',
+        body: 'Al crear o editar un producto se decide si va a un trabajador o si es de consumo.',
         steps: [
-          'Almacenes: un central (depósito propio) y un almacén de unidad por sede. Use el botón masivo si faltan almacenes de unidades.',
-          'Productos: cree el catálogo (nombre, SKU, categoría, precio, umbral de stock bajo). Marque «Se asigna a un trabajador» solo en equipos de cómputo, herramientas o bienes de uso personal.',
-          'Ingreso: reciba una orden de compra o use Ajustar stock → Entrada en el almacén central.',
-          'Traslado a campo: Transferir (o Transferencia múltiple) desde el central hacia el almacén de la unidad.',
-          'Descarga: en Consumo / entregas (o el botón naranja ↓ del producto) saque el ítem del almacén de unidad: entrega a personal, uso interno, merma o baja.',
+          'Asignable a un trabajador: laptops, monitores, herramientas y bienes de uso personal. Después del despacho, la unidad indica el titular. El stock sigue en el almacén de la unidad.',
+          'Consumible: lejía, insumos, uniformes que se gastan. No se marca esa casilla. La cantidad vive en el almacén de la unidad hasta la descarga.',
+        ],
+      },
+      {
+        heading: 'Empresa que compró y cuadre',
+        body: 'Cada ingreso indica qué empresa adquirió el bien. Esa empresa viaja en el traslado a la unidad y en la descarga, para poder cuadrar el almacén por comprador.',
+        steps: [
+          'En Ajustes de inventario registre las empresas (perfiles).',
+          'En una Entrada, o al recibir una orden de compra, elija la empresa emisora. Si ya hay empresas cargadas, el ingreso no se guarda sin empresa.',
+          'Al despachar o transferir, elija el lote de esa empresa. El stock antiguo, cargado antes de esta función, aparece como «Sin empresa (stock anterior)» y puede salir sin empresa solo por esa cantidad.',
+          'Cuadre empresas lista cantidad y valor (cantidad por precio) por empresa, con filtro para el stock sin empresa.',
         ],
         tips: [
-          'Mientras el ítem está en el almacén de unidad, sigue contando como stock. Solo deja de existir al descargarlo.',
-          'Descargar del central es válido (entrega en oficina, merma en depósito). No crea movimiento en ninguna unidad.',
+          'El sistema no reparte solo el stock histórico entre empresas. Ese saldo queda sin empresa hasta que se ajuste.',
         ],
       },
       {
-        heading: 'Resumen (dashboard)',
-        body: 'Muestra totales de productos, almacenes, stock bajo, agotados y cantidades descargadas en el mes (entregas y consumos). El listado de stock por almacén indica si es Central o de Unidad.',
+        heading: 'Resumen',
+        body: 'Totales de productos, almacenes, stock bajo, agotados y cantidades descargadas en el mes. El listado indica si el almacén es Central o de Unidad.',
         steps: [
-          'Revise alertas de stock bajo o agotado.',
-          'Si tiene permiso, genere una OC sugerida a partir de los productos en alerta.',
+          'Revise las alertas de stock bajo o agotado.',
+          'Si tiene permiso, genere una orden de compra sugerida con los productos en alerta.',
         ],
       },
       {
         heading: 'Productos',
-        body: 'Catálogo con SKU, categoría, precio y umbral. El stock total suma todos los almacenes. Cada fila tiene acciones de edición, ajuste, traslado y descarga.',
+        body: 'Catálogo con SKU único, categoría, precio, umbral e imágenes. El stock de la fila suma todos los almacenes. La marca «Asignable a un trabajador» se ve bajo el SKU.',
         steps: [
-          'Añadir: alta individual. También puede importar CSV (nombre, sku, categoría, precio, umbral, descripción).',
-          'Ajustar stock: en una Entrada elija la empresa que adquirió el bien. Esa empresa viaja en traslados y descargos para el cuadre.',
-          'Si el SKU ya existe, el alta no se guarda y se muestra el motivo. Edite el producto existente en lugar de crearlo de nuevo.',
-          'Desde la logística de la unidad se arman pedidos con varios productos. Ese pedido queda guardado: se puede repetir o guardar como plantilla.',
-          'El pedido general del mes lo arma operaciones en el menú Pedidos al almacén (no hace falta tener acceso a Inventario): elige pedidos anteriores de cada unidad, los suma y puede agregar ítems puntuales. El almacén lo atiende en Inventario.',
-          'Transferir: mueve cantidad de un almacén a otro (el stock no desaparece).',
-          'Transferencia múltiple: varios productos en un solo envío central → unidad (o entre almacenes).',
-          'Descargar / entregar (↓): saca el producto del inventario con motivo y, si es entrega, destinatario. No use esta descarga para un equipo que debe quedar a nombre de un trabajador: ese caso se asigna desde la logística de la unidad y el stock sigue en el almacén de la unidad.',
-          'Asignaciones: después de despachar el pedido, la unidad elige el trabajador, la cantidad y, si hace falta, la serie. Inventario → Asignaciones muestra esa trazabilidad al almacén.',
+          'Añadir o editar: nombre, SKU, categoría, precio, umbral, descripción, imágenes y la casilla de asignación a trabajador.',
+          'El SKU no se repite, ni cambiando mayúsculas. Si ya existe, el formulario no se cierra y explica que hay que editar el producto existente.',
+          'Importar CSV: nombre, sku, categoría, precio, umbral y descripción. Esos productos entran como consumibles; edítelos si deben asignarse a un trabajador.',
+          'Ajustar stock, Transferir y Transferencia múltiple mueven cantidad sin borrarla del inventario.',
+          'La flecha naranja descarga el producto (sale del inventario). No la use para un equipo que debe quedar a nombre de alguien.',
+          'El botón rojo elimina un producto mal registrado. Pide confirmación y avisa si todavía tiene stock. Si el producto está en un pedido, plantilla u otro registro, no se borra y se muestra el motivo.',
         ],
         tips: [
-          'El umbral de stock bajo alimenta las alertas del resumen y la OC sugerida.',
-          'Ajuste sirve para correcciones de conteo. Entrega de uniforme o consumo de insumo va en Consumo / entregas.',
+          'El umbral alimenta las alertas del resumen y la orden de compra sugerida.',
+          'Ajuste corrige un conteo. El consumo de un insumo va en Consumo / entregas.',
+        ],
+      },
+      {
+        heading: 'Pedidos de las unidades',
+        body: 'Inventario → Pedidos es la bandeja del almacén. Las unidades envían desde su logística y el pedido del mes llega desde el menú Pedidos al almacén. El almacén autoriza, rechaza o despacha.',
+        steps: [
+          'Filtre por estado: Solicitado, Despachado, Despacho parcial, Rechazado o Cancelado.',
+          'Autorizar y despachar: elija el almacén central de origen, la cantidad de cada línea y la empresa del lote. El central baja y el almacén de la unidad sube. Si la unidad no tenía almacén, se crea uno.',
+          'Si despacha menos de lo pedido, o no todas las líneas, el estado queda en Despacho parcial.',
+          'Rechazar deja el pedido cerrado sin mover stock. Cancelar lo puede hacer también quien lo pidió, mientras siga Solicitado.',
+          'En cada línea se ve si el producto se asigna a un trabajador y, cuando ya tiene titular, el nombre y la serie.',
+          'Consolidados del mes, visible para el almacén, muestra los pedidos generales que armó operaciones. El despacho sigue siendo por cada pedido de unidad.',
+        ],
+        tips: [
+          'Almacén Admin, ADMIN y SUPER_ADMIN despachan. Operaciones arma el pedido, no lo autoriza desde esta bandeja.',
+        ],
+      },
+      {
+        heading: 'Asignaciones a personal',
+        body: 'Inventario → Asignaciones es la trazabilidad del almacén: qué equipo, de qué pedido, en qué unidad y a nombre de quién. La unidad asigna en su logística; aquí se consulta y, con permiso de edición, se puede corregir el titular.',
+        steps: [
+          'Filtre por unidad. Pendiente de asignar lista lo despachado que aún no tiene trabajador.',
+          'Al elegir una unidad puede asignar desde aquí: trabajador activo, cantidad y serie opcional.',
+          'Quitar titular marca la asignación como devuelta. El equipo sigue en el almacén de la unidad y puede asignarse de nuevo.',
+          'En Movimientos queda un ajuste de cantidad cero con el nombre del trabajador y el código del pedido. El stock no cambia.',
+        ],
+      },
+      {
+        heading: 'Consumibles en las unidades',
+        body: 'Lo que se acaba (lejía, insumos, material de aseo) se controla por el almacén de cada unidad. Lo habitual, cuando hay muchas sedes, es pedir una cantidad fija al mes y descargar el saldo al pedir el mes siguiente, en lugar de anotar cada uso.',
+        steps: [
+          'Deje el producto sin la marca de asignación a trabajador y guarde una plantilla en la logística de la unidad (por ejemplo, litros de lejía del mes).',
+          'El despacho deja esa cantidad en el almacén de la unidad. Ese número es el stock disponible de la sede.',
+          'El mes siguiente, antes de repetir el pedido, entre a Consumo / entregas, elija el almacén de la unidad y el motivo Uso interno / consumo en servicio.',
+          'Si no sobró nada, descargue toda la cantidad del mes anterior. Si sobró, anote solo lo gastado (lo que había menos lo que queda). El saldo que no descargue sigue como stock de la unidad.',
+          'Repita el pedido o inclúyalo en el pedido del mes. El nuevo despacho vuelve a subir el stock de la sede.',
+          'Merma, pérdida o baja usan el mismo formulario, con su motivo. No use Ajustar stock → Salida para esto: se pierde el motivo.',
+        ],
+        tips: [
+          'El central solo baja al despachar. El consumo baja el almacén de la unidad.',
+          'Cuadre empresas y Movimientos muestran ese consumo con la empresa que había comprado el lote, si se eligió al descargar.',
         ],
       },
       {
@@ -856,8 +948,9 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Confirme Descargar stock. El ítem deja de existir en inventario.',
         ],
         tips: [
-          'No use Salida en Ajustar stock para entregas: pierde destinatario y motivo de consumo.',
-          'Si no hay stock en el almacén de unidad, transfiéra primero desde el central.',
+          'Para lejía e insumos de muchas unidades, descargue aquí el saldo del mes anterior y luego repita el pedido. El detalle está en Consumibles en las unidades.',
+          'Un equipo asignable a un trabajador no se descarga por esta pantalla: se asigna el titular y el stock permanece en la unidad.',
+          'Si no hay stock en el almacén de unidad, primero hay que despachar el pedido o transferir desde el central.',
         ],
       },
       {
@@ -870,13 +963,13 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Calendario: programe títulos, fechas, proveedor e ítems previstos.',
         ],
         tips: [
-          'Solo al marcar una OC emitida como Recibida se incrementa el inventario.',
+          'Solo al marcar una OC emitida como Recibida se incrementa el inventario, y lo hace a nombre de la empresa emisora elegida.',
           'El prefijo y correlativo de OC se configuran en Ajustes.',
         ],
       },
       {
         heading: 'Movimientos y documentos',
-        body: 'Bitácora de entradas, salidas, ajustes, creaciones, transferencias, entregas y consumos. Las transferencias múltiples y descargas múltiples se agrupan. Desde cada fila puede generar constancia (C); en traslados también guía de despacho (D) y guía de remisión simulada (G).',
+        body: 'Bitácora de entradas, salidas, ajustes, creaciones, transferencias, entregas y consumos. Cada fila puede mostrar la empresa compradora. Asignar un equipo a un trabajador deja un ajuste de cantidad cero, con el pedido y el nombre, sin cambiar el stock. Las transferencias múltiples y descargas múltiples se agrupan. Desde cada fila puede generar constancia (C); en traslados también guía de despacho (D) y guía de remisión simulada (G).',
         tips: [
           'ENTREGA y CONSUMO restan stock. ENTRADA y recepción de OC lo suman. Una transferencia es SALIDA en origen y ENTRADA en destino.',
           'La guía de remisión (GRE) es una simulación: no se envía a SUNAT.',
@@ -884,13 +977,14 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Accesos, ajustes y permisos',
-        body: 'ADMIN, SUPER_ADMIN y Almacén Admin ven todos los almacenes y autorizan pedidos. Operaciones pide desde la logística de cada unidad. El cuadre por empresa separa el stock según quién lo compró. CLIENT no usa este módulo.',
+        body: 'ADMIN, SUPER_ADMIN y Almacén Admin ven todos los almacenes, el cuadre por empresa y autorizan pedidos. Operaciones pide desde la logística de cada unidad y arma el mes en Pedidos al almacén. CLIENT no entra a Inventario ni a Pedidos al almacén.',
         steps: [
           'Accesos: asigne almacenes a usuarios operativos (solo administradores).',
-          'Ajustes: empresa emisora de documentos, prefijo de OC, umbral por defecto y colores de alerta (en stock / bajo / agotado).',
+          'Ajustes: empresas compradoras, prefijo de OC, umbral por defecto y colores de alerta (en stock / bajo / agotado).',
+          'El rol Almacén Admin se asigna en Configuración → Usuarios. En Permisos tiene Inventario en ver y editar, y Logística solo en consulta.',
         ],
         tips: [
-          'Si las tablas aún no existen, ejecute en Supabase MIGRATION_INVENTORY.sql, después MIGRATION_INVENTORY_CONSUMPTION.sql y luego MIGRATION_INVENTORY_LOGISTICS.sql.',
+          'Ejecute en Supabase, en este orden: MIGRATION_INVENTORY.sql, MIGRATION_INVENTORY_CONSUMPTION.sql, MIGRATION_INVENTORY_LOGISTICS.sql, MIGRATION_INVENTORY_ORDER_PLANS.sql y MIGRATION_INVENTORY_ASSIGNMENTS.sql.',
         ],
       },
     ],
@@ -1121,6 +1215,33 @@ export const HELP_TOPICS: HelpTopic[] = [
         tips: [
           'El puesto impreso es el puesto actual de la ficha.',
           'El cliente ve las capacitaciones de sus unidades y puede descargar el PDF. No puede crear ni eliminar registros.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'quotes',
+    title: 'Cotizador de propuestas',
+    navLabel: 'Cotizador',
+    summary:
+      'Arma una propuesta técnico económica con el mismo cálculo de una liquidación y la emite en el formato PES.',
+    sections: [
+      {
+        heading: 'Cómo se arma',
+        body: 'Cada puesto se calcula como una fila de liquidación: sueldo, días, asignación familiar, condición de trabajo, bonos, horas extra y cargas. Las vacantes multiplican ese costo. Los costos operativos, los gastos administrativos y la utilidad se suman sobre la propuesta completa.',
+        steps: [
+          'Nueva propuesta: cliente, servicio, dirección, atención y meses. Puede tomar el nombre desde una unidad.',
+          'Puestos: una fila por puesto. El sueldo y las horas son de una vacante. El costo laboral ya incluye todas las vacantes.',
+          'Operativo y administrativo: los mismos conceptos de la liquidación. El costo financiero usa la tasa y los días de Parámetros.',
+          'Parámetros: tasas de cargas, utilidad e IGV. Traer método publicado copia las fórmulas vigentes de Facturación. Una propuesta ya guardada no cambia sola.',
+          'Condiciones y notas: modalidad, plazo, facturación, crédito, corte, emisión de factura y vigencia se editan como datos de la propuesta. Debajo puede agregar o quitar condiciones específicas. {meses} y {igv} se reemplazan al imprimir.',
+          'Propuesta: revise el documento. Imprimir o PDF abre el formato listo para entregar.',
+          'Emitir cierra la propuesta. Para corregir un monto hay que reabrirla.',
+        ],
+        tips: [
+          'El resumen lista cada puesto y, además, los costos y la utilidad, para que el total coincida con la liquidación.',
+          'El Cotizador está disponible para Administrador, Super Administrador y el rol Comercial.',
+          'Si la pantalla pide la migración de propuestas, ejecute migrations/MIGRATION_COMMERCIAL_QUOTES.sql en Supabase. Para crear usuarios Comercial, ejecute migrations/MIGRATION_COMMERCIAL_ROLE.sql.',
         ],
       },
     ],

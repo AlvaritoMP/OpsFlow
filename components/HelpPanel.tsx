@@ -29,8 +29,10 @@ export type HelpPanelView =
   | 'ats-presentations'
   | 'hr-opalosis'
   | 'inventory'
+  | 'warehouse-orders'
   | 'mattermost'
   | 'billing'
+  | 'quotes'
   | 'supervision-planning';
 
 interface HelpPanelProps {

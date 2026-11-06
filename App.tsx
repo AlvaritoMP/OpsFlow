@@ -26,6 +26,7 @@ import {
   AuditLogs,
   MattermostIncidents,
   ClientBilling,
+  QuoteProposals,
   KeepAlivePane,
   ViewFallback,
   ChunkLoadErrorBoundary,
@@ -73,7 +74,7 @@ const App: React.FC = () => {
   const authRequestRef = useRef(0);
   const [appError, setAppError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'trainings' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'warehouse-orders' | 'mattermost' | 'billing'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'units' | 'settings' | 'control-center' | 'client-control-center' | 'reports' | 'audit-logs' | 'operations-dashboard' | 'assets-catalog' | 'retenes' | 'night-supervision' | 'supervision-planning' | 'headcount' | 'vacations' | 'trainings' | 'archive' | 'workers-management' | 'ats-reception' | 'ats-presentations' | 'hr-opalosis' | 'inventory' | 'warehouse-orders' | 'mattermost' | 'billing' | 'quotes'>('dashboard');
   const [mountedViews, setMountedViews] = useState<Set<string>>(() => new Set(['dashboard']));
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [unitSearchQuery, setUnitSearchQuery] = useState<string>('');
@@ -661,12 +662,24 @@ const App: React.FC = () => {
     };
   }, [isAuthenticated, currentUser?.id, currentUser?.role]);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    if (currentUser.role === 'COMMERCIAL') {
+      if (currentView !== 'quotes') setCurrentView('quotes');
+      return;
+    }
+    if (currentView === 'quotes' && !checkPermission(currentUser.role, 'QUOTES', 'view')) {
+      setCurrentView('dashboard');
+    }
+  }, [currentUser?.role, currentView]);
+
   // Manejar login exitoso
   const handleLoginSuccess = async (user: User) => {
     authRequestRef.current += 1;
     setCurrentUser(user);
     setIsAuthenticated(true);
     setAuthLoading(false);
+    if (user.role === 'COMMERCIAL') setCurrentView('quotes');
   };
 
   // Manejar logout
@@ -1327,10 +1340,15 @@ const App: React.FC = () => {
     } catch (error: any) {
       console.error('Error al guardar usuario:', error);
       const raw = String(error?.message || '');
-      const roleCheck = /users_role_check|WAREHOUSE_ADMIN/i.test(raw);
-      alert(roleCheck
-        ? 'El rol Almacén Admin aún no está habilitado en la base de datos. Ejecute migrations/MIGRATION_INVENTORY_LOGISTICS.sql en Supabase y vuelva a intentarlo.'
-        : (error.message || 'Error al guardar el usuario. Por favor, intente nuevamente.'));
+      if (/users_role_check/i.test(raw)) {
+        alert(userForm.role === 'COMMERCIAL'
+          ? 'El rol Comercial aún no está habilitado en la base de datos. Ejecute migrations/MIGRATION_COMMERCIAL_ROLE.sql en Supabase y vuelva a intentarlo.'
+          : userForm.role === 'WAREHOUSE_ADMIN'
+            ? 'El rol Almacén Admin aún no está habilitado en la base de datos. Ejecute migrations/MIGRATION_INVENTORY_LOGISTICS.sql en Supabase y vuelva a intentarlo.'
+            : 'Ese rol aún no está habilitado en la base de datos. Revise la migración de roles en Supabase y vuelva a intentarlo.');
+      } else {
+        alert(error.message || 'Error al guardar el usuario. Por favor, intente nuevamente.');
+      }
     } finally {
       setUserOperationLoading({ type: null });
     }
@@ -1664,6 +1682,7 @@ const App: React.FC = () => {
 
   // Permission Handlers
   const handlePermissionChange = (role: UserRole, feature: AppFeature, type: 'view' | 'edit', value: boolean) => {
+    if (feature === 'QUOTES') return;
     if (role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN')) return;
     if (role === 'CLIENT' && feature === 'VACATIONS' && type === 'edit') return;
     if (role === 'CLIENT' && feature === 'TRAININGS' && type === 'edit') return;
@@ -1704,11 +1723,12 @@ const App: React.FC = () => {
           OPERATIONS: { ...permissions.OPERATIONS },
           OPERATIONS_SUPERVISOR: { ...permissions.OPERATIONS_SUPERVISOR },
           WAREHOUSE_ADMIN: { ...permissions.WAREHOUSE_ADMIN },
+          COMMERCIAL: { ...(permissions.COMMERCIAL ?? getPermissions().COMMERCIAL) },
           CLIENT: { ...permissions.CLIENT }
         };
 
         // Validar estructura de cada rol
-        const roles: UserRole[] = ['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'CLIENT'];
+        const roles: UserRole[] = ['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'COMMERCIAL', 'CLIENT'];
         for (const role of roles) {
           if (!cleanPermissions[role] || typeof cleanPermissions[role] !== 'object') {
             throw new Error(`Invalid permissions structure for role: ${role}`);
@@ -1886,10 +1906,12 @@ const App: React.FC = () => {
       );
     }
 
+    const shownView = currentUser.role === 'COMMERCIAL' ? 'quotes' : currentView;
     const renderCachedView = (id: string, node: React.ReactNode, fillHeight = false) => {
-      if (!mountedViews.has(id) && currentView !== id) return null;
+      if (currentUser.role === 'COMMERCIAL' && id !== 'quotes') return null;
+      if (!mountedViews.has(id) && shownView !== id) return null;
       return (
-        <KeepAlivePane key={id} active={currentView === id} fillHeight={fillHeight}>
+        <KeepAlivePane key={id} active={shownView === id} fillHeight={fillHeight}>
           <React.Suspense fallback={<ViewFallback />}>{node}</React.Suspense>
         </KeepAlivePane>
       );
@@ -1965,6 +1987,14 @@ const App: React.FC = () => {
             units={operationalUnits}
             currentUser={currentUser}
             canEdit={checkPermission(currentUser.role, 'BILLING', 'edit')}
+            onOpenHelp={() => setShowHelp(true)}
+          />
+        ), true)}
+        {checkPermission(currentUser.role, 'QUOTES', 'view') && renderCachedView('quotes', (
+          <QuoteProposals
+            units={operationalUnits}
+            currentUser={currentUser}
+            canEdit={checkPermission(currentUser.role, 'QUOTES', 'edit')}
             onOpenHelp={() => setShowHelp(true)}
           />
         ), true)}
@@ -2500,9 +2530,9 @@ const App: React.FC = () => {
                             <thead>
                                 <tr>
                                     <th className="px-4 py-3 bg-slate-50 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10">Módulo / Función</th>
-                                    {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'CLIENT'].map(role => (
+                                    {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'COMMERCIAL', 'CLIENT'].map(role => (
                                         <th key={role} className="px-4 py-3 bg-slate-50 text-center text-xs font-bold text-slate-500 uppercase tracking-wider border-l border-slate-200">
-                                            {role === 'ADMIN' ? 'Admin' : role === 'OPERATIONS' ? 'Operaciones' : role === 'OPERATIONS_SUPERVISOR' ? 'Sup. Ops' : role === 'WAREHOUSE_ADMIN' ? 'Almacén' : 'Cliente'}
+                                            {role === 'ADMIN' ? 'Admin' : role === 'OPERATIONS' ? 'Operaciones' : role === 'OPERATIONS_SUPERVISOR' ? 'Sup. Ops' : role === 'WAREHOUSE_ADMIN' ? 'Almacén' : role === 'COMMERCIAL' ? 'Comercial' : 'Cliente'}
                                         </th>
                                     ))}
                                 </tr>
@@ -2511,18 +2541,22 @@ const App: React.FC = () => {
                                 {(Object.keys(FEATURE_LABELS) as AppFeature[]).map(feature => (
                                     <tr key={feature} className="hover:bg-slate-50">
                                         <td className="px-4 py-3 text-sm font-medium text-slate-700 sticky left-0 bg-white">{FEATURE_LABELS[feature]}</td>
-                                        {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'CLIENT'].map(roleStr => {
+                                        {['ADMIN', 'OPERATIONS', 'OPERATIONS_SUPERVISOR', 'WAREHOUSE_ADMIN', 'COMMERCIAL', 'CLIENT'].map(roleStr => {
                                             const role = roleStr as UserRole;
-                                            const perm = permissions[role][feature];
+                                            const perm = permissions[role]?.[feature] ?? { view: false, edit: false };
+                                            const quotesFixed = feature === 'QUOTES';
+                                            const quotesAllowed = role === 'ADMIN' || role === 'COMMERCIAL';
                                             const clientUnitBookViewOnly = role === 'CLIENT' && feature === 'UNIT_BOOK';
                                             const lockedForClient = role === 'CLIENT' && feature === 'WORK_PLAN';
-                                            const viewLocked = lockedForClient || clientUnitBookViewOnly;
-                                            const viewChecked = clientUnitBookViewOnly ? true : lockedForClient ? false : perm.view;
+                                            const viewLocked = lockedForClient || clientUnitBookViewOnly || quotesFixed;
+                                            const viewChecked = quotesFixed ? quotesAllowed : clientUnitBookViewOnly ? true : lockedForClient ? false : perm.view;
                                             const lockedClientEdit = role === 'CLIENT' && (feature === 'UNIT_BOOK' || feature === 'WORK_PLAN' || feature === 'VACATIONS' || feature === 'TRAININGS');
+                                            const editLocked = lockedClientEdit || quotesFixed || !viewChecked;
+                                            const editChecked = quotesFixed ? quotesAllowed : lockedClientEdit ? false : perm.edit;
                                             return (
                                                 <td key={role} className="px-4 py-3 text-center border-l border-slate-200">
                                                     <div className="flex flex-col items-center gap-2">
-                                                        <label className={`flex items-center space-x-2 text-xs ${viewLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} title={clientUnitBookViewOnly ? 'El cliente solo descarga el folleto' : undefined}>
+                                                        <label className={`flex items-center space-x-2 text-xs ${viewLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} title={quotesFixed ? 'El Cotizador queda reservado a Administrador, Super Administrador y Comercial' : clientUnitBookViewOnly ? 'El cliente solo descarga el folleto' : undefined}>
                                                             <input 
                                                                 type="checkbox" 
                                                                 className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
@@ -2532,15 +2566,15 @@ const App: React.FC = () => {
                                                             />
                                                             <span className={viewChecked ? 'text-slate-700' : 'text-slate-400'}>Ver</span>
                                                         </label>
-                                                        <label className={`flex items-center space-x-2 text-xs ${lockedClientEdit || !perm.view ? 'cursor-not-allowed' : 'cursor-pointer'} ${lockedClientEdit ? 'opacity-50' : ''}`}>
+                                                        <label className={`flex items-center space-x-2 text-xs ${editLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                                                             <input 
                                                                 type="checkbox" 
                                                                 className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                                                                checked={lockedClientEdit ? false : perm.edit}
+                                                                checked={editChecked}
                                                                 onChange={(e) => handlePermissionChange(role, feature, 'edit', e.target.checked)}
-                                                                disabled={lockedClientEdit || !perm.view}
+                                                                disabled={editLocked}
                                                             />
-                                                            <span className={perm.edit && !lockedClientEdit ? 'text-slate-700' : 'text-slate-400'}>Editar</span>
+                                                            <span className={editChecked ? 'text-slate-700' : 'text-slate-400'}>Editar</span>
                                                         </label>
                                                     </div>
                                                 </td>
@@ -3169,6 +3203,7 @@ const App: React.FC = () => {
                           <option value="OPERATIONS">Operaciones</option>
                           <option value="OPERATIONS_SUPERVISOR">Supervisor Operaciones</option>
                           <option value="WAREHOUSE_ADMIN">Almacén Admin</option>
+                          <option value="COMMERCIAL">Comercial</option>
                           <option value="CLIENT">Cliente</option>
                           <option value="ADMIN">Administrador</option>
                           {currentUser?.role === 'SUPER_ADMIN' && (
@@ -3635,7 +3670,7 @@ const App: React.FC = () => {
       <HelpPanel
         open={showHelp}
         onClose={() => setShowHelp(false)}
-        currentView={currentView}
+        currentView={currentUser.role === 'COMMERCIAL' ? 'quotes' : currentView}
         selectedUnitId={selectedUnitId}
       />
       {!showHelp && (
@@ -3827,6 +3862,16 @@ const App: React.FC = () => {
                   </button>
               )}
 
+              {checkPermission(currentUser.role, 'QUOTES', 'view') && (
+                  <button
+                    onClick={() => { setCurrentView('quotes'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${(currentUser.role === 'COMMERCIAL' ? 'quotes' : currentView) === 'quotes' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <FileText size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Cotizador</span>
+                  </button>
+              )}
+
               {/* Headcount - Visible for users with HEADCOUNT view permission */}
               {checkPermission(currentUser.role, 'HEADCOUNT', 'view') && (
                   <button 
@@ -4014,7 +4059,7 @@ const App: React.FC = () => {
             </div>
             <div className="flex-1 text-left min-w-0 overflow-hidden">
               <p className="text-xs md:text-sm font-medium truncate">{currentUser.name}</p>
-              <p className="text-[10px] md:text-xs text-slate-400 truncate">{currentUser.role}</p>
+              <p className="text-[10px] md:text-xs text-slate-400 truncate">{USER_ROLE_LABELS[currentUser.role] || currentUser.role}</p>
             </div>
             <ChevronDown size={14} className={`text-slate-500 transition-transform shrink-0 flex-shrink-0 md:w-4 md:h-4 ${showUserMenu ? 'rotate-180' : ''}`} />
           </button>
@@ -4026,7 +4071,7 @@ const App: React.FC = () => {
                <div className="px-3 md:px-4 py-2 text-xs md:text-sm text-slate-300 border-b border-slate-700">
                  <p className="font-medium truncate">{currentUser.name}</p>
                  <p className="text-[10px] md:text-xs text-slate-400 truncate">{currentUser.email}</p>
-                 <p className="text-[10px] md:text-xs text-slate-500 mt-1">Rol: {currentUser.role}</p>
+                 <p className="text-[10px] md:text-xs text-slate-500 mt-1">Rol: {USER_ROLE_LABELS[currentUser.role] || currentUser.role}</p>
                </div>
                {users.length > 0 && users.length > 1 && (
                  <>
@@ -4038,7 +4083,7 @@ const App: React.FC = () => {
                        className={`w-full text-left px-3 md:px-4 py-2 md:py-3 text-xs md:text-sm flex items-center hover:bg-slate-700 ${currentUser.id === user.id ? 'text-blue-400 bg-slate-700/50' : 'text-slate-300'}`}
                      >
                         <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-current mr-2 shrink-0"></span>
-                        <span className="truncate">{user.name} ({user.role})</span>
+                        <span className="truncate">{user.name} ({USER_ROLE_LABELS[user.role] || user.role})</span>
                      </button>
                    ))}
                  </>
