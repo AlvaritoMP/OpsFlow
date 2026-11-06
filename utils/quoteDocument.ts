@@ -138,6 +138,8 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
       margin: 0 auto 16px;
       padding: 14mm 16mm 12mm;
       background: #fff;
+      color: #111827;
+      font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
       display: flex;
       flex-direction: column;
     }
@@ -314,12 +316,87 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
 </html>`;
 }
 
-declare module 'html2canvas-real' {
-  const html2canvas: (
-    element: HTMLElement,
-    options?: Record<string, unknown>
-  ) => Promise<HTMLCanvasElement>;
-  export default html2canvas;
+const RASTER_SCALE = 2;
+
+function rasterizeSheet(page: HTMLElement, css: string): Promise<HTMLCanvasElement> {
+  const width = page.offsetWidth;
+  const height = page.offsetHeight;
+  const doc = page.ownerDocument;
+  const view = doc.defaultView;
+  const bodyStyle = view ? view.getComputedStyle(doc.body) : null;
+  const clone = page.cloneNode(true) as HTMLElement;
+  clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+  clone.style.margin = '0';
+  clone.style.width = `${width}px`;
+  clone.style.height = `${height}px`;
+  clone.style.minHeight = `${height}px`;
+  clone.style.maxHeight = `${height}px`;
+
+  const host = doc.createElement('div');
+  host.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+  host.style.margin = '0';
+  host.style.padding = '0';
+  host.style.width = `${width}px`;
+  host.style.height = `${height}px`;
+  host.style.overflow = 'hidden';
+  host.style.background = '#ffffff';
+  if (bodyStyle) {
+    host.style.fontFamily = bodyStyle.fontFamily;
+    host.style.fontSize = bodyStyle.fontSize;
+    host.style.fontWeight = bodyStyle.fontWeight;
+    host.style.lineHeight = bodyStyle.lineHeight;
+    host.style.color = bodyStyle.color;
+  }
+  const style = doc.createElement('style');
+  style.textContent = css;
+  host.appendChild(style);
+  host.appendChild(clone);
+
+  const xhtml = new XMLSerializer().serializeToString(host);
+  const svg = `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${width * RASTER_SCALE}" height="${height * RASTER_SCALE}" viewBox="0 0 ${width} ${height}"><foreignObject x="0" y="0" width="${width}" height="${height}">${xhtml}</foreignObject></svg>`;
+  const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+  if (parsed.querySelector('parsererror')) {
+    return Promise.reject(new Error('No se pudo preparar la hoja de la propuesta.'));
+  }
+
+  const image = new Image();
+  image.decoding = 'sync';
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return new Promise((resolve, reject) => {
+    image.onload = () => {
+      const canvas = doc.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width * RASTER_SCALE));
+      canvas.height = Math.max(1, Math.round(height * RASTER_SCALE));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('No se pudo dibujar la hoja de la propuesta.'));
+        return;
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      try {
+        const sample = ctx.getImageData(0, 0, canvas.width, Math.min(canvas.height, 240));
+        let ink = false;
+        for (let i = 0; i < sample.data.length; i += 16) {
+          if (sample.data[i] < 245 || sample.data[i + 1] < 245 || sample.data[i + 2] < 245) {
+            ink = true;
+            break;
+          }
+        }
+        if (!ink) {
+          reject(new Error('La hoja salió en blanco. Vuelva a descargar el PDF.'));
+          return;
+        }
+      } catch {
+        reject(new Error('El navegador no permitió guardar la hoja de la propuesta.'));
+        return;
+      }
+      resolve(canvas);
+    };
+    image.onerror = () => reject(new Error('No se pudo dibujar la hoja de la propuesta.'));
+    image.src = url;
+  });
 }
 
 export async function downloadQuotePdf(html: string, fileName: string): Promise<void> {
@@ -366,7 +443,7 @@ export async function downloadQuotePdf(html: string, fileName: string): Promise<
       page.style.minHeight = page.style.height;
     });
 
-    const html2canvas = (await import('html2canvas-real')).default;
+    const css = Array.from(docEl.querySelectorAll('style')).map((node) => node.textContent || '').join('\n');
     const { jsPDF } = await import('jspdf');
     let pdf: import('jspdf').jsPDF | null = null;
     for (const page of pages) {
@@ -374,16 +451,7 @@ export async function downloadQuotePdf(html: string, fileName: string): Promise<
       const pxPerMm = page.offsetWidth / widthMm || 1;
       const heightMm = Math.round((page.offsetHeight / pxPerMm) * 100) / 100;
       const orientation = widthMm > heightMm ? 'landscape' : 'portrait';
-      const canvas = await html2canvas(page, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-        width: page.offsetWidth,
-        height: page.offsetHeight,
-        windowWidth: page.offsetWidth,
-        windowHeight: page.offsetHeight,
-      });
+      const canvas = await rasterizeSheet(page, css);
       const image = canvas.toDataURL('image/png');
       if (!pdf) {
         pdf = new jsPDF({ unit: 'mm', format: [widthMm, heightMm], orientation });
