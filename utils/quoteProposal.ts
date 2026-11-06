@@ -243,7 +243,8 @@ function normalizePosition(raw: Partial<QuotePosition> | null | undefined, rates
     origin: 'manual',
     included: raw?.included !== false,
   });
-  const name = String(raw?.name || raw?.position || seed.name).trim() || 'Puesto';
+  const rawName = String(raw?.name ?? raw?.position ?? seed.name);
+  const name = rawName.trim() ? rawName : 'Puesto';
   return {
     ...merged,
     name,

@@ -69,8 +69,8 @@ const ADMIN_KINDS: Array<[string, string]> = [
 ];
 
 const fieldClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
-const gridInput = 'w-full min-w-[4.5rem] rounded border border-slate-200 px-1 py-0.5 text-right text-[11px] tabular-nums disabled:bg-slate-50';
-const gridText = 'w-full rounded border border-slate-200 px-1 py-0.5 text-[11px] disabled:bg-slate-50';
+const gridInput = 'w-full min-w-[5.5rem] rounded border border-slate-200 px-2 py-1.5 text-right text-sm tabular-nums disabled:bg-slate-50';
+const gridText = 'w-full rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
 
 export function newQuoteBaseline(editor: EditorState): string {
   return JSON.stringify({ code: editor.code, clientName: editor.clientName, payload: editor.payload });
@@ -444,9 +444,9 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
   const positions = quotePositions(editor.payload.model);
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="max-w-[1600px] mx-auto p-4 md:p-6 space-y-4">
-        <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-3">
+    <div className="h-full min-h-0 flex flex-col bg-slate-50">
+      <div className="flex-1 min-h-0 flex flex-col gap-3 p-3 md:p-4">
+        <div className="shrink-0 flex flex-col xl:flex-row xl:items-start justify-between gap-3">
           <div>
             <button
               type="button"
@@ -500,7 +500,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         {banner && <Banner text={banner} />}
         {editor.status === 'issued' && <Banner text="Emitida y cerrada. Reábrala para cambiar un sueldo, un costo, una condición o una nota." />}
 
-        <section className="bg-white border border-slate-200 rounded-xl p-4 grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+        <section className="shrink-0 bg-white border border-slate-200 rounded-xl p-4 grid md:grid-cols-2 xl:grid-cols-4 gap-3">
           <label className="text-xs text-slate-500">Código
             <input className={fieldClass} disabled={locked} value={editor.code} onChange={(event) => setEditor({ ...editor, code: event.target.value })} />
           </label>
@@ -524,7 +524,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           </label>
         </section>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
+        <div className="shrink-0 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
           <Stat label="Costo laboral" value={pen(view.computed.laborTotal)} />
           <Stat label="Operativo" value={pen(view.computed.operationalTotal)} />
           <Stat label="Administrativo" value={pen(view.computed.adminTotal)} />
@@ -535,7 +535,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           <Stat label={`${editor.payload.months} meses`} value={pen(view.periodWithIgv)} />
         </div>
 
-        <div className="flex gap-1 overflow-x-auto">
+        <div className="shrink-0 flex gap-1 overflow-x-auto">
           {(
             [
               ['positions', `Puestos (${positions.filter((position) => position.included).length})`],
@@ -552,6 +552,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           ))}
         </div>
 
+        <div className="flex-1 min-h-0 overflow-auto">
         {tab === 'positions' && (
           <PositionSheet
             positions={positions}
@@ -621,7 +622,12 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             onNotes={(notes) => patchPayload({ notes })}
           />
         )}
-        {tab === 'preview' && <QuotePreview html={html} />}
+        {tab === 'preview' && (
+          <div className="h-full min-h-0 overflow-auto">
+            <QuotePreview html={html} />
+          </div>
+        )}
+        </div>
       </div>
     </div>
   );
@@ -641,12 +647,12 @@ function PositionSheet(props: {
   onDays: () => void;
 }) {
   const lines = new Map(props.view.computed.workers.map((line) => [line.id, line]));
-  const head = 'sticky top-0 z-20 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-right px-1.5 py-2 whitespace-nowrap border-b border-slate-200';
+  const head = 'sticky top-0 z-20 bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500 text-right px-2 py-2.5 whitespace-nowrap border-b border-slate-200';
   const headLeft = `${head} text-left`;
   const say = (id: string) => describeFormula(id, props.formulas);
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-      <div className="p-3 flex flex-col lg:flex-row gap-2 lg:items-center justify-between border-b border-slate-100">
+    <section className="h-full min-h-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="shrink-0 p-3 flex flex-col lg:flex-row gap-2 lg:items-center justify-between border-b border-slate-100">
         <p className="text-sm text-slate-600">
           Cada fila es un puesto. El sueldo, los días y las horas son de una vacante. Los importes calculados y el costo laboral ya incluyen todas las vacantes, igual que el factor de una liquidación.
         </p>
@@ -659,14 +665,14 @@ function PositionSheet(props: {
         )}
       </div>
       {props.positions.length === 0 ? (
-        <div className="p-6 text-sm text-slate-500">Agregue un puesto para empezar la propuesta.</div>
+        <div className="flex-1 p-6 text-sm text-slate-500">Agregue un puesto para empezar la propuesta.</div>
       ) : (
-        <div className="overflow-auto max-h-[68vh]">
-          <table className="min-w-max border-separate border-spacing-0 text-xs">
+        <div className="flex-1 min-h-0 overflow-auto">
+          <table className="min-w-full border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
                 <th className={headLeft} />
-                <th className={`${headLeft} sticky left-0 z-30 bg-slate-100 min-w-[180px]`}>Puesto</th>
+                <th className={`${headLeft} sticky left-0 z-30 bg-slate-100 min-w-[16rem]`}>Puesto</th>
                 <th className={headLeft}>Sede</th>
                 <th className={head}>Vacantes</th>
                 <th className={head}>Sueldo</th>
@@ -700,8 +706,8 @@ function PositionSheet(props: {
                 return (
                   <tr key={position.id} className={`border-t border-slate-100 ${position.included ? '' : 'opacity-50'}`}>
                     <td className="px-1.5 py-1"><input type="checkbox" checked={position.included} disabled={props.locked} onChange={(event) => props.onPatch(position.id, { included: event.target.checked })} /></td>
-                    <td className="sticky left-0 z-10 bg-white px-1 py-1 min-w-[180px]"><input className={gridText} disabled={props.locked} value={position.name} onChange={(event) => props.onPatch(position.id, { name: event.target.value })} /></td>
-                    <td className="px-1 py-1"><input className={`${gridText} w-28`} disabled={props.locked} value={position.site || ''} onChange={(event) => props.onPatch(position.id, { site: event.target.value })} /></td>
+                    <td className="sticky left-0 z-10 bg-white px-1.5 py-1.5 min-w-[16rem]"><input className={gridText} disabled={props.locked} value={position.name} onChange={(event) => props.onPatch(position.id, { name: event.target.value })} /></td>
+                    <td className="px-1.5 py-1.5"><input className={`${gridText} min-w-[9rem]`} disabled={props.locked} value={position.site || ''} onChange={(event) => props.onPatch(position.id, { site: event.target.value })} /></td>
                     <td className="px-1 py-1"><Num disabled={props.locked} step="1" value={position.factor} onChange={(factor) => props.onPatch(position.id, { factor })} /></td>
                     <td className="px-1 py-1"><Num disabled={props.locked} value={position.contractualSalary} onChange={(contractualSalary) => props.onPatch(position.id, { contractualSalary })} /></td>
                     <td className="px-1 py-1"><Num disabled={props.locked} step="1" value={position.daysWorked} onChange={(daysWorked) => props.onPatch(position.id, { daysWorked, daysManual: true })} /></td>
@@ -722,7 +728,7 @@ function PositionSheet(props: {
                     <Money value={scaled(line?.essalud)} />
                     <Money value={scaled(line?.vidaLey)} />
                     <Money value={scaled(line?.sctr)} />
-                    <td className="px-1.5 py-1 text-right tabular-nums font-semibold text-slate-900">{pen(line?.totalCost || 0)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-sm font-semibold text-slate-900">{pen(line?.totalCost || 0)}</td>
                     <td className="px-1 py-1">
                       {!props.locked && (
                         <button type="button" className="text-red-500" title="Quitar puesto" onClick={() => props.onRemove(position.id)}><Trash2 size={14} /></button>
@@ -1084,7 +1090,7 @@ function Num(props: { value: number; disabled?: boolean; step?: string; onChange
 }
 
 function Money({ value }: { value?: number }) {
-  return <td className="px-1.5 py-1 text-right tabular-nums text-slate-600">{pen(value || 0)}</td>;
+  return <td className="px-2 py-1.5 text-right tabular-nums text-sm text-slate-700">{pen(value || 0)}</td>;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -1103,5 +1109,5 @@ function StatusChip({ status }: { status: QuoteStatus }) {
 }
 
 function Banner({ text }: { text: string }) {
-  return <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">{text}</div>;
+  return <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">{text}</div>;
 }
