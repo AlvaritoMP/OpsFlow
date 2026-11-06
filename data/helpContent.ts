@@ -1235,7 +1235,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Operativo y administrativo: los mismos conceptos de la liquidación. El costo financiero usa la tasa y los días de Parámetros.',
           'Parámetros: tasas de cargas, utilidad e IGV. Traer método publicado copia las fórmulas vigentes de Facturación. Una propuesta ya guardada no cambia sola.',
           'Condiciones y notas: el alcance describe en qué consiste el servicio. Modalidad, plazo, facturación, crédito, corte, emisión de factura y vigencia se editan como datos. Las demás condiciones salen en el mismo bloque, cada una con su título. {meses} y {igv} se reemplazan al imprimir.',
-          'Propuesta: revise el documento. Descargar PDF guarda esas mismas páginas, con los mismos saltos y el mismo espacio, sin usar la ventana de impresión del equipo.',
+          'Propuesta: revise el documento. Descargar PDF genera un archivo liviano, con texto nítido, sin usar la ventana de impresión del equipo.',
           'Emitir cierra la propuesta. Para corregir un monto hay que reabrirla.',
         ],
         tips: [

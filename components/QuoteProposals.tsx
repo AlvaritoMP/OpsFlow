@@ -17,7 +17,8 @@ import {
   newBillingId,
   pen,
 } from '../utils/clientBillingCalc';
-import { buildQuoteDocument, downloadQuotePdf } from '../utils/quoteDocument';
+import { buildQuoteDocument } from '../utils/quoteDocument';
+import { downloadQuotePdf } from '../utils/quotePdf';
 import {
   buildQuoteView,
   createEmptyQuote,
@@ -321,11 +322,14 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
   };
 
   const downloadPdf = async () => {
-    if (!html || !editor) return;
+    if (!editor || !view) return;
     setBusy('pdf');
     setBanner(null);
     try {
-      await downloadQuotePdf(html, editor.code || 'propuesta');
+      await downloadQuotePdf(
+        { code: editor.code, clientName: editor.clientName, payload: editor.payload, view, logoUrl },
+        editor.code || 'propuesta'
+      );
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo descargar el PDF.');
     } finally {
