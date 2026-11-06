@@ -543,6 +543,17 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Revise su estado y unidades asociadas.',
           'Use las acciones de edición según su permiso.',
           'Trasladar o intercambiar mueve al colaborador a otra unidad con su historial (contratos, incrementos, capacitaciones, dotaciones).',
+          'En Renovación de contratos filtre por vencimiento, cliente o unidad, seleccione el lote y aplique fechas, sueldo o condición de una vez.',
+        ],
+      },
+      {
+        heading: 'Renovación de contratos',
+        body: 'La pestaña muestra el personal activo de todas las unidades, con el fin de contrato, el sueldo y la condición de trabajo. Sirve para renovar o ajustar condiciones sin abrir cada ficha.',
+        steps: [
+          'Use las tarjetas de vencimiento o los filtros de cliente y unidad para armar el lote.',
+          'Renovar contrato crea el siguiente número, deja el anterior como renovado y actualiza la ficha. El inicio de la relación laboral se conserva.',
+          'Cambiar condiciones vigentes ajusta el fin, el sueldo o la condición del contrato activo.',
+          'Revise el ejemplo y la confirmación antes de aplicar. Quienes no tengan datos suficientes quedan fuera del lote.',
         ],
       },
       {

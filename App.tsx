@@ -119,7 +119,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   // Usar hooks de Supabase (solo cargar si está autenticado)
-  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits, hydrateUnit, replaceUnitInState, applyPersonnelUnitMove, releaseManagementStaffFromUnits } = useUnits(isAuthenticated, currentUser);
+  const { units, loading: unitsLoading, error: unitsError, createUnit, updateUnit, deleteUnit, loadUnits, hydrateUnit, replaceUnitInState, replacePersonnelResources, applyPersonnelUnitMove, releaseManagementStaffFromUnits } = useUnits(isAuthenticated, currentUser);
   const { users, loading: usersLoading, createUser, updateUser, deleteUser, loadUsers } = useUsers(isAuthenticated);
   const { staff: managementStaff, loading: staffLoading, createStaff, updateStaff, deleteStaff, archiveStaff, loadStaff } = useManagementStaff(isAuthenticated);
   const { clients, loading: clientsLoading, createClient, updateClient, deleteClient, loadClients } = useClients(isAuthenticated);
@@ -2041,7 +2041,7 @@ const App: React.FC = () => {
           />
         ))}
         {renderCachedView('workers-management', (
-          <WorkersManagement units={operationalUnits} clients={clients} currentUserRole={currentUser.role} onUpdateUnit={handleUpdateUnit} onPersonnelMoved={applyPersonnelUnitMove} />
+          <WorkersManagement units={operationalUnits} clients={clients} currentUserRole={currentUser.role} onUpdateUnit={handleUpdateUnit} onPersonnelMoved={applyPersonnelUnitMove} onPersonnelReplaced={replacePersonnelResources} />
         ))}
         {renderCachedView('ats-reception', (
           <InboundWorkerHandoff

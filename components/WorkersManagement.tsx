@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw, FileDown, ArrowLeftRight } from 'lucide-react';
+import { Search, Filter, Users, Building, UserCheck, Archive as ArchiveIcon, X, Download, RefreshCw, FileDown, ArrowLeftRight, CalendarClock } from 'lucide-react';
 import { Unit, Resource, ResourceType, Client, UserRole } from '../types';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import { formatDateDisplay } from '../utils/dateFormat';
@@ -10,6 +10,8 @@ import { checkPermission } from '../services/permissionService';
 import { TransferWorkerModal } from './TransferWorkerModal';
 import { PersonnelEconomicSummary } from './PersonnelEconomicSummary';
 import { TransferWorkerResult } from '../services/workerTransferService';
+import { ContractRenewalDesk } from './ContractRenewalDesk';
+import { renewalAttentionCount } from '../utils/contractRenewal';
 
 interface WorkersManagementProps {
   units: Unit[];
@@ -17,6 +19,7 @@ interface WorkersManagementProps {
   currentUserRole?: UserRole;
   onUpdateUnit?: (unit: Unit) => void;
   onPersonnelMoved?: (result: TransferWorkerResult) => void;
+  onPersonnelReplaced?: (resources: Resource[]) => void;
 }
 
 interface WorkerWithUnit extends Resource {
@@ -39,7 +42,7 @@ const getWorkerIngresoDate = (worker: Pick<Resource, 'startDate' | 'endDate' | '
   return getLaborRelationshipDisplayDates(worker, worker.contractHistory).start?.slice(0, 10);
 };
 
-export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, clients, currentUserRole, onUpdateUnit, onPersonnelMoved }) => {
+export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, clients, currentUserRole, onUpdateUnit, onPersonnelMoved, onPersonnelReplaced }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'activo' | 'cesado' | 'archivado'>('all');
   const [unitFilter, setUnitFilter] = useState<string>('all');
@@ -51,6 +54,8 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
   const [selectedWorker, setSelectedWorker] = useState<WorkerWithUnit | null>(null);
   const [workerToTransfer, setWorkerToTransfer] = useState<WorkerWithUnit | null>(null);
   const [downloadingFichaId, setDownloadingFichaId] = useState<string | null>(null);
+  const [section, setSection] = useState<'directory' | 'renewals'>('directory');
+  const expiringSoon = useMemo(() => renewalAttentionCount(units), [units]);
   const getWorkerInitial = (name?: string) => (name?.trim().charAt(0) || '?').toUpperCase();
   const canEditPersonnel = currentUserRole ? checkPermission(currentUserRole, 'PERSONNEL', 'edit') : false;
 
@@ -261,24 +266,60 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 flex items-center gap-2">
-            <Users className="w-6 h-6 md:w-8 md:h-8" />
-            Gestión Global de Trabajadores
-          </h1>
-          <p className="text-slate-600 mt-1">Revisa y gestiona todos los trabajadores del sistema</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 flex items-center gap-2">
+              <Users className="w-6 h-6 md:w-8 md:h-8" />
+              Gestión Global de Trabajadores
+            </h1>
+            <p className="text-slate-600 mt-1">
+              {section === 'renewals'
+                ? 'Renueve contratos y actualice sueldo o condición de varias unidades a la vez.'
+                : 'Revisa y gestiona todos los trabajadores del sistema'}
+            </p>
+          </div>
+          {section === 'directory' && (
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Exportar CSV
+            </button>
+          )}
         </div>
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          Exportar CSV
-        </button>
+        <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            onClick={() => setSection('directory')}
+            className={`px-3 py-1.5 text-sm rounded-md ${section === 'directory' ? 'bg-white text-slate-900 shadow-sm font-medium' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            Directorio
+          </button>
+          <button
+            type="button"
+            onClick={() => setSection('renewals')}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md ${section === 'renewals' ? 'bg-white text-slate-900 shadow-sm font-medium' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            <CalendarClock className="w-4 h-4" />
+            Renovación de contratos
+            {expiringSoon > 0 && (
+              <span
+                className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold"
+                title="Contratos vencidos o por vencer en 30 días"
+              >
+                {expiringSoon}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
+      {section === 'renewals' ? (
+        <ContractRenewalDesk units={units} canEdit={canEditPersonnel} onPersonnelReplaced={onPersonnelReplaced} />
+      ) : (
+      <>
       {/* Estadísticas */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white p-4 rounded-lg shadow border border-slate-200">
@@ -704,6 +745,8 @@ export const WorkersManagement: React.FC<WorkersManagementProps> = ({ units, cli
             setSelectedWorker(null);
           }}
         />
+      )}
+      </>
       )}
     </div>
   );

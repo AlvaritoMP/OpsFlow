@@ -264,6 +264,31 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     setUnits((prev) => prev.map((u) => (u.id === replacement.id ? replacement : u)));
   }, []);
 
+  const replacePersonnelResources = useCallback((freshResources: Resource[]) => {
+    if (freshResources.length === 0) return;
+    const byId = new Map(freshResources.map((resource) => [resource.id, resource]));
+    setUnits((prev) => prev.map((unit) => {
+      let changed = false;
+      const resources = (unit.resources || []).map((resource) => {
+        const fresh = byId.get(resource.id);
+        if (!fresh) return resource;
+        changed = true;
+        return {
+          ...resource,
+          startDate: fresh.startDate ?? resource.startDate,
+          endDate: fresh.endDate,
+          monthlySalary: fresh.monthlySalary,
+          workConditionAmount: fresh.workConditionAmount,
+          personnelStatus: fresh.personnelStatus ?? resource.personnelStatus,
+          archived: fresh.archived,
+          terminationReason: fresh.terminationReason,
+          contractHistory: fresh.contractHistory?.length ? fresh.contractHistory : resource.contractHistory,
+        };
+      });
+      return changed ? { ...unit, resources } : unit;
+    }));
+  }, []);
+
   const applyPersonnelUnitMove = useCallback((move: TransferWorkerResult) => {
     const placedWorker: Resource = { ...move.worker, unitId: move.toUnitId, assignedZones: [] };
     const placedSwap: Resource | undefined = move.swappedWorker
@@ -324,6 +349,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     updateUnit,
     deleteUnit,
     replaceUnitInState,
+    replacePersonnelResources,
     applyPersonnelUnitMove,
     releaseManagementStaffFromUnits,
   };
