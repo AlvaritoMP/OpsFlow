@@ -314,17 +314,89 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
 </html>`;
 }
 
-export function printQuoteDocument(html: string): boolean {
-  const win = window.open('', '_blank');
-  if (!win) return false;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  window.setTimeout(() => {
-    win.focus();
-    win.print();
-  }, 350);
-  return true;
+declare module 'html2canvas-real' {
+  const html2canvas: (
+    element: HTMLElement,
+    options?: Record<string, unknown>
+  ) => Promise<HTMLCanvasElement>;
+  export default html2canvas;
+}
+
+export async function downloadQuotePdf(html: string, fileName: string): Promise<void> {
+  const holder = document.createElement('div');
+  holder.setAttribute('aria-hidden', 'true');
+  holder.style.cssText = 'position:fixed;left:0;top:0;width:297mm;height:1px;overflow:hidden;pointer-events:none;';
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'width:297mm;height:2000mm;border:0;background:#fff;';
+  holder.appendChild(frame);
+  document.body.appendChild(holder);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error('La propuesta tardó demasiado en prepararse.')), 20000);
+      frame.onload = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+      frame.srcdoc = html;
+    });
+    const docEl = frame.contentDocument;
+    if (!docEl) throw new Error('No se pudo preparar la propuesta.');
+    await Promise.all(
+      Array.from(docEl.images).map(
+        (image) =>
+          image.complete
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                image.onload = () => resolve();
+                image.onerror = () => resolve();
+              })
+      )
+    );
+    frame.style.height = `${Math.max(docEl.body.scrollHeight, docEl.documentElement.scrollHeight)}px`;
+    await new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)));
+    const pages = Array.from(docEl.querySelectorAll<HTMLElement>('section.page'));
+    if (!pages.length) throw new Error('La propuesta no tiene páginas.');
+    pages.forEach((page) => {
+      const content = page.querySelector<HTMLElement>('.page-content');
+      if (content) {
+        content.style.flex = '0 0 auto';
+        content.style.height = `${content.offsetHeight}px`;
+      }
+      page.style.height = `${page.offsetHeight}px`;
+      page.style.minHeight = page.style.height;
+    });
+
+    const html2canvas = (await import('html2canvas-real')).default;
+    const { jsPDF } = await import('jspdf');
+    let pdf: import('jspdf').jsPDF | null = null;
+    for (const page of pages) {
+      const widthMm = page.classList.contains('page-anexo') ? 297 : 210;
+      const pxPerMm = page.offsetWidth / widthMm || 1;
+      const heightMm = Math.round((page.offsetHeight / pxPerMm) * 100) / 100;
+      const orientation = widthMm > heightMm ? 'landscape' : 'portrait';
+      const canvas = await html2canvas(page, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+        width: page.offsetWidth,
+        height: page.offsetHeight,
+        windowWidth: page.offsetWidth,
+        windowHeight: page.offsetHeight,
+      });
+      const image = canvas.toDataURL('image/png');
+      if (!pdf) {
+        pdf = new jsPDF({ unit: 'mm', format: [widthMm, heightMm], orientation });
+      } else {
+        pdf.addPage([widthMm, heightMm], orientation);
+      }
+      pdf.addImage(image, 'PNG', 0, 0, widthMm, heightMm);
+    }
+    const safeName = fileName.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'propuesta';
+    pdf?.save(safeName.toLowerCase().endsWith('.pdf') ? safeName : `${safeName}.pdf`);
+  } finally {
+    holder.remove();
+  }
 }
 
 function groupTitle(group: string): string {

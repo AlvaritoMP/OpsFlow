@@ -29,7 +29,9 @@ export default defineConfig(({ mode }) => {
           '@': path.resolve(__dirname, '.'),
           // jspdf los importa solo para HTML/SVG. Los PDF de OpsFlow no usan eso,
           // y meter esas librerías alarga varios minutos la compilación en el VPS.
+          // La propuesta sí toma una foto de la hoja que se ve en pantalla, por un alias aparte.
           html2canvas: path.resolve(__dirname, 'utils/jspdfOptionalStub.js'),
+          'html2canvas-real': path.resolve(__dirname, 'node_modules/html2canvas/dist/html2canvas.esm.js'),
           canvg: path.resolve(__dirname, 'utils/jspdfOptionalStub.js'),
           dompurify: path.resolve(__dirname, 'utils/jspdfOptionalStub.js'),
         }

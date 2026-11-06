@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, FileText, HelpCircle, Loader2, Plus, Printer, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, FileText, HelpCircle, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { Unit, User } from '../types';
 import { loadPublishedBillingFormulas } from '../services/clientBillingService';
 import {
@@ -17,7 +17,7 @@ import {
   newBillingId,
   pen,
 } from '../utils/clientBillingCalc';
-import { buildQuoteDocument, printQuoteDocument } from '../utils/quoteDocument';
+import { buildQuoteDocument, downloadQuotePdf } from '../utils/quoteDocument';
 import {
   buildQuoteView,
   createEmptyQuote,
@@ -320,9 +320,17 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     }
   };
 
-  const print = () => {
-    if (!html) return;
-    if (!printQuoteDocument(html)) setBanner('El navegador bloqueó la ventana de impresión.');
+  const downloadPdf = async () => {
+    if (!html || !editor) return;
+    setBusy('pdf');
+    setBanner(null);
+    try {
+      await downloadQuotePdf(html, editor.code || 'propuesta');
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo descargar el PDF.');
+    } finally {
+      setBusy(null);
+    }
   };
 
   const refreshFormulas = async () => {
@@ -475,8 +483,9 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                 <HelpCircle size={16} />
               </button>
             )}
-            <button type="button" onClick={print} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm">
-              <Printer size={16} /> Imprimir o PDF
+            <button type="button" onClick={() => void downloadPdf()} disabled={!!busy || !html} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm disabled:opacity-60">
+              {busy === 'pdf' ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              {busy === 'pdf' ? 'Preparando PDF…' : 'Descargar PDF'}
             </button>
             {editor.status === 'issued' && canEdit && (
               <button type="button" onClick={() => void changeStatus('draft')} className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm">Reabrir</button>
