@@ -49,6 +49,8 @@ import {
   setBillingStatus,
 } from '../services/clientBillingService';
 import { usersService } from '../services/usersService';
+import { listQuotes, QuoteRecord } from '../services/quoteProposalService';
+import { applyQuoteCommercials } from '../utils/quoteProposal';
 import { registerBillingServiceOrder } from '../services/billingOpalosisService';
 import { BillingFormulaEditor } from './BillingFormulaEditor';
 import { BillingRunCompare } from './BillingRunCompare';
@@ -181,6 +183,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createOsTo, setCreateOsTo] = useState('');
   const [createServiceMonth, setCreateServiceMonth] = useState('');
   const [createPes, setCreatePes] = useState('');
+  const [createQuoteId, setCreateQuoteId] = useState('');
+  const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [pesChoices, setPesChoices] = useState<string[]>([]);
   const [createDocumentKind, setCreateDocumentKind] = useState<OpalosisDocumentKind>('invoice');
   const [createWorkGroup, setCreateWorkGroup] = useState('');
@@ -256,7 +260,15 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       });
   }, []);
 
-  const activeFormulas = editor?.status === 'draft' ? publishedFormulas || undefined : editor?.model.formulas;
+  useEffect(() => {
+    listQuotes()
+      .then((rows) => setQuotes(rows.filter((row) => row.status !== 'void')))
+      .catch(() => setQuotes([]));
+  }, []);
+
+  const activeFormulas = editor?.status === 'draft'
+    ? (editor.model.sourceQuoteId && editor.model.formulas) || publishedFormulas || undefined
+    : editor?.model.formulas;
   const computed = useMemo(() => {
     if (!editor) return { result: null as BillingComputation | null, error: null as string | null };
     try {
@@ -340,14 +352,15 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setBanner(setupError);
       return;
     }
-    setBusy('Armando la liquidación con el personal de la unidad');
+    setBusy(createQuoteId ? 'Armando la liquidación con la propuesta' : 'Armando la liquidación con el personal de la unidad');
     setBanner(null);
     try {
-      const model = await prepareBillingDraft(
+      let model = await prepareBillingDraft(
         { id: unit.id, name: unit.name, clientName: unit.clientName },
         createPeriod,
         { copyPreviousCosts: copyPrevious, attendanceFrom: createFrom, attendanceTo: createTo }
       );
+      const quote = quotes.find((item) => item.id === createQuoteId);
       model.osStartDate = createOsFrom;
       model.osEndDate = createOsTo;
       model.osServiceMonth = createServiceMonth;
@@ -361,6 +374,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         clientApplicant: 'first',
         makerDni: createDni.trim(),
       };
+      if (quote) model = applyQuoteCommercials(model, quote);
       if (model.opalosisPesCode && model.opalosisIssue) {
         await saveUnitOpalosisSetup(unit.id, { pesCode: model.opalosisPesCode, issue: model.opalosisIssue }, actor);
       }
@@ -391,7 +405,11 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setAppliedAttendanceKey(attendanceWindowKey(createPeriod, model.attendanceFrom, model.attendanceTo));
       setShowCreate(false);
       setTab('labor');
-      setBanner(`Borrador armado con el personal activo y con quien trabajó en el corte. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.`);
+      setBanner(
+        quote
+          ? `Borrador armado con ${quote.code}: ${model.workers.length} puestos, los parámetros, los costos operativos, los administrativos y la utilidad. El personal de la unidad no entra en esta liquidación.`
+          : `Borrador armado con el personal activo y con quien trabajó en el corte. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.`
+      );
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo preparar la facturación.');
     } finally {
@@ -420,6 +438,18 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     setEditor((current) =>
       current ? { ...current, model: { ...current.model, rates: { ...current.model.rates, ...patch } } } : current
     );
+  };
+
+  const useQuote = (quoteId: string) => {
+    if (!editor || locked || !quoteId) return;
+    const quote = quotes.find((item) => item.id === quoteId);
+    if (!quote) return;
+    const confirmed = window.confirm(
+      `Se reemplazan los puestos, los parámetros, los costos operativos, los administrativos y la utilidad con los de ${quote.code}. El personal de la unidad deja de usarse en esta liquidación.`
+    );
+    if (!confirmed) return;
+    setEditor({ ...editor, model: applyQuoteCommercials(editor.model, quote) });
+    setBanner(`La liquidación tomó los puestos, parámetros y costos de ${quote.code}. Guarde para conservarlos.`);
   };
 
   const syncAttendance = async (current: EditorState, force = false): Promise<EditorState> => {
@@ -857,6 +887,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     try {
       const next = await syncAttendance(editor, true);
       setEditor(next);
+      if (next.model.sourceQuoteId) {
+        setBanner(`Esta liquidación usa los puestos de ${next.model.sourceQuoteCode || 'la propuesta'}. No se mezcla el personal de la unidad.`);
+        return;
+      }
       const range = resolveAttendanceWindow(next.periodMonth, next.model.attendanceFrom, next.model.attendanceTo);
       setBanner(`Se tomaron la asistencia y las novedades del ${formatAttendanceRange(range.from, range.to)}. Los campos que usted ya había ajustado se conservaron.`);
     } catch (error) {
@@ -1036,6 +1070,29 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <label className="text-sm text-slate-600">
                     Asistencia y novedades hasta
                     <input className={fieldClass} type="date" value={createTo} onChange={(event) => setCreateTo(event.target.value)} />
+                  </label>
+                  <label className="text-sm text-slate-600 md:col-span-2">
+                    Propuesta de OpsFlow
+                    <select
+                      className={fieldClass}
+                      value={createQuoteId}
+                      onChange={(event) => {
+                        const id = event.target.value;
+                        setCreateQuoteId(id);
+                        const quote = quotes.find((item) => item.id === id);
+                        if (quote) setCreatePes(quote.code);
+                      }}
+                    >
+                      <option value="">Sin propuesta. Usa el personal de la unidad.</option>
+                      {quotes.map((quote) => (
+                        <option key={quote.id} value={quote.id}>
+                          {quote.code} · {quote.clientName} · {quote.status === 'issued' ? 'Emitida' : 'Borrador'}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Copia los puestos, los parámetros, los costos operativos, los administrativos y el porcentaje de utilidad. Esos puestos reemplazan al personal de la unidad.
+                    </span>
                   </label>
                   <label className="text-sm text-slate-600 md:col-span-2">
                     Código PES de OpaloSis
@@ -1332,6 +1389,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onReload={() => void reloadPersonnel()}
             onRemember={() => void rememberConditions()}
             formulas={activeFormulas}
+            quotes={quotes}
+            onUseQuote={useQuote}
             onExport={(withFormulas) => {
               if (computed.result) void exportExcel(editor, computed.result, activeFormulas, withFormulas);
             }}
@@ -1593,6 +1652,8 @@ function EditorView(props: {
   onReload: () => void;
   onRemember: () => void;
   formulas?: BillingFormulaSet;
+  quotes: QuoteRecord[];
+  onUseQuote: (quoteId: string) => void;
   onExport: (withFormulas?: boolean) => void;
   onOpenHelp?: () => void;
   onOpenCompare: () => void;
@@ -1687,10 +1748,31 @@ function EditorView(props: {
               ? ` · Orden ${formatAttendanceDate(editor.model.osStartDate)} – ${formatAttendanceDate(editor.model.osEndDate)}`
               : ''}
             {editor.model.opalosisPesCode ? ` · PES ${editor.model.opalosisPesCode}` : ''}
+            {editor.model.sourceQuoteCode ? ` · Propuesta ${editor.model.sourceQuoteCode}` : ''}
             {editor.model.opalosisRegistration?.numeroOrdenServicio ? ` · ${editor.model.opalosisRegistration.numeroOrdenServicio}` : ''}
             {editor.updatedByName ? ` · Último guardado por ${editor.updatedByName}` : ''}
             {editor.issuedByName ? ` · Emitida por ${editor.issuedByName}` : ''}
           </p>
+          {!props.locked && props.canEdit && props.quotes.length > 0 && (
+            <label className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+              Usar propuesta
+              <select
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                value={editor.model.sourceQuoteId || ''}
+                onChange={(event) => {
+                  const quoteId = event.target.value;
+                  if (quoteId && quoteId !== editor.model.sourceQuoteId) props.onUseQuote(quoteId);
+                }}
+              >
+                <option value="">{editor.model.sourceQuoteId ? 'Mantener la actual' : 'Elegir PES…'}</option>
+                {props.quotes.map((quote) => (
+                  <option key={quote.id} value={quote.id}>
+                    {quote.code} · {quote.clientName} · {quote.status === 'issued' ? 'Emitida' : 'Borrador'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <label

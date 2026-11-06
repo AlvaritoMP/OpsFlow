@@ -202,6 +202,12 @@ export async function refreshWorkersFromUnit(
   const window = resolveAttendanceWindow(periodMonth, model.attendanceFrom, model.attendanceTo);
   const windowError = attendanceWindowError(window.from, window.to);
   if (windowError) throw new Error(windowError);
+  if (model.sourceQuoteId) {
+    const next = cloneModel(model);
+    next.attendanceFrom = window.from;
+    next.attendanceTo = window.to;
+    return next;
+  }
 
   const [people, compensations, absences] = await Promise.all([
     loadPersonnel(unitId, window),
@@ -286,7 +292,9 @@ export async function saveClientBilling(input: {
     draft = !data || data.status === 'draft';
   }
   if (draft) {
-    formulas = (await loadPublishedBillingFormulas()) || undefined;
+    formulas = input.model.sourceQuoteId && input.model.formulas
+      ? input.model.formulas
+      : (await loadPublishedBillingFormulas()) || undefined;
   }
   const computed = computeBilling({ ...input.model, formulas });
   const now = new Date().toISOString();

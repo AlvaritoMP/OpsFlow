@@ -48,6 +48,7 @@ interface EditorState {
   status: QuoteStatus;
   payload: QuoteProposalPayload;
   updatedByName?: string;
+  issuedAt?: string;
   issuedByName?: string;
 }
 
@@ -72,6 +73,13 @@ const ADMIN_KINDS: Array<[string, string]> = [
 const fieldClass = 'mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
 const gridInput = 'w-full min-w-[5.5rem] rounded border border-slate-200 px-2 py-1.5 text-right text-sm tabular-nums disabled:bg-slate-50';
 const gridText = 'w-full rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800 disabled:bg-slate-50';
+
+function formatIssuedAt(value?: string): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('es-PE', { dateStyle: 'short', timeStyle: 'short' });
+}
 
 export function newQuoteBaseline(editor: EditorState): string {
   return JSON.stringify({ code: editor.code, clientName: editor.clientName, payload: editor.payload });
@@ -151,7 +159,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
 
   const visible = records.filter((record) => {
     if (filterStatus && record.status !== filterStatus) return false;
-    const haystack = `${record.code} ${record.clientName} ${record.serviceName}`.toLocaleLowerCase('es');
+    const haystack = `${record.code} ${record.clientName} ${record.serviceName} ${record.issuedByName || ''}`.toLocaleLowerCase('es');
     return haystack.includes(query.trim().toLocaleLowerCase('es'));
   });
 
@@ -163,6 +171,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
       status: record.status,
       payload: record.payload,
       updatedByName: record.updatedByName,
+      issuedAt: record.issuedAt,
       issuedByName: record.issuedByName,
     };
     setEditor(next);
@@ -276,6 +285,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         id: issued.id,
         status: 'issued',
         payload: issued.payload,
+        issuedAt: issued.issuedAt,
         issuedByName: issued.issuedByName,
         updatedByName: issued.updatedByName,
       };
@@ -295,7 +305,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     setBusy(status);
     try {
       const updated = await setQuoteStatus(editor.id, status, actor);
-      const next: EditorState = { ...editor, status: updated.status, issuedByName: updated.issuedByName, updatedByName: updated.updatedByName };
+      const next: EditorState = { ...editor, status: updated.status, issuedAt: updated.issuedAt, issuedByName: updated.issuedByName, updatedByName: updated.updatedByName };
       setEditor(next);
       setBaseline(newQuoteBaseline(next));
       setBanner(status === 'draft' ? 'Propuesta reabierta.' : 'Propuesta anulada.');
@@ -414,6 +424,8 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                       <th className="px-3 py-2">Servicio</th>
                       <th className="px-3 py-2 text-right">Total con IGV</th>
                       <th className="px-3 py-2">Estado</th>
+                      <th className="px-3 py-2">Fecha de emisión</th>
+                      <th className="px-3 py-2">Emitida por</th>
                       <th className="px-3 py-2" />
                     </tr>
                   </thead>
@@ -425,6 +437,8 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                         <td className="px-3 py-2 text-slate-600">{record.serviceName}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{pen(record.totalWithIgv)}</td>
                         <td className="px-3 py-2"><StatusChip status={record.status} /></td>
+                        <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatIssuedAt(record.issuedAt)}</td>
+                        <td className="px-3 py-2 text-slate-700">{record.issuedByName || '—'}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button type="button" className="text-blue-700 text-sm" onClick={() => openRecord(record)}>Abrir</button>
                           {canEdit && record.status !== 'issued' && (
@@ -478,7 +492,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             <p className="text-sm text-slate-500 mt-1">
               {editor.clientName || 'Sin cliente'}
               {editor.updatedByName ? ` · Último guardado por ${editor.updatedByName}` : ''}
-              {editor.issuedByName ? ` · Emitida por ${editor.issuedByName}` : ''}
+              {editor.issuedByName || editor.issuedAt ? ` · Emitida${editor.issuedAt ? ` el ${formatIssuedAt(editor.issuedAt)}` : ''}${editor.issuedByName ? ` por ${editor.issuedByName}` : ''}` : ''}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

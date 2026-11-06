@@ -1012,7 +1012,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         heading: 'Cómo se arma',
         body: 'Elija la unidad y el mes de facturación. OpsFlow carga el personal activo, el sueldo, la asignación familiar, la condición de trabajo y los bonos del mes. Usted completa días, horas extra diurnas y nocturnas al 25% y al 35%, bono nocturno, materiales, gastos de estructura y la utilidad. Las unidades BPO no usan este método.',
         steps: [
-          'Nueva facturación: unidad (no BPO), mes, corte de asistencia y los datos de la orden (PES, mes de servicio, inicio, entrega, documento, grupo, línea, empresa y DNI). El mes de servicio es el que se envía a OpaloSis y puede ser distinto del mes de facturación y del corte. El puesto queda en Diversos y el cliente solicitante toma el primero de OpaloSis. El inicio y la entrega son el tiempo de vida de la orden, no el corte de asistencia. Si aplica, copie costos operativos y administrativos del mes anterior; esa casilla no copia la bitácora interna.',
+          'Nueva facturación: unidad (no BPO), mes, corte de asistencia y los datos de la orden (PES, mes de servicio, inicio, entrega, documento, grupo, línea, empresa y DNI). Puede elegir una propuesta del Cotizador: copia sus puestos, parámetros, costos operativos, administrativos y el porcentaje de utilidad, y esos puestos reemplazan al personal de la unidad. El mes de servicio es el que se envía a OpaloSis y puede ser distinto del mes de facturación y del corte. El puesto queda en Diversos y el cliente solicitante toma el primero de OpaloSis. El inicio y la entrega son el tiempo de vida de la orden, no el corte de asistencia. Si aplica, copie costos operativos y administrativos del mes anterior; esa casilla no copia la bitácora interna. Si eligió una propuesta, esos costos salen de la propuesta.',
           'Personal: en la tabla horizontal revise sueldo, faltas y días. Lo amarillo está ajustado a mano.',
           'Operativo: materiales, equipos, maquinaria, supervisión, capacitación, EPP y uniformes u otros.',
           'Administrativo: costo financiero (tasa anual y días financiados), gestión de RRHH y otros ítems de estructura.',
@@ -1236,7 +1236,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Parámetros: tasas de cargas, utilidad e IGV. Traer método publicado copia las fórmulas vigentes de Facturación. Una propuesta ya guardada no cambia sola.',
           'Condiciones y notas: el alcance describe en qué consiste el servicio. Modalidad, plazo, facturación, crédito, corte, emisión de factura y vigencia se editan como datos. Las demás condiciones salen en el mismo bloque, cada una con su título. {meses} y {igv} se reemplazan al imprimir.',
           'Propuesta: revise el documento. Descargar PDF genera un archivo liviano, con texto nítido, sin usar la ventana de impresión del equipo.',
-          'Emitir cierra la propuesta. Para corregir un monto hay que reabrirla.',
+          'Emitir cierra la propuesta y deja la fecha de emisión y el usuario que la emitió. Para corregir un monto hay que reabrirla.',
         ],
         tips: [
           'El resumen lista cada puesto y, además, los costos y la utilidad, para que el total coincida con la liquidación.',

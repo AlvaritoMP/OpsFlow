@@ -6,6 +6,7 @@ import {
   ComputedWorker,
   DEFAULT_BILLING_RATES,
   computeBilling,
+  cloneModel,
   defaultAdministrativeLines,
   emptyBillingModel,
   newBillingId,
@@ -255,6 +256,61 @@ function normalizePosition(raw: Partial<QuotePosition> | null | undefined, rates
     site: String(raw?.site || ''),
     factor: Math.max(1, Math.round(Number(raw?.factor) || 1)),
   };
+}
+
+export function applyQuoteCommercials(
+  model: ClientBillingModel,
+  quote: { id: string; code: string; payload: QuoteProposalPayload }
+): ClientBillingModel {
+  const payload = normalizeQuotePayload(quote.payload);
+  const source = payload.model;
+  const next = cloneModel(model);
+  next.rates = normalizeBillingRates(source.rates);
+  next.serviceLabel = source.serviceLabel.trim() || next.serviceLabel;
+  next.formulas = source.formulas || next.formulas;
+  next.operational = (source.operational || []).map((line) => ({ ...line, id: newBillingId() }));
+  next.administrative = (source.administrative || []).map((line) => ({ ...line, id: newBillingId() }));
+  next.workers = quotePositions(source)
+    .filter((position) => position.included)
+    .map((position) => workerFromQuotePosition(position));
+  next.sourceQuoteId = quote.id;
+  next.sourceQuoteCode = quote.code.trim();
+  if (!next.opalosisPesCode?.trim()) next.opalosisPesCode = next.sourceQuoteCode;
+  return next;
+}
+
+function workerFromQuotePosition(position: QuotePosition): BillingWorkerInput {
+  const name = position.name.trim() || position.position.trim() || 'Puesto';
+  return withWorkerDefaults({
+    id: newBillingId(),
+    name,
+    position: name,
+    included: true,
+    origin: 'manual',
+    contractualSalary: position.contractualSalary,
+    daysWorked: position.daysWorked,
+    familyAllowance: position.familyAllowance,
+    workCondition: position.workCondition,
+    bonus: position.bonus,
+    bonusConcept: position.bonusConcept,
+    nightShift: position.nightShift,
+    he25Hours: position.he25Hours,
+    he25Manual: position.he25Manual,
+    he35Hours: position.he35Hours,
+    he35Manual: position.he35Manual,
+    heNight25Hours: position.heNight25Hours,
+    heNight25Manual: position.heNight25Manual,
+    heNight35Hours: position.heNight35Hours,
+    heNight35Manual: position.heNight35Manual,
+    nightHours: position.nightHours,
+    nightManual: position.nightManual,
+    socialBaseManual: position.socialBaseManual,
+    socialBase: position.socialBase,
+    factor: position.factor,
+    daysManual: true,
+    vacationDays: position.vacationDays,
+    notes: position.site ? `Sede: ${position.site}` : position.notes,
+  });
 }
 
 export function normalizeQuotePayload(raw: unknown): QuoteProposalPayload {
