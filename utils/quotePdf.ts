@@ -1,6 +1,6 @@
 import type { jsPDF } from 'jspdf';
 import { defaultCommercialTerms, fillQuoteTokens, formatQuoteDate, formatRatePercent, quoteMoney, QuoteConceptRow } from './quoteProposal';
-import { QuoteDocumentInput } from './quoteDocument';
+import { annexNeedsLandscape, QuoteDocumentInput } from './quoteDocument';
 
 type RGB = [number, number, number];
 
@@ -80,12 +80,12 @@ class Sheet {
     this.doc.text(this.footerRight, this.pageW - this.mx, y, { align: 'right' });
   }
 
-  startAnnex(): void {
-    this.landscape = true;
-    this.pageW = 297;
-    this.pageH = 210;
+  startAnnex(landscape: boolean): void {
+    this.landscape = landscape;
+    this.pageW = landscape ? 297 : 210;
+    this.pageH = landscape ? 210 : 297;
     this.limit = this.pageH - 14;
-    this.doc.addPage('a4', 'landscape');
+    this.doc.addPage('a4', landscape ? 'landscape' : 'portrait');
     this.y = 12;
   }
 }
@@ -456,9 +456,10 @@ function annexHeads(input: QuoteDocumentInput, conceptW: number, colW: number): 
 function drawAnnexTable(sheet: Sheet, input: QuoteDocumentInput, symbol: string): void {
   const positions = input.view.positions;
   const count = Math.max(positions.length + 1, 1);
-  const conceptW = Math.min(108, Math.max(68, sheet.width * (positions.length > 3 ? 0.3 : 0.36)));
+  const amountMin = 24;
+  const conceptW = Math.min(108, Math.max(64, sheet.width - count * amountMin));
   const colW = (sheet.width - conceptW) / count;
-  const size = colW < 28 ? 6.6 : 7.4;
+  const size = colW < 22 ? 6.6 : 7.4;
   const note = `Valores expresados en ${input.payload.commercialTerms?.currencyName || 'Soles'} (${symbol}) sin incluir IGV.`;
   const headFill = { fill: NAVY, color: WHITE, size, minH: 8 };
   const paintHeads = () => {
@@ -624,7 +625,7 @@ function compose(doc: jsPDF, input: QuoteDocumentInput, logo: LogoMark | null): 
 
   sheet.paintFooter();
   sheet.footerLeft = 'Opalo · Anexo de costos de personal';
-  sheet.startAnnex();
+  sheet.startAnnex(annexNeedsLandscape(input.view.positions.length));
   drawHeader(sheet, logo, 'ANEXO 1', `Ref: ${code}`);
   drawBanner(sheet, 'Anexo 1: Desglose y estructura económica de personal', `Cliente: ${client} · ${note} · Los importes de cada columna corresponden a todas las vacantes del puesto`);
   drawParagraph(sheet, 'Cada puesto detalla la remuneración básica, la asignación familiar, la condición de trabajo, las provisiones laborales y los aportes y seguros de ley. Debajo se agregan los gastos operativos, los gastos administrativos y el margen de utilidad.', { size: 8.5 });

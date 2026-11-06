@@ -1,5 +1,14 @@
 import { defaultCommercialTerms, formatRatePercent, fillQuoteTokens, formatQuoteDate, quoteMoney, QuoteProposalPayload, QuoteView } from './quoteProposal';
 
+/** A4 vertical admite el concepto y hasta 3 puestos con el total, en columnas legibles. */
+export function annexNeedsLandscape(positionCount: number): boolean {
+  const portraitWidth = 178;
+  const conceptMin = 64;
+  const amountMin = 24;
+  const amountColumns = Math.floor((portraitWidth - conceptMin) / amountMin);
+  return positionCount + 1 > amountColumns;
+}
+
 export interface QuoteDocumentInput {
   code: string;
   clientName: string;
@@ -120,6 +129,7 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
         <td class="text-right">${esc(symbol)} ${money(view.computed.grandTotal)}</td>
       </tr>`;
   const scope = String(payload.serviceScope || '').trim();
+  const annexClass = annexNeedsLandscape(view.positions.length) ? 'page page-anexo' : 'page';
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -143,7 +153,8 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
       display: flex;
       flex-direction: column;
     }
-    .page-anexo { page: anexo; width: 297mm; min-height: 210mm; break-before: page; page-break-before: always; }
+    .page + .page { break-before: page; page-break-before: always; }
+    .page-anexo { page: anexo; width: 297mm; min-height: 210mm; }
     .page-content { flex: 1; }
     .page-content > * + * { margin-top: 12px; }
     .page-footer {
@@ -254,7 +265,7 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
     </div>
     <footer class="page-footer"><span>Opalo · Propuesta de servicios</span><span>${esc(code)}</span></footer>
   </section>
-  <section class="page page-anexo">
+  <section class="${annexClass}">
     <div class="page-content">
       <div class="top-header">
         <div>${logo}</div>
