@@ -611,12 +611,14 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         {tab === 'terms' && (
           <TermsPanel
             title={editor.payload.model.title}
+            scope={editor.payload.serviceScope || ''}
             terms={editor.payload.commercialTerms || defaultCommercialTerms()}
             months={editor.payload.months}
             clauses={editor.payload.clauses}
             notes={editor.payload.notes}
             locked={locked}
             onTitle={(title) => patchModel({ title })}
+            onScope={(serviceScope) => patchPayload({ serviceScope })}
             onTerms={(commercialTerms) => patchPayload({ commercialTerms })}
             onClauses={(clauses) => patchPayload({ clauses })}
             onNotes={(notes) => patchPayload({ notes })}
@@ -903,12 +905,14 @@ function ParamsPanel(props: {
 
 function TermsPanel(props: {
   title: string;
+  scope: string;
   terms: QuoteCommercialTerms;
   months: number;
   clauses: QuoteClause[];
   notes: string[];
   locked: boolean;
   onTitle: (title: string) => void;
+  onScope: (scope: string) => void;
   onTerms: (terms: QuoteCommercialTerms) => void;
   onClauses: (clauses: QuoteClause[]) => void;
   onNotes: (notes: string[]) => void;
@@ -924,6 +928,13 @@ function TermsPanel(props: {
   const patchTerms = (patch: Partial<QuoteCommercialTerms>) => props.onTerms({ ...props.terms, ...patch });
   return (
     <div className="space-y-4">
+      <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-slate-900">Alcance del servicio</h2>
+          <p className="text-sm text-slate-500 mt-1">Sale en la propuesta, antes del resumen. Describa en qué consiste el servicio.</p>
+        </div>
+        <textarea className={`${fieldClass} min-h-[120px]`} disabled={props.locked} value={props.scope} placeholder="Qué incluye el servicio, cómo se presta y qué queda a cargo del cliente." onChange={(event) => props.onScope(event.target.value)} />
+      </section>
       <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
         <div>
           <h2 className="font-semibold text-slate-900">Datos de la oferta</h2>

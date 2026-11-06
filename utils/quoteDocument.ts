@@ -29,20 +29,6 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
   const columns = Math.max(view.positions.length + 2, 2);
   const share = view.positions.length ? (100 - 36) / (view.positions.length + 1) : 32;
 
-  const summaryRows = view.summary
-    .filter((row) => row.kind === 'position' || row.kind === 'profit' || Math.abs(row.amount) >= 0.005)
-    .map((row) => {
-      const prefix = row.kind === 'ops' ? 'Gastos operativos · ' : row.kind === 'admin' ? 'Gastos administrativos · ' : '';
-      const description = row.kind === 'profit' ? 'Margen de utilidad' : row.description;
-      return `<tr>
-        <td class="text-center">${esc(row.item)}</td>
-        <td class="text-center">${esc(row.quantity)}</td>
-        <td>${prefix ? `<span class="muted">${prefix}</span>` : ''}<strong>${esc(description)}</strong></td>
-        <td class="text-right">${esc(symbol)} ${money(row.amount)}</td>
-      </tr>`;
-    })
-    .join('');
-
   const positionHeads = view.positions
     .map(
       (position) => `<th class="text-right">POSICIÓN ${esc(position.item)}: ${esc(position.name)}<br><span class="th-sub">(${position.vacancies} vacante${position.vacancies === 1 ? '' : 's'}${position.site ? ` · ${esc(position.site)}` : ''})</span></th>`
@@ -116,18 +102,24 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
       `La cotización económica tiene una vigencia de ${terms.offerValidityDays} días calendario.`,
     ],
   ];
-  const specificConditions = clauses.length
-    ? `<div class="term-block"><strong>Condiciones específicas.</strong>${clauses
-        .map((clause) => `<p>${clause.title.trim() ? `<strong>${esc(clause.title.trim())}.</strong> ` : ''}${esc(fill(clause.text))}</p>`)
-        .join('')}</div>`
-    : '';
+  const clauseBlocks = clauses
+    .map((clause) => `<p class="term-block">${clause.title.trim() ? `<strong>${esc(clause.title.trim())}.</strong> ` : ''}${esc(fill(clause.text))}</p>`)
+    .join('');
   const conditionsHtml = `${conditionBlocks
     .map(([heading, text]) => `<p class="term-block"><strong>${esc(heading)}.</strong> ${esc(text)}</p>`)
-    .join('')}${specificConditions}`;
+    .join('')}${clauseBlocks}`;
   const notes = payload.notes.map((note) => note.trim()).filter(Boolean);
   const logo = input.logoUrl
-    ? `<img src="${esc(input.logoUrl)}" alt="Opalo" class="logo-img">`
-    : '<div class="logo-word">OPALO</div>';
+    ? `<div class="logo-frame"><img src="${esc(input.logoUrl)}" alt="Opalo" class="logo-img"></div>`
+    : '<div class="logo-word">Opalo</div>';
+  const vacancies = view.positions.reduce((sum, position) => sum + position.vacancies, 0);
+  const serviceRow = `<tr>
+        <td class="text-center">01</td>
+        <td class="text-center">${vacancies || 1}</td>
+        <td><strong>${esc(service)}</strong></td>
+        <td class="text-right">${esc(symbol)} ${money(view.computed.grandTotal)}</td>
+      </tr>`;
+  const scope = String(payload.serviceScope || '').trim();
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -163,8 +155,9 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
     }
     :root { --navy: #142b52; --red: #b3141f; --line: #cbd5e1; }
     .top-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--navy); padding-bottom: 8px; }
-    .logo-img { height: 42px; width: auto; display: block; }
-    .logo-word { font-size: 18pt; font-weight: 800; letter-spacing: 0.16em; color: var(--navy); }
+    .logo-frame { width: 136px; height: 50px; overflow: hidden; position: relative; margin: 0; padding: 0; flex: 0 0 auto; }
+    .logo-img { position: absolute; left: -44px; top: -32px; width: 221px; max-width: none; height: auto; display: block; }
+    .logo-word { font-size: 18pt; font-weight: 800; letter-spacing: 0.02em; color: var(--navy); line-height: 1; }
     .doc-code { font-size: 11pt; font-weight: bold; color: var(--navy); text-align: right; }
     .doc-date { font-size: 9pt; color: #334155; margin-top: 3px; text-align: right; }
     .title-banner { background: var(--navy); color: #fff; padding: 9px 14px; border-left: 5px solid var(--red); }
@@ -230,19 +223,21 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
       </div>
       <div class="letter-salute">De nuestra consideración:</div>
       ${LETTER.map((paragraph) => `<p class="letter-body">${esc(paragraph)}</p>`).join('')}
-      <h2 class="section-heading">1. Resumen de la oferta económica</h2>
+      <h2 class="section-heading">1. Alcance del servicio</h2>
+      ${scope ? `<p class="letter-body">${esc(fill(scope))}</p>` : ''}
+      <h2 class="section-heading">2. Resumen de la oferta económica</h2>
       <table class="data-table">
         <thead>
           <tr><th colspan="4" class="money-head">${esc(moneyNote)}</th></tr>
           <tr>
             <th style="width: 8%;" class="text-center">Ítem</th>
             <th style="width: 8%;" class="text-center">Cant.</th>
-            <th>Descripción</th>
+            <th>Descripción del servicio</th>
             <th style="width: 24%;" class="text-right">Total mes</th>
           </tr>
         </thead>
         <tbody>
-          ${summaryRows || '<tr><td colspan="4">No hay puestos incluidos en esta propuesta.</td></tr>'}
+          ${serviceRow}
           <tr class="row-highlight"><td colspan="3" class="text-right">Subtotal neto</td><td class="text-right">${esc(symbol)} ${money(view.computed.grandTotal)}</td></tr>
           <tr><td colspan="3" class="text-right">IGV (${esc(igv)}%)</td><td class="text-right">${esc(symbol)} ${money(view.computed.igvAmount)}</td></tr>
           <tr class="row-total-final"><td colspan="3" class="text-right">Monto total facturado</td><td class="text-right">${esc(symbol)} ${money(view.computed.totalWithIgv)}</td></tr>
@@ -251,8 +246,8 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
           <tr class="row-total-final"><td colspan="3" class="text-right">Monto total facturado del periodo</td><td class="text-right">${esc(symbol)} ${money(view.periodWithIgv)}</td></tr>
         </tbody>
       </table>
-      <p class="letter-body">El importe de cada puesto es su costo laboral, ya multiplicado por las vacantes. Los gastos operativos, los gastos administrativos y el margen de utilidad se suman sobre la propuesta.</p>
-      <h2 class="section-heading">2. Condiciones del servicio</h2>
+      <p class="letter-body">El importe del servicio es el total mensual sin IGV. El anexo detalla los puestos, las provisiones, los aportes, los gastos y el margen.</p>
+      <h2 class="section-heading">3. Condiciones del servicio</h2>
       ${conditionsHtml}
     </div>
     <footer class="page-footer"><span>Opalo · Propuesta de servicios</span><span>${esc(code)}</span></footer>

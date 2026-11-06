@@ -42,6 +42,8 @@ export interface QuoteProposalPayload {
   months: number;
   /** YYYY-MM-DD */
   issueDate: string;
+  /** Texto libre: en qué consiste el servicio. */
+  serviceScope: string;
   commercialTerms: QuoteCommercialTerms;
   clauses: QuoteClause[];
   notes: string[];
@@ -227,6 +229,7 @@ export function createEmptyQuote(input: {
     attention: input.attention?.trim() || '',
     months: Math.max(1, Math.round(Number(input.months) || 1)),
     issueDate: input.issueDate || new Date().toISOString().slice(0, 10),
+    serviceScope: '',
     commercialTerms: defaultCommercialTerms(),
     clauses: defaultQuoteClauses(),
     notes: defaultQuoteNotes(),
@@ -299,6 +302,7 @@ export function normalizeQuotePayload(raw: unknown): QuoteProposalPayload {
     attention: String(source.attention || ''),
     months: Math.max(1, Math.round(Number(source.months) || 1)),
     issueDate: /^\d{4}-\d{2}-\d{2}$/.test(issueDate) ? issueDate : new Date().toISOString().slice(0, 10),
+    serviceScope: String(source.serviceScope || ''),
     commercialTerms,
     clauses,
     notes,

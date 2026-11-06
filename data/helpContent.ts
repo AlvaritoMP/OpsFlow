@@ -1234,7 +1234,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Puestos: una fila por puesto. El sueldo y las horas son de una vacante. El costo laboral ya incluye todas las vacantes.',
           'Operativo y administrativo: los mismos conceptos de la liquidación. El costo financiero usa la tasa y los días de Parámetros.',
           'Parámetros: tasas de cargas, utilidad e IGV. Traer método publicado copia las fórmulas vigentes de Facturación. Una propuesta ya guardada no cambia sola.',
-          'Condiciones y notas: modalidad, plazo, facturación, crédito, corte, emisión de factura y vigencia se editan como datos de la propuesta. Debajo puede agregar o quitar condiciones específicas. {meses} y {igv} se reemplazan al imprimir.',
+          'Condiciones y notas: el alcance describe en qué consiste el servicio. Modalidad, plazo, facturación, crédito, corte, emisión de factura y vigencia se editan como datos. Las demás condiciones salen en el mismo bloque, cada una con su título. {meses} y {igv} se reemplazan al imprimir.',
           'Propuesta: revise el documento. Imprimir o PDF abre el formato listo para entregar.',
           'Emitir cierra la propuesta. Para corregir un monto hay que reabrirla.',
         ],

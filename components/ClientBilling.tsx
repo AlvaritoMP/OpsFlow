@@ -900,8 +900,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="max-w-[1500px] mx-auto p-4 md:p-6 space-y-4">
+    <div className={editor ? 'h-full min-h-0 flex flex-col bg-slate-50' : 'h-full overflow-y-auto bg-slate-50'}>
+      <div className={editor ? 'flex-1 min-h-0 flex flex-col gap-3 p-3 md:p-4' : 'max-w-[1500px] mx-auto p-4 md:p-6 space-y-4'}>
         {!editor && (
           <>
             <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
@@ -1667,8 +1667,8 @@ function EditorView(props: {
   }, [sheetMode, editor.unitId, attendance.from, attendance.to, attendanceError]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-3">
+    <div className="flex-1 min-h-0 flex flex-col gap-3 overflow-hidden">
+      <div className="shrink-0 flex flex-col xl:flex-row xl:items-start justify-between gap-3">
         <div className="min-w-0">
           <button type="button" onClick={props.onBack} className="text-sm text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 mb-2">
             <ArrowLeft size={16} /> Volver al listado
@@ -1760,9 +1760,9 @@ function EditorView(props: {
       {props.banner && <Banner tone="info" text={props.banner} />}
       {props.compareSlot}
 
-      <div className={props.tab === 'labor' ? 'space-y-4' : 'grid xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start'}>
-        <div className="space-y-3 min-w-0">
-          <div className="bg-white border border-slate-200 rounded-xl p-3 grid md:grid-cols-2 gap-3">
+      <div className={props.tab === 'labor' ? 'flex-1 min-h-0 flex flex-col gap-3 overflow-hidden' : 'grid xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start overflow-auto'}>
+        <div className={props.tab === 'labor' ? 'flex-1 min-h-0 flex flex-col gap-3 min-w-0' : 'space-y-3 min-w-0'}>
+          <div className="shrink-0 bg-white border border-slate-200 rounded-xl p-3 grid md:grid-cols-2 gap-3">
             <label className="text-sm text-slate-600">
               Título de la facturación
               <input className={fieldClass} disabled={locked} value={editor.model.title || ''} onChange={(event) => props.onPatchModel({ title: event.target.value })} />
@@ -1783,7 +1783,7 @@ function EditorView(props: {
             </label>
           </div>
 
-          <div className={`bg-white border rounded-xl p-3 space-y-3 ${attendanceError || attendanceStale ? 'border-amber-300' : 'border-slate-200'}`}>
+          <div className={`shrink-0 bg-white border rounded-xl p-3 space-y-3 ${attendanceError || attendanceStale ? 'border-amber-300' : 'border-slate-200'}`}>
             <div className="flex flex-col xl:flex-row xl:items-end gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -1831,7 +1831,7 @@ function EditorView(props: {
             )}
           </div>
 
-          <div className="flex gap-1 overflow-x-auto">
+          <div className="shrink-0 flex gap-1 overflow-x-auto">
             {(
               [
                 ['labor', `Personal (${includedCount})`],
@@ -1862,8 +1862,8 @@ function EditorView(props: {
 
           {props.tab === 'labor' && (
             <>
-            <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-              <div className="p-3 flex flex-col md:flex-row gap-2 md:items-center justify-between border-b border-slate-100">
+            <section className="flex-1 min-h-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+              <div className="shrink-0 p-3 flex flex-col md:flex-row gap-2 md:items-center justify-between border-b border-slate-100">
                 <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
                   <Users size={16} className="shrink-0" />
                   <span>
@@ -2259,11 +2259,11 @@ function DayGlanceSheet(props: {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro.</div>;
   }
   const cells = props.mode === 'attendance' ? props.glance.attendance : props.glance.novedades;
-  const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-center px-0.5 py-1 border-b border-slate-200';
+  const head = 'sticky top-0 z-30 bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500 text-center px-1 py-2 border-b border-slate-200';
   return (
-    <div>
+    <div className="flex-1 min-h-0 flex flex-col">
       {props.mode === 'novedades' && props.glance.legend.length > 0 && (
-        <div className="px-3 py-2 flex flex-wrap gap-2 border-b border-slate-100 bg-slate-50/80">
+        <div className="shrink-0 px-3 py-2 flex flex-wrap gap-2 border-b border-slate-100 bg-slate-50/80">
           {props.glance.legend.map((item) => (
             <span key={`${item.code}-${item.name}`} className="inline-flex items-center gap-1 text-[11px] text-slate-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">
               <span>{item.icon}</span>
@@ -2276,8 +2276,8 @@ function DayGlanceSheet(props: {
       {props.loading && (
         <div className="px-3 py-1.5 text-[11px] text-slate-500 border-b border-slate-100">Actualizando el corte…</div>
       )}
-      <div className="overflow-auto max-h-[72vh]">
-        <table className="min-w-max border-separate border-spacing-0 text-[11px]">
+      <div className="flex-1 min-h-0 overflow-auto">
+        <table className="min-w-max border-separate border-spacing-0 text-sm">
           <thead>
             <tr>
               <th className={`${head} sticky left-0 z-40 text-left min-w-[180px] px-2`}>Trabajador</th>
@@ -2347,7 +2347,7 @@ function LaborSheet(props: {
     event.preventDefault();
     setAdjustmentEdit({ workerId, field });
   };
-  const head = 'sticky top-0 z-30 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 text-right px-1.5 py-2 whitespace-nowrap border-b border-slate-200';
+  const head = 'sticky top-0 z-30 bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500 text-right px-2 py-2.5 whitespace-nowrap border-b border-slate-200';
   const headLeft = `${head} text-left`;
   const foot = 'sticky bottom-0 z-20 bg-slate-100 px-1.5 py-2 border-t-2 border-slate-300 whitespace-nowrap';
   const say = (id: string) => describeFormula(id, props.formulas);
@@ -2388,8 +2388,8 @@ function LaborSheet(props: {
     return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
   }
   return (
-    <div className="overflow-auto max-h-[72vh]">
-      <table className="min-w-max border-separate border-spacing-0 text-xs">
+    <div className="flex-1 min-h-0 overflow-auto">
+      <table className="min-w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
             <th className={`${headLeft} sticky left-0 z-30 w-8`} />
@@ -2702,7 +2702,7 @@ function GridNum(props: {
       disabled={props.disabled}
       value={Number.isFinite(props.value) ? props.value : 0}
       onChange={(event) => props.onChange(event.target.value === '' ? 0 : Number(event.target.value))}
-      className={`w-[4.4rem] rounded border px-1 py-0.5 text-right text-[11px] tabular-nums disabled:bg-slate-50 ${props.amber ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}
+      className={`w-[5.5rem] rounded border px-2 py-1.5 text-right text-sm tabular-nums disabled:bg-slate-50 ${props.amber ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}
     />
   );
 }
@@ -2810,7 +2810,7 @@ function roundShown(value: number | undefined): number {
   return Number((value || 0).toFixed(2));
 }
 
-const gridText = 'w-full rounded border border-slate-200 px-1 py-0.5 text-[11px] disabled:bg-slate-50';
+const gridText = 'w-full rounded border border-slate-200 px-2 py-1.5 text-sm disabled:bg-slate-50';
 
 function LinesEditor(props: {
   title: string;
@@ -3215,7 +3215,7 @@ function StatusPill({ status }: { status: BillingStatus }) {
 function Banner({ tone, text }: { tone: 'info' | 'danger'; text: string }) {
   const cls = tone === 'danger' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-900';
   return (
-    <div className={`border rounded-lg px-3 py-2 text-sm flex gap-2 ${cls}`}>
+    <div className={`shrink-0 border rounded-lg px-3 py-2 text-sm flex gap-2 ${cls}`}>
       <AlertTriangle size={16} className="shrink-0 mt-0.5" />
       <span>{text}</span>
     </div>
