@@ -64,6 +64,14 @@ import { HelpPanel, HelpTriggerButton } from './components/HelpPanel';
 const ATS_COUNT_POLL_MS = 60 * 1000;
 const VACATION_AUTH_POLL_MS = 60 * 1000;
 
+function SidebarGroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="pt-3 md:pt-4 pb-1 md:pb-2 px-3 md:px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider first:pt-1 md:first:pt-2">
+      {children}
+    </div>
+  );
+}
+
 const App: React.FC = () => {
   const isPublicFichaLanding = isPublicComplementaryFichaPath();
   const isPublicHeadcountLanding = isPublicHeadcountPath();
@@ -3664,6 +3672,39 @@ const App: React.FC = () => {
     );
   };
 
+  const navRole = currentUser.role;
+  const isClientNav = navRole === 'CLIENT';
+  const isOpsNav =
+    navRole === 'SUPER_ADMIN' ||
+    navRole === 'ADMIN' ||
+    navRole === 'OPERATIONS' ||
+    navRole === 'OPERATIONS_SUPERVISOR';
+  const canViewNav = (feature: AppFeature) => checkPermission(navRole, feature, 'view');
+  const showNavOperaciones = isClientNav
+    ? true
+    : canViewNav('DASHBOARD') ||
+      canViewNav('CONTROL_CENTER') ||
+      canViewNav('UNIT_OVERVIEW') ||
+      canViewNav('REPORTS') ||
+      isOpsNav ||
+      canViewNav('MATTERMOST') ||
+      canViewNav('LOGISTICS') ||
+      canViewNav('INVENTORY') ||
+      canViewNav('HEADCOUNT') ||
+      canViewNav('SUPERVISION_PLANNING');
+  const showNavAdministracion = isClientNav
+    ? canViewNav('TRAININGS')
+    : canViewNav('TRAININGS') ||
+      canViewNav('VACATIONS') ||
+      isOpsNav ||
+      canViewNav('ATS_RECEPTION') ||
+      canViewNav('HR_OPALOSIS') ||
+      canViewNav('ARCHIVE') ||
+      navRole === 'ADMIN' ||
+      navRole === 'SUPER_ADMIN';
+  const showNavComercial = !isClientNav && (canViewNav('BILLING') || canViewNav('QUOTES'));
+  const showNavSistema = canViewNav('SETTINGS');
+
   return (
     <>
       <BirthdayAlertsModal />
@@ -3707,6 +3748,7 @@ const App: React.FC = () => {
           {/* Navegación para usuarios CLIENT */}
           {currentUser.role === 'CLIENT' ? (
             <>
+              <SidebarGroupLabel>Operaciones</SidebarGroupLabel>
               <button 
                 onClick={() => { setCurrentView('dashboard'); rememberUnitsPosition(); setSidebarOpen(false); }}
                 className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -3747,6 +3789,8 @@ const App: React.FC = () => {
               )}
 
               {checkPermission(currentUser.role, 'TRAININGS', 'view') && (
+                <>
+                  <SidebarGroupLabel>Administración</SidebarGroupLabel>
                   <button
                     onClick={() => { setTrainingsRefresh((n) => n + 1); setCurrentView('trainings'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'trainings' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -3754,11 +3798,13 @@ const App: React.FC = () => {
                     <Award size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Capacitaciones</span>
                   </button>
+                </>
               )}
             </>
           ) : (
             <>
               {/* Navegación para otros roles (ADMIN, OPERATIONS, etc.) */}
+              {showNavOperaciones && <SidebarGroupLabel>Operaciones</SidebarGroupLabel>}
               {checkPermission(currentUser.role, 'DASHBOARD', 'view') && (
                   <button 
                     onClick={() => { setCurrentView('dashboard'); rememberUnitsPosition(); setSidebarOpen(false); }}
@@ -3852,26 +3898,6 @@ const App: React.FC = () => {
                   </button>
               )}
 
-              {checkPermission(currentUser.role, 'BILLING', 'view') && (
-                  <button
-                    onClick={() => { setCurrentView('billing'); rememberUnitsPosition(); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'billing' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-                  >
-                    <Receipt size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Facturación</span>
-                  </button>
-              )}
-
-              {checkPermission(currentUser.role, 'QUOTES', 'view') && (
-                  <button
-                    onClick={() => { setCurrentView('quotes'); rememberUnitsPosition(); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${(currentUser.role === 'COMMERCIAL' ? 'quotes' : currentView) === 'quotes' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-                  >
-                    <FileText size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Cotizador</span>
-                  </button>
-              )}
-
               {/* Headcount - Visible for users with HEADCOUNT view permission */}
               {checkPermission(currentUser.role, 'HEADCOUNT', 'view') && (
                   <button 
@@ -3882,6 +3908,29 @@ const App: React.FC = () => {
                     <span className="truncate min-w-0">Headcount</span>
                   </button>
               )}
+
+              {checkPermission(currentUser.role, 'SUPERVISION_PLANNING', 'view') && (
+                  <button
+                    onClick={() => { setCurrentView('supervision-planning'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'supervision-planning' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Route size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Supervisión</span>
+                  </button>
+              )}
+
+              {/* Supervisión Nocturna - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
+              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
+                  <button 
+                    onClick={() => { setCurrentView('night-supervision'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'night-supervision' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Moon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Supervisión Nocturna</span>
+                  </button>
+              )}
+
+              {showNavAdministracion && <SidebarGroupLabel>Administración</SidebarGroupLabel>}
 
               {checkPermission(currentUser.role, 'TRAININGS', 'view') && (
                   <button
@@ -3977,32 +4026,44 @@ const App: React.FC = () => {
                   </button>
               )}
 
-              {checkPermission(currentUser.role, 'SUPERVISION_PLANNING', 'view') && (
-                  <button
-                    onClick={() => { setCurrentView('supervision-planning'); rememberUnitsPosition(); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'supervision-planning' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+              {/* Auditoría - Solo para administradores y super administradores */}
+              {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
+                  <button 
+                    onClick={() => { setCurrentView('audit-logs'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'audit-logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Route size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Supervisión</span>
+                    <FileText size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Auditoría</span>
                   </button>
               )}
 
-              {/* Supervisión Nocturna - Visible for SUPER_ADMIN, ADMIN, OPERATIONS, OPERATIONS_SUPERVISOR */}
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || currentUser.role === 'OPERATIONS' || currentUser.role === 'OPERATIONS_SUPERVISOR') && (
-                  <button 
-                    onClick={() => { setCurrentView('night-supervision'); rememberUnitsPosition(); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'night-supervision' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-                  >
-                    <Moon size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Supervisión Nocturna</span>
-                  </button>
-              )}
-              
-              {checkPermission(currentUser.role, 'SETTINGS', 'view') && (
+              {showNavComercial && (
                 <>
-                  <div className="pt-3 md:pt-4 pb-1 md:pb-2 px-3 md:px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Sistema
-                  </div>
+                  <SidebarGroupLabel>Comercial</SidebarGroupLabel>
+                  {checkPermission(currentUser.role, 'BILLING', 'view') && (
+                      <button
+                        onClick={() => { setCurrentView('billing'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                        className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'billing' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                      >
+                        <Receipt size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                        <span className="truncate min-w-0">Facturación</span>
+                      </button>
+                  )}
+                  {checkPermission(currentUser.role, 'QUOTES', 'view') && (
+                      <button
+                        onClick={() => { setCurrentView('quotes'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                        className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${(currentUser.role === 'COMMERCIAL' ? 'quotes' : currentView) === 'quotes' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                      >
+                        <FileText size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                        <span className="truncate min-w-0">Cotizador</span>
+                      </button>
+                  )}
+                </>
+              )}
+
+              {showNavSistema && (
+                <>
+                  <SidebarGroupLabel>Sistema</SidebarGroupLabel>
                   <button 
                     onClick={() => { setCurrentView('settings'); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -4016,22 +4077,6 @@ const App: React.FC = () => {
                   >
                     <Package size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Catálogo</span>
-                  </button>
-                </>
-              )}
-
-              {/* Auditoría - Solo para administradores y super administradores */}
-              {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
-                <>
-                  <div className="pt-3 md:pt-4 pb-1 md:pb-2 px-3 md:px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Administración
-                  </div>
-                  <button 
-                    onClick={() => { setCurrentView('audit-logs'); rememberUnitsPosition(); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'audit-logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-                  >
-                    <FileText size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Auditoría</span>
                   </button>
                 </>
               )}

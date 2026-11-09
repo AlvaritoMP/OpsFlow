@@ -36,8 +36,6 @@ class Sheet {
   landscape = false;
   footerLeft = '';
   footerRight = '';
-  private repeat: (() => void) | null = null;
-  private breaking = false;
 
   constructor(doc: jsPDF) {
     this.doc = doc;
@@ -47,25 +45,14 @@ class Sheet {
     return this.pageW - this.mx * 2;
   }
 
-  setRepeat(draw: (() => void) | null): void {
-    this.repeat = draw;
-  }
-
   gap(mm: number): void {
     this.y += mm;
   }
 
-  ensure(height: number): void {
-    if (this.y + height <= this.limit || this.breaking) return;
-    this.breaking = true;
-    this.paintFooter();
-    this.doc.addPage('a4', this.landscape ? 'landscape' : 'portrait');
-    this.y = 12;
-    const again = this.repeat;
-    this.repeat = null;
-    again?.();
-    this.repeat = again;
-    this.breaking = false;
+  ensure(_height: number): void {
+    // La vista previa mantiene la carta y el anexo cada uno en una sola hoja,
+    // aunque el contenido supere el A4. Aquí no se inserta un salto interno:
+    // la hoja crece al cerrar la sección.
   }
 
   paintFooter(): void {
@@ -80,12 +67,13 @@ class Sheet {
     this.doc.text(this.footerRight, this.pageW - this.mx, y, { align: 'right' });
   }
 
-  startAnnex(landscape: boolean): void {
+  startAnnex(landscape: boolean, height?: number): void {
     this.landscape = landscape;
     this.pageW = landscape ? 297 : 210;
-    this.pageH = landscape ? 210 : 297;
-    this.limit = this.pageH - 14;
-    this.doc.addPage('a4', landscape ? 'landscape' : 'portrait');
+    this.pageH = height ?? 4000;
+    this.limit = this.pageH;
+    const orientation = this.pageW >= this.pageH ? 'landscape' : 'portrait';
+    this.doc.addPage([this.pageW, this.pageH], orientation);
     this.y = 12;
   }
 }
@@ -466,7 +454,6 @@ function drawAnnexTable(sheet: Sheet, input: QuoteDocumentInput, symbol: string)
     drawCells(sheet, [{ text: note, width: sheet.width }], { ...headFill, size: 7.2, minH: 5.2 });
     drawCells(sheet, annexHeads(input, conceptW, colW), headFill);
   };
-  sheet.setRepeat(paintHeads);
   paintHeads();
   const concepts = input.view.concepts.filter(
     (concept) => !OPTIONAL_ROWS.has(concept.key) || concept.amounts.some((amount) => Math.abs(amount) >= 0.005)
@@ -492,7 +479,6 @@ function drawAnnexTable(sheet: Sheet, input: QuoteDocumentInput, symbol: string)
   } else {
     concepts.forEach(paintConcept);
   }
-  sheet.setRepeat(null);
 }
 
 function drawCostTable(sheet: Sheet, title: string, rows: Array<{ description: string; amount: number }>, subtotalLabel: string, subtotal: number, symbol: string, note: string): void {
@@ -586,8 +572,23 @@ function drawNotes(sheet: Sheet, notes: string[]): void {
   });
 }
 
-function compose(doc: jsPDF, input: QuoteDocumentInput, logo: LogoMark | null): void {
+interface QuotePageSize {
+  coverH: number;
+  annexW: number;
+  annexH: number;
+}
+
+/** Alto de la hoja: el A4 de la vista previa, o más si el contenido no cabe. */
+function fittedHeight(contentY: number, standard: number): number {
+  return Math.max(standard, Math.ceil((contentY + 14) * 10) / 10);
+}
+
+function compose(doc: jsPDF, input: QuoteDocumentInput, logo: LogoMark | null, fixed?: QuotePageSize): QuotePageSize {
   const sheet = new Sheet(doc);
+  if (fixed) {
+    sheet.pageH = fixed.coverH;
+    sheet.limit = fixed.coverH;
+  }
   const payload = input.payload;
   const terms = payload.commercialTerms || defaultCommercialTerms();
   const symbol = terms.currencySymbol || 'S/';
@@ -623,9 +624,11 @@ function compose(doc: jsPDF, input: QuoteDocumentInput, logo: LogoMark | null): 
     .filter((clause) => clause.title.trim() || clause.text.trim())
     .forEach((clause) => drawTerm(sheet, clause.title, fill(clause.text)));
 
-  sheet.paintFooter();
+  const landscape = annexNeedsLandscape(input.view.positions.length);
+  const coverH = fixed?.coverH ?? fittedHeight(sheet.y, 297);
+  if (fixed) sheet.paintFooter();
   sheet.footerLeft = 'Opalo · Anexo de costos de personal';
-  sheet.startAnnex(annexNeedsLandscape(input.view.positions.length));
+  sheet.startAnnex(landscape, fixed?.annexH);
   drawHeader(sheet, logo, 'ANEXO 1', `Ref: ${code}`);
   drawBanner(sheet, 'Anexo 1: Desglose y estructura económica de personal', `Cliente: ${client} · ${note} · Los importes de cada columna corresponden a todas las vacantes del puesto`);
   drawParagraph(sheet, 'Cada puesto detalla la remuneración básica, la asignación familiar, la condición de trabajo, las provisiones laborales y los aportes y seguros de ley. Debajo se agregan los gastos operativos, los gastos administrativos y el margen de utilidad.', { size: 8.5 });
@@ -641,19 +644,30 @@ function compose(doc: jsPDF, input: QuoteDocumentInput, logo: LogoMark | null): 
   drawClosing(sheet, input, symbol, igv, months, monthLabel);
   const notes = payload.notes.map((item) => fill(item).trim()).filter(Boolean);
   drawNotes(sheet, notes);
-  sheet.paintFooter();
-  doc.setProperties({
-    title: `${code} · ${client}`,
-    subject: 'Propuesta técnico económica',
-    creator: 'OpsFlow',
-  });
+  const annexH = fixed?.annexH ?? fittedHeight(sheet.y, landscape ? 210 : 297);
+  if (fixed) {
+    sheet.paintFooter();
+    doc.setProperties({
+      title: `${code} · ${client}`,
+      subject: 'Propuesta técnico económica',
+      creator: 'OpsFlow',
+    });
+  }
+  return { coverH, annexW: landscape ? 297 : 210, annexH };
 }
 
 export async function buildQuotePdf(input: QuoteDocumentInput): Promise<jsPDF> {
   const { jsPDF } = await import('jspdf');
   const logo = await cropLogo(input.logoUrl);
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
-  compose(doc, input, logo);
+  const probe = new jsPDF({ unit: 'mm', format: [210, 4000], orientation: 'portrait', compress: true });
+  const size = compose(probe, input, logo);
+  const doc = new jsPDF({
+    unit: 'mm',
+    format: [210, size.coverH],
+    orientation: size.coverH >= 210 ? 'portrait' : 'landscape',
+    compress: true,
+  });
+  compose(doc, input, logo, size);
   return doc;
 }
 
