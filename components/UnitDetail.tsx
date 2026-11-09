@@ -21,6 +21,7 @@ import { TransferWorkerResult } from '../services/workerTransferService';
 import { BpoPersonnelProfilePanel } from './BpoPersonnelProfilePanel';
 import { WorkerComplementaryPanel } from './WorkerComplementaryPanel';
 import { PersonnelEconomicSummary } from './PersonnelEconomicSummary';
+import { HrOpalosisCeseStatus } from './HrOpalosisCeseStatus';
 import { WORK_DAY_OPTIONS, REGIME_OPTIONS, jornadaOptionList } from './OpsflowIntakeForm';
 import { getLaborRelationshipDisplayDates } from '../utils/laborRelationshipDates';
 import { patchUnitView, readUnitView } from '../utils/unitViewMemory';
@@ -7189,7 +7190,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       {/* Notification Toast */}
       {notification && (
-        <div className={`fixed top-4 right-4 z-[300] p-4 rounded-lg shadow-lg flex items-center space-x-3 animate-in slide-in-from-right duration-300 ${
+        <div className={`fixed top-4 right-4 z-[300] max-w-md p-4 rounded-lg shadow-lg flex items-start gap-3 animate-in slide-in-from-right duration-300 ${
           notification.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 
           notification.type === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
           'bg-blue-50 border border-blue-200 text-blue-800'
@@ -7201,7 +7202,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           ) : (
             <Clock3 size={20} className="text-blue-600" />
           )}
-          <span className="font-medium">{notification.message}</span>
+          <span className="text-sm font-medium leading-snug">{notification.message}</span>
           <button onClick={() => setNotification(null)} className="text-slate-400 hover:text-slate-600">
             <X size={16} />
           </button>
@@ -7660,12 +7661,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                  </div>
 
                  {(showArchivedPersonnel || showCesadoPersonnel) && (
-                   <div className="px-4 pb-4">
+                   <div className="space-y-3 px-4 pb-4">
                      <PersonnelEconomicSummary
                        person={worker}
                        tone={showCesadoPersonnel ? 'terminated' : 'archive'}
                        title={showCesadoPersonnel ? 'Condiciones económicas antes del cese' : 'Condiciones económicas antes del archivo'}
                      />
+                     <HrOpalosisCeseStatus resourceId={worker.id} />
                    </div>
                  )}
 
@@ -12197,13 +12199,37 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       console.error('❌ No se pudo recargar la unidad');
                     }
                     
-                    setNotification({ 
-                      type: 'success', 
-                      message: selectedWorkerForTermination.archived 
-                        ? `Estado del trabajador actualizado a ${terminationType === 'cesado' ? 'Cesado' : 'Archivado'} correctamente`
-                        : `Trabajador ${terminationType === 'cesado' ? 'cesado' : 'archivado'} correctamente` 
-                    });
-                    setTimeout(() => setNotification(null), 3000);
+                    const isNewTermination = !selectedWorkerForTermination.archived;
+                    const statusLabel = terminationType === 'cesado' ? 'cesado' : 'archivado';
+                    let noticeType: 'success' | 'info' | 'error' = 'success';
+                    let notice = isNewTermination
+                      ? `Trabajador ${statusLabel} en OpsFlow.`
+                      : `Estado del trabajador actualizado a ${terminationType === 'cesado' ? 'Cesado' : 'Archivado'}.`;
+
+                    if (isNewTermination) {
+                      try {
+                        const { hrOutboundCeseService } = await import('../services/hrOutboundCeseService');
+                        const opalosis = await hrOutboundCeseService.registerAndSend({
+                          resourceId: selectedWorkerForTermination.id,
+                          opsflowUnitId: unit.id,
+                          workerName: selectedWorkerForTermination.name,
+                          documento: selectedWorkerForTermination.dni,
+                          fechaCese: terminationDate,
+                          terminationReason,
+                          personnelStatus: terminationType,
+                          usuarioOf: currentUser?.email || currentUser?.name || null,
+                        });
+                        notice = `${notice} ${opalosis.userMessage}`;
+                        noticeType = opalosis.notificationType;
+                      } catch (opalosisError) {
+                        console.error('No se pudo enviar el cese a Opalosis:', opalosisError);
+                        notice = `${notice} No se pudo enviar la solicitud a Opalosis. El cese en OpsFlow sí quedó registrado.`;
+                        noticeType = 'info';
+                      }
+                    }
+
+                    setNotification({ type: noticeType, message: notice });
+                    setTimeout(() => setNotification(null), noticeType === 'success' ? 6000 : 9000);
                     
                     setShowTerminateModal(false);
                     setSelectedWorkerForTermination(null);

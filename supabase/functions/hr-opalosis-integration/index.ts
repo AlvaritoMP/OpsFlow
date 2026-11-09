@@ -10,6 +10,8 @@ const corsHeaders = {
 const PATHS = {
   registro: '/registro-ingreso',
   solicitudes: '/solicitudes-ingreso',
+  registroCese: '/registro-cese',
+  bandejaCese: '/bandeja-cese',
 } as const;
 
 const CATALOG_PATHS = new Set([
@@ -36,7 +38,10 @@ interface RequestBody {
     | 'fetch-catalog'
     | 'check-package-status'
     | 'test-registro-ingreso'
-    | 'fetch-unidades';
+    | 'fetch-unidades'
+    | 'send-cese'
+    | 'check-cese-status';
+  ceseRowId?: string;
   queueItemIds?: string[];
   reportDate?: string;
   senderNote?: string | null;
@@ -732,6 +737,47 @@ function parseRegistroResponse(data: unknown) {
   };
 }
 
+function simulateCeseResponse(documento: string): Record<string, unknown> {
+  const suffix = documento.replace(/\D/g, '').slice(-4) || '0000';
+  return {
+    Resultado: true,
+    Mensaje: 'Se registro',
+    MensajeError: 'sin errores',
+    CeseCod: `CES-SIM-${suffix}`,
+    CeseId: Math.floor(Math.random() * 900) + 100,
+  };
+}
+
+function readCeseApiResult(data: unknown): {
+  resultado: boolean | null;
+  mensaje: string;
+  ceseId: number | null;
+  ceseCod: string | null;
+} {
+  if (!data || typeof data !== 'object') {
+    return { resultado: null, mensaje: 'Respuesta vacía de Opalosis', ceseId: null, ceseCod: null };
+  }
+  const row = data as Record<string, unknown>;
+  const resultadoRaw = row.Resultado ?? row.resultado;
+  const mensaje = pickString(row.Mensaje, row.mensaje, row.MensajeError, row.mensajeError) || 'Sin mensaje';
+  const ceseId = pickNumber(row.CeseId, row.ceseId);
+  const ceseCodRaw = pickString(row.CeseCod, row.ceseCod);
+  return {
+    resultado: typeof resultadoRaw === 'boolean' ? resultadoRaw : null,
+    mensaje,
+    ceseId: ceseId !== null && ceseId > 0 ? ceseId : null,
+    ceseCod: ceseCodRaw && ceseCodRaw !== '0' ? ceseCodRaw : null,
+  };
+}
+
+function ceseSyncFromBandeja(estado: string, current: string): string {
+  const text = estado.toLowerCase();
+  if (text.includes('proces')) return 'procesado';
+  if (text.includes('rechaz')) return 'rechazado_rrhh';
+  if (text.includes('pend')) return 'enviado';
+  return current;
+}
+
 function simulateRegistroResponse(documento: string): Record<string, unknown> {
   const suffix = documento.replace(/\D/g, '').slice(-4) || '0000';
   return {
@@ -1380,6 +1426,167 @@ serve(async (req) => {
         })),
         simulated: false,
       });
+    }
+
+    if (body.action === 'send-cese' || body.action === 'check-cese-status') {
+      const ceseRowId = body.ceseRowId?.trim();
+      if (!ceseRowId) return jsonResponse({ error: 'ceseRowId is required' }, 400);
+
+      const { data: ceseRow, error: ceseError } = await supabaseAdmin
+        .from('hr_outbound_cese')
+        .select('*')
+        .eq('id', ceseRowId)
+        .maybeSingle();
+
+      if (ceseError) return jsonResponse({ error: 'No se pudo leer la solicitud de cese' }, 500);
+      if (!ceseRow) return jsonResponse({ error: 'No se encontró la solicitud de cese' }, 404);
+
+      const saveCese = async (patch: Record<string, unknown>) => {
+        const { data: updated, error: updateError } = await supabaseAdmin
+          .from('hr_outbound_cese')
+          .update(patch)
+          .eq('id', ceseRowId)
+          .select('*')
+          .single();
+        if (updateError) throw updateError;
+        return updated;
+      };
+
+      if (body.action === 'send-cese') {
+        const blocked = ceseRow.sync_status === 'enviado' || ceseRow.sync_status === 'procesado';
+        if (blocked) {
+          return jsonResponse({ cese: ceseRow, alreadySent: true, simulated: mock });
+        }
+
+        const payload = (ceseRow.request_payload ?? {}) as Record<string, unknown>;
+        const documento = pickString(payload.Documento, ceseRow.documento);
+        if (!documento) {
+          const updated = await saveCese({
+            sync_status: 'rechazo_negocio',
+            mensaje: 'El trabajador no tiene documento en OpsFlow.',
+            last_attempt_at: new Date().toISOString(),
+            attempt_count: Number(ceseRow.attempt_count ?? 0) + 1,
+          });
+          return jsonResponse({ cese: updated, businessRejected: true, simulated: false });
+        }
+
+        const attemptPatch = {
+          last_attempt_at: new Date().toISOString(),
+          attempt_count: Number(ceseRow.attempt_count ?? 0) + 1,
+        };
+
+        if (mock) {
+          const response = simulateCeseResponse(documento);
+          const parsed = readCeseApiResult(response);
+          const updated = await saveCese({
+            ...attemptPatch,
+            sync_status: 'enviado',
+            cese_id: parsed.ceseId,
+            cese_cod: parsed.ceseCod,
+            opalosis_estado: 'Pendiente',
+            opalosis_etapa: 'Nuevo Cese',
+            mensaje: parsed.mensaje,
+            http_status: 200,
+            opalosis_response: response,
+          });
+          return jsonResponse({ cese: updated, simulated: true });
+        }
+
+        let result: { ok: boolean; status: number; data: unknown };
+        try {
+          result = await callOpalosis(PATHS.registroCese, { method: 'POST', body: payload });
+        } catch (networkError) {
+          const updated = await saveCese({
+            ...attemptPatch,
+            sync_status: 'error_tecnico',
+            mensaje: networkError instanceof Error ? networkError.message : 'Error de red al llamar a Opalosis',
+            http_status: null,
+          });
+          return jsonResponse({ cese: updated, technicalError: true, simulated: false });
+        }
+
+        console.log(`registro-cese status=${result.status}`);
+        const parsed = readCeseApiResult(result.data);
+
+        if (result.status !== 200 || parsed.resultado !== true) {
+          const businessRejected = result.status === 200 && parsed.resultado === false;
+          const updated = await saveCese({
+            ...attemptPatch,
+            sync_status: businessRejected ? 'rechazo_negocio' : 'error_tecnico',
+            mensaje: parsed.mensaje,
+            http_status: result.status,
+            opalosis_response: result.data,
+          });
+          return jsonResponse({
+            cese: updated,
+            businessRejected,
+            technicalError: !businessRejected,
+            simulated: false,
+          });
+        }
+
+        const updated = await saveCese({
+          ...attemptPatch,
+          sync_status: 'enviado',
+          cese_id: parsed.ceseId,
+          cese_cod: parsed.ceseCod,
+          opalosis_estado: 'Pendiente',
+          opalosis_etapa: 'Nuevo Cese',
+          mensaje: parsed.mensaje,
+          http_status: result.status,
+          opalosis_response: result.data,
+        });
+        return jsonResponse({ cese: updated, simulated: false });
+      }
+
+      const documento = pickString(ceseRow.documento);
+      if (!documento || !ceseRow.cese_cod) {
+        return jsonResponse({
+          cese: ceseRow,
+          found: false,
+          error: 'La solicitud todavía no tiene código de cese en Opalosis',
+        }, 400);
+      }
+
+      if (mock) {
+        const estado = ceseRow.opalosis_estado || 'Pendiente';
+        const etapa = ceseRow.opalosis_etapa || 'Nuevo Cese';
+        const updated = await saveCese({
+          opalosis_estado: estado,
+          opalosis_etapa: etapa,
+          sync_status: ceseSyncFromBandeja(String(estado), String(ceseRow.sync_status)),
+          mensaje: `${estado} / ${etapa}`,
+        });
+        return jsonResponse({ cese: updated, found: true, simulated: true });
+      }
+
+      const result = await callOpalosis(PATHS.bandejaCese, {
+        method: 'GET',
+        query: { Buscar: documento },
+      });
+      if (!result.ok || !Array.isArray(result.data)) {
+        return jsonResponse({
+          error: `Opalosis respondió HTTP ${result.status}`,
+          cese: ceseRow,
+        }, 502);
+      }
+
+      const rows = result.data as Array<Record<string, unknown>>;
+      const match = rows.find((item) => pickString(item.CeseCod, item.ceseCod) === String(ceseRow.cese_cod));
+      if (!match) {
+        return jsonResponse({ cese: ceseRow, found: false, simulated: false });
+      }
+
+      const estado = pickString(match.Estado, match.estado);
+      const etapa = pickString(match.Etapa, match.etapa);
+      const updated = await saveCese({
+        opalosis_estado: estado || null,
+        opalosis_etapa: etapa || null,
+        sync_status: ceseSyncFromBandeja(estado, String(ceseRow.sync_status)),
+        mensaje: [estado, etapa].filter(Boolean).join(' / ') || ceseRow.mensaje,
+        opalosis_response: match,
+      });
+      return jsonResponse({ cese: updated, found: true, simulated: false });
     }
 
     return jsonResponse({ error: 'Unknown action' }, 400);

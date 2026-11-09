@@ -45,6 +45,8 @@ const OPALOSIS_ALLOWED_PATHS = new Set([
   'centro-costo',
   'registro-ingreso',
   'solicitudes-ingreso',
+  'registro-cese',
+  'bandeja-cese',
 ]);
 
 console.log(`🔧 PORT from environment: ${process.env.PORT}`);

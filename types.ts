@@ -1578,6 +1578,46 @@ export interface HrOutboundIngresoPackageWithItems extends HrOutboundIngresoPack
   items: HrOutboundIngresoPackageItem[];
 }
 
+export type HrOutboundCeseSyncStatus =
+  | 'pendiente'
+  | 'error_tecnico'
+  | 'rechazo_negocio'
+  | 'enviado'
+  | 'rechazado_rrhh'
+  | 'procesado';
+
+/** Solicitud de cese enviada a la bandeja de Opalosis. */
+export interface HrOutboundCese {
+  id: string;
+  resourceId: string;
+  opsflowUnitId?: string;
+  workerName: string;
+  documento: string;
+  fechaCese: string;
+  motivoCeseId?: number | null;
+  observaciones?: string | null;
+  usuarioOf?: string | null;
+  personnelStatus?: string | null;
+  terminationReason?: string | null;
+  syncStatus: HrOutboundCeseSyncStatus;
+  ceseId?: number | null;
+  ceseCod?: string | null;
+  opalosisEstado?: string | null;
+  opalosisEtapa?: string | null;
+  mensaje?: string | null;
+  attemptCount: number;
+  lastAttemptAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrOutboundCeseResult {
+  cese: HrOutboundCese | null;
+  userMessage: string;
+  notificationType: 'success' | 'info' | 'error';
+  simulated?: boolean;
+}
+
 export interface HrUnitCacheEntry {
   opalosisUnidadId: number;
   nombre: string;

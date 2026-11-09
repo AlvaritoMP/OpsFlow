@@ -11,7 +11,8 @@ BEGIN
     'hr_outbound_ingreso_packages',
     'hr_outbound_ingreso_package_items',
     'hr_units_cache',
-    'hr_unit_mappings'
+    'hr_unit_mappings',
+    'hr_outbound_cese'
   ]
   LOOP
     IF to_regclass('public.' || t) IS NULL THEN

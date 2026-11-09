@@ -106,9 +106,10 @@ Pop-Location
 
 Write-Host "`nDespliegue completado." -ForegroundColor Green
 Write-Host "Endpoint: $EndpointUrl" -ForegroundColor Yellow
-Write-Host "`nIMPORTANTE: Ejecute ambas migraciones SQL:" -ForegroundColor Yellow
+Write-Host "`nIMPORTANTE: Ejecute las migraciones SQL:" -ForegroundColor Yellow
 Write-Host "  database/migrations/MIGRATION_HR_OPALOSIS_INTEGRATION.sql" -ForegroundColor White
 Write-Host "  database/migrations/MIGRATION_HR_OPALOSIS_SOLICITUD_TRACKING.sql" -ForegroundColor White
+Write-Host "  database/migrations/MIGRATION_HR_OPALOSIS_CESE.sql" -ForegroundColor White
 
 if (-not $SkipTest) {
   Write-Step 'Prueba test-registro-ingreso'

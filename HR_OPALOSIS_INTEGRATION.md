@@ -38,6 +38,7 @@ Autenticación: header `X-Api-Key`.
 
 1. `database/migrations/MIGRATION_HR_OPALOSIS_INTEGRATION.sql`
 2. `database/migrations/MIGRATION_HR_OPALOSIS_SOLICITUD_TRACKING.sql` ← IngresoCod / Estado / Etapa
+3. `database/migrations/MIGRATION_HR_OPALOSIS_CESE.sql` ← solicitudes de cese
 
 ## Edge Function `hr-opalosis-integration`
 
@@ -47,6 +48,8 @@ Autenticación: header `X-Api-Key`.
 | `fetch-catalog` | Proxy a GET catálogos (cargo, lugar, ubigeo, etc.) |
 | `check-package-status` | GET solicitudes-ingreso y actualiza Estado/Etapa |
 | `test-registro-ingreso` | Prueba de conectividad |
+| `send-cese` | POST registro-cese de una fila `hr_outbound_cese` |
+| `check-cese-status` | GET bandeja-cese y actualiza Estado/Etapa del cese |
 
 ### Despliegue
 
@@ -102,6 +105,12 @@ https://opaloperu1.sharepoint.com/:f:/s/INDICADORESRRHH/IgB1TkyjRpcpSLPf-jZj9HUI
 
 Etapas: Nuevo → Empleado Registrado → Contrato Generado → En Aprobación → Contrato Aprobado
 
+## Cese de personal
+
+Al confirmar un cese o archivo nuevo en la ficha de la unidad, OpsFlow guarda el cese y llama `POST /registro-cese`. Si Opalosis rechaza o no responde, el cese de OpsFlow se mantiene y queda un registro en `hr_outbound_cese` para reintentar desde **Ver Cesados** o **Archivados**.
+
+`GET /bandeja-cese` actualiza el estado (Pendiente, Rechazado, Procesado) y la etapa (Nuevo Cese, Empleado Cesado). La persona queda cesada en Opalosis solo cuando RRHH procesa la solicitud.
+
 ## Reglas de integración
 
 - HTTP 200 + `Resultado: false` = rechazo de negocio → mostrar Mensaje, no reintentar.
@@ -122,6 +131,9 @@ Menú **Envío Opalosis** (`HR_OPALOSIS`):
 | Archivo | Rol |
 |---------|-----|
 | `utils/hrOpalosisMapper.ts` | Snapshot + RegistroIngresoDTO |
+| `utils/opalosisCese.ts` | Motivo y payload de `POST /registro-cese` |
+| `services/hrOutboundCeseService.ts` | Registro local, envío y consulta del cese |
+| `components/HrOpalosisCeseStatus.tsx` | Estado del cese en la ficha cesada o archivada |
 | `services/hrOutboundIngresoService.ts` | Cola, catálogos, envío |
 | `components/HrOpalosisIngreso.tsx` | Bandeja / historial |
 | `components/HrOpalosisEditQueueItemModal.tsx` | Formulario completo |
