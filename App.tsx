@@ -3688,20 +3688,19 @@ const App: React.FC = () => {
       canViewNav('REPORTS') ||
       isOpsNav ||
       canViewNav('MATTERMOST') ||
-      canViewNav('LOGISTICS') ||
-      canViewNav('INVENTORY') ||
       canViewNav('HEADCOUNT') ||
-      canViewNav('SUPERVISION_PLANNING');
-  const showNavAdministracion = isClientNav
-    ? canViewNav('TRAININGS')
-    : canViewNav('TRAININGS') ||
-      canViewNav('VACATIONS') ||
-      isOpsNav ||
+      canViewNav('SUPERVISION_PLANNING') ||
+      canViewNav('TRAININGS') ||
+      canViewNav('VACATIONS');
+  const showNavAdministracion =
+    !isClientNav &&
+    (canViewNav('LOGISTICS') ||
+      canViewNav('INVENTORY') ||
       canViewNav('ATS_RECEPTION') ||
       canViewNav('HR_OPALOSIS') ||
       canViewNav('ARCHIVE') ||
       navRole === 'ADMIN' ||
-      navRole === 'SUPER_ADMIN';
+      navRole === 'SUPER_ADMIN');
   const showNavComercial = !isClientNav && (canViewNav('BILLING') || canViewNav('QUOTES'));
   const showNavSistema = canViewNav('SETTINGS');
 
@@ -3789,8 +3788,6 @@ const App: React.FC = () => {
               )}
 
               {checkPermission(currentUser.role, 'TRAININGS', 'view') && (
-                <>
-                  <SidebarGroupLabel>Administración</SidebarGroupLabel>
                   <button
                     onClick={() => { setTrainingsRefresh((n) => n + 1); setCurrentView('trainings'); rememberUnitsPosition(); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'trainings' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
@@ -3798,7 +3795,6 @@ const App: React.FC = () => {
                     <Award size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Capacitaciones</span>
                   </button>
-                </>
               )}
             </>
           ) : (
@@ -3878,26 +3874,6 @@ const App: React.FC = () => {
                   </button>
               )}
 
-              {currentUser.role !== 'CLIENT' && checkPermission(currentUser.role, 'LOGISTICS', 'view') && (
-                  <button
-                    onClick={() => { setCurrentView('warehouse-orders'); rememberUnitsPosition(); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'warehouse-orders' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-                  >
-                    <ClipboardList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Pedidos al almacén</span>
-                  </button>
-              )}
-
-              {checkPermission(currentUser.role, 'INVENTORY', 'view') && (
-                  <button 
-                    onClick={() => { setCurrentView('inventory'); rememberUnitsPosition(); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'inventory' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-                  >
-                    <Boxes size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
-                    <span className="truncate min-w-0">Inventario</span>
-                  </button>
-              )}
-
               {/* Headcount - Visible for users with HEADCOUNT view permission */}
               {checkPermission(currentUser.role, 'HEADCOUNT', 'view') && (
                   <button 
@@ -3929,8 +3905,6 @@ const App: React.FC = () => {
                     <span className="truncate min-w-0">Supervisión Nocturna</span>
                   </button>
               )}
-
-              {showNavAdministracion && <SidebarGroupLabel>Administración</SidebarGroupLabel>}
 
               {checkPermission(currentUser.role, 'TRAININGS', 'view') && (
                   <button
@@ -3971,6 +3945,28 @@ const App: React.FC = () => {
                   >
                     <UserCheck size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
                     <span className="truncate min-w-0">Trabajadores</span>
+                  </button>
+              )}
+
+              {showNavAdministracion && <SidebarGroupLabel>Administración</SidebarGroupLabel>}
+
+              {currentUser.role !== 'CLIENT' && checkPermission(currentUser.role, 'LOGISTICS', 'view') && (
+                  <button
+                    onClick={() => { setCurrentView('warehouse-orders'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'warehouse-orders' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <ClipboardList size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Pedidos al almacén</span>
+                  </button>
+              )}
+
+              {checkPermission(currentUser.role, 'INVENTORY', 'view') && (
+                  <button 
+                    onClick={() => { setCurrentView('inventory'); rememberUnitsPosition(); setSidebarOpen(false); }}
+                    className={`w-full flex items-center space-x-2 md:space-x-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg transition-colors text-sm md:text-base min-w-0 ${currentView === 'inventory' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    <Boxes size={18} className="md:w-5 md:h-5 shrink-0 flex-shrink-0" />
+                    <span className="truncate min-w-0">Inventario</span>
                   </button>
               )}
 
