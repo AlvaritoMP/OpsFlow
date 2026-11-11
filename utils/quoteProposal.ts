@@ -260,7 +260,8 @@ function normalizePosition(raw: Partial<QuotePosition> | null | undefined, rates
 
 export function applyQuoteCommercials(
   model: ClientBillingModel,
-  quote: { id: string; code: string; payload: QuoteProposalPayload }
+  quote: { id: string; code: string; payload: QuoteProposalPayload },
+  options?: { keepWorkers?: boolean }
 ): ClientBillingModel {
   const payload = normalizeQuotePayload(quote.payload);
   const source = payload.model;
@@ -270,9 +271,14 @@ export function applyQuoteCommercials(
   next.formulas = source.formulas || next.formulas;
   next.operational = (source.operational || []).map((line) => ({ ...line, id: newBillingId() }));
   next.administrative = (source.administrative || []).map((line) => ({ ...line, id: newBillingId() }));
-  next.workers = quotePositions(source)
-    .filter((position) => position.included)
-    .map((position) => workerFromQuotePosition(position));
+  if (options?.keepWorkers) {
+    next.billingKind = 'real';
+  } else {
+    next.workers = quotePositions(source)
+      .filter((position) => position.included)
+      .map((position) => workerFromQuotePosition(position));
+    next.billingKind = 'projection';
+  }
   next.sourceQuoteId = quote.id;
   next.sourceQuoteCode = quote.code.trim();
   if (!next.opalosisPesCode?.trim()) next.opalosisPesCode = next.sourceQuoteCode;
@@ -309,6 +315,8 @@ function workerFromQuotePosition(position: QuotePosition): BillingWorkerInput {
     factor: position.factor,
     daysManual: true,
     vacationDays: position.vacationDays,
+    calendarDays: position.daysWorked,
+    absenceDays: 0,
     notes: position.site ? `Sede: ${position.site}` : position.notes,
   });
 }

@@ -19,6 +19,7 @@ import {
   attendanceWindowError,
   BillingDifferenceLine,
   cloneModel,
+  isProjectionBilling,
   modelWithoutInternalNotes,
   diffBillingModels,
   commercialDaysInWindow,
@@ -162,19 +163,20 @@ export async function getBillingAudit(billingId: string): Promise<ClientBillingA
   }));
 }
 
-export interface ArchivedBillingOption {
+export interface BillingBaseOption {
   id: string;
   periodMonth: string;
   title: string;
   grandTotal: number;
+  status: 'draft' | 'issued' | 'archived';
 }
 
-export async function listArchivedBillings(unitId: string): Promise<ArchivedBillingOption[]> {
+export async function listUnitBillings(unitId: string): Promise<BillingBaseOption[]> {
   const { data, error } = await db
     .from('client_billings')
-    .select('id, period_month, title, grand_total')
+    .select('id, period_month, title, grand_total, status')
     .eq('unit_id', unitId)
-    .eq('status', 'archived')
+    .neq('status', 'void')
     .order('period_month', { ascending: false })
     .limit(200);
   if (error) {
@@ -186,13 +188,14 @@ export async function listArchivedBillings(unitId: string): Promise<ArchivedBill
     periodMonth: String(row.period_month).slice(0, 7),
     title: row.title || '',
     grandTotal: Number(row.grand_total) || 0,
+    status: row.status === 'issued' || row.status === 'archived' ? row.status : 'draft',
   }));
 }
 
 export async function prepareBillingDraft(
   unit: BillingUnitRef,
   periodMonth: string,
-  options: { copyPreviousCosts: boolean; attendanceFrom?: string; attendanceTo?: string; baseBillingId?: string }
+  options: { copyPreviousCosts: boolean; attendanceFrom?: string; attendanceTo?: string; baseBillingId?: string; skipPrevious?: boolean }
 ): Promise<ClientBillingModel> {
   const window = resolveAttendanceWindow(periodMonth, options.attendanceFrom, options.attendanceTo);
   const windowError = attendanceWindowError(window.from, window.to);
@@ -201,7 +204,11 @@ export async function prepareBillingDraft(
   const explicitBase = Boolean(options.baseBillingId);
   const [profile, previous, people, compensations, absences] = await Promise.all([
     loadProfile(unit.id),
-    explicitBase ? loadArchivedBase(unit.id, options.baseBillingId || '') : loadPrevious(unit.id, periodMonth),
+    explicitBase
+      ? loadBillingBase(unit.id, options.baseBillingId || '')
+      : options.skipPrevious
+        ? Promise.resolve(null)
+        : loadPrevious(unit.id, periodMonth),
     loadPersonnel(unit.id, window),
     variableCompensationsService.getByUnitAndMonth(unit.id, periodMonth).catch(() => []),
     loadAbsenceDeductions(unit.id, window),
@@ -258,6 +265,7 @@ export async function prepareBillingDraft(
     model.administrative = cloneLines(profile.administrative);
   }
 
+  model.billingKind = 'real';
   return model;
 }
 
@@ -269,7 +277,7 @@ export async function refreshWorkersFromUnit(
   const window = resolveAttendanceWindow(periodMonth, model.attendanceFrom, model.attendanceTo);
   const windowError = attendanceWindowError(window.from, window.to);
   if (windowError) throw new Error(windowError);
-  if (model.sourceQuoteId) {
+  if (isProjectionBilling(model)) {
     const next = cloneModel(model);
     next.attendanceFrom = window.from;
     next.attendanceTo = window.to;
@@ -880,13 +888,13 @@ async function loadProfile(unitId: string): Promise<{
   return data?.payload || null;
 }
 
-async function loadArchivedBase(unitId: string, billingId: string): Promise<ClientBillingRecord> {
+async function loadBillingBase(unitId: string, billingId: string): Promise<ClientBillingRecord> {
   const { data, error } = await db.from('client_billings').select('*').eq('id', billingId).maybeSingle();
   if (error) throw mapError(error);
-  if (!data) throw new Error('No se encontró la liquidación del archivo.');
+  if (!data) throw new Error('No se encontró la liquidación elegida.');
   const record = mapRecord(data);
-  if (record.unitId !== unitId) throw new Error('Esa liquidación del archivo es de otra unidad.');
-  if (record.status !== 'archived') throw new Error('Solo se puede tomar como base una liquidación del archivo, o la del mes anterior.');
+  if (record.unitId !== unitId) throw new Error('Esa liquidación es de otra unidad.');
+  if (record.status === 'void') throw new Error('No se puede tomar como base una liquidación anulada.');
   return record;
 }
 

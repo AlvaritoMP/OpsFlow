@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { Unit, User } from '../types';
 import {
-  ArchivedBillingOption,
+  BillingBaseOption,
   BillingActor,
   BillingNoteKind,
   BillingNoteStatus,
@@ -33,7 +33,7 @@ import {
   ClientBillingRun,
   SavedBillingCalc,
   getBillingAudit,
-  listArchivedBillings,
+  listUnitBillings,
   listBillingNotes,
   listBillingRuns,
   listClientBillings,
@@ -73,9 +73,12 @@ import {
   ComputedWorker,
   attendanceWindowError,
   attendanceWindowKey,
+  billingKindLabel,
   cloneModel,
   computeBilling,
   diffBillingModels,
+  emptyBillingModel,
+  isProjectionBilling,
   formatAttendanceDate,
   formatAttendanceRange,
   formatBillingDate,
@@ -190,6 +193,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createOsTo, setCreateOsTo] = useState('');
   const [createServiceMonth, setCreateServiceMonth] = useState('');
   const [createPes, setCreatePes] = useState('');
+  const [createKind, setCreateKind] = useState<'' | 'projection' | 'real'>('');
   const [createQuoteId, setCreateQuoteId] = useState('');
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [pesChoices, setPesChoices] = useState<string[]>([]);
@@ -200,7 +204,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createDni, setCreateDni] = useState(currentUser.dni || '');
   const [copyPrevious, setCopyPrevious] = useState(true);
   const [createBaseId, setCreateBaseId] = useState('');
-  const [archiveChoices, setArchiveChoices] = useState<ArchivedBillingOption[]>([]);
+  const [archiveChoices, setArchiveChoices] = useState<BillingBaseOption[]>([]);
   const [appliedAttendanceKey, setAppliedAttendanceKey] = useState('');
   const [billingSection, setBillingSection] = useState<'liquidaciones' | 'formulas'>('liquidaciones');
   const [publishedFormulas, setPublishedFormulas] = useState<BillingFormulaSet | null>(null);
@@ -264,7 +268,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
     setCreateBaseId('');
     let cancelled = false;
-    void listArchivedBillings(createUnitId)
+    void listUnitBillings(createUnitId)
       .then((rows) => {
         if (!cancelled) setArchiveChoices(rows);
       })
@@ -364,10 +368,31 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setBanner('Seleccione una unidad.');
       return;
     }
-    const windowError = attendanceWindowError(createFrom, createTo);
-    if (windowError) {
-      setBanner(windowError);
+    if (createKind !== 'projection' && createKind !== 'real') {
+      setBanner('Elija si la liquidación es una proyección o un real.');
       return;
+    }
+    const quote = quotes.find((item) => item.id === createQuoteId);
+    if (createKind === 'projection' && !quote) {
+      setBanner('Una proyección solo puede armarse con una propuesta. Elija la cotización.');
+      return;
+    }
+    if (
+      createKind === 'projection' &&
+      quote &&
+      quote.clientName.trim().toLocaleLowerCase('es') !== unit.clientName.trim().toLocaleLowerCase('es')
+    ) {
+      const confirmed = window.confirm(
+        `La propuesta ${quote.code} es de ${quote.clientName}, no de ${unit.clientName}. ¿Usarla igual para esta proyección?`
+      );
+      if (!confirmed) return;
+    }
+    if (createKind === 'real') {
+      const windowError = attendanceWindowError(createFrom, createTo);
+      if (windowError) {
+        setBanner(windowError);
+        return;
+      }
     }
     const orderReady = !osSetupError({
       osStartDate: createOsFrom,
@@ -379,20 +404,31 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       opaloCompany: createCompany,
       makerDni: createDni,
     });
-    setBusy(createQuoteId ? 'Armando la liquidación con la propuesta' : 'Armando la liquidación con el personal de la unidad');
+    setBusy(createKind === 'projection' ? 'Armando la proyección con la propuesta' : 'Armando la liquidación con el personal del corte');
     setBanner(null);
     try {
-      let model = await prepareBillingDraft(
-        { id: unit.id, name: unit.name, clientName: unit.clientName },
-        createPeriod,
-        {
-          copyPreviousCosts: copyPrevious,
-          attendanceFrom: createFrom,
-          attendanceTo: createTo,
-          baseBillingId: createBaseId || undefined,
-        }
-      );
-      const quote = quotes.find((item) => item.id === createQuoteId);
+      const bounds = monthDateBounds(createPeriod);
+      let model: ClientBillingModel;
+      if (createKind === 'projection' && quote) {
+        const serviceLabel = quote.payload?.model?.serviceLabel?.trim() || `Servicio de ${unit.name}`;
+        model = emptyBillingModel(`${serviceLabel} — ${formatPeriodLabel(createPeriod)}`, serviceLabel);
+        model.attendanceFrom = bounds.from;
+        model.attendanceTo = bounds.to;
+        model = applyQuoteCommercials(model, quote);
+      } else {
+        model = await prepareBillingDraft(
+          { id: unit.id, name: unit.name, clientName: unit.clientName },
+          createPeriod,
+          {
+            copyPreviousCosts: copyPrevious && createBaseId !== 'none',
+            attendanceFrom: createFrom,
+            attendanceTo: createTo,
+            baseBillingId: createBaseId && createBaseId !== 'none' ? createBaseId : undefined,
+            skipPrevious: createBaseId === 'none',
+          }
+        );
+        if (quote) model = applyQuoteCommercials(model, quote, { keepWorkers: true });
+      }
       model.osStartDate = createOsFrom;
       model.osEndDate = createOsTo;
       model.osServiceMonth = createServiceMonth;
@@ -406,7 +442,6 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         clientApplicant: 'first',
         makerDni: createDni.trim(),
       };
-      if (quote) model = applyQuoteCommercials(model, quote);
       if (orderReady && model.opalosisPesCode && model.opalosisIssue) {
         await saveUnitOpalosisSetup(unit.id, { pesCode: model.opalosisPesCode, issue: model.opalosisIssue }, actor);
       }
@@ -439,15 +474,18 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setTab('labor');
       const base = archiveChoices.find((item) => item.id === createBaseId);
       const baseNote =
-        base && !quote
-          ? ` Las tasas y las condiciones salieron del archivo de ${formatPeriodLabel(base.periodMonth)}${
+        createKind === 'real' && base && !quote
+          ? ` Las tasas y las condiciones salieron de la liquidación de ${formatPeriodLabel(base.periodMonth)}${
               copyPrevious ? ', igual que los costos operativos y administrativos' : ''
             }.`
           : '';
+      const seats = model.workers.reduce((sum, worker) => sum + (worker.included ? Math.max(0, Number(worker.factor) || 0) : 0), 0);
       setBanner(
-        quote
-          ? `Borrador armado con ${quote.code}: ${model.workers.length} puestos, los parámetros, los costos operativos, los administrativos y la utilidad. El personal de la unidad no entra en esta liquidación.${baseNote}`
-          : `Borrador armado con el personal activo y con quien trabajó en el corte. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.${baseNote}`
+        createKind === 'projection' && quote
+          ? `Proyección armada con ${quote.code}: ${model.workers.length} puestos y ${seats} vacantes. No se trajeron trabajadores ni novedades de la unidad.`
+          : quote
+            ? `Borrador real armado con el personal del corte. Los parámetros, los costos y la utilidad salieron de ${quote.code}. Los trabajadores de la unidad se mantienen.${baseNote}`
+            : `Borrador real armado con el personal activo y con quien trabajó en el corte. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.${baseNote}`
       );
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo preparar la facturación.');
@@ -483,12 +521,19 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     if (!editor || locked || !quoteId) return;
     const quote = quotes.find((item) => item.id === quoteId);
     if (!quote) return;
+    const projection = isProjectionBilling(editor.model);
     const confirmed = window.confirm(
-      `Se reemplazan los puestos, los parámetros, los costos operativos, los administrativos y la utilidad con los de ${quote.code}. El personal de la unidad deja de usarse en esta liquidación.`
+      projection
+        ? `Se reemplazan los puestos, los parámetros, los costos operativos, los administrativos y la utilidad con los de ${quote.code}. Esta proyección no usa el personal de la unidad.`
+        : `Se copian los parámetros, los costos operativos, los administrativos y la utilidad de ${quote.code}. Los trabajadores del corte se mantienen.`
     );
     if (!confirmed) return;
-    setEditor({ ...editor, model: applyQuoteCommercials(editor.model, quote) });
-    setBanner(`La liquidación tomó los puestos, parámetros y costos de ${quote.code}. Guarde para conservarlos.`);
+    setEditor({ ...editor, model: applyQuoteCommercials(editor.model, quote, { keepWorkers: !projection }) });
+    setBanner(
+      projection
+        ? `La proyección tomó los puestos y los costos de ${quote.code}. Guarde para conservarlos.`
+        : `La liquidación real tomó los parámetros y los costos de ${quote.code}. El personal del corte sigue en el costo laboral. Guarde para conservarlos.`
+    );
   };
 
   const syncAttendance = async (current: EditorState, force = false): Promise<EditorState> => {
@@ -948,8 +993,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     try {
       const next = await syncAttendance(editor, true);
       setEditor(next);
-      if (next.model.sourceQuoteId) {
-        setBanner(`Esta liquidación usa los puestos de ${next.model.sourceQuoteCode || 'la propuesta'}. No se mezcla el personal de la unidad.`);
+      if (isProjectionBilling(next.model)) {
+        setBanner(`Esta proyección usa los puestos de ${next.model.sourceQuoteCode || 'la propuesta'}. No se leen trabajadores ni novedades de la unidad.`);
         return;
       }
       const range = resolveAttendanceWindow(next.periodMonth, next.model.attendanceFrom, next.model.attendanceTo);
@@ -994,6 +1039,15 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
   };
 
+  const createUnit = billingUnits.find((item) => item.id === createUnitId);
+  const quoteClient = createUnit?.clientName.trim().toLocaleLowerCase('es') || '';
+  const ownQuotes = quoteClient
+    ? quotes.filter((quote) => quote.clientName.trim().toLocaleLowerCase('es') === quoteClient)
+    : quotes;
+  const otherQuotes = quoteClient
+    ? quotes.filter((quote) => quote.clientName.trim().toLocaleLowerCase('es') !== quoteClient)
+    : [];
+
   return (
     <div className={editor ? 'h-full min-h-0 flex flex-col bg-slate-50' : 'h-full overflow-y-auto bg-slate-50'}>
       <div className={editor ? 'flex-1 min-h-0 flex flex-col gap-3 p-3 md:p-4' : 'max-w-[1500px] mx-auto p-4 md:p-6 space-y-4'}>
@@ -1022,6 +1076,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                     type="button"
                     onClick={() => {
                       setShowCreate(true);
+                      setCreateKind('');
+                      setCreateQuoteId('');
+                      setCreateBaseId('');
+                      setCopyPrevious(true);
                       setCreateUnitId(billingUnits[0]?.id || '');
                     }}
                     className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 shadow-sm"
@@ -1092,6 +1150,30 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
               <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
                 <h2 className="font-semibold text-slate-800">Nueva liquidación</h2>
                 <div className="grid md:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCreateKind('projection')}
+                    className={`text-left rounded-xl border p-3 ${createKind === 'projection' ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                  >
+                    <span className="block font-semibold text-slate-900">Proyección</span>
+                    <span className="block text-xs text-slate-600 mt-1">
+                      Facturación adelantada. El costo laboral sale de los puestos y la cantidad de la propuesta, sin nombres ni novedades de la unidad.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreateKind('real')}
+                    className={`text-left rounded-xl border p-3 ${createKind === 'real' ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                  >
+                    <span className="block font-semibold text-slate-900">Real</span>
+                    <span className="block text-xs text-slate-600 mt-1">
+                      Lo ocurrido en el corte: trabajadores de la unidad y sus novedades. Puede traer tasas y costos de una liquidación anterior o de una propuesta.
+                    </span>
+                  </button>
+                </div>
+                {createKind && (
+                <>
+                <div className="grid md:grid-cols-2 gap-3">
                   <label className="text-sm text-slate-600">
                     Unidad
                     <select className={fieldClass} value={createUnitId} onChange={(event) => setCreateUnitId(event.target.value)}>
@@ -1124,16 +1206,20 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                       }}
                     />
                   </label>
-                  <label className="text-sm text-slate-600">
-                    Asistencia y novedades desde
-                    <input className={fieldClass} type="date" value={createFrom} onChange={(event) => setCreateFrom(event.target.value)} />
-                  </label>
-                  <label className="text-sm text-slate-600">
-                    Asistencia y novedades hasta
-                    <input className={fieldClass} type="date" value={createTo} onChange={(event) => setCreateTo(event.target.value)} />
-                  </label>
+                  {createKind === 'real' && (
+                    <>
+                      <label className="text-sm text-slate-600">
+                        Asistencia y novedades desde
+                        <input className={fieldClass} type="date" value={createFrom} onChange={(event) => setCreateFrom(event.target.value)} />
+                      </label>
+                      <label className="text-sm text-slate-600">
+                        Asistencia y novedades hasta
+                        <input className={fieldClass} type="date" value={createTo} onChange={(event) => setCreateTo(event.target.value)} />
+                      </label>
+                    </>
+                  )}
                   <label className="text-sm text-slate-600 md:col-span-2">
-                    Propuesta de OpsFlow
+                    {createKind === 'projection' ? 'Propuesta' : 'Propuesta, si quiere copiar sus condiciones'}
                     <select
                       className={fieldClass}
                       value={createQuoteId}
@@ -1144,15 +1230,28 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                         if (quote) setCreatePes(quote.code);
                       }}
                     >
-                      <option value="">Sin propuesta. Usa el personal de la unidad.</option>
-                      {quotes.map((quote) => (
+                      <option value="">{createKind === 'projection' ? 'Elija la propuesta' : 'Sin propuesta. El personal sale del corte.'}</option>
+                      {ownQuotes.map((quote) => (
                         <option key={quote.id} value={quote.id}>
                           {quote.code} · {quote.clientName} · {quote.status === 'issued' ? 'Emitida' : 'Borrador'}
                         </option>
                       ))}
+                      {otherQuotes.length > 0 && (
+                        <optgroup label="Otros clientes">
+                          {otherQuotes.map((quote) => (
+                            <option key={quote.id} value={quote.id}>
+                              {quote.code} · {quote.clientName} · {quote.status === 'issued' ? 'Emitida' : 'Borrador'}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                     <span className="mt-1 block text-xs text-slate-500">
-                      Copia los puestos, los parámetros, los costos operativos, los administrativos y el porcentaje de utilidad. Esos puestos reemplazan al personal de la unidad.
+                      {createKind === 'projection'
+                        ? ownQuotes.length > 0
+                          ? 'Se copian los puestos, la cantidad, los parámetros, los costos y la utilidad. No entra el personal de la unidad.'
+                          : 'Este cliente no tiene propuestas. Puede elegir una de otro cliente, o crear la cotización primero.'
+                        : 'Si elige una propuesta, copia parámetros, costos operativos, administrativos y utilidad. Los trabajadores del corte se quedan.'}
                     </span>
                   </label>
                   <label className="text-sm text-slate-600 md:col-span-2">
@@ -1257,39 +1356,54 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                 <p className="text-xs text-slate-500">
                   El mes de servicio es el que recibe OpaloSis y se indica en cada liquidación. El inicio y la entrega son el tiempo de vida de la orden. El PES, el documento, el grupo, la línea y la empresa quedan para la siguiente liquidación. Emitir OS usa estos datos y envía el total sin IGV; en una nota de crédito va en negativo. Para dejar una facturación histórica en el archivo, esos datos de la orden no son obligatorios. Moneda: soles.
                 </p>
-                <label className="text-sm text-slate-600">
-                  Traer datos de
-                  <select className={fieldClass} value={createBaseId} onChange={(event) => setCreateBaseId(event.target.value)}>
-                    <option value="">La liquidación del mes anterior</option>
-                    {archiveChoices.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        Archivo · {formatPeriodLabel(item.periodMonth)} · {pen(item.grandTotal)}
-                        {item.title ? ` · ${item.title}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="mt-1 block text-xs text-slate-500">
-                    {createBaseId
-                      ? 'Esa liquidación del archivo aporta las tasas, el servicio y las consideraciones. El personal sigue saliendo del corte de esta liquidación, o de la propuesta si eligió una.'
-                      : archiveChoices.length > 0
-                        ? 'Puede dejar el mes anterior o elegir una liquidación del archivo de esta unidad. El personal sigue saliendo del corte o de la propuesta.'
-                        : 'Usa la liquidación anterior de esta unidad. Cuando archive una, también podrá elegirla aquí.'}
-                  </span>
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input type="checkbox" checked={copyPrevious} onChange={(event) => setCopyPrevious(event.target.checked)} />
-                  Copiar costos operativos y administrativos de esa base
-                </label>
+                {createKind === 'real' && (
+                  <>
+                    <label className="text-sm text-slate-600">
+                      Traer datos de
+                      <select className={fieldClass} value={createBaseId} onChange={(event) => setCreateBaseId(event.target.value)}>
+                        <option value="">La liquidación del mes anterior</option>
+                        <option value="none">Sin liquidación anterior. Solo el personal del corte</option>
+                        {archiveChoices.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.status === 'issued' ? 'Emitida' : item.status === 'archived' ? 'Archivo' : 'Borrador'} · {formatPeriodLabel(item.periodMonth)} · {pen(item.grandTotal)}
+                            {item.title ? ` · ${item.title}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {createQuoteId
+                          ? 'Los trabajadores salen del corte. Si además eligió una propuesta, los parámetros y los costos salen de esa propuesta.'
+                          : createBaseId === 'none'
+                            ? 'No se copian tasas ni costos de otra liquidación. El personal sale del corte y las condiciones, de la unidad.'
+                            : createBaseId
+                              ? 'Esa liquidación aporta las tasas, el servicio y las consideraciones. El personal sigue saliendo del corte.'
+                              : 'Puede usar el mes anterior, otra liquidación de esta unidad, o ninguna. El personal siempre sale del corte.'}
+                      </span>
+                    </label>
+                    {createBaseId !== 'none' && !createQuoteId && (
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input type="checkbox" checked={copyPrevious} onChange={(event) => setCopyPrevious(event.target.checked)} />
+                        Copiar costos operativos y administrativos de esa base
+                      </label>
+                    )}
+                  </>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs text-slate-500">El mes identifica la liquidación. El rango define la asistencia, las novedades y los días a facturar.</p>
+                  <p className="text-xs text-slate-500">
+                    {createKind === 'projection'
+                      ? 'El mes identifica la proyección. El costo laboral sale solo de la propuesta.'
+                      : 'El mes identifica la liquidación. El rango define la asistencia, las novedades y los días a facturar.'}
+                  </p>
                   {onOpenHelp && (
                     <button type="button" onClick={onOpenHelp} className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900">
                       <HelpCircle size={14} /> Ayuda de la facturación
                     </button>
                   )}
                 </div>
+                </>
+                )}
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => void startDraft()} disabled={!!busy} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
+                  <button type="button" onClick={() => void startDraft()} disabled={!!busy || !createKind} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
                     Armar liquidación
                   </button>
                   <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100">
@@ -1346,7 +1460,11 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                         <tr key={record.id} className="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" onClick={() => void openRecord(record)}>
                           <td className="px-3 py-3 font-medium text-slate-800">
                             {formatPeriodLabel(record.periodMonth)}
-                            <div className="text-xs font-normal text-slate-500">{formatAttendanceRange(attendance.from, attendance.to)}</div>
+                            <div className="text-xs font-normal text-slate-500">
+                              {isProjectionBilling(record.model)
+                                ? `Proyección${record.model.sourceQuoteCode ? ` · ${record.model.sourceQuoteCode}` : ''}`
+                                : `Real · ${formatAttendanceRange(attendance.from, attendance.to)}`}
+                            </div>
                           </td>
                           <td className="px-3 py-3">
                             <div className="text-slate-800">{record.clientName}</div>
@@ -1744,6 +1862,7 @@ function EditorView(props: {
   appliedAttendanceKey: string;
 }) {
   const { editor, computed, locked } = props;
+  const projection = isProjectionBilling(editor.model);
   const compositionTotal = computed.laborTotal + computed.operationalTotal + computed.adminTotal + computed.profitAmount;
   const workerMap = new Map(computed.workers.map((worker) => [worker.id, worker]));
   const windowWorkers = workersInAttendanceWindow(editor.periodMonth, editor.model);
@@ -1820,18 +1939,24 @@ function EditorView(props: {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold text-slate-900">{editor.clientName}</h1>
             <StatusPill status={editor.status} />
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${projection ? 'bg-violet-100 text-violet-800' : 'bg-sky-100 text-sky-800'}`}>
+              {billingKindLabel(editor.model)}
+            </span>
             {props.pendingChanges.length > 0 && editor.status === 'draft' && (
               <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">{props.pendingChanges.length} cambios sin guardar</span>
             )}
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            {editor.unitName} · {formatPeriodLabel(editor.periodMonth)} · Corte {formatAttendanceRange(attendance.from, attendance.to)}
+            {editor.unitName} · {formatPeriodLabel(editor.periodMonth)}
+            {projection
+              ? ` · Proyección${editor.model.sourceQuoteCode ? ` ${editor.model.sourceQuoteCode}` : ''}`
+              : ` · Corte ${formatAttendanceRange(attendance.from, attendance.to)}`}
             {editor.model.osServiceMonth ? ` · Servicio ${formatPeriodLabel(editor.model.osServiceMonth)}` : ''}
             {editor.model.osStartDate && editor.model.osEndDate
               ? ` · Orden ${formatAttendanceDate(editor.model.osStartDate)} – ${formatAttendanceDate(editor.model.osEndDate)}`
               : ''}
             {editor.model.opalosisPesCode ? ` · PES ${editor.model.opalosisPesCode}` : ''}
-            {editor.model.sourceQuoteCode ? ` · Propuesta ${editor.model.sourceQuoteCode}` : ''}
+            {!projection && editor.model.sourceQuoteCode ? ` · Propuesta ${editor.model.sourceQuoteCode}` : ''}
             {editor.model.opalosisRegistration?.numeroOrdenServicio ? ` · ${editor.model.opalosisRegistration.numeroOrdenServicio}` : ''}
             {editor.updatedByName ? ` · Último guardado por ${editor.updatedByName}` : ''}
             {editor.issuedByName ? ` · Emitida por ${editor.issuedByName}` : ''}
@@ -1839,7 +1964,7 @@ function EditorView(props: {
           </p>
           {!props.locked && props.canEdit && props.quotes.length > 0 && (
             <label className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-              Usar propuesta
+              {projection ? 'Cambiar propuesta' : 'Traer condiciones de una propuesta'}
               <select
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
                 value={editor.model.sourceQuoteId || ''}
@@ -1964,6 +2089,14 @@ function EditorView(props: {
             </label>
           </div>
 
+          {projection ? (
+          <div className="shrink-0 bg-violet-50 border border-violet-200 rounded-xl p-3 text-sm text-violet-950">
+            <p className="font-medium">Proyección desde la propuesta</p>
+            <p className="text-xs mt-1 text-violet-800">
+              El costo laboral usa los puestos y la cantidad de {editor.model.sourceQuoteCode || 'la propuesta'}. No se leen trabajadores, asistencia ni novedades de la unidad.
+            </p>
+          </div>
+          ) : (
           <div className={`shrink-0 bg-white border rounded-xl p-3 space-y-3 ${attendanceError || attendanceStale ? 'border-amber-300' : 'border-slate-200'}`}>
             <div className="flex flex-col xl:flex-row xl:items-end gap-3">
               <div className="flex-1 min-w-0">
@@ -2011,11 +2144,12 @@ function EditorView(props: {
               <p className="text-xs text-amber-800">El rango cambió. Recalcule las faltas para aplicar este corte a los días de cada trabajador.</p>
             )}
           </div>
+          )}
 
           <div className="shrink-0 flex gap-1 overflow-x-auto">
             {(
               [
-                ['labor', `Personal (${includedCount})`],
+                ['labor', `${projection ? 'Puestos' : 'Personal'} (${includedCount})`],
                 ['ops', 'Operativo'],
                 ['admin', 'Administrativo'],
                 ['params', 'Parámetros'],
@@ -2048,7 +2182,9 @@ function EditorView(props: {
                 <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
                   <Users size={16} className="shrink-0" />
                   <span>
-                    {sheetMode === 'costs'
+                    {projection
+                      ? 'Cada fila es un puesto de la propuesta, sin nombre ni apellido. La cantidad son las vacantes y multiplica el costo. No hay faltas ni asistencia de la unidad.'
+                      : sheetMode === 'costs'
                       ? showRolled
                         ? 'Vista de cliente: las horas extra nocturnas quedan en cero y su importe está sumado al bono nocturno, además del bono que ya correspondía. Las diurnas siguen en su columna. Remuneración, cargas y costo siguen el cálculo real. Vuelva a Detalle real para editar las horas nocturnas.'
                         : 'Cada fila es un trabajador activo o que trabajó en el corte. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha. Un cambio manual de Días se conserva. Si gozó vacaciones, indique los días en Días vac.: las cargas se calculan con el sueldo base de esos días. Lo amarillo fue ajustado a mano.'
@@ -2058,6 +2194,7 @@ function EditorView(props: {
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
+                  {!projection && (
                   <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
                     {(
                       [
@@ -2080,6 +2217,7 @@ function EditorView(props: {
                       </button>
                     ))}
                   </div>
+                  )}
                   {rollOvertime && sheetMode === 'costs' && (
                     <div className="inline-flex rounded-lg border border-amber-200 bg-amber-50 p-0.5" title="Compare el cálculo real con el detalle que verá el cliente, donde las horas extra nocturnas están dentro del bono nocturno.">
                       {(
@@ -2101,12 +2239,14 @@ function EditorView(props: {
                       ))}
                     </div>
                   )}
-                  <input className="w-44 max-w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800" placeholder="Buscar trabajador" value={props.workerQuery} onChange={(event) => props.setWorkerQuery(event.target.value)} />
+                  <input className="w-44 max-w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800" placeholder={projection ? 'Buscar puesto' : 'Buscar trabajador'} value={props.workerQuery} onChange={(event) => props.setWorkerQuery(event.target.value)} />
                   {!locked && (
                     <>
+                      {!projection && (
                       <button type="button" onClick={props.onReload} className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm whitespace-nowrap">
                         <RefreshCw size={14} /> Actualizar
                       </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {
@@ -2148,7 +2288,7 @@ function EditorView(props: {
                         }}
                         className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm whitespace-nowrap"
                       >
-                        <Plus size={14} /> Agregar
+                        <Plus size={14} /> {projection ? 'Agregar puesto' : 'Agregar'}
                       </button>
                     </>
                   )}
@@ -2162,6 +2302,7 @@ function EditorView(props: {
                   formulas={props.formulas}
                   locked={locked}
                   showRolled={showRolled}
+                  projection={projection}
                   authorName={props.authorName}
                   onPatchWorker={props.onPatchWorker}
                   onRemove={(id) => props.onPatchModel({ workers: editor.model.workers.filter((item) => item.id !== id) })}
@@ -2519,6 +2660,7 @@ function LaborSheet(props: {
   formulas?: BillingFormulaSet;
   locked: boolean;
   showRolled: boolean;
+  projection?: boolean;
   authorName: string;
   onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
   onRemove: (id: string) => void;
@@ -2566,7 +2708,11 @@ function LaborSheet(props: {
     );
   const nightHead = props.showRolled ? `${head} !bg-amber-100 !text-amber-950` : head;
   if (props.workers.length === 0) {
-    return <div className="p-6 text-sm text-slate-500">No hay personal para este filtro. Actualice desde la unidad o agregue una persona.</div>;
+    return (
+      <div className="p-6 text-sm text-slate-500">
+        {props.projection ? 'No hay puestos de la propuesta para este filtro.' : 'No hay personal para este filtro. Actualice desde la unidad o agregue una persona.'}
+      </div>
+    );
   }
   return (
     <div className="flex-1 min-h-0 overflow-auto">
@@ -2574,13 +2720,13 @@ function LaborSheet(props: {
         <thead>
           <tr>
             <th className={`${headLeft} sticky left-0 z-30 w-8`} />
-            <th className={`${headLeft} sticky left-8 z-30 min-w-[180px] bg-slate-100`}>Trabajador</th>
-            <th className={headLeft} title="Fecha de inicio en la ficha">Inicio</th>
-            <th className={headLeft} title="Fecha de cese en la ficha. Vacío si sigue activo">Cese</th>
-            <th className={headLeft}>Puesto</th>
+            <th className={`${headLeft} sticky left-8 z-30 min-w-[180px] bg-slate-100`}>{props.projection ? 'Puesto' : 'Trabajador'}</th>
+            {!props.projection && <th className={headLeft} title="Fecha de inicio en la ficha">Inicio</th>}
+            {!props.projection && <th className={headLeft} title="Fecha de cese en la ficha. Vacío si sigue activo">Cese</th>}
+            {!props.projection && <th className={headLeft}>Puesto</th>}
             <th className={head}>Sueldo</th>
-            <th className={head} title="Días del corte, antes de restar faltas">Días corte</th>
-            <th className={head}>Faltas</th>
+            {!props.projection && <th className={head} title="Días del corte, antes de restar faltas">Días corte</th>}
+            {!props.projection && <th className={head}>Faltas</th>}
             <th className={head}>Días</th>
             <th className={head} title={say('sueldoVacaciones')}>Días vac.</th>
             <th className={head}>Asig. fam.</th>
@@ -2596,7 +2742,7 @@ function LaborSheet(props: {
             <th className={nightHead} title={props.showRolled ? 'Bono nocturno más el importe de las horas extra nocturnas' : say('bonoNocturno')}>Bono S/</th>
             <th className={head}>Cond. trab.</th>
             <th className={head}>Bonos</th>
-            <th className={head}>Factor</th>
+            <th className={head} title={props.projection ? 'Vacantes de este puesto. Multiplica el costo.' : undefined}>{props.projection ? 'Cantidad' : 'Factor'}</th>
             <th className={head} title={essaludFixed ? 'EsSalud en monto fijo no usa esta base.' : say('baseEssalud')}>Base EsSalud</th>
             <th className={head} title={say('basico')}>Rem. básica</th>
             <th className={head} title={say('remCargas')}>Rem. cargas</th>
@@ -2624,9 +2770,15 @@ function LaborSheet(props: {
                   <input type="checkbox" checked={worker.included} disabled={props.locked} onChange={(event) => props.onPatchWorker(worker.id, { included: event.target.checked })} />
                 </td>
                 <td className="sticky left-8 z-20 bg-white px-1.5 py-1 min-w-[180px] align-middle">
-                  <input className={gridText} disabled={props.locked} value={worker.name || ''} placeholder="Nombre" onChange={(event) => props.onPatchWorker(worker.id, { name: event.target.value })} />
+                  <input
+                    className={gridText}
+                    disabled={props.locked}
+                    value={worker.name || ''}
+                    placeholder={props.projection ? 'Puesto' : 'Nombre'}
+                    onChange={(event) => props.onPatchWorker(worker.id, props.projection ? { name: event.target.value, position: event.target.value } : { name: event.target.value })}
+                  />
                   <div className="flex items-center gap-1 text-[10px] text-slate-400 truncate">
-                    <span className="truncate">{worker.origin === 'manual' ? 'Manual' : worker.activeOnUnit === false ? 'Cesó; los días del corte llegan hasta su cese' : worker.missingFromUnit ? 'Ya no está en la unidad' : worker.contractualSalary <= 0 ? 'Sin sueldo en ficha' : ''}</span>
+                    <span className="truncate">{props.projection ? `Puesto de la propuesta · cantidad ${worker.factor || 0}` : worker.origin === 'manual' ? 'Manual' : worker.activeOnUnit === false ? 'Cesó; los días del corte llegan hasta su cese' : worker.missingFromUnit ? 'Ya no está en la unidad' : worker.contractualSalary <= 0 ? 'Sin sueldo en ficha' : ''}</span>
                     {worker.origin === 'manual' && !props.locked && (
                       <button type="button" className="text-red-500 shrink-0" onClick={() => props.onRemove(worker.id)} title="Quitar">
                         <Trash2 size={11} />
@@ -2634,16 +2786,20 @@ function LaborSheet(props: {
                     )}
                   </div>
                 </td>
-                <td className="px-1.5 py-1 whitespace-nowrap tabular-nums text-slate-600">{formatBillingDate(worker.startDate) || '—'}</td>
+                {!props.projection && <td className="px-1.5 py-1 whitespace-nowrap tabular-nums text-slate-600">{formatBillingDate(worker.startDate) || '—'}</td>}
+                {!props.projection && (
                 <td className="px-1.5 py-1 whitespace-nowrap tabular-nums text-slate-600" title={worker.endDate ? 'Los días del corte se cuentan hasta esta fecha' : 'Sigue sin fecha de cese'}>
                   {formatBillingDate(worker.endDate) || '—'}
                 </td>
-                <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position || ''} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>
+                )}
+                {!props.projection && <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position || ''} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>}
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'contractualSalary')} title={hint(worker, 'contractualSalary')} disabled={props.locked} value={worker.contractualSalary} onChange={salary} /></td>
-                <td className="px-1.5 py-1 text-right tabular-nums text-slate-500">{worker.calendarDays ?? '—'}</td>
+                {!props.projection && <td className="px-1.5 py-1 text-right tabular-nums text-slate-500">{worker.calendarDays ?? '—'}</td>}
+                {!props.projection && (
                 <td className={`px-1.5 py-1 text-right tabular-nums font-medium ${worker.absenceDays ? 'text-red-700' : 'text-slate-400'}`} title={worker.absenceDetail || 'Sin faltas en el corte'}>
                   {worker.absenceDays || 0}
                 </td>
+                )}
                 <td className="px-1 py-1">
                   <GridNum
                     step="1"
@@ -2748,14 +2904,18 @@ function LaborSheet(props: {
             <td className={`${foot} sticky left-0 z-30`} />
             <td className={`${foot} sticky left-8 z-30 text-left font-semibold text-slate-800`}>
               Total
-              <div className="text-[10px] font-normal text-slate-500">{billed.length} incluido{billed.length === 1 ? '' : 's'}</div>
+              <div className="text-[10px] font-normal text-slate-500">
+                {props.projection
+                  ? `${billed.reduce((sum, worker) => sum + (Number(worker.factor) || 0), 0)} vacantes`
+                  : `${billed.length} incluido${billed.length === 1 ? '' : 's'}`}
+              </div>
             </td>
-            <td className={foot} />
-            <td className={foot} />
-            <td className={foot} />
+            {!props.projection && <td className={foot} />}
+            {!props.projection && <td className={foot} />}
+            {!props.projection && <td className={foot} />}
             <td className={foot}><GridMoney value={totalOf((worker) => worker.contractualSalary)} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker) => worker.calendarDays || 0)} strong /></td>
-            <td className={foot}><GridMoney value={totalOf((worker) => worker.absenceDays || 0)} strong /></td>
+            {!props.projection && <td className={foot}><GridMoney value={totalOf((worker) => worker.calendarDays || 0)} strong /></td>}
+            {!props.projection && <td className={foot}><GridMoney value={totalOf((worker) => worker.absenceDays || 0)} strong /></td>}
             <td className={foot}><GridMoney value={totalOf((worker) => worker.daysWorked)} strong /></td>
             <td className={foot}><GridMoney value={totalOf((worker) => numDays(worker.vacationDays))} strong /></td>
             <td className={foot}><GridMoney value={totalOf((worker) => worker.familyAllowance)} strong /></td>
@@ -3611,17 +3771,24 @@ function modelInAttendanceWindow(periodMonth: string, model: ClientBillingModel)
 }
 
 function describeCreation(model: ClientBillingModel) {
-  const included = model.workers.filter((worker) => worker.included).length;
+  const included = model.workers.filter((worker) => worker.included);
+  const projection = isProjectionBilling(model);
+  const seats = included.reduce((sum, worker) => sum + Math.max(0, Number(worker.factor) || 0), 0);
   return [
     {
-      label: 'Personal incluido',
+      label: 'Tipo de liquidación',
       before: '—',
-      after: `${included} trabajador(es)`,
+      after: billingKindLabel(model),
     },
     {
-      label: 'Corte de asistencia y novedades',
+      label: projection ? 'Puestos incluidos' : 'Personal incluido',
       before: '—',
-      after: formatAttendanceRange(model.attendanceFrom, model.attendanceTo),
+      after: projection ? `${included.length} puesto(s), ${seats} vacantes` : `${included.length} trabajador(es)`,
+    },
+    {
+      label: projection ? 'Origen del costo laboral' : 'Corte de asistencia y novedades',
+      before: '—',
+      after: projection ? model.sourceQuoteCode || 'Propuesta' : formatAttendanceRange(model.attendanceFrom, model.attendanceTo),
     },
   ];
 }

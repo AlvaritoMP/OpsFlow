@@ -236,6 +236,9 @@ export interface OpalosisRegistration {
   alreadyExisted: boolean;
 }
 
+/** Proyección adelantada, o liquidación con lo ocurrido en el corte. */
+export type BillingKind = 'projection' | 'real';
+
 /** Datos de la orden, definidos al armar la liquidación. */
 export interface OpalosisIssueSettings {
   documentKind: OpalosisDocumentKind;
@@ -273,6 +276,11 @@ export interface ClientBillingModel {
   /** Propuesta del Cotizador de la que salieron puestos, parámetros y costos. */
   sourceQuoteId?: string;
   sourceQuoteCode?: string;
+  /**
+   * Proyección: facturación adelantada con los puestos de la propuesta, sin personal de la unidad.
+   * Real: trabajadores y novedades del corte. Si falta, una liquidación con propuesta se lee como proyección.
+   */
+  billingKind?: BillingKind;
   /** Datos de la orden definidos al armar la liquidación. */
   opalosisIssue?: OpalosisIssueSettings;
   /** Respuesta de OpaloSis al registrar la orden. */
@@ -1060,6 +1068,20 @@ export function cloneModel(model: ClientBillingModel): ClientBillingModel {
   return JSON.parse(JSON.stringify(model)) as ClientBillingModel;
 }
 
+/** Las liquidaciones guardadas antes de esta opción no traen el tipo. Con propuesta, se tratan como proyección. */
+export function billingKindOf(model: Pick<ClientBillingModel, 'billingKind' | 'sourceQuoteId'>): BillingKind {
+  if (model.billingKind === 'projection' || model.billingKind === 'real') return model.billingKind;
+  return model.sourceQuoteId ? 'projection' : 'real';
+}
+
+export function isProjectionBilling(model: Pick<ClientBillingModel, 'billingKind' | 'sourceQuoteId'>): boolean {
+  return billingKindOf(model) === 'projection';
+}
+
+export function billingKindLabel(model: Pick<ClientBillingModel, 'billingKind' | 'sourceQuoteId'>): string {
+  return isProjectionBilling(model) ? 'Proyección' : 'Real';
+}
+
 const SUGGESTED_FIELDS: (keyof BillingWorkerSuggestion)[] = [
   'contractualSalary',
   'daysWorked',
@@ -1109,6 +1131,7 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
   push('Entrega de la orden de servicio', formatAttendanceDate(before.osEndDate), formatAttendanceDate(after.osEndDate));
   push('Mes de servicio', formatPeriodLabel(before.osServiceMonth || ''), formatPeriodLabel(after.osServiceMonth || ''));
   push('Código PES', before.opalosisPesCode, after.opalosisPesCode);
+  push('Tipo de liquidación', billingKindLabel(before), billingKindLabel(after));
   push('Propuesta OpsFlow', before.sourceQuoteCode, after.sourceQuoteCode);
   push(
     'Documento para OpaloSis',

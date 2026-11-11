@@ -9,6 +9,7 @@ import {
   formatAttendanceRange,
   formatBillingDate,
   formatPeriodLabel,
+  isProjectionBilling,
   inclusiveDayCount,
   presentOvertimeInNightBonus,
   resolveAttendanceWindow,
@@ -195,7 +196,9 @@ export async function buildClientBillingWorkbook(input: ClientBillingExcelInput)
     title && title.toLocaleLowerCase() !== client.toLocaleLowerCase() ? title : '',
     input.unitName,
     formatPeriodLabel(input.periodMonth),
-    `Corte ${formatAttendanceRange(attendance.from, attendance.to)} (${corteDays} días)`,
+    isProjectionBilling(input.model)
+      ? `Proyección${input.model.sourceQuoteCode ? ` ${input.model.sourceQuoteCode}` : ''}`
+      : `Corte ${formatAttendanceRange(attendance.from, attendance.to)} (${corteDays} días)`,
   ]
     .filter(Boolean)
     .join('  ·  ');
