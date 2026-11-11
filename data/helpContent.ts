@@ -1244,7 +1244,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'Cada puesto se calcula como una fila de liquidación: sueldo, días, asignación familiar, condición de trabajo, bonos, horas extra y cargas. Las vacantes multiplican ese costo. Los costos operativos, los gastos administrativos y la utilidad se suman sobre la propuesta completa.',
         steps: [
           'Nueva propuesta: cliente, servicio, dirección, atención y meses. Puede tomar el nombre desde una unidad.',
-          'Puestos: una fila por puesto. El sueldo y las horas son de una vacante. El costo laboral ya incluye todas las vacantes.',
+          'Puestos: una fila por puesto. El sueldo, los días y las horas son de una vacante. Las horas extra y el bono nocturno se escriben en horas; el importe en soles lo calcula el mismo método de una liquidación. El costo laboral ya incluye todas las vacantes.',
           'Operativo y administrativo: los mismos conceptos de la liquidación. El costo financiero usa la tasa y los días de Parámetros.',
           'Parámetros: tasas de cargas, utilidad e IGV. Traer método publicado copia las fórmulas vigentes de Facturación. Una propuesta ya guardada no cambia sola.',
           'Condiciones y notas: el alcance describe en qué consiste el servicio. Modalidad, plazo, facturación, crédito, corte, emisión de factura y vigencia se editan como datos. Las demás condiciones salen en el mismo bloque, cada una con su título. {meses} y {igv} se reemplazan al imprimir.',

@@ -686,6 +686,7 @@ function writeWorker(
     const value = column.pick(worker);
     const linked = formulaAt?.(column.header, typeof value === 'number' ? value : 0);
     cell.value = linked ?? value;
+    if (column.header === 'Inicio' || column.header === 'Cese') cell.numFmt = '@';
     cell.font = {
       name: FONT,
       size: 8,

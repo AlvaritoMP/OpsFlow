@@ -494,8 +494,6 @@ export function formatPeriodLabel(periodMonth: string): string {
   return `${name} ${year || ''}`.trim();
 }
 
-const SHORT_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-
 /** Un corte puede cruzar de un mes a otro; más de dos meses ya no es un periodo de facturación. */
 export const MAX_ATTENDANCE_WINDOW_DAYS = 62;
 
@@ -546,20 +544,48 @@ export function attendanceWindowError(from: string, to: string): string | null {
   return null;
 }
 
-export function formatAttendanceDate(iso?: string | null): string {
-  if (!isIsoDate(iso)) return '—';
-  const [year, month, day] = iso.slice(0, 10).split('-').map(Number);
-  return `${day} ${SHORT_MONTHS[month - 1] || ''} ${year}`.replace(/\s+/g, ' ').trim();
-}
-
-export function formatAttendanceRange(from?: string | null, to?: string | null): string {
-  return `${formatAttendanceDate(from)} – ${formatAttendanceDate(to)}`;
-}
-
+/** Fecha visible: dd/mm/aaaa. Vacío si no es una fecha. */
 export function formatBillingDate(iso?: string | null): string {
   if (!isIsoDate(iso)) return '';
   const [year, month, day] = iso.slice(0, 10).split('-');
   return `${day}/${month}/${year}`;
+}
+
+export function formatAttendanceDate(iso?: string | null): string {
+  return formatBillingDate(iso) || '—';
+}
+
+/** Fecha y hora visibles: dd/mm/aaaa hh:mm. */
+export function formatBillingDateTime(value?: string | null): string {
+  if (!value) return '';
+  if (isIsoDate(value) && value.length === 10) return formatBillingDate(value);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return formatBillingDate(value);
+  }
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${day}/${month}/${date.getFullYear()} ${hours}:${minutes}`;
+}
+
+/** dd/mm/aaaa o aaaa-mm-dd → aaaa-mm-dd. Null si el día no existe. */
+export function parseBillingDate(text: string): string | null {
+  const trimmed = text.trim();
+  if (isIsoDate(trimmed)) return trimmed.slice(0, 10);
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return `${match[3]}-${match[2]}-${match[1]}`;
+}
+
+export function formatAttendanceRange(from?: string | null, to?: string | null): string {
+  return `${formatAttendanceDate(from)} – ${formatAttendanceDate(to)}`;
 }
 
 /** Activo en la unidad: no archivado y sin estado de cese. */

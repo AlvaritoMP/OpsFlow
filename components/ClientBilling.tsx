@@ -82,7 +82,9 @@ import {
   formatAttendanceDate,
   formatAttendanceRange,
   formatBillingDate,
+  formatBillingDateTime,
   formatPeriodLabel,
+  parseBillingDate,
   OPALOSIS_BUSINESS_LINES,
   OPALOSIS_COMPANIES,
   OPALOSIS_DOCUMENT_LABELS,
@@ -1193,13 +1195,13 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   </label>
                   <label className="text-sm text-slate-600">
                     Mes de facturación
-                    <input
-                      className={fieldClass}
-                      type="month"
+                    <ServiceMonthField
                       value={createPeriod}
-                      onChange={(event) => {
-                        const period = event.target.value;
+                      monthLabel="Mes de facturación"
+                      yearLabel="Año de facturación"
+                      onChange={(period) => {
                         setCreatePeriod(period);
+                        if (!period) return;
                         const bounds = monthDateBounds(period);
                         setCreateFrom(bounds.from);
                         setCreateTo(bounds.to);
@@ -1210,11 +1212,11 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                     <>
                       <label className="text-sm text-slate-600">
                         Asistencia y novedades desde
-                        <input className={fieldClass} type="date" value={createFrom} onChange={(event) => setCreateFrom(event.target.value)} />
+                        <DateField value={createFrom} onChange={setCreateFrom} />
                       </label>
                       <label className="text-sm text-slate-600">
                         Asistencia y novedades hasta
-                        <input className={fieldClass} type="date" value={createTo} onChange={(event) => setCreateTo(event.target.value)} />
+                        <DateField value={createTo} onChange={setCreateTo} />
                       </label>
                     </>
                   )}
@@ -1293,11 +1295,11 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   </label>
                   <label className="text-sm text-slate-600">
                     Inicio de la orden de servicio
-                    <input className={fieldClass} type="date" value={createOsFrom} onChange={(event) => setCreateOsFrom(event.target.value)} />
+                    <DateField value={createOsFrom} onChange={setCreateOsFrom} />
                   </label>
                   <label className="text-sm text-slate-600">
                     Entrega de la orden de servicio
-                    <input className={fieldClass} type="date" value={createOsTo} onChange={(event) => setCreateOsTo(event.target.value)} />
+                    <DateField value={createOsTo} onChange={setCreateOsTo} />
                   </label>
                   <label className="text-sm text-slate-600">
                     Documento
@@ -1480,7 +1482,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                           <td className="px-3 py-3 text-right tabular-nums whitespace-nowrap font-semibold text-slate-900" title="Suma sin IGV">{pen(record.grandTotal)}</td>
                           <td className="px-3 py-3 text-slate-500">
                             {record.updatedByName || record.createdByName || '—'}
-                            <div className="text-xs">{new Date(record.updatedAt).toLocaleString('es-PE')}</div>
+                            <div className="text-xs">{formatBillingDateTime(record.updatedAt)}</div>
                           </td>
                           {canDiscard && (
                             <td className="px-3 py-3 text-right">
@@ -1764,11 +1766,11 @@ function MissingOrderFields(props: {
           <>
             <label className="text-sm text-slate-600">
               Inicio de la orden de servicio
-              <input className={fieldClass} type="date" value={editor.model.osStartDate || ''} onChange={(event) => props.onPatchModel({ osStartDate: event.target.value })} />
+              <DateField value={editor.model.osStartDate || ''} onChange={(value) => props.onPatchModel({ osStartDate: value })} />
             </label>
             <label className="text-sm text-slate-600">
               Entrega de la orden de servicio
-              <input className={fieldClass} type="date" value={editor.model.osEndDate || ''} onChange={(event) => props.onPatchModel({ osEndDate: event.target.value })} />
+              <DateField value={editor.model.osEndDate || ''} onChange={(value) => props.onPatchModel({ osEndDate: value })} />
             </label>
           </>
         )}
@@ -2115,22 +2117,18 @@ function EditorView(props: {
               </div>
               <label className="text-sm text-slate-600">
                 Desde
-                <input
-                  className={fieldClass}
-                  type="date"
+                <DateField
                   disabled={locked}
                   value={attendance.from}
-                  onChange={(event) => props.onPatchModel({ attendanceFrom: event.target.value, attendanceTo: editor.model.attendanceTo || attendance.to })}
+                  onChange={(value) => props.onPatchModel({ attendanceFrom: value, attendanceTo: editor.model.attendanceTo || attendance.to })}
                 />
               </label>
               <label className="text-sm text-slate-600">
                 Hasta
-                <input
-                  className={fieldClass}
-                  type="date"
+                <DateField
                   disabled={locked}
                   value={attendance.to}
-                  onChange={(event) => props.onPatchModel({ attendanceFrom: editor.model.attendanceFrom || attendance.from, attendanceTo: event.target.value })}
+                  onChange={(value) => props.onPatchModel({ attendanceFrom: editor.model.attendanceFrom || attendance.from, attendanceTo: value })}
                 />
               </label>
               {!locked && (
@@ -2500,7 +2498,7 @@ function EditorView(props: {
                 {editor.model.discount?.authorName && (
                   <p className="text-[11px] text-slate-400 mt-1">
                     {editor.model.discount.authorName}
-                    {editor.model.discount.createdAt ? ` · ${new Date(editor.model.discount.createdAt).toLocaleString('es-PE')}` : ''}
+                    {editor.model.discount.createdAt ? ` · ${formatBillingDateTime(editor.model.discount.createdAt)}` : ''}
                   </p>
                 )}
               </div>
@@ -2534,8 +2532,6 @@ const GLANCE_TONE: Record<string, string> = {
 };
 
 const GLANCE_WEEKDAYS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
-const GLANCE_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-
 function WorkerTenure(props: { worker: BillingWorkerInput }) {
   if (props.worker.origin === 'manual' && !props.worker.startDate && !props.worker.endDate) return null;
   return (
@@ -2553,7 +2549,7 @@ function glanceDayParts(iso: string): { day: string; weekday: string; month: str
   return {
     day: String(day || 0).padStart(2, '0'),
     weekday: GLANCE_WEEKDAYS[date.getDay()] || '',
-    month: GLANCE_MONTHS[(month || 1) - 1] || '',
+    month: String(month || 0).padStart(2, '0'),
   };
 }
 
@@ -2603,14 +2599,12 @@ function DayGlanceSheet(props: {
           <thead>
             <tr>
               <th className={`${head} sticky left-0 z-40 text-left min-w-[180px] px-2`}>Trabajador</th>
-              {props.glance.days.map((iso, index) => {
+              {props.glance.days.map((iso) => {
                 const parts = glanceDayParts(iso);
-                const showMonth = index === 0 || parts.day === '01';
                 return (
-                  <th key={iso} className={`${head} min-w-[2.1rem]`} title={iso}>
+                  <th key={iso} className={`${head} min-w-[3.2rem]`} title={formatBillingDate(iso)}>
                     <div className="font-normal normal-case text-slate-400">{parts.weekday}</div>
-                    <div>{parts.day}</div>
-                    {showMonth && <div className="font-normal normal-case text-slate-400">{parts.month}</div>}
+                    <div>{parts.day}/{parts.month}</div>
                   </th>
                 );
               })}
@@ -3132,7 +3126,7 @@ function AdjustmentDialog(props: {
         </label>
         {current?.authorName && applied !== 0 && (
           <p className="text-[11px] text-slate-500">
-            Registrado por {current.authorName}{current.createdAt ? ` · ${new Date(current.createdAt).toLocaleString('es-PE')}` : ''}
+            Registrado por {current.authorName}{current.createdAt ? ` · ${formatBillingDateTime(current.createdAt)}` : ''}
           </p>
         )}
         {error && <p className="text-sm text-red-700">{error}</p>}
@@ -3491,7 +3485,7 @@ function TracePanel(props: {
             <p className="text-sm font-medium text-slate-900">
               {ACTION_LABEL[entry.action] || entry.action} · {entry.actorName || 'Usuario'}
             </p>
-            <time className="text-xs text-slate-400">{new Date(entry.createdAt).toLocaleString('es-PE')}</time>
+            <time className="text-xs text-slate-400">{formatBillingDateTime(entry.createdAt)}</time>
           </div>
           <p className="text-sm text-slate-600 mt-1">{entry.summary}</p>
           {entry.changes.length > 0 && (
@@ -3597,7 +3591,62 @@ function serviceMonthParts(value: string): { year: string; month: string } {
   return { year: match?.[1] || '', month: match?.[2] || '' };
 }
 
-function ServiceMonthField(props: { value: string; onChange: (value: string) => void }) {
+function DateField(props: { value: string; onChange: (iso: string) => void; disabled?: boolean }) {
+  const [text, setText] = useState(() => formatBillingDate(props.value));
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => {
+    setText(formatBillingDate(props.value));
+    setInvalid(false);
+  }, [props.value]);
+  const commit = (raw: string) => {
+    const masked = maskBillingDate(raw);
+    setText(masked);
+    if (!masked.trim()) {
+      setInvalid(false);
+      if (props.value) props.onChange('');
+      return;
+    }
+    const iso = parseBillingDate(masked);
+    setInvalid(!iso && masked.length >= 10);
+    if (iso && iso !== props.value.slice(0, 10)) props.onChange(iso);
+  };
+  return (
+    <input
+      className={`${fieldClass} ${invalid ? 'border-red-400' : ''}`}
+      inputMode="numeric"
+      autoComplete="off"
+      placeholder="dd/mm/aaaa"
+      disabled={props.disabled}
+      value={text}
+      onChange={(event) => commit(event.target.value)}
+      onBlur={() => {
+        if (!text.trim()) {
+          setInvalid(false);
+          return;
+        }
+        const iso = parseBillingDate(text);
+        if (!iso) {
+          setInvalid(true);
+          return;
+        }
+        setText(formatBillingDate(iso));
+        setInvalid(false);
+        if (iso !== props.value.slice(0, 10)) props.onChange(iso);
+      }}
+    />
+  );
+}
+
+function maskBillingDate(raw: string): string {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw.trim());
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function ServiceMonthField(props: { value: string; onChange: (value: string) => void; monthLabel?: string; yearLabel?: string }) {
   const { year, month } = serviceMonthParts(props.value);
   const currentYear = new Date().getFullYear();
   const years = new Set<number>();
@@ -3612,7 +3661,7 @@ function ServiceMonthField(props: { value: string; onChange: (value: string) => 
     <div className="grid grid-cols-2 gap-2">
       <select
         className={fieldClass}
-        aria-label="Mes de servicio"
+        aria-label={props.monthLabel || 'Mes de servicio'}
         value={month}
         onChange={(event) => commit(year || String(currentYear), event.target.value)}
       >
@@ -3628,7 +3677,7 @@ function ServiceMonthField(props: { value: string; onChange: (value: string) => 
       </select>
       <select
         className={fieldClass}
-        aria-label="Año de servicio"
+        aria-label={props.yearLabel || 'Año de servicio'}
         value={year}
         onChange={(event) => commit(event.target.value, month)}
       >
@@ -3687,7 +3736,7 @@ function TabBitacora(props: {
             <li key={note.id} className="bg-white border border-amber-100 rounded-lg px-3 py-2">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-[11px] text-slate-500">
-                  {note.authorName} · {new Date(note.createdAt).toLocaleString('es-PE')}
+                  {note.authorName} · {formatBillingDateTime(note.createdAt)}
                 </p>
                 {!props.locked && (
                   <button

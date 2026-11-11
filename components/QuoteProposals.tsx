@@ -683,7 +683,7 @@ function PositionSheet(props: {
     <section className="h-full min-h-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       <div className="shrink-0 p-3 flex flex-col lg:flex-row gap-2 lg:items-center justify-between border-b border-slate-100">
         <p className="text-sm text-slate-600">
-          Cada fila es un puesto. El sueldo, los días y las horas son de una vacante. Los importes calculados y el costo laboral ya incluyen todas las vacantes, igual que el factor de una liquidación.
+          Cada fila es un puesto. El sueldo, los días y las horas son de una vacante. Escriba las horas extra y las horas de bono nocturno: el importe lo calcula el mismo método de una liquidación. Los importes y el costo laboral ya incluyen todas las vacantes.
         </p>
         {!props.locked && (
           <div className="flex flex-wrap gap-2">
@@ -710,11 +710,16 @@ function PositionSheet(props: {
                 <th className={head}>Asignación familiar</th>
                 <th className={head}>Condición de trabajo</th>
                 <th className={head}>Bonos</th>
-                <th className={head} title={say('he25')}>Horas extra 25%</th>
-                <th className={head} title={say('he35')}>Horas extra 35%</th>
-                <th className={head} title={say('heNoche25')}>Horas extra noche 25%</th>
-                <th className={head} title={say('heNoche35')}>Horas extra noche 35%</th>
-                <th className={head} title={say('bonoNocturno')}>Bono nocturno</th>
+                <th className={head}>HE día 25 h</th>
+                <th className={head} title={say('he25')}>HE día 25 S/</th>
+                <th className={head}>HE día 35 h</th>
+                <th className={head} title={say('he35')}>HE día 35 S/</th>
+                <th className={head} title={say('heNoche25')}>HE noche 25 h</th>
+                <th className={head} title={say('heNoche25')}>HE noche 25 S/</th>
+                <th className={head} title={say('heNoche35')}>HE noche 35 h</th>
+                <th className={head} title={say('heNoche35')}>HE noche 35 S/</th>
+                <th className={head} title={say('bonoNocturno')}>Bono h</th>
+                <th className={head} title={say('bonoNocturno')}>Bono S/</th>
                 <th className={head} title={say('basico')}>Remuneración básica</th>
                 <th className={head} title={say('vacaciones')}>Vacaciones</th>
                 <th className={head} title={say('gratificacion')}>Gratificación</th>
@@ -744,11 +749,46 @@ function PositionSheet(props: {
                     <td className="px-1 py-1"><Num disabled={props.locked} value={position.familyAllowance} onChange={(familyAllowance) => props.onPatch(position.id, { familyAllowance })} /></td>
                     <td className="px-1 py-1"><Num disabled={props.locked} value={position.workCondition} onChange={(workCondition) => props.onPatch(position.id, { workCondition })} /></td>
                     <td className="px-1 py-1"><Num disabled={props.locked} value={position.bonus} onChange={(bonus) => props.onPatch(position.id, { bonus })} /></td>
-                    <td className="px-1 py-1"><Num disabled={props.locked} step="0.5" value={position.he25Hours} onChange={(he25Hours) => props.onPatch(position.id, { he25Hours, he25Manual: null })} /></td>
-                    <td className="px-1 py-1"><Num disabled={props.locked} step="0.5" value={position.he35Hours} onChange={(he35Hours) => props.onPatch(position.id, { he35Hours, he35Manual: null })} /></td>
-                    <td className="px-1 py-1"><Num disabled={props.locked} step="0.5" value={position.heNight25Hours || 0} onChange={(heNight25Hours) => props.onPatch(position.id, { heNight25Hours, heNight25Manual: null })} /></td>
-                    <td className="px-1 py-1"><Num disabled={props.locked} step="0.5" value={position.heNight35Hours || 0} onChange={(heNight35Hours) => props.onPatch(position.id, { heNight35Hours, heNight35Manual: null })} /></td>
-                    <td className="px-1 py-1"><Num disabled={props.locked} step="0.5" value={position.nightHours} onChange={(nightHours) => props.onPatch(position.id, { nightHours, nightManual: null })} /></td>
+                    <HourAmount
+                      hours={position.he25Hours}
+                      amount={scaled(line?.he25)}
+                      manual={isHandAmount(position.he25Manual)}
+                      locked={props.locked}
+                      formula={say('he25')}
+                      onHours={(he25Hours) => props.onPatch(position.id, { he25Hours, he25Manual: null })}
+                    />
+                    <HourAmount
+                      hours={position.he35Hours}
+                      amount={scaled(line?.he35)}
+                      manual={isHandAmount(position.he35Manual)}
+                      locked={props.locked}
+                      formula={say('he35')}
+                      onHours={(he35Hours) => props.onPatch(position.id, { he35Hours, he35Manual: null })}
+                    />
+                    <HourAmount
+                      hours={position.heNight25Hours || 0}
+                      amount={scaled(line?.heNight25)}
+                      manual={isHandAmount(position.heNight25Manual)}
+                      locked={props.locked}
+                      formula={say('heNoche25')}
+                      onHours={(heNight25Hours) => props.onPatch(position.id, { heNight25Hours, heNight25Manual: null })}
+                    />
+                    <HourAmount
+                      hours={position.heNight35Hours || 0}
+                      amount={scaled(line?.heNight35)}
+                      manual={isHandAmount(position.heNight35Manual)}
+                      locked={props.locked}
+                      formula={say('heNoche35')}
+                      onHours={(heNight35Hours) => props.onPatch(position.id, { heNight35Hours, heNight35Manual: null })}
+                    />
+                    <HourAmount
+                      hours={position.nightHours}
+                      amount={scaled(line?.night)}
+                      manual={isHandAmount(position.nightManual)}
+                      locked={props.locked}
+                      formula={say('bonoNocturno')}
+                      onHours={(nightHours) => props.onPatch(position.id, { nightHours, nightManual: null })}
+                    />
                     <Money value={scaled(line?.basic)} />
                     <Money value={scaled(line?.vacation)} />
                     <Money value={scaled(line?.gratification)} />
@@ -1111,6 +1151,36 @@ function CreateDialog(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function isHandAmount(value: number | null | undefined): boolean {
+  return value !== null && value !== undefined && Number.isFinite(value);
+}
+
+function HourAmount(props: {
+  hours: number;
+  amount: number;
+  manual: boolean;
+  locked: boolean;
+  formula: string;
+  onHours: (hours: number) => void;
+}) {
+  const title = props.manual
+    ? 'Este importe se escribió a mano. Vuelva a escribir las horas para que el sistema lo calcule.'
+    : props.formula;
+  return (
+    <>
+      <td className="px-1 py-1" title="Horas de una vacante">
+        <Num disabled={props.locked} step="0.5" value={props.hours} onChange={props.onHours} />
+      </td>
+      <td
+        className={`px-2 py-1.5 text-right tabular-nums text-sm ${props.manual ? 'bg-amber-50 text-amber-900' : 'text-slate-700'}`}
+        title={title}
+      >
+        {pen(props.amount)}
+      </td>
+    </>
   );
 }
 

@@ -33,6 +33,7 @@ import {
   resolveAttendanceWindow,
   defaultAdministrativeLines,
   emptyBillingModel,
+  formatBillingDateTime,
   formatPeriodLabel,
   newBillingId,
   normalizeBillingRates,
@@ -550,13 +551,7 @@ export function defaultComparisonBase(calcs: SavedBillingCalc[], sourceId: strin
 }
 
 export function calcOptionLabel(calc: SavedBillingCalc): string {
-  const when = new Date(calc.savedAt).toLocaleString('es-PE', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const when = formatBillingDateTime(calc.savedAt);
   const version = calc.version === 'current' ? 'Cálculo vigente' : 'Corrida anterior';
   const state =
     calc.status === 'void'
