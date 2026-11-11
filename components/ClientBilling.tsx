@@ -1941,8 +1941,8 @@ function EditorView(props: {
       {props.banner && <Banner tone="info" text={props.banner} />}
       {props.compareSlot}
 
-      <div className={props.tab === 'labor' ? 'flex-1 min-h-0 flex flex-col gap-3 overflow-hidden' : 'grid xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start overflow-auto'}>
-        <div className={props.tab === 'labor' ? 'flex-1 min-h-0 flex flex-col gap-3 min-w-0' : 'space-y-3 min-w-0'}>
+      <div className="flex-1 min-h-0 overflow-y-auto xl:overflow-hidden grid xl:grid-cols-[minmax(0,1fr)_20rem] xl:grid-rows-1 gap-4 items-start xl:items-stretch">
+        <div className="min-w-0 flex flex-col gap-3 xl:min-h-0 xl:overflow-y-auto">
           <div className="shrink-0 bg-white border border-slate-200 rounded-xl p-3 grid md:grid-cols-2 gap-3">
             <label className="text-sm text-slate-600">
               Título de la facturación
@@ -2043,7 +2043,7 @@ function EditorView(props: {
 
           {props.tab === 'labor' && (
             <>
-            <section className="flex-1 min-h-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <section className="shrink-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden h-[min(32rem,62vh)] min-h-[18rem]">
               <div className="shrink-0 p-3 flex flex-col md:flex-row gap-2 md:items-center justify-between border-b border-slate-100">
                 <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
                   <Users size={16} className="shrink-0" />
@@ -2285,7 +2285,7 @@ function EditorView(props: {
           )}
         </div>
 
-        <aside className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3 xl:sticky xl:top-4">
+        <aside className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3 xl:min-h-0 xl:overflow-y-auto">
           <div>
             <h2 className="font-semibold text-slate-900">Resumen del mes</h2>
             <p className="text-[11px] text-slate-400 mt-0.5">El porcentaje es la parte de cada rubro en el total antes del descuento. Solo se ve en OpsFlow.</p>
