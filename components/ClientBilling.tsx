@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
+  Archive,
   ArrowLeft,
   ArrowLeftRight,
   Check,
@@ -21,8 +22,10 @@ import {
 } from 'lucide-react';
 import { Unit, User } from '../types';
 import {
+  ArchivedBillingOption,
   BillingActor,
   BillingNoteKind,
+  BillingNoteStatus,
   BillingStatus,
   ClientBillingAuditEntry,
   ClientBillingNote,
@@ -30,6 +33,7 @@ import {
   ClientBillingRun,
   SavedBillingCalc,
   getBillingAudit,
+  listArchivedBillings,
   listBillingNotes,
   listBillingRuns,
   listClientBillings,
@@ -114,6 +118,8 @@ interface EditorState {
   updatedByName?: string;
   issuedAt?: string;
   issuedByName?: string;
+  archivedAt?: string;
+  archivedByName?: string;
 }
 
 type TabId = BillingInternalTab;
@@ -138,6 +144,7 @@ const ACTION_LABEL: Record<string, string> = {
   created: 'Creación',
   saved: 'Ajuste',
   issued: 'Emisión',
+  archived: 'Archivo',
   reopened: 'Reapertura',
   voided: 'Anulación',
   adjustment_note: 'Nota de ajuste',
@@ -192,6 +199,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const [createCompany, setCreateCompany] = useState('');
   const [createDni, setCreateDni] = useState(currentUser.dni || '');
   const [copyPrevious, setCopyPrevious] = useState(true);
+  const [createBaseId, setCreateBaseId] = useState('');
+  const [archiveChoices, setArchiveChoices] = useState<ArchivedBillingOption[]>([]);
   const [appliedAttendanceKey, setAppliedAttendanceKey] = useState('');
   const [billingSection, setBillingSection] = useState<'liquidaciones' | 'formulas'>('liquidaciones');
   const [publishedFormulas, setPublishedFormulas] = useState<BillingFormulaSet | null>(null);
@@ -248,6 +257,26 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   }, [showCreate, createUnitId]);
 
   useEffect(() => {
+    if (!showCreate || !createUnitId) {
+      setArchiveChoices([]);
+      setCreateBaseId('');
+      return;
+    }
+    setCreateBaseId('');
+    let cancelled = false;
+    void listArchivedBillings(createUnitId)
+      .then((rows) => {
+        if (!cancelled) setArchiveChoices(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setArchiveChoices([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showCreate, createUnitId]);
+
+  useEffect(() => {
     void loadList();
     void loadPublishedBillingFormulas()
       .then((formulas) => {
@@ -289,7 +318,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       return [];
     }
   }, [editor]);
-  const locked = !canEdit || editor?.status === 'issued' || editor?.status === 'void';
+  const locked = !canEdit || editor?.status === 'issued' || editor?.status === 'archived' || editor?.status === 'void';
 
   const visibleRecords = records.filter((record) => {
     if (filterClient && record.clientName !== filterClient) return false;
@@ -316,6 +345,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         updatedByName: record.updatedByName,
         issuedAt: record.issuedAt,
         issuedByName: record.issuedByName,
+        archivedAt: record.archivedAt,
+        archivedByName: record.archivedByName,
       });
       setAppliedAttendanceKey(attendanceWindowKey(record.periodMonth, record.model.attendanceFrom, record.model.attendanceTo));
       setEditorCompare(false);
@@ -338,7 +369,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setBanner(windowError);
       return;
     }
-    const setupError = osSetupError({
+    const orderReady = !osSetupError({
       osStartDate: createOsFrom,
       osEndDate: createOsTo,
       serviceMonth: createServiceMonth,
@@ -348,17 +379,18 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       opaloCompany: createCompany,
       makerDni: createDni,
     });
-    if (setupError) {
-      setBanner(setupError);
-      return;
-    }
     setBusy(createQuoteId ? 'Armando la liquidación con la propuesta' : 'Armando la liquidación con el personal de la unidad');
     setBanner(null);
     try {
       let model = await prepareBillingDraft(
         { id: unit.id, name: unit.name, clientName: unit.clientName },
         createPeriod,
-        { copyPreviousCosts: copyPrevious, attendanceFrom: createFrom, attendanceTo: createTo }
+        {
+          copyPreviousCosts: copyPrevious,
+          attendanceFrom: createFrom,
+          attendanceTo: createTo,
+          baseBillingId: createBaseId || undefined,
+        }
       );
       const quote = quotes.find((item) => item.id === createQuoteId);
       model.osStartDate = createOsFrom;
@@ -375,7 +407,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         makerDni: createDni.trim(),
       };
       if (quote) model = applyQuoteCommercials(model, quote);
-      if (model.opalosisPesCode && model.opalosisIssue) {
+      if (orderReady && model.opalosisPesCode && model.opalosisIssue) {
         await saveUnitOpalosisSetup(unit.id, { pesCode: model.opalosisPesCode, issue: model.opalosisIssue }, actor);
       }
       if (createDni.trim() && createDni.trim() !== (currentUser.dni || '')) {
@@ -405,10 +437,17 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       setAppliedAttendanceKey(attendanceWindowKey(createPeriod, model.attendanceFrom, model.attendanceTo));
       setShowCreate(false);
       setTab('labor');
+      const base = archiveChoices.find((item) => item.id === createBaseId);
+      const baseNote =
+        base && !quote
+          ? ` Las tasas y las condiciones salieron del archivo de ${formatPeriodLabel(base.periodMonth)}${
+              copyPrevious ? ', igual que los costos operativos y administrativos' : ''
+            }.`
+          : '';
       setBanner(
         quote
-          ? `Borrador armado con ${quote.code}: ${model.workers.length} puestos, los parámetros, los costos operativos, los administrativos y la utilidad. El personal de la unidad no entra en esta liquidación.`
-          : `Borrador armado con el personal activo y con quien trabajó en el corte. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.`
+          ? `Borrador armado con ${quote.code}: ${model.workers.length} puestos, los parámetros, los costos operativos, los administrativos y la utilidad. El personal de la unidad no entra en esta liquidación.${baseNote}`
+          : `Borrador armado con el personal activo y con quien trabajó en el corte. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.${baseNote}`
       );
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo preparar la facturación.');
@@ -468,7 +507,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   };
 
   const saveEssaludFixed = async () => {
-    if (!editor?.id || !canEdit || editor.status === 'void') return;
+    if (!editor?.id || !canEdit || editor.status === 'void' || editor.status === 'archived') return;
     const amount = Number(editor.model.rates.essaludFixedAmount);
     if (amount === 0 && !window.confirm('El monto fijo es S/ 0.00. EsSalud quedará en cero en esta liquidación. ¿Continuar?')) {
       return;
@@ -581,12 +620,13 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   };
 
   const restoreRecord = async (record: ClientBillingRecord) => {
-    const status: BillingStatus = record.issuedAt ? 'issued' : 'draft';
+    const status: BillingStatus = record.issuedAt ? 'issued' : record.archivedAt ? 'archived' : 'draft';
     setBusy('Restaurando');
     setBanner(null);
     try {
       await setBillingStatus(record.id, status, actor, 'El superadministrador restauró la facturación desde la papelera.', {
         keepIssued: status === 'issued',
+        keepArchived: status === 'archived',
       });
       setFilterStatus('');
       setBanner(`La facturación de ${record.unitName} (${formatPeriodLabel(record.periodMonth)}) volvió a la lista.`);
@@ -623,11 +663,15 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
   const changeStatus = async (status: BillingStatus, source?: EditorState): Promise<boolean> => {
     const origin = source || editor;
     if (!origin) return false;
-    if (status === 'issued' && discountNeedsReason(origin.model.discount)) {
-      setBanner('El descuento necesita una justificación. Sin ese texto no se emite.');
+    if ((status === 'issued' || status === 'archived') && discountNeedsReason(origin.model.discount)) {
+      setBanner(
+        status === 'archived'
+          ? 'El descuento necesita una justificación. Sin ese texto no se archiva.'
+          : 'El descuento necesita una justificación. Sin ese texto no se emite.'
+      );
       return false;
     }
-    if (status !== 'issued' && !origin.id) {
+    if (status !== 'issued' && status !== 'archived' && !origin.id) {
       setBanner('Guarde la liquidación antes de anularla.');
       return false;
     }
@@ -636,27 +680,29 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       issued: kind
         ? `Emitió la facturación como ${OPALOSIS_DOCUMENT_LABELS[kind]}. Los datos de la orden quedaron en la liquidación.`
         : 'Emitió la facturación. A partir de aquí solo se modifica reabriendo el borrador.',
+      archived:
+        'Archivó la liquidación. No se creó una orden en OpaloSis. Queda disponible como base de liquidaciones nuevas.',
       draft: 'Reabrió la facturación para corregirla.',
       void: 'Anuló la facturación de este mes.',
     };
-    setBusy(status === 'issued' ? 'Emitiendo' : status === 'void' ? 'Anulando' : 'Reabriendo');
+    setBusy(status === 'issued' ? 'Emitiendo' : status === 'archived' ? 'Archivando' : status === 'void' ? 'Anulando' : 'Reabriendo');
     setBanner(null);
     try {
-      let issuedEditor = origin;
-      if (status === 'issued') issuedEditor = await syncAttendance(origin);
-      let billingId = issuedEditor.id;
-      if (status === 'issued' && (!billingId || diffBillingModels(issuedEditor.baseline, issuedEditor.model).length)) {
+      let nextEditor = origin;
+      if (status === 'issued') nextEditor = await syncAttendance(origin);
+      let billingId = nextEditor.id;
+      if ((status === 'issued' || status === 'archived') && (!billingId || diffBillingModels(nextEditor.baseline, nextEditor.model).length)) {
         const savedDraft = await saveClientBilling({
-          id: issuedEditor.id,
-          unit: { id: issuedEditor.unitId, name: issuedEditor.unitName, clientName: issuedEditor.clientName },
-          periodMonth: issuedEditor.periodMonth,
-          model: issuedEditor.model,
+          id: nextEditor.id,
+          unit: { id: nextEditor.unitId, name: nextEditor.unitName, clientName: nextEditor.clientName },
+          periodMonth: nextEditor.periodMonth,
+          model: nextEditor.model,
           actor,
-          changes: issuedEditor.id ? diffBillingModels(issuedEditor.baseline, issuedEditor.model) : describeCreation(issuedEditor.model),
+          changes: nextEditor.id ? diffBillingModels(nextEditor.baseline, nextEditor.model) : describeCreation(nextEditor.model),
         });
         billingId = savedDraft.id;
-        issuedEditor = {
-          ...issuedEditor,
+        nextEditor = {
+          ...nextEditor,
           id: savedDraft.id,
           model: cloneModel(savedDraft.model),
           baseline: cloneModel(savedDraft.model),
@@ -668,14 +714,16 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       const saved = await setBillingStatus(billingId, status, actor, summaries[status]);
       const audit = await getBillingAudit(saved.id);
       setEditor({
-        ...issuedEditor,
+        ...nextEditor,
         id: saved.id,
         status: saved.status,
         issuedAt: saved.issuedAt,
         issuedByName: saved.issuedByName,
+        archivedAt: saved.archivedAt,
+        archivedByName: saved.archivedByName,
         updatedByName: saved.updatedByName,
         audit,
-        baseline: cloneModel(issuedEditor.model),
+        baseline: cloneModel(nextEditor.model),
       });
       setBanner(summaries[status]);
       await loadList();
@@ -829,6 +877,19 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     });
   };
 
+  const archiveBilling = () => {
+    if (!editor) return;
+    if (discountNeedsReason(editor.model.discount)) {
+      setBanner('El descuento necesita una justificación. Sin ese texto no se archiva.');
+      return;
+    }
+    const confirmed = window.confirm(
+      '¿Archivar esta liquidación? No se crea una orden en OpaloSis. Queda cerrada y se puede elegir como base al armar una liquidación nueva.'
+    );
+    if (!confirmed) return;
+    void changeStatus('archived');
+  };
+
   const refreshOpenAudit = async () => {
     if (!editor?.id) return;
     const billingId = editor.id;
@@ -861,8 +922,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
   };
 
-  const updateNoteStatus = async (id: string, status: BillingStatus) => {
-    const summaries: Record<BillingStatus, string> = {
+  const updateNoteStatus = async (id: string, status: BillingNoteStatus) => {
+    const summaries: Record<BillingNoteStatus, string> = {
       issued: 'Emitió la nota. El ítem queda cerrado hasta que se reabra.',
       draft: 'Reabrió la nota.',
       void: 'Anuló la nota. El ítem dejó de estar vigente.',
@@ -1194,11 +1255,30 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   </label>
                 </div>
                 <p className="text-xs text-slate-500">
-                  El mes de servicio es el que recibe OpaloSis y se indica en cada liquidación. El inicio y la entrega son el tiempo de vida de la orden. El PES, el documento, el grupo, la línea y la empresa quedan para la siguiente liquidación. Emitir OS usa estos datos y envía el total sin IGV; en una nota de crédito va en negativo. Moneda: soles.
+                  El mes de servicio es el que recibe OpaloSis y se indica en cada liquidación. El inicio y la entrega son el tiempo de vida de la orden. El PES, el documento, el grupo, la línea y la empresa quedan para la siguiente liquidación. Emitir OS usa estos datos y envía el total sin IGV; en una nota de crédito va en negativo. Para dejar una facturación histórica en el archivo, esos datos de la orden no son obligatorios. Moneda: soles.
                 </p>
+                <label className="text-sm text-slate-600">
+                  Traer datos de
+                  <select className={fieldClass} value={createBaseId} onChange={(event) => setCreateBaseId(event.target.value)}>
+                    <option value="">La liquidación del mes anterior</option>
+                    {archiveChoices.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        Archivo · {formatPeriodLabel(item.periodMonth)} · {pen(item.grandTotal)}
+                        {item.title ? ` · ${item.title}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-xs text-slate-500">
+                    {createBaseId
+                      ? 'Esa liquidación del archivo aporta las tasas, el servicio y las consideraciones. El personal sigue saliendo del corte de esta liquidación, o de la propuesta si eligió una.'
+                      : archiveChoices.length > 0
+                        ? 'Puede dejar el mes anterior o elegir una liquidación del archivo de esta unidad. El personal sigue saliendo del corte o de la propuesta.'
+                        : 'Usa la liquidación anterior de esta unidad. Cuando archive una, también podrá elegirla aquí.'}
+                  </span>
+                </label>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={copyPrevious} onChange={(event) => setCopyPrevious(event.target.checked)} />
-                  Copiar costos operativos y administrativos del mes anterior
+                  Copiar costos operativos y administrativos de esa base
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-xs text-slate-500">El mes identifica la liquidación. El rango define la asistencia, las novedades y los días a facturar.</p>
@@ -1230,9 +1310,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   ))}
                 </select>
                 <select className={fieldClass} value={filterStatus} onChange={(event) => setFilterStatus(event.target.value as '' | BillingStatus)}>
-                  <option value="">Borradores y emitidas</option>
+                  <option value="">Borradores, emitidas y archivo</option>
                   <option value="draft">Solo borradores</option>
                   <option value="issued">Solo emitidas</option>
+                  <option value="archived">Solo archivo</option>
                   <option value="void">Papelera</option>
                 </select>
               </div>
@@ -1380,6 +1461,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onSave={() => void save()}
             onSaveEssalud={() => void saveEssaludFixed()}
             onIssue={issueOs}
+            onArchive={archiveBilling}
             onReopen={() => void changeStatus('draft')}
             onVoid={() => {
               if (window.confirm('¿Anular esta facturación? Quedará en la papelera. Las demás del mismo mes no se tocan.')) {
@@ -1647,6 +1729,7 @@ function EditorView(props: {
   onSave: () => void;
   onSaveEssalud: () => void;
   onIssue: () => void;
+  onArchive: () => void;
   onReopen: () => void;
   onVoid: () => void;
   onReload: () => void;
@@ -1737,7 +1820,7 @@ function EditorView(props: {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold text-slate-900">{editor.clientName}</h1>
             <StatusPill status={editor.status} />
-            {props.pendingChanges.length > 0 && editor.status !== 'issued' && (
+            {props.pendingChanges.length > 0 && editor.status === 'draft' && (
               <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">{props.pendingChanges.length} cambios sin guardar</span>
             )}
           </div>
@@ -1752,6 +1835,7 @@ function EditorView(props: {
             {editor.model.opalosisRegistration?.numeroOrdenServicio ? ` · ${editor.model.opalosisRegistration.numeroOrdenServicio}` : ''}
             {editor.updatedByName ? ` · Último guardado por ${editor.updatedByName}` : ''}
             {editor.issuedByName ? ` · Emitida por ${editor.issuedByName}` : ''}
+            {editor.archivedByName ? ` · Archivada por ${editor.archivedByName}` : ''}
           </p>
           {!props.locked && props.canEdit && props.quotes.length > 0 && (
             <label className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
@@ -1799,7 +1883,7 @@ function EditorView(props: {
               <ArrowLeftRight size={16} /> Corrida
             </button>
           )}
-          {editor.status === 'issued' && props.canEdit && (
+          {(editor.status === 'issued' || editor.status === 'archived') && props.canEdit && (
             <button type="button" onClick={props.onReopen} className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm">
               Reabrir para corregir
             </button>
@@ -1817,6 +1901,15 @@ function EditorView(props: {
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-60"
               >
                 <Check size={16} /> Emitir OS
+              </button>
+              <button
+                type="button"
+                onClick={props.onArchive}
+                disabled={!!props.busy}
+                title="Guarda la liquidación en el archivo, sin crear una orden en OpaloSis. Sirve como base de liquidaciones nuevas."
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-800 text-sm disabled:opacity-60"
+              >
+                <Archive size={16} /> Archivar
               </button>
             </>
           )}
@@ -1837,6 +1930,12 @@ function EditorView(props: {
               ? ` Se registró como ${OPALOSIS_DOCUMENT_LABELS[editor.model.opalosisIssue.documentKind]}, grupo ${editor.model.opalosisIssue.workGroup}, ${editor.model.opalosisIssue.businessLine}, factura ${editor.model.opalosisIssue.opaloCompany}.`
               : ''
           } Para cambiar un sueldo, un costo o la utilidad hay que reabrirla.`}
+        />
+      )}
+      {editor.status === 'archived' && (
+        <Banner
+          tone="info"
+          text="Esta liquidación está en el archivo. No se envió a OpaloSis. Al armar una liquidación nueva de esta unidad se puede elegir como base. Para corregirla, reábrala."
         />
       )}
       {props.banner && <Banner tone="info" text={props.banner} />}
@@ -2152,7 +2251,7 @@ function EditorView(props: {
               formulas={props.formulas}
               considerations={editor.model.considerations}
               locked={locked}
-              essaludLocked={!props.canEdit || editor.status === 'void'}
+              essaludLocked={!props.canEdit || editor.status === 'void' || editor.status === 'archived'}
               issued={editor.status === 'issued'}
               saved={Boolean(editor.id)}
               onRates={props.onPatchRates}
@@ -3288,9 +3387,10 @@ function StatusPill({ status }: { status: BillingStatus }) {
   const styles = {
     draft: 'bg-slate-100 text-slate-700',
     issued: 'bg-emerald-100 text-emerald-800',
+    archived: 'bg-indigo-100 text-indigo-800',
     void: 'bg-red-100 text-red-700',
   }[status];
-  const label = { draft: 'Borrador', issued: 'Emitida', void: 'Anulada' }[status];
+  const label = { draft: 'Borrador', issued: 'Emitida', archived: 'Archivo', void: 'Anulada' }[status];
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${styles}`}>{label}</span>;
 }
 

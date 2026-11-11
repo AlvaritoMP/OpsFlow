@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeftRight } from 'lucide-react';
 import {
   BillingNoteKind,
-  BillingStatus,
+  BillingNoteStatus,
   ClientBillingNote,
   ClientBillingRecord,
   ClientBillingRun,
@@ -364,7 +364,7 @@ function groupCalcs(calcs: SavedBillingCalc[]): { label: string; calcs: SavedBil
   return groups;
 }
 
-function NoteStatus({ status }: { status: BillingStatus }) {
+function NoteStatus({ status }: { status: BillingNoteStatus }) {
   const styles = {
     draft: 'bg-slate-100 text-slate-700',
     issued: 'bg-emerald-100 text-emerald-800',

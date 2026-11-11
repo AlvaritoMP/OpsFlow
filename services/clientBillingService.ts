@@ -43,7 +43,8 @@ import {
 } from '../utils/clientBillingCalc';
 import { BillingFormulaSet, normalizeBillingFormulas, validateBillingFormulas } from '../utils/billingFormulas';
 
-export type BillingStatus = 'draft' | 'issued' | 'void';
+export type BillingNoteStatus = 'draft' | 'issued' | 'void';
+export type BillingStatus = BillingNoteStatus | 'archived';
 
 export interface BillingActor {
   id?: string;
@@ -68,6 +69,8 @@ export interface ClientBillingRecord {
   updatedByName?: string;
   issuedAt?: string;
   issuedByName?: string;
+  archivedAt?: string;
+  archivedByName?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -111,14 +114,34 @@ interface PersonnelRow {
 }
 
 export async function listClientBillings(): Promise<ClientBillingRecord[]> {
-  const { data, error } = await db
-    .from('client_billings')
-    .select('*')
-    .order('period_month', { ascending: false })
-    .order('updated_at', { ascending: false })
-    .limit(300);
-  if (error) throw mapError(error);
-  return (data || []).map(mapRecord);
+  const [recent, archived] = await Promise.all([
+    db
+      .from('client_billings')
+      .select('*')
+      .order('period_month', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(300),
+    db
+      .from('client_billings')
+      .select('*')
+      .eq('status', 'archived')
+      .order('period_month', { ascending: false })
+      .limit(300),
+  ]);
+  if (recent.error) throw mapError(recent.error);
+  if (archived.error && !isMissingTable(archived.error)) throw mapError(archived.error);
+  const byId = new Map<string, ClientBillingRecord>();
+  (recent.data || []).forEach((row: any) => {
+    const record = mapRecord(row);
+    byId.set(record.id, record);
+  });
+  (archived.data || []).forEach((row: any) => {
+    const record = mapRecord(row);
+    if (!byId.has(record.id)) byId.set(record.id, record);
+  });
+  return Array.from(byId.values()).sort(
+    (a, b) => b.periodMonth.localeCompare(a.periodMonth) || b.updatedAt.localeCompare(a.updatedAt)
+  );
 }
 
 export async function getBillingAudit(billingId: string): Promise<ClientBillingAuditEntry[]> {
@@ -139,35 +162,79 @@ export async function getBillingAudit(billingId: string): Promise<ClientBillingA
   }));
 }
 
+export interface ArchivedBillingOption {
+  id: string;
+  periodMonth: string;
+  title: string;
+  grandTotal: number;
+}
+
+export async function listArchivedBillings(unitId: string): Promise<ArchivedBillingOption[]> {
+  const { data, error } = await db
+    .from('client_billings')
+    .select('id, period_month, title, grand_total')
+    .eq('unit_id', unitId)
+    .eq('status', 'archived')
+    .order('period_month', { ascending: false })
+    .limit(200);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw mapError(error);
+  }
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    periodMonth: String(row.period_month).slice(0, 7),
+    title: row.title || '',
+    grandTotal: Number(row.grand_total) || 0,
+  }));
+}
+
 export async function prepareBillingDraft(
   unit: BillingUnitRef,
   periodMonth: string,
-  options: { copyPreviousCosts: boolean; attendanceFrom?: string; attendanceTo?: string }
+  options: { copyPreviousCosts: boolean; attendanceFrom?: string; attendanceTo?: string; baseBillingId?: string }
 ): Promise<ClientBillingModel> {
   const window = resolveAttendanceWindow(periodMonth, options.attendanceFrom, options.attendanceTo);
   const windowError = attendanceWindowError(window.from, window.to);
   if (windowError) throw new Error(windowError);
 
+  const explicitBase = Boolean(options.baseBillingId);
   const [profile, previous, people, compensations, absences] = await Promise.all([
     loadProfile(unit.id),
-    loadPrevious(unit.id, periodMonth),
+    explicitBase ? loadArchivedBase(unit.id, options.baseBillingId || '') : loadPrevious(unit.id, periodMonth),
     loadPersonnel(unit.id, window),
     variableCompensationsService.getByUnitAndMonth(unit.id, periodMonth).catch(() => []),
     loadAbsenceDeductions(unit.id, window),
   ]);
 
-  const rates = normalizeBillingRates({
-    ...DEFAULT_BILLING_RATES,
-    ...(previous?.model.rates || {}),
-    ...(profile?.rates || {}),
-  });
+  const rates = normalizeBillingRates(
+    explicitBase
+      ? {
+          ...DEFAULT_BILLING_RATES,
+          ...(profile?.rates || {}),
+          ...(previous?.model.rates || {}),
+        }
+      : {
+          ...DEFAULT_BILLING_RATES,
+          ...(previous?.model.rates || {}),
+          ...(profile?.rates || {}),
+        }
+  );
   const monthLabel = formatPeriodLabel(periodMonth);
-  const serviceLabel = profile?.serviceLabel || previous?.model.serviceLabel || `Servicio de ${unit.name}`;
+  const serviceLabel = explicitBase
+    ? previous?.model.serviceLabel || profile?.serviceLabel || `Servicio de ${unit.name}`
+    : profile?.serviceLabel || previous?.model.serviceLabel || `Servicio de ${unit.name}`;
   const model = emptyBillingModel(`${serviceLabel} — ${monthLabel}`, serviceLabel, rates);
   model.attendanceFrom = window.from;
   model.attendanceTo = window.to;
-  model.opalosisPesCode = (profile?.opalosisPesCode || previous?.model.opalosisPesCode || '').trim();
-  model.considerations = profile?.considerations || previous?.model.considerations || model.considerations;
+  model.opalosisPesCode = (
+    explicitBase
+      ? previous?.model.opalosisPesCode || profile?.opalosisPesCode || ''
+      : profile?.opalosisPesCode || previous?.model.opalosisPesCode || ''
+  ).trim();
+  model.considerations = explicitBase
+    ? previous?.model.considerations || profile?.considerations || model.considerations
+    : profile?.considerations || previous?.model.considerations || model.considerations;
 
   const bonuses = new Map<string, { amount: number; concept: string[] }>();
   compensations.forEach((item) => {
@@ -404,7 +471,7 @@ export interface ClientBillingNote {
   clientName: string;
   unitName: string;
   noteKind: BillingNoteKind;
-  status: BillingStatus;
+  status: BillingNoteStatus;
   title: string;
   sourceBillingId?: string;
   baseBillingId?: string;
@@ -483,7 +550,14 @@ export function calcOptionLabel(calc: SavedBillingCalc): string {
     minute: '2-digit',
   });
   const version = calc.version === 'current' ? 'Cálculo vigente' : 'Corrida anterior';
-  const state = calc.status === 'void' ? ' · anulada' : calc.status === 'issued' && calc.version === 'current' ? ' · emitida' : '';
+  const state =
+    calc.status === 'void'
+      ? ' · anulada'
+      : calc.status === 'issued' && calc.version === 'current'
+        ? ' · emitida'
+        : calc.status === 'archived' && calc.version === 'current'
+          ? ' · archivo'
+          : '';
   return `${version} · ${when} · ${pen(calc.grandTotal)}${state}`;
 }
 
@@ -562,7 +636,7 @@ export async function saveBillingNote(input: {
 
 export async function setBillingNoteStatus(
   id: string,
-  status: BillingStatus,
+  status: BillingNoteStatus,
   actor: BillingActor,
   summary: string
 ): Promise<ClientBillingNote> {
@@ -603,7 +677,7 @@ export async function setBillingStatus(
   status: BillingStatus,
   actor: BillingActor,
   summary: string,
-  options?: { keepIssued?: boolean }
+  options?: { keepIssued?: boolean; keepArchived?: boolean }
 ): Promise<ClientBillingRecord> {
   const patch: Record<string, unknown> = {
     status,
@@ -614,15 +688,24 @@ export async function setBillingStatus(
   if (status === 'issued' && !options?.keepIssued) {
     patch.issued_at = new Date().toISOString();
     patch.issued_by_name = actor.name;
+    patch.archived_at = null;
+    patch.archived_by_name = null;
+  }
+  if (status === 'archived' && !options?.keepArchived) {
+    patch.archived_at = new Date().toISOString();
+    patch.archived_by_name = actor.name;
   }
   if (status === 'draft') {
     patch.issued_at = null;
     patch.issued_by_name = null;
+    patch.archived_at = null;
+    patch.archived_by_name = null;
   }
   const { data, error } = await db.from('client_billings').update(patch).eq('id', id).select('*').single();
   if (error) throw mapError(error);
   const record = mapRecord(data);
-  await writeAudit(id, actor, status === 'issued' ? 'issued' : status === 'void' ? 'voided' : 'reopened', summary, []);
+  const action = status === 'issued' ? 'issued' : status === 'void' ? 'voided' : status === 'archived' ? 'archived' : 'reopened';
+  await writeAudit(id, actor, action, summary, []);
   return record;
 }
 
@@ -795,6 +878,16 @@ async function loadProfile(unitId: string): Promise<{
     throw mapError(error);
   }
   return data?.payload || null;
+}
+
+async function loadArchivedBase(unitId: string, billingId: string): Promise<ClientBillingRecord> {
+  const { data, error } = await db.from('client_billings').select('*').eq('id', billingId).maybeSingle();
+  if (error) throw mapError(error);
+  if (!data) throw new Error('No se encontró la liquidación del archivo.');
+  const record = mapRecord(data);
+  if (record.unitId !== unitId) throw new Error('Esa liquidación del archivo es de otra unidad.');
+  if (record.status !== 'archived') throw new Error('Solo se puede tomar como base una liquidación del archivo, o la del mes anterior.');
+  return record;
 }
 
 async function loadPrevious(unitId: string, periodMonth: string): Promise<ClientBillingRecord | null> {
@@ -1357,7 +1450,10 @@ async function insertBillingRun(record: ClientBillingRecord, actor: BillingActor
 }
 
 function mapRun(row: any): ClientBillingRun {
-  const status = row.billing_status === 'issued' || row.billing_status === 'void' ? row.billing_status : 'draft';
+  const status: BillingStatus =
+    row.billing_status === 'issued' || row.billing_status === 'void' || row.billing_status === 'archived'
+      ? row.billing_status
+      : 'draft';
   return {
     id: row.id,
     billingId: row.billing_id,
@@ -1381,7 +1477,7 @@ function mapRun(row: any): ClientBillingRun {
 
 function mapNote(row: any): ClientBillingNote {
   const kind: BillingNoteKind = row.note_kind === 'debit' ? 'debit' : 'credit';
-  const status: BillingStatus = row.status === 'issued' || row.status === 'void' ? row.status : 'draft';
+  const status: BillingNoteStatus = row.status === 'issued' || row.status === 'void' ? row.status : 'draft';
   return {
     id: row.id,
     unitId: row.unit_id || undefined,
@@ -1413,6 +1509,8 @@ function mapRecord(row: any): ClientBillingRecord {
   const model = (row.payload?.model || row.payload) as ClientBillingModel;
   model.rates = normalizeBillingRates(model.rates);
   model.workers = (model.workers || []).map(withWorkerDefaults);
+  const status: BillingStatus =
+    row.status === 'issued' || row.status === 'void' || row.status === 'archived' ? row.status : 'draft';
   return {
     id: row.id,
     unitId: row.unit_id,
@@ -1420,7 +1518,7 @@ function mapRecord(row: any): ClientBillingRecord {
     unitName: row.unit_name,
     periodMonth: String(row.period_month).slice(0, 7),
     title: row.title,
-    status: row.status,
+    status,
     model,
     laborTotal: Number(row.labor_total) || 0,
     operationalTotal: Number(row.operational_total) || 0,
@@ -1431,6 +1529,8 @@ function mapRecord(row: any): ClientBillingRecord {
     updatedByName: row.updated_by_name || undefined,
     issuedAt: row.issued_at || undefined,
     issuedByName: row.issued_by_name || undefined,
+    archivedAt: row.archived_at || undefined,
+    archivedByName: row.archived_by_name || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1467,6 +1567,16 @@ function mapError(error: any): Error {
     return new BillingStorageError(
       'missing_table',
       'Falta crear las tablas de facturación. Ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase.'
+    );
+  }
+  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  if (
+    (error?.code === '23514' && /client_billings_status_check/i.test(text)) ||
+    ((error?.code === '42703' || error?.code === 'PGRST204') && /archived_at|archived_by_name/i.test(text))
+  ) {
+    return new BillingStorageError(
+      'unknown',
+      'Falta el archivo de liquidaciones. Ejecute migrations/MIGRATION_CLIENT_BILLING_ARCHIVE.sql en Supabase.'
     );
   }
   if (error?.code === '23505') {

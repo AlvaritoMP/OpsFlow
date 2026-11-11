@@ -1023,12 +1023,12 @@ export const HELP_TOPICS: HelpTopic[] = [
         heading: 'Cómo se arma',
         body: 'Elija la unidad y el mes de facturación. OpsFlow carga el personal activo, el sueldo, la asignación familiar, la condición de trabajo y los bonos del mes. Usted completa días, horas extra diurnas y nocturnas al 25% y al 35%, bono nocturno, materiales, gastos de estructura y la utilidad. Las unidades BPO no usan este método.',
         steps: [
-          'Nueva facturación: unidad (no BPO), mes, corte de asistencia y los datos de la orden (PES, mes de servicio, inicio, entrega, documento, grupo, línea, empresa y DNI). Puede elegir una propuesta del Cotizador: copia sus puestos, parámetros, costos operativos, administrativos y el porcentaje de utilidad, y esos puestos reemplazan al personal de la unidad. El mes de servicio es el que se envía a OpaloSis y puede ser distinto del mes de facturación y del corte. El puesto queda en Diversos y el cliente solicitante toma el primero de OpaloSis. El inicio y la entrega son el tiempo de vida de la orden, no el corte de asistencia. Si aplica, copie costos operativos y administrativos del mes anterior; esa casilla no copia la bitácora interna. Si eligió una propuesta, esos costos salen de la propuesta.',
+          'Nueva facturación: unidad (no BPO), mes, corte de asistencia y los datos de la orden (PES, mes de servicio, inicio, entrega, documento, grupo, línea, empresa y DNI). Puede elegir una propuesta del Cotizador: copia sus puestos, parámetros, costos operativos, administrativos y el porcentaje de utilidad, y esos puestos reemplazan al personal de la unidad. El mes de servicio es el que se envía a OpaloSis y puede ser distinto del mes de facturación y del corte. El puesto queda en Diversos y el cliente solicitante toma el primero de OpaloSis. El inicio y la entrega son el tiempo de vida de la orden, no el corte de asistencia. En «Traer datos de» puede dejar la liquidación del mes anterior o elegir una del archivo de esa unidad. Si aplica, copie costos operativos y administrativos de esa base; esa casilla no copia la bitácora interna ni el personal. Si eligió una propuesta, esos costos salen de la propuesta. Los datos de la orden son obligatorios para Emitir OS; para archivar una facturación histórica puede armar la liquidación sin completarlos.',
           'Personal: en la tabla horizontal revise sueldo, faltas y días. Lo amarillo está ajustado a mano.',
           'Operativo: materiales, equipos, maquinaria, supervisión, capacitación, EPP y uniformes u otros.',
           'Administrativo: costo financiero (tasa anual y días financiados), gestión de RRHH y otros ítems de estructura.',
           'Utilidad: margen sobre el precio de venta o recargo sobre el costo, sobre todo el costo o solo el laboral.',
-          'Al armar la facturación indique el PES, el mes de servicio, las fechas de la orden, el documento, el grupo, la línea, la empresa y el DNI. Cada clic en Emitir OS crea una orden nueva en OpaloSis. La anterior queda allá. El monto es el total sin IGV; en la nota de crédito va en negativo.',
+          'Al armar la facturación indique el PES, el mes de servicio, las fechas de la orden, el documento, el grupo, la línea, la empresa y el DNI cuando va a emitir. Cada clic en Emitir OS crea una orden nueva en OpaloSis. La anterior queda allá. El monto es el total sin IGV; en la nota de crédito va en negativo. Archivar guarda la liquidación sin crear esa orden: sirve para cargar facturaciones históricas y usarlas después como base. Queda cerrada, con el estado Archivo. Para corregirla hay que reabrirla.',
           'Una liquidación que ya existía y no tiene esos datos los muestra al abrirla, solo los que faltan. Al completarlos se pueden enviar a OpaloSis. Una liquidación nueva no vuelve a pedirlos dentro.',
           'Un mismo mes puede tener varias liquidaciones de la misma unidad. Nueva facturación siempre crea otra; no reemplaza la que ya está. Un superadministrador envía una a la papelera desde la lista. El filtro Papelera la muestra, y desde ahí se restaura o se elimina del sistema. Las demás del mes no se tocan. Si ya tenía orden en OpaloSis, esa orden se anula allá.',
           'Excel: descarga la liquidación en horizontal, ajustada a una sola hoja A4. En Excel use Imprimir o Exportar a PDF.',
@@ -1037,7 +1037,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         tips: [
           'Cada pestaña tiene una bitácora interna. Esas notas no salen en el Excel, el PDF ni en las corridas.',
           'Guardar estas condiciones para la unidad reutiliza tasas, casillas, utilidad, consideraciones y gastos administrativos el mes siguiente. No cambia la liquidación que ya está abierta.',
-          'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase. Para corridas y notas, ejecute también migrations/MIGRATION_CLIENT_BILLING_RUNS.sql. Para las fórmulas publicadas, ejecute migrations/MIGRATION_CLIENT_BILLING_FORMULAS.sql.',
+          'Si la pantalla pide la migración, ejecute migrations/MIGRATION_CLIENT_BILLING.sql en Supabase. Para corridas y notas, ejecute también migrations/MIGRATION_CLIENT_BILLING_RUNS.sql. Para las fórmulas publicadas, ejecute migrations/MIGRATION_CLIENT_BILLING_FORMULAS.sql. Para archivar liquidaciones, ejecute migrations/MIGRATION_CLIENT_BILLING_ARCHIVE.sql.',
         ],
       },
       {
@@ -1139,7 +1139,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Incluir SCTR: marcada, calcula SCTR. Desmarcada, SCTR queda en cero y el Excel puede omitir la columna. De fábrica está marcada.',
           'Incluir Vida Ley: igual que SCTR, para Vida Ley. De fábrica está marcada.',
           'Incluir feriados: marcada, calcula la provisión de feriados. Desmarcada, feriados queda en cero. De fábrica está marcada.',
-          'Copiar costos operativos y administrativos del mes anterior: solo al armar una liquidación nueva. Trae los ítems del mes previo.',
+          'Traer datos de, al armar una liquidación nueva: deja la liquidación del mes anterior o elige una del archivo de la unidad. De esa base salen las tasas, el servicio y las consideraciones. El personal sale del corte o de la propuesta.',
+          'Copiar costos operativos y administrativos de esa base: solo al armar una liquidación nueva. Trae los ítems de la base elegida. No copia la bitácora interna.',
           'Incluido, al inicio de cada fila: mete o saca a esa persona del costo laboral, del Excel y de la utilidad.',
         ],
         tips: [
