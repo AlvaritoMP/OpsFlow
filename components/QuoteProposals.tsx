@@ -554,8 +554,12 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                       <th className="px-3 py-2">Código</th>
                       <th className="px-3 py-2">Cliente</th>
                       <th className="px-3 py-2">Servicio</th>
-                      <th className="px-3 py-2 text-right">Total con IGV</th>
                       <th className="px-3 py-2">Estado</th>
+                      <th className="px-3 py-2 text-right">Laboral</th>
+                      <th className="px-3 py-2 text-right">Operativo</th>
+                      <th className="px-3 py-2 text-right">Administrativo</th>
+                      <th className="px-3 py-2 text-right">Utilidad</th>
+                      <th className="px-3 py-2 text-right">Total</th>
                       <th className="px-3 py-2">Fecha de emisión</th>
                       <th className="px-3 py-2">Emitida por</th>
                       <th className="px-3 py-2" />
@@ -567,8 +571,12 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                         <td className="px-3 py-2 font-medium text-slate-900">{record.code}</td>
                         <td className="px-3 py-2">{record.clientName}</td>
                         <td className="px-3 py-2 text-slate-600">{record.serviceName}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{pen(record.totalWithIgv)}</td>
                         <td className="px-3 py-2"><StatusChip status={record.status} /></td>
+                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{pen(record.laborTotal)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{pen(record.operationalTotal)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{pen(record.adminTotal)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{pen(record.profitTotal)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap font-semibold text-slate-900" title="Suma sin IGV">{pen(record.grandTotal)}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatIssuedAt(record.issuedAt)}</td>
                         <td className="px-3 py-2 text-slate-700">{record.issuedByName || '—'}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">

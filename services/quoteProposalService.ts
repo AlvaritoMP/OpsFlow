@@ -35,6 +35,9 @@ export interface QuoteRecord {
   status: QuoteStatus;
   payload: QuoteProposalPayload;
   laborTotal: number;
+  operationalTotal: number;
+  adminTotal: number;
+  profitTotal: number;
   grandTotal: number;
   totalWithIgv: number;
   createdByName?: string;
@@ -179,16 +182,26 @@ export async function deleteQuote(id: string): Promise<void> {
 }
 
 function mapRecord(row: any): QuoteRecord {
+  const payload = normalizeQuotePayload(row.payload);
+  let computed: ReturnType<typeof buildQuoteView>['computed'] | null = null;
+  try {
+    computed = buildQuoteView(payload).computed;
+  } catch {
+    computed = null;
+  }
   return {
     id: row.id,
     code: row.code,
     clientName: row.client_name,
     serviceName: row.service_name,
     status: row.status,
-    payload: normalizeQuotePayload(row.payload),
-    laborTotal: Number(row.labor_total) || 0,
-    grandTotal: Number(row.grand_total) || 0,
-    totalWithIgv: Number(row.total_with_igv) || 0,
+    payload,
+    laborTotal: computed?.laborTotal ?? (Number(row.labor_total) || 0),
+    operationalTotal: computed?.operationalTotal ?? 0,
+    adminTotal: computed?.adminTotal ?? 0,
+    profitTotal: computed?.profitAmount ?? 0,
+    grandTotal: computed?.grandTotal ?? (Number(row.grand_total) || 0),
+    totalWithIgv: computed?.totalWithIgv ?? (Number(row.total_with_igv) || 0),
     createdByName: row.created_by_name || undefined,
     updatedByName: row.updated_by_name || undefined,
     issuedAt: row.issued_at || undefined,

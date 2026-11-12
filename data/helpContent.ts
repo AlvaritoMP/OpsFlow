@@ -1252,7 +1252,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Emitir cierra la propuesta y guarda una versión con quién la emitió y los totales. Reabrir y anular también quedan en ese historial. Para corregir un monto hay que reabrirla.',
         ],
         tips: [
-          'El resumen de la oferta muestra el costo laboral, el operativo, los gastos administrativos y la utilidad. Esos cuatro montos suman el subtotal neto, igual que el resumen de una liquidación.',
+          'La lista muestra laboral, operativo, administrativo, utilidad y el total sin IGV, igual que la lista de facturación.',
           'El Cotizador está disponible para Administrador, Super Administrador y el rol Comercial.',
           'Si la pantalla pide la migración de propuestas, ejecute migrations/MIGRATION_COMMERCIAL_QUOTES.sql en Supabase. Para el historial de versiones, ejecute migrations/MIGRATION_COMMERCIAL_QUOTE_VERSIONS.sql. Para crear usuarios Comercial, ejecute migrations/MIGRATION_COMMERCIAL_ROLE.sql.',
         ],

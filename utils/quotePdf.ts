@@ -364,25 +364,10 @@ function drawSummary(sheet: Sheet, input: QuoteDocumentInput, symbol: string, ig
       { text: '01', width: itemW, align: 'center' },
       { text: String(vacancies || 1), width: qtyW, align: 'center' },
       { text: service, width: descW, bold: true },
-      { text: '', width: amountW, align: 'right' },
+      { text: money(symbol, input.view.computed.grandTotal), width: amountW, align: 'right' },
     ],
     plain
   );
-  const category = (text: string, value: number) =>
-    drawCells(
-      sheet,
-      [
-        { text: '', width: itemW },
-        { text: '', width: qtyW },
-        { text, width: descW },
-        { text: money(symbol, value), width: amountW, align: 'right' },
-      ],
-      plain
-    );
-  category('Costo laboral', input.view.computed.laborTotal);
-  category('Costo operativo', input.view.computed.operationalTotal);
-  category('Gastos administrativos', input.view.computed.adminTotal);
-  category('Utilidad', input.view.computed.profitAmount);
   const label = (text: string, value: number, kind: 'soft' | 'plain' | 'total') =>
     drawCells(
       sheet,
