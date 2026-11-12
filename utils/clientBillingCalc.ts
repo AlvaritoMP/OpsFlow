@@ -8,6 +8,7 @@ import {
   BILLING_FORMULA_DEFS,
   BillingFormulaSet,
   evaluateFormulas,
+  formulasWithEssaludFloor,
   normalizeBillingFormulas,
   WORKER_FORMULA_IDS,
 } from './billingFormulas';
@@ -32,7 +33,7 @@ export interface BillingRates {
   essaludMode: EssaludMode;
   /** Monto de EsSalud por trabajador cuando essaludMode es fixed. */
   essaludFixedAmount: number;
-  /** Remuneración mínima vital. La base de EsSalud en porcentaje no baja de este monto. */
+  /** Remuneración mínima vital. Con asignación familiar, el piso de EsSalud suma ese monto. */
   minimumWage: number;
   vidaLeyRate: number;
   applyVidaLey: boolean;
@@ -354,7 +355,7 @@ export interface ComputedWorker {
   cts: number;
   feria: number;
   essalud: number;
-  /** Base usada por EsSalud en porcentaje: REM LLSS + vacaciones + feriados, sin bajar de la RMV. La gratificación no entra. */
+  /** Base de EsSalud en porcentaje: remuneración para cargas + vacaciones + feriados, sin bajar de la RMV más la asignación familiar del trabajador. */
   essaludBase: number;
   vidaLey: number;
   sctr: number;
@@ -842,7 +843,7 @@ export function computeWorker(worker: BillingWorkerInput, inputRates: BillingRat
 function workerFormulaValues(worker: BillingWorkerInput, rates: BillingRates, formulas?: BillingFormulaSet): Record<string, number> {
   const scope = workerFormulaScope(worker, rates);
   try {
-    return evaluateFormulas(formulas, scope, WORKER_FORMULA_IDS);
+    return evaluateFormulas(formulasWithEssaludFloor(formulas), scope, WORKER_FORMULA_IDS);
   } catch {
     return evaluateFormulas(undefined, scope, WORKER_FORMULA_IDS);
   }

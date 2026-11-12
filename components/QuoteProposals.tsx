@@ -1065,7 +1065,10 @@ function ParamsPanel(props: {
         <label className="text-xs text-slate-500">Días del mes comercial<input className={fieldClass} type="number" disabled={props.locked} value={props.rates.commercialMonthDays} onChange={(event) => props.onRates({ commercialMonthDays: Number(event.target.value) || 0 })} /></label>
         <label className="text-xs text-slate-500">Horas por día<input className={fieldClass} type="number" disabled={props.locked} value={props.rates.hoursPerDay} onChange={(event) => props.onRates({ hoursPerDay: Number(event.target.value) || 0 })} /></label>
         <label className="text-xs text-slate-500">Asignación familiar de referencia (S/)<input className={fieldClass} type="number" step="0.01" disabled={props.locked} value={props.rates.familyAllowanceAmount} onChange={(event) => props.onRates({ familyAllowanceAmount: Number(event.target.value) || 0 })} /></label>
-        <label className="text-xs text-slate-500">Remuneración mínima vital<input className={fieldClass} type="number" step="0.01" disabled={props.locked} value={props.rates.minimumWage} onChange={(event) => props.onRates({ minimumWage: Number(event.target.value) || 0 })} /></label>
+        <label className="text-xs text-slate-500">Remuneración mínima vital
+          <input className={fieldClass} type="number" step="0.01" disabled={props.locked} value={props.rates.minimumWage} onChange={(event) => props.onRates({ minimumWage: Number(event.target.value) || 0 })} />
+          <span className="block text-[11px] text-slate-400 mt-1">Piso de EsSalud. Sin asignación, con 9% no baja de S/ 110.70. Con asignación, el piso suma ese monto.</span>
+        </label>
         {percent('vacationRate', 'Vacaciones', 'vacaciones')}
         {percent('gratiRate', 'Gratificación', 'gratificacion')}
         <label className="text-xs text-slate-500">Factor de bonificación extraordinaria<input className={fieldClass} type="number" step="0.01" disabled={props.locked} value={props.rates.gratiBonusFactor} onChange={(event) => props.onRates({ gratiBonusFactor: Number(event.target.value) || 0 })} /></label>

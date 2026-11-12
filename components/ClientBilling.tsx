@@ -3433,7 +3433,7 @@ function ParametersPanel(props: {
                 }}
               />
               <span className="block text-[11px] text-slate-400 mt-1">
-                Piso de la base. Con el 9% el aporte mínimo es esta RMV por el 9%. Vigente: S/ 1,230 desde el 1 de octubre de 2026.
+                Piso de EsSalud en la liquidación y en la propuesta. Sin asignación familiar, con el 9% y S/ 1,230 el aporte no baja de S/ 110.70. Si el trabajador tiene asignación, el piso suma ese monto. Vigente desde el 1 de octubre de 2026.
               </span>
             </>
           )}

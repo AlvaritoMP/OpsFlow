@@ -153,7 +153,7 @@ export const BILLING_FORMULA_DEFS: BillingFormulaDefinition[] = [
   { id: 'gratificacion', label: 'gratificación', group: 'cargas', expression: 'remCargas * factorBonificacion * tasaGratificacion' },
   { id: 'cts', label: 'CTS', group: 'cargas', expression: 'remCargas * tasaCts' },
   { id: 'feriado', label: 'feriados', group: 'cargas', expression: 'if(aplicaFeriado, remCargas * tasaFeriado, 0)' },
-  { id: 'baseEssalud', label: 'base de EsSalud', group: 'cargas', expression: 'max(remCargas + vacaciones + feriado, rmv)' },
+  { id: 'baseEssalud', label: 'base de EsSalud', group: 'cargas', expression: 'max(remCargas + vacaciones + feriado, rmv + asignacion)' },
   { id: 'essalud', label: 'EsSalud', group: 'cargas', expression: 'if(essaludFijo, montoEssalud, baseEssalud * tasaEssalud)' },
   { id: 'vidaLey', label: 'Vida Ley', group: 'cargas', expression: 'if(aplicaVidaLey, (sueldo + asignacion) * tasaVidaLey, 0)' },
   { id: 'sctr', label: 'SCTR', group: 'cargas', expression: 'if(aplicaSctr, (sueldo + asignacion) * tasaSctr, 0)' },
@@ -223,6 +223,16 @@ export function normalizeBillingFormulas(input?: BillingFormulaSet | null): Bill
 
 export function sameBillingFormulas(left?: BillingFormulaSet | null, right?: BillingFormulaSet | null): boolean {
   return JSON.stringify(normalizeBillingFormulas(left)) === JSON.stringify(normalizeBillingFormulas(right));
+}
+
+/** El porcentaje de EsSalud no baja de la RMV más la asignación familiar de ese trabajador. */
+export function formulasWithEssaludFloor(formulas?: BillingFormulaSet | null): BillingFormulaSet {
+  const next = normalizeBillingFormulas(formulas);
+  if (!/rmv\s*\+\s*asignacion/.test(next.baseEssalud)) next.baseEssalud = `max(${next.baseEssalud}, rmv + asignacion)`;
+  if (!/\(\s*rmv\s*\+\s*asignacion\s*\)\s*\*\s*tasaEssalud/.test(next.essalud)) {
+    next.essalud = `if(essaludFijo, ${next.essalud}, max(${next.essalud}, (rmv + asignacion) * tasaEssalud))`;
+  }
+  return next;
 }
 
 export function formulaLabel(id: string): string {

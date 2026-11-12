@@ -7,10 +7,10 @@ import {
   BillingFormulaSet,
   defaultBillingFormulas,
   describeFormula,
+  formulasWithEssaludFloor,
   evaluateFormulas,
   formulaLabel,
   formulaToExcel,
-  normalizeBillingFormulas,
   validateBillingFormulas,
 } from './billingFormulas';
 import {
@@ -212,8 +212,8 @@ export function attachBillingFormulaSheets(
 }
 
 function chooseFormulas(formulas?: BillingFormulaSet): BillingFormulaSet {
-  if (validateBillingFormulas(formulas).length) return defaultBillingFormulas();
-  return normalizeBillingFormulas(formulas);
+  if (validateBillingFormulas(formulas).length) return formulasWithEssaludFloor(defaultBillingFormulas());
+  return formulasWithEssaludFloor(formulas);
 }
 
 function compileWorkerTemplates(formulas: BillingFormulaSet): Map<string, string> {
