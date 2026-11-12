@@ -112,6 +112,10 @@ export interface BillingWorkerInput {
   endDate?: string;
   /** Sigue activo en la unidad. Quien cesó entra solo si su relación pisa el corte. */
   activeOnUnit?: boolean;
+  /** Cargo en la ficha de la unidad. Puede diferir del puesto con el que se liquida. */
+  unitPosition?: string;
+  /** Puesto de la propuesta asignado a esta persona. */
+  quotePositionId?: string;
   /** El usuario editó Días. Ese valor no se reemplaza al recalcular. */
   daysManual?: boolean;
   /** Días de vacaciones gozadas en el corte. Sostienen vacaciones, gratificación, CTS, feriados y EsSalud. */
@@ -276,6 +280,8 @@ export interface ClientBillingModel {
   /** Propuesta del Cotizador de la que salieron puestos, parámetros y costos. */
   sourceQuoteId?: string;
   sourceQuoteCode?: string;
+  /** Puestos de esa propuesta, con el costo de 1 persona, para asignarlos en una liquidación real. */
+  sourceQuotePositions?: BillingQuotePosition[];
   /**
    * Proyección: facturación adelantada con los puestos de la propuesta, sin personal de la unidad.
    * Real: trabajadores y novedades del corte. Si falta, una liquidación con propuesta se lee como proyección.
@@ -291,6 +297,31 @@ export interface ClientBillingModel {
   discount?: BillingDiscount;
   /** Fórmulas de las celdas. Si falta una, se usa la de fábrica. */
   formulas?: BillingFormulaSet;
+}
+
+/** Puesto unitario de una propuesta, listo para asignarlo a un trabajador. */
+export interface BillingQuotePosition {
+  id: string;
+  name: string;
+  site: string;
+  quantity: number;
+  contractualSalary: number;
+  familyAllowance: number;
+  workCondition: number;
+  bonus: number;
+  bonusConcept?: string;
+  he25Hours: number;
+  he25Manual: number | null;
+  he35Hours: number;
+  he35Manual: number | null;
+  heNight25Hours: number;
+  heNight25Manual: number | null;
+  heNight35Hours: number;
+  heNight35Manual: number | null;
+  nightHours: number;
+  nightManual: number | null;
+  socialBaseManual: boolean;
+  socialBase: number;
 }
 
 /** Descuento aplicado al total de la liquidación, antes del IGV. */
@@ -451,6 +482,8 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   included: 'incluido',
   name: 'nombre',
   position: 'puesto',
+  unitPosition: 'puesto en la unidad',
+  quotePositionId: 'puesto de la propuesta',
   contractualSalary: 'sueldo',
   daysWorked: 'días',
   familyAllowance: 'asignación familiar',

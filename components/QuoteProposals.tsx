@@ -683,7 +683,7 @@ function PositionSheet(props: {
     <section className="h-full min-h-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       <div className="shrink-0 p-3 flex flex-col lg:flex-row gap-2 lg:items-center justify-between border-b border-slate-100">
         <p className="text-sm text-slate-600">
-          Cada fila es un puesto. El sueldo, los días y las horas son de una vacante. Escriba las horas extra y las horas de bono nocturno: el importe lo calcula el mismo método de una liquidación. Los importes y el costo laboral ya incluyen todas las vacantes.
+          Cada fila calcula el costo de 1 puesto. Escriba las horas extra y las horas de bono nocturno: el importe lo calcula el mismo método de una liquidación. La cantidad multiplica solo el costo laboral total.
         </p>
         {!props.locked && (
           <div className="flex flex-wrap gap-2">
@@ -703,7 +703,7 @@ function PositionSheet(props: {
                 <th className={headLeft} />
                 <th className={`${headLeft} sticky left-0 z-30 bg-slate-100 min-w-[16rem]`}>Puesto</th>
                 <th className={headLeft}>Sede</th>
-                <th className={head}>Vacantes</th>
+                <th className={head}>Cantidad</th>
                 <th className={head}>Sueldo</th>
                 <th className={head}>Días</th>
                 <th className={head} title={say('sueldoVacaciones')}>Días de vacaciones</th>
@@ -728,15 +728,14 @@ function PositionSheet(props: {
                 <th className={head} title={say('essalud')}>EsSalud</th>
                 <th className={head} title={say('vidaLey')}>Vida Ley</th>
                 <th className={head} title={say('sctr')}>SCTR</th>
-                <th className={head} title={say('costoTotal')}>Costo laboral</th>
+                <th className={head} title="Costo laboral calculado para 1 puesto">Costo de 1 puesto</th>
+                <th className={head} title={say('costoTotal')}>Costo total</th>
                 <th className={headLeft} />
               </tr>
             </thead>
             <tbody>
               {props.positions.map((position) => {
                 const line = lines.get(position.id);
-                const seats = position.factor || 1;
-                const scaled = (amount?: number) => (amount || 0) * seats;
                 return (
                   <tr key={position.id} className={`border-t border-slate-100 ${position.included ? '' : 'opacity-50'}`}>
                     <td className="px-1.5 py-1"><input type="checkbox" checked={position.included} disabled={props.locked} onChange={(event) => props.onPatch(position.id, { included: event.target.checked })} /></td>
@@ -751,7 +750,7 @@ function PositionSheet(props: {
                     <td className="px-1 py-1"><Num disabled={props.locked} value={position.bonus} onChange={(bonus) => props.onPatch(position.id, { bonus })} /></td>
                     <HourAmount
                       hours={position.he25Hours}
-                      amount={scaled(line?.he25)}
+                      amount={line?.he25 || 0}
                       manual={isHandAmount(position.he25Manual)}
                       locked={props.locked}
                       formula={say('he25')}
@@ -759,7 +758,7 @@ function PositionSheet(props: {
                     />
                     <HourAmount
                       hours={position.he35Hours}
-                      amount={scaled(line?.he35)}
+                      amount={line?.he35 || 0}
                       manual={isHandAmount(position.he35Manual)}
                       locked={props.locked}
                       formula={say('he35')}
@@ -767,7 +766,7 @@ function PositionSheet(props: {
                     />
                     <HourAmount
                       hours={position.heNight25Hours || 0}
-                      amount={scaled(line?.heNight25)}
+                      amount={line?.heNight25 || 0}
                       manual={isHandAmount(position.heNight25Manual)}
                       locked={props.locked}
                       formula={say('heNoche25')}
@@ -775,7 +774,7 @@ function PositionSheet(props: {
                     />
                     <HourAmount
                       hours={position.heNight35Hours || 0}
-                      amount={scaled(line?.heNight35)}
+                      amount={line?.heNight35 || 0}
                       manual={isHandAmount(position.heNight35Manual)}
                       locked={props.locked}
                       formula={say('heNoche35')}
@@ -783,20 +782,21 @@ function PositionSheet(props: {
                     />
                     <HourAmount
                       hours={position.nightHours}
-                      amount={scaled(line?.night)}
+                      amount={line?.night || 0}
                       manual={isHandAmount(position.nightManual)}
                       locked={props.locked}
                       formula={say('bonoNocturno')}
                       onHours={(nightHours) => props.onPatch(position.id, { nightHours, nightManual: null })}
                     />
-                    <Money value={scaled(line?.basic)} />
-                    <Money value={scaled(line?.vacation)} />
-                    <Money value={scaled(line?.gratification)} />
-                    <Money value={scaled(line?.cts)} />
-                    <Money value={scaled(line?.feria)} />
-                    <Money value={scaled(line?.essalud)} />
-                    <Money value={scaled(line?.vidaLey)} />
-                    <Money value={scaled(line?.sctr)} />
+                    <Money value={line?.basic} />
+                    <Money value={line?.vacation} />
+                    <Money value={line?.gratification} />
+                    <Money value={line?.cts} />
+                    <Money value={line?.feria} />
+                    <Money value={line?.essalud} />
+                    <Money value={line?.vidaLey} />
+                    <Money value={line?.sctr} />
+                    <td className="px-2 py-1.5 text-right tabular-nums text-sm text-slate-900">{pen(line?.monthlyCost || 0)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-sm font-semibold text-slate-900">{pen(line?.totalCost || 0)}</td>
                     <td className="px-1 py-1">
                       {!props.locked && (

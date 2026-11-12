@@ -338,7 +338,8 @@ export async function refreshWorkersFromUnit(
     current.suggested = fresh.suggested;
     current.missingFromUnit = false;
     current.name = current.name || fresh.name;
-    current.position = current.position || fresh.position;
+    current.unitPosition = fresh.unitPosition || fresh.position || current.unitPosition || '';
+    if (!current.quotePositionId) current.position = current.position || fresh.position;
   });
 
   next.workers = next.workers.filter((worker) => {
@@ -1255,6 +1256,7 @@ function workerFromPersonnel(
     resourceId: person.id,
     name: person.name || 'Sin nombre',
     position: person.puesto || '',
+    unitPosition: person.puesto || '',
     dni: person.dni || undefined,
     included: days > 0,
     startDate,

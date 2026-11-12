@@ -420,20 +420,18 @@ function drawClient(sheet: Sheet, client: string, address: string, attention: st
 }
 
 function annexHeads(input: QuoteDocumentInput, conceptW: number, colW: number): Cell[] {
-  const terms = input.payload.commercialTerms || defaultCommercialTerms();
   const heads: Cell[] = [{ text: 'Concepto', width: conceptW, bold: true }];
   input.view.positions.forEach((position) => {
-    const vacancies = `${position.vacancies} vacante${position.vacancies === 1 ? '' : 's'}`;
     const site = position.site ? ` · ${position.site}` : '';
     heads.push({
-      text: `POSICIÓN ${position.item}: ${position.name}\n(${vacancies}${site})`,
+      text: `POSICIÓN ${position.item}: ${position.name}\n(costo de 1 puesto${site})`,
       width: colW,
       align: 'right',
       bold: true,
     });
   });
   heads.push({
-    text: `Total mensual consolidado\n(${terms.currencyName} ${terms.currencySymbol || 'S/'})`,
+    text: 'Suma de 1 puesto\nLa última línea ya multiplica la cantidad',
     width: colW,
     align: 'right',
     bold: true,
@@ -460,7 +458,7 @@ function drawAnnexTable(sheet: Sheet, input: QuoteDocumentInput, symbol: string)
   );
   let lastGroup = '';
   const paintConcept = (concept: QuoteConceptRow) => {
-    if (concept.key !== 'labor' && concept.group !== lastGroup) {
+    if (!['laborUnit', 'quantity', 'labor'].includes(concept.key) && concept.group !== lastGroup) {
       lastGroup = concept.group;
       drawCells(
         sheet,
@@ -469,9 +467,10 @@ function drawAnnexTable(sheet: Sheet, input: QuoteDocumentInput, symbol: string)
       );
     }
     const finalRow = concept.emphasize === 'final';
+    const show = (amount: number) => (concept.format === 'count' ? String(Math.round(amount)) : quoteMoney(amount));
     const cells: Cell[] = [{ text: concept.label, width: conceptW, bold: finalRow }];
-    concept.amounts.forEach((amount) => cells.push({ text: quoteMoney(amount), width: colW, align: 'right', bold: finalRow }));
-    cells.push({ text: quoteMoney(concept.total), width: colW, align: 'right', bold: finalRow });
+    concept.amounts.forEach((amount) => cells.push({ text: show(amount), width: colW, align: 'right', bold: finalRow }));
+    cells.push({ text: show(concept.total), width: colW, align: 'right', bold: finalRow });
     drawCells(sheet, cells, finalRow ? { fill: NAVY, color: WHITE, size, minH: 5.2 } : { fill: WHITE, color: INK, size, minH: 4.8 });
   };
   if (!concepts.length) {
@@ -630,8 +629,8 @@ function compose(doc: jsPDF, input: QuoteDocumentInput, logo: LogoMark | null, f
   sheet.footerLeft = 'Opalo · Anexo de costos de personal';
   sheet.startAnnex(landscape, fixed?.annexH);
   drawHeader(sheet, logo, 'ANEXO 1', `Ref: ${code}`);
-  drawBanner(sheet, 'Anexo 1: Desglose y estructura económica de personal', `Cliente: ${client} · ${note} · Los importes de cada columna corresponden a todas las vacantes del puesto`);
-  drawParagraph(sheet, 'Cada puesto detalla la remuneración básica, la asignación familiar, la condición de trabajo, las provisiones laborales y los aportes y seguros de ley. Debajo se agregan los gastos operativos, los gastos administrativos y el margen de utilidad.', { size: 8.5 });
+  drawBanner(sheet, 'Anexo 1: Desglose y estructura económica de personal', `Cliente: ${client} · ${note} · Cada columna es el costo de 1 puesto. La cantidad se aplica en la línea de costo laboral total`);
+  drawParagraph(sheet, 'Cada puesto detalla la remuneración, las provisiones y los aportes de 1 persona. La cantidad indicada multiplica ese costo en la línea de costo laboral total. Debajo se agregan los gastos operativos, los gastos administrativos y el margen de utilidad.', { size: 8.5 });
   drawAnnexTable(sheet, input, symbol);
   const operational = (payload.model.operational || [])
     .map((line, index) => ({ description: line.description, amount: input.view.computed.operational[index]?.amount || 0 }))

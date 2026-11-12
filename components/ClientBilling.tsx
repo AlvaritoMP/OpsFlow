@@ -54,7 +54,13 @@ import {
 } from '../services/clientBillingService';
 import { usersService } from '../services/usersService';
 import { listQuotes, QuoteRecord } from '../services/quoteProposalService';
-import { applyQuoteCommercials } from '../utils/quoteProposal';
+import {
+  applyQuoteCommercials,
+  assignWorkerQuotePosition,
+  clearWorkerQuotePosition,
+  quoteCatalogForBilling,
+  workersMissingQuotePosition,
+} from '../utils/quoteProposal';
 import { registerBillingServiceOrder } from '../services/billingOpalosisService';
 import { BillingFormulaEditor } from './BillingFormulaEditor';
 import { BillingRunCompare } from './BillingRunCompare';
@@ -68,6 +74,7 @@ import {
   BillingInternalTab,
   adjustmentAmount,
   BillingRates,
+  BillingQuotePosition,
   BillingWorkerInput,
   ClientBillingModel,
   ComputedWorker,
@@ -486,7 +493,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         createKind === 'projection' && quote
           ? `Proyección armada con ${quote.code}: ${model.workers.length} puestos y ${seats} vacantes. No se trajeron trabajadores ni novedades de la unidad.`
           : quote
-            ? `Borrador real armado con el personal del corte. Los parámetros, los costos y la utilidad salieron de ${quote.code}. Los trabajadores de la unidad se mantienen.${baseNote}`
+            ? `Borrador real armado con el personal del corte. Los parámetros y los costos salieron de ${quote.code}. Asigne a cada trabajador un puesto de esa propuesta: el cargo de la unidad puede ser otro.${baseNote}`
             : `Borrador real armado con el personal activo y con quien trabajó en el corte. Las faltas se tomaron del ${formatAttendanceRange(model.attendanceFrom, model.attendanceTo)}.${baseNote}`
       );
     } catch (error) {
@@ -519,6 +526,27 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     );
   };
 
+  const assignQuotePosition = (workerId: string, positionId: string) => {
+    setEditor((current) => {
+      if (!current) return current;
+      const catalog = current.model.sourceQuotePositions?.length
+        ? current.model.sourceQuotePositions
+        : quoteCatalogForBilling(current.model, quotes);
+      const position = catalog.find((item) => item.id === positionId);
+      return {
+        ...current,
+        model: {
+          ...current.model,
+          sourceQuotePositions: current.model.sourceQuotePositions?.length ? current.model.sourceQuotePositions : catalog,
+          workers: current.model.workers.map((worker) => {
+            if (worker.id !== workerId) return worker;
+            return position ? assignWorkerQuotePosition(worker, position) : clearWorkerQuotePosition(worker);
+          }),
+        },
+      };
+    });
+  };
+
   const useQuote = (quoteId: string) => {
     if (!editor || locked || !quoteId) return;
     const quote = quotes.find((item) => item.id === quoteId);
@@ -527,14 +555,14 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     const confirmed = window.confirm(
       projection
         ? `Se reemplazan los puestos, los parámetros, los costos operativos, los administrativos y la utilidad con los de ${quote.code}. Esta proyección no usa el personal de la unidad.`
-        : `Se copian los parámetros, los costos operativos, los administrativos y la utilidad de ${quote.code}. Los trabajadores del corte se mantienen.`
+        : `Se copian los parámetros, los costos operativos, los administrativos y la utilidad de ${quote.code}. Los trabajadores del corte se mantienen, y hay que asignarle a cada uno un puesto de la propuesta.`
     );
     if (!confirmed) return;
     setEditor({ ...editor, model: applyQuoteCommercials(editor.model, quote, { keepWorkers: !projection }) });
     setBanner(
       projection
         ? `La proyección tomó los puestos y los costos de ${quote.code}. Guarde para conservarlos.`
-        : `La liquidación real tomó los parámetros y los costos de ${quote.code}. El personal del corte sigue en el costo laboral. Guarde para conservarlos.`
+        : `La liquidación real tomó los parámetros y los costos de ${quote.code}. Asigne el puesto de la propuesta a cada trabajador. Guarde para conservarlos.`
     );
   };
 
@@ -717,6 +745,19 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
           : 'El descuento necesita una justificación. Sin ese texto no se emite.'
       );
       return false;
+    }
+    if (status === 'issued' || status === 'archived') {
+      const pending = workersMissingQuotePosition(origin.model, quoteCatalogForBilling(origin.model, quotes));
+      if (pending.length) {
+        const names = pending
+          .slice(0, 3)
+          .map((worker) => worker.name || 'Sin nombre')
+          .join(', ');
+        setBanner(
+          `Asigne un puesto de la propuesta a cada trabajador incluido. Faltan ${pending.length}: ${names}${pending.length > 3 ? '…' : ''}.`
+        );
+        return false;
+      }
     }
     if (status !== 'issued' && status !== 'archived' && !origin.id) {
       setBanner('Guarde la liquidación antes de anularla.');
@@ -1253,7 +1294,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                         ? ownQuotes.length > 0
                           ? 'Se copian los puestos, la cantidad, los parámetros, los costos y la utilidad. No entra el personal de la unidad.'
                           : 'Este cliente no tiene propuestas. Puede elegir una de otro cliente, o crear la cotización primero.'
-                        : 'Si elige una propuesta, copia parámetros, costos operativos, administrativos y utilidad. Los trabajadores del corte se quedan.'}
+                        : 'Si elige una propuesta, copia parámetros, costos operativos, administrativos y utilidad. Los trabajadores del corte se quedan, y a cada uno hay que asignarle un puesto de esa propuesta.'}
                     </span>
                   </label>
                   <label className="text-sm text-slate-600 md:col-span-2">
@@ -1577,6 +1618,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             }}
             onPatchModel={patchModel}
             onPatchWorker={patchWorker}
+            onAssignQuotePosition={assignQuotePosition}
             onPatchRates={patchRates}
             onSave={() => void save()}
             onSaveEssalud={() => void saveEssaludFixed()}
@@ -1845,6 +1887,7 @@ function EditorView(props: {
   onBack: () => void;
   onPatchModel: (patch: Partial<ClientBillingModel>) => void;
   onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
+  onAssignQuotePosition: (workerId: string, positionId: string) => void;
   onPatchRates: (patch: Partial<BillingRates>) => void;
   onSave: () => void;
   onSaveEssalud: () => void;
@@ -1865,13 +1908,16 @@ function EditorView(props: {
 }) {
   const { editor, computed, locked } = props;
   const projection = isProjectionBilling(editor.model);
+  const quotePositions = quoteCatalogForBilling(editor.model, props.quotes);
+  const missingQuotePositions = workersMissingQuotePosition(editor.model, quotePositions);
   const compositionTotal = computed.laborTotal + computed.operationalTotal + computed.adminTotal + computed.profitAmount;
   const workerMap = new Map(computed.workers.map((worker) => [worker.id, worker]));
   const windowWorkers = workersInAttendanceWindow(editor.periodMonth, editor.model);
   const filteredWorkers = windowWorkers.filter((worker) => {
     const q = props.workerQuery.trim().toLowerCase();
     if (!q) return true;
-    return `${worker.name} ${worker.position} ${worker.dni || ''}`.toLowerCase().includes(q);
+    const assigned = quotePositions.find((position) => position.id === worker.quotePositionId);
+    return `${worker.name} ${worker.unitPosition || ''} ${worker.position} ${assigned?.name || ''} ${worker.dni || ''}`.toLowerCase().includes(q);
   });
   const includedCount = windowWorkers.filter((worker) => worker.included).length;
   const [excelWithFormulas, setExcelWithFormulas] = useState(false);
@@ -2182,6 +2228,8 @@ function EditorView(props: {
                   <span>
                     {projection
                       ? 'Cada fila es un puesto de la propuesta, sin nombre ni apellido. La cantidad son las vacantes y multiplica el costo. No hay faltas ni asistencia de la unidad.'
+                      : sheetMode === 'costs' && quotePositions.length
+                        ? `Asigne a cada trabajador un puesto de ${editor.model.sourceQuoteCode || 'la propuesta'}. El cargo de la unidad puede ser otro. El sueldo, las horas y los bonos pasan a ser los de ese puesto, para 1 persona. Los días y las faltas siguen el corte.${missingQuotePositions.length ? ` Falta asignar ${missingQuotePositions.length}.` : ''}`
                       : sheetMode === 'costs'
                       ? showRolled
                         ? 'Vista de cliente: las horas extra nocturnas quedan en cero y su importe está sumado al bono nocturno, además del bono que ya correspondía. Las diurnas siguen en su columna. Remuneración, cargas y costo siguen el cálculo real. Vuelva a Detalle real para editar las horas nocturnas.'
@@ -2301,8 +2349,10 @@ function EditorView(props: {
                   locked={locked}
                   showRolled={showRolled}
                   projection={projection}
+                  quotePositions={quotePositions}
                   authorName={props.authorName}
                   onPatchWorker={props.onPatchWorker}
+                  onAssignQuotePosition={props.onAssignQuotePosition}
                   onRemove={(id) => props.onPatchModel({ workers: editor.model.workers.filter((item) => item.id !== id) })}
                 />
               ) : (
@@ -2617,7 +2667,10 @@ function DayGlanceSheet(props: {
                 <tr key={worker.id} className={worker.included ? '' : 'opacity-50'}>
                   <td className="sticky left-0 z-20 bg-white px-2 py-1 border-t border-slate-100 min-w-[180px]">
                     <div className="font-medium text-slate-800 truncate max-w-[200px]">{worker.name || 'Sin nombre'}</div>
-                    <div className="text-[10px] text-slate-400 truncate">{worker.position || (worker.resourceId ? '' : 'Manual, sin ficha')}</div>
+                    <div className="text-[10px] text-slate-400 truncate">
+                      {worker.unitPosition || worker.position || (worker.resourceId ? '' : 'Manual, sin ficha')}
+                      {worker.quotePositionId && worker.position && worker.position !== (worker.unitPosition || '') ? ` · se liquida como ${worker.position}` : ''}
+                    </div>
                     <WorkerTenure worker={worker} />
                   </td>
                   {props.glance.days.map((iso) => {
@@ -2655,8 +2708,10 @@ function LaborSheet(props: {
   locked: boolean;
   showRolled: boolean;
   projection?: boolean;
+  quotePositions?: BillingQuotePosition[];
   authorName: string;
   onPatchWorker: (id: string, patch: Partial<BillingWorkerInput>) => void;
+  onAssignQuotePosition?: (workerId: string, positionId: string) => void;
   onRemove: (id: string) => void;
 }) {
   const [adjustmentEdit, setAdjustmentEdit] = useState<{ workerId: string; field: BillingAdjustmentKey } | null>(null);
@@ -2668,6 +2723,7 @@ function LaborSheet(props: {
   const headLeft = `${head} text-left`;
   const foot = 'sticky bottom-0 z-20 bg-slate-100 px-1.5 py-2 border-t-2 border-slate-300 whitespace-nowrap';
   const say = (id: string) => describeFormula(id, props.formulas);
+  const assignQuote = !props.projection && Boolean(props.quotePositions?.length);
   const essaludFixed = props.rates.essaludMode === 'fixed';
   const billed = props.workers.filter((worker) => worker.included);
   const totalOf = (pick: (worker: BillingWorkerInput, line?: ComputedWorker) => number) =>
@@ -2717,7 +2773,8 @@ function LaborSheet(props: {
             <th className={`${headLeft} sticky left-8 z-30 min-w-[180px] bg-slate-100`}>{props.projection ? 'Puesto' : 'Trabajador'}</th>
             {!props.projection && <th className={headLeft} title="Fecha de inicio en la ficha">Inicio</th>}
             {!props.projection && <th className={headLeft} title="Fecha de cese en la ficha. Vacío si sigue activo">Cese</th>}
-            {!props.projection && <th className={headLeft}>Puesto</th>}
+            {!props.projection && <th className={headLeft}>{assignQuote ? 'Puesto en la unidad' : 'Puesto'}</th>}
+            {assignQuote && <th className={headLeft} title="Puesto de la propuesta con el que se calcula a esta persona. Puede ser distinto del cargo en la unidad.">Puesto de la propuesta</th>}
             <th className={head}>Sueldo</th>
             {!props.projection && <th className={head} title="Días del corte, antes de restar faltas">Días corte</th>}
             {!props.projection && <th className={head}>Faltas</th>}
@@ -2786,7 +2843,37 @@ function LaborSheet(props: {
                   {formatBillingDate(worker.endDate) || '—'}
                 </td>
                 )}
-                {!props.projection && <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position || ''} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>}
+                {!props.projection && (
+                  assignQuote ? (
+                    <td className="px-1.5 py-1 whitespace-nowrap text-slate-600" title="Cargo en la ficha de la unidad">
+                      {worker.unitPosition || (worker.quotePositionId ? '—' : worker.position) || '—'}
+                    </td>
+                  ) : (
+                    <td className="px-1 py-1"><input className={`${gridText} w-36`} disabled={props.locked} value={worker.position || ''} onChange={(event) => props.onPatchWorker(worker.id, { position: event.target.value })} /></td>
+                  )
+                )}
+                {assignQuote && (
+                  <td className="px-1 py-1">
+                    <select
+                      className={`${gridText} min-w-[12rem] ${worker.included && !props.quotePositions?.some((position) => position.id === worker.quotePositionId) ? 'border-amber-400 bg-amber-50' : ''}`}
+                      disabled={props.locked}
+                      value={props.quotePositions?.some((position) => position.id === worker.quotePositionId) ? worker.quotePositionId || '' : ''}
+                      title={
+                        worker.unitPosition && worker.quotePositionId && worker.position !== worker.unitPosition
+                          ? `En la unidad figura ${worker.unitPosition}. Se liquida como ${worker.position}.`
+                          : 'Elija el puesto de la propuesta. El cargo de la unidad puede ser otro.'
+                      }
+                      onChange={(event) => props.onAssignQuotePosition?.(worker.id, event.target.value)}
+                    >
+                      <option value="">Elija el puesto</option>
+                      {(props.quotePositions || []).map((position) => (
+                        <option key={position.id} value={position.id}>
+                          {position.site ? `${position.name} · ${position.site}` : position.name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                )}
                 <td className="px-1 py-1"><GridNum amber={isAdjusted(worker, 'contractualSalary')} title={hint(worker, 'contractualSalary')} disabled={props.locked} value={worker.contractualSalary} onChange={salary} /></td>
                 {!props.projection && <td className="px-1.5 py-1 text-right tabular-nums text-slate-500">{worker.calendarDays ?? '—'}</td>}
                 {!props.projection && (
@@ -2907,6 +2994,7 @@ function LaborSheet(props: {
             {!props.projection && <td className={foot} />}
             {!props.projection && <td className={foot} />}
             {!props.projection && <td className={foot} />}
+            {assignQuote && <td className={foot} />}
             <td className={foot}><GridMoney value={totalOf((worker) => worker.contractualSalary)} strong /></td>
             {!props.projection && <td className={foot}><GridMoney value={totalOf((worker) => worker.calendarDays || 0)} strong /></td>}
             {!props.projection && <td className={foot}><GridMoney value={totalOf((worker) => worker.absenceDays || 0)} strong /></td>}

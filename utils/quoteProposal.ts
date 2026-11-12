@@ -1,5 +1,6 @@
 import {
   BillingComputation,
+  BillingQuotePosition,
   BillingRates,
   BillingWorkerInput,
   ClientBillingModel,
@@ -9,6 +10,7 @@ import {
   cloneModel,
   defaultAdministrativeLines,
   emptyBillingModel,
+  isProjectionBilling,
   newBillingId,
   normalizeBillingRates,
   round2,
@@ -56,6 +58,8 @@ export interface QuoteConceptRow {
   label: string;
   group: 'remuneracion' | 'provisiones' | 'aportes';
   emphasize?: 'sub' | 'final';
+  /** La cantidad se muestra como número de puestos, no como importe. */
+  format?: 'money' | 'count';
   amounts: number[];
   total: number;
 }
@@ -74,7 +78,10 @@ export interface QuotePositionColumn {
   name: string;
   site: string;
   vacancies: number;
+  /** Costo laboral de 1 puesto. */
   laborMonth: number;
+  /** Costo laboral de 1 puesto multiplicado por la cantidad. */
+  laborTotal: number;
 }
 
 export interface QuoteView {
@@ -172,7 +179,7 @@ export function defaultQuoteNotes(): string[] {
     'Los montos consignados en el presente anexo no incluyen el Impuesto General a las Ventas (IGV {igv}%).',
     'La asignación familiar aplica conforme a la Ley N° 25129 para colaboradores con carga familiar acreditada. En esta propuesta solo está cargada en los puestos que la incluyen.',
     'Las provisiones laborales (gratificación y bonificación extraordinaria de la Ley N.° 30334, CTS y vacaciones) y los aportes y seguros de ley (EsSalud, SCTR salud y pensión, y Vida Ley) se calculan con el mismo método de una liquidación.',
-    'Cada columna ya multiplica las vacantes del puesto. Los costos operativos, los gastos administrativos y la utilidad se calculan sobre la propuesta completa, igual que en una liquidación, y no se prorratean dentro del sueldo.',
+    'Cada columna es el costo de 1 puesto. La cantidad se aplica solo en la línea de costo laboral total. Los costos operativos, los gastos administrativos y la utilidad se calculan sobre ese total, igual que en una liquidación, y no se prorratean dentro del sueldo.',
     'No se incluyen alimentación ni horas extraordinarias no programadas. Esas horas se liquidan con autorización previa del cliente.',
   ];
 }
@@ -273,16 +280,135 @@ export function applyQuoteCommercials(
   next.administrative = (source.administrative || []).map((line) => ({ ...line, id: newBillingId() }));
   if (options?.keepWorkers) {
     next.billingKind = 'real';
+    next.sourceQuotePositions = snapshotQuotePositions(source);
+    next.workers = next.workers.map((worker) => prepareWorkerForQuoteAssignment(worker));
   } else {
     next.workers = quotePositions(source)
       .filter((position) => position.included)
       .map((position) => workerFromQuotePosition(position));
     next.billingKind = 'projection';
+    next.sourceQuotePositions = undefined;
   }
   next.sourceQuoteId = quote.id;
   next.sourceQuoteCode = quote.code.trim();
   if (!next.opalosisPesCode?.trim()) next.opalosisPesCode = next.sourceQuoteCode;
   return next;
+}
+
+export function snapshotQuotePositions(model: ClientBillingModel): BillingQuotePosition[] {
+  return quotePositions(model)
+    .filter((position) => position.included)
+    .map((position) => ({
+      id: position.id,
+      name: position.name.trim() || position.position.trim() || 'Puesto',
+      site: position.site || '',
+      quantity: Math.max(1, Math.round(num(position.factor) || 1)),
+      contractualSalary: num(position.contractualSalary),
+      familyAllowance: num(position.familyAllowance),
+      workCondition: num(position.workCondition),
+      bonus: num(position.bonus),
+      bonusConcept: position.bonusConcept,
+      he25Hours: num(position.he25Hours),
+      he25Manual: manualOrNull(position.he25Manual),
+      he35Hours: num(position.he35Hours),
+      he35Manual: manualOrNull(position.he35Manual),
+      heNight25Hours: num(position.heNight25Hours),
+      heNight25Manual: manualOrNull(position.heNight25Manual),
+      heNight35Hours: num(position.heNight35Hours),
+      heNight35Manual: manualOrNull(position.heNight35Manual),
+      nightHours: num(position.nightHours),
+      nightManual: manualOrNull(position.nightManual),
+      socialBaseManual: Boolean(position.socialBaseManual),
+      socialBase: num(position.socialBase),
+    }));
+}
+
+export function quoteCatalogForBilling(
+  model: ClientBillingModel,
+  quotes: Array<{ id: string; payload: QuoteProposalPayload }>
+): BillingQuotePosition[] {
+  if (!model.sourceQuoteId || isProjectionBilling(model)) return [];
+  if (model.sourceQuotePositions?.length) return model.sourceQuotePositions;
+  const quote = quotes.find((item) => item.id === model.sourceQuoteId);
+  return quote ? snapshotQuotePositions(normalizeQuotePayload(quote.payload).model) : [];
+}
+
+export function workersMissingQuotePosition(model: ClientBillingModel, catalog: BillingQuotePosition[]): BillingWorkerInput[] {
+  if (!catalog.length || isProjectionBilling(model)) return [];
+  const ids = new Set(catalog.map((position) => position.id));
+  return model.workers.filter((worker) => worker.included && !ids.has(worker.quotePositionId || ''));
+}
+
+/** Deja a la persona con su cargo de unidad y sin puesto de propuesta, para que el usuario lo elija. */
+export function prepareWorkerForQuoteAssignment(worker: BillingWorkerInput): BillingWorkerInput {
+  const cleared = worker.quotePositionId ? clearWorkerQuotePosition(worker) : worker;
+  return {
+    ...cleared,
+    unitPosition: cleared.unitPosition || cleared.position || '',
+    quotePositionId: undefined,
+  };
+}
+
+/** Copia el costo de 1 puesto. Los días, las faltas y la identidad siguen siendo los del corte. */
+export function assignWorkerQuotePosition(worker: BillingWorkerInput, position: BillingQuotePosition): BillingWorkerInput {
+  const salary = num(position.contractualSalary);
+  return {
+    ...worker,
+    unitPosition: worker.unitPosition || worker.position || '',
+    quotePositionId: position.id,
+    position: position.name,
+    contractualSalary: salary,
+    socialBaseManual: position.socialBaseManual,
+    socialBase: position.socialBaseManual ? num(position.socialBase) : salary,
+    familyAllowance: num(position.familyAllowance),
+    workCondition: num(position.workCondition),
+    bonus: num(position.bonus),
+    bonusConcept: position.bonusConcept,
+    he25Hours: num(position.he25Hours),
+    he25Manual: manualOrNull(position.he25Manual),
+    he35Hours: num(position.he35Hours),
+    he35Manual: manualOrNull(position.he35Manual),
+    heNight25Hours: num(position.heNight25Hours),
+    heNight25Manual: manualOrNull(position.heNight25Manual),
+    heNight35Hours: num(position.heNight35Hours),
+    heNight35Manual: manualOrNull(position.heNight35Manual),
+    nightHours: num(position.nightHours),
+    nightManual: manualOrNull(position.nightManual),
+    factor: 1,
+  };
+}
+
+export function clearWorkerQuotePosition(worker: BillingWorkerInput): BillingWorkerInput {
+  const unitPosition = worker.unitPosition || worker.position || '';
+  const suggested = worker.suggested;
+  const salary = suggested ? num(suggested.contractualSalary) : num(worker.contractualSalary);
+  return {
+    ...worker,
+    quotePositionId: undefined,
+    unitPosition,
+    position: unitPosition,
+    contractualSalary: salary,
+    socialBaseManual: false,
+    socialBase: salary,
+    familyAllowance: suggested ? num(suggested.familyAllowance) : num(worker.familyAllowance),
+    workCondition: suggested ? num(suggested.workCondition) : num(worker.workCondition),
+    bonus: suggested ? num(suggested.bonus) : num(worker.bonus),
+    he25Hours: 0,
+    he25Manual: null,
+    he35Hours: 0,
+    he35Manual: null,
+    heNight25Hours: 0,
+    heNight25Manual: null,
+    heNight35Hours: 0,
+    heNight35Manual: null,
+    nightHours: 0,
+    nightManual: null,
+    factor: 1,
+  };
+}
+
+function manualOrNull(value: number | null | undefined): number | null {
+  return value !== null && value !== undefined && Number.isFinite(value) ? value : null;
 }
 
 function workerFromQuotePosition(position: QuotePosition): BillingWorkerInput {
@@ -465,14 +591,12 @@ export function buildQuoteView(payload: QuoteProposalPayload): QuoteView {
       name: worker.name || 'Puesto',
       site: worker.site || '',
       vacancies: Math.max(1, Math.round(num(worker.factor) || 1)),
-      laborMonth: line.totalCost,
+      laborMonth: line.monthlyCost,
+      laborTotal: line.totalCost,
     };
   });
   const concepts: QuoteConceptRow[] = conceptDefs(rates).map((concept) => {
-    const amounts = included.map((worker) => {
-      const line = lines.get(worker.id)!;
-      return concept.pick(worker, line) * num(worker.factor);
-    });
+    const amounts = included.map((worker) => concept.pick(worker, lines.get(worker.id)!));
     return {
       key: concept.key,
       label: concept.label,
@@ -482,21 +606,41 @@ export function buildQuoteView(payload: QuoteProposalPayload): QuoteView {
       total: amounts.reduce((sum, amount) => sum + amount, 0),
     };
   });
-  const laborAmounts = included.map((worker) => lines.get(worker.id)!.totalCost);
-  concepts.push({
-    key: 'labor',
-    label: 'Costo laboral del puesto',
-    group: 'aportes',
-    emphasize: 'final',
-    amounts: laborAmounts,
-    total: laborAmounts.reduce((sum, amount) => sum + amount, 0),
-  });
+  const unitLabor = included.map((worker) => lines.get(worker.id)!.monthlyCost);
+  const quantities = included.map((worker) => Math.max(1, Math.round(num(worker.factor) || 1)));
+  const extendedLabor = included.map((worker) => lines.get(worker.id)!.totalCost);
+  concepts.push(
+    {
+      key: 'laborUnit',
+      label: 'Costo laboral de 1 puesto',
+      group: 'aportes',
+      emphasize: 'sub',
+      amounts: unitLabor,
+      total: unitLabor.reduce((sum, amount) => sum + amount, 0),
+    },
+    {
+      key: 'quantity',
+      label: 'Cantidad de puestos',
+      group: 'aportes',
+      format: 'count',
+      amounts: quantities,
+      total: quantities.reduce((sum, amount) => sum + amount, 0),
+    },
+    {
+      key: 'labor',
+      label: 'Costo laboral total',
+      group: 'aportes',
+      emphasize: 'final',
+      amounts: extendedLabor,
+      total: extendedLabor.reduce((sum, amount) => sum + amount, 0),
+    }
+  );
 
   const summary: QuoteSummaryRow[] = positions.map((position) => ({
     item: position.item,
     quantity: String(position.vacancies),
     description: position.site ? `${position.name} · ${position.site}` : position.name,
-    amount: position.laborMonth,
+    amount: position.laborTotal,
     kind: 'position',
   }));
   (model.operational || []).forEach((line, index) => {

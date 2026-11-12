@@ -40,25 +40,26 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
 
   const positionHeads = view.positions
     .map(
-      (position) => `<th class="text-right">POSICIÓN ${esc(position.item)}: ${esc(position.name)}<br><span class="th-sub">(${position.vacancies} vacante${position.vacancies === 1 ? '' : 's'}${position.site ? ` · ${esc(position.site)}` : ''})</span></th>`
+      (position) => `<th class="text-right">POSICIÓN ${esc(position.item)}: ${esc(position.name)}<br><span class="th-sub">(costo de 1 puesto${position.site ? ` · ${esc(position.site)}` : ''})</span></th>`
     )
     .join('');
 
   const optionalRows = new Set(['he25', 'he35', 'heNight25', 'heNight35', 'night', 'bonus', 'feria', 'vidaLey', 'sctr']);
+  const closingRows = new Set(['laborUnit', 'quantity', 'labor']);
   let lastGroup = '';
   const conceptRows = view.concepts
     .filter((concept) => !optionalRows.has(concept.key) || concept.amounts.some((amount) => Math.abs(amount) >= 0.005))
     .map((concept) => {
-      const header =
-        concept.key === 'labor'
-          ? ''
-          : concept.group !== lastGroup
-            ? ((lastGroup = concept.group),
-              `<tr class="subhead-row"><td colspan="${columns}">${groupTitle(concept.group)}</td></tr>`)
-            : '';
-      const cells = concept.amounts.map((amount) => `<td class="text-right">${money(amount)}</td>`).join('');
+      const header = closingRows.has(concept.key)
+        ? ''
+        : concept.group !== lastGroup
+          ? ((lastGroup = concept.group),
+            `<tr class="subhead-row"><td colspan="${columns}">${groupTitle(concept.group)}</td></tr>`)
+          : '';
+      const show = (amount: number) => (concept.format === 'count' ? String(Math.round(amount)) : money(amount));
+      const cells = concept.amounts.map((amount) => `<td class="text-right">${show(amount)}</td>`).join('');
       const klass = concept.emphasize === 'final' ? 'row-total-final' : concept.emphasize === 'sub' ? 'row-highlight' : '';
-      return `${header}<tr class="${klass}"><td>${esc(concept.label)}</td>${cells}<td class="text-right">${money(concept.total)}</td></tr>`;
+      return `${header}<tr class="${klass}"><td>${esc(concept.label)}</td>${cells}<td class="text-right">${show(concept.total)}</td></tr>`;
     })
     .join('');
 
@@ -276,9 +277,9 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
       </div>
       <div class="anexo-header-box">
         <h2 class="anexo-title">Anexo 1: Desglose y estructura económica de personal</h2>
-        <div class="anexo-subtitle">Cliente: <strong>${esc(client)}</strong> · ${esc(moneyNote)} · Los importes de cada columna corresponden a todas las vacantes del puesto</div>
+        <div class="anexo-subtitle">Cliente: <strong>${esc(client)}</strong> · ${esc(moneyNote)} · Cada columna es el costo de 1 puesto. La cantidad se aplica en la línea de costo laboral total</div>
       </div>
-      <p class="letter-body">Cada puesto detalla la remuneración básica, la asignación familiar, la condición de trabajo, las provisiones laborales y los aportes y seguros de ley. Debajo se agregan los gastos operativos, los gastos administrativos y el margen de utilidad.</p>
+      <p class="letter-body">Cada puesto detalla la remuneración, las provisiones y los aportes de 1 persona. La cantidad indicada multiplica ese costo en la línea de costo laboral total. Debajo se agregan los gastos operativos, los gastos administrativos y el margen de utilidad.</p>
       <table class="data-table">
         <colgroup>
           <col style="width: 36%;">
@@ -292,7 +293,7 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
           <tr>
             <th>Concepto</th>
             ${positionHeads}
-            <th class="text-right">Total mensual consolidado<br><span class="th-sub">(${esc(terms.currencyName)} ${esc(symbol)})</span></th>
+            <th class="text-right">Suma de 1 puesto<br><span class="th-sub">La última línea ya multiplica la cantidad</span></th>
           </tr>
         </thead>
         <tbody>
