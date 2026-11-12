@@ -123,12 +123,18 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
     ? `<div class="logo-frame"><img src="${esc(input.logoUrl)}" alt="Opalo" class="logo-img"></div>`
     : '<div class="logo-word">Opalo</div>';
   const vacancies = view.positions.reduce((sum, position) => sum + position.vacancies, 0);
+  const categoryRow = (label: string, amount: number) =>
+    `<tr><td></td><td></td><td>${esc(label)}</td><td class="text-right">${esc(symbol)} ${money(amount)}</td></tr>`;
   const serviceRow = `<tr>
         <td class="text-center">01</td>
         <td class="text-center">${vacancies || 1}</td>
         <td><strong>${esc(service)}</strong></td>
-        <td class="text-right">${esc(symbol)} ${money(view.computed.grandTotal)}</td>
-      </tr>`;
+        <td></td>
+      </tr>
+      ${categoryRow('Costo laboral', view.computed.laborTotal)}
+      ${categoryRow('Costo operativo', view.computed.operationalTotal)}
+      ${categoryRow('Gastos administrativos', view.computed.adminTotal)}
+      ${categoryRow('Utilidad', view.computed.profitAmount)}`;
   const scope = String(payload.serviceScope || '').trim();
   const annexClass = annexNeedsLandscape(view.positions.length) ? 'page page-anexo' : 'page';
 

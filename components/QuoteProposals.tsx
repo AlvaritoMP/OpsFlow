@@ -710,12 +710,6 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           <Stat label={`${editor.payload.months} meses`} value={pen(view.periodWithIgv)} />
         </div>
 
-        <QuoteCostBreakdown
-          view={view}
-          operational={editor.payload.model.operational}
-          administrative={editor.payload.model.administrative}
-        />
-
         <div className="shrink-0 flex gap-1 overflow-x-auto">
           {(
             [
@@ -1389,72 +1383,6 @@ function Num(props: { value: number; disabled?: boolean; step?: string; onChange
 
 function Money({ value }: { value?: number }) {
   return <td className="px-2 py-1.5 text-right tabular-nums text-sm text-slate-700">{pen(value || 0)}</td>;
-}
-
-function QuoteCostBreakdown(props: {
-  view: NonNullable<ReturnType<typeof buildQuoteView>>;
-  operational: BillingCostLine[];
-  administrative: BillingCostLine[];
-}) {
-  const vacancies = props.view.positions.map((position) => position.vacancies);
-  const laborRows = props.view.concepts
-    .filter((concept) => concept.key !== 'laborUnit' && concept.key !== 'quantity' && concept.key !== 'labor')
-    .map((concept) => ({
-      label: concept.label,
-      amount: concept.amounts.reduce((sum, amount, index) => sum + amount * (vacancies[index] || 1), 0),
-    }))
-    .filter((row) => Math.abs(row.amount) >= 0.005);
-  const operationalRows = props.operational.map((line, index) => ({
-    label: line.description?.trim() || 'Costo operativo',
-    amount: props.view.computed.operational[index]?.amount || 0,
-  }));
-  const administrativeRows = props.administrative.map((line, index) => ({
-    label: line.description?.trim() || 'Gasto administrativo',
-    amount: props.view.computed.administrative[index]?.amount || 0,
-  }));
-  const profitNote = props.view.summary.find((row) => row.kind === 'profit')?.description || '';
-  return (
-    <section className="shrink-0 bg-white border border-slate-200 rounded-xl p-3">
-      <h2 className="text-sm font-semibold text-slate-900">Detalle del resumen</h2>
-      <p className="text-[11px] text-slate-400 mt-0.5 mb-3">Los importes del costo laboral ya multiplican la cantidad de cada puesto y suman el total de arriba.</p>
-      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3 max-h-56 overflow-auto">
-        <CostLines title="Costo laboral" total={props.view.computed.laborTotal} rows={laborRows} empty="Sin puestos incluidos." />
-        <CostLines title="Operativo" total={props.view.computed.operationalTotal} rows={operationalRows} empty="Sin costos operativos." />
-        <CostLines title="Administrativo" total={props.view.computed.adminTotal} rows={administrativeRows} empty="Sin gastos administrativos." />
-        <CostLines
-          title="Utilidad"
-          total={props.view.computed.profitAmount}
-          rows={[{ label: 'Base de la utilidad', amount: props.view.computed.profitBaseAmount }]}
-          note={profitNote}
-          empty="Sin utilidad."
-        />
-      </div>
-    </section>
-  );
-}
-
-function CostLines(props: { title: string; total: number; rows: Array<{ label: string; amount: number }>; empty: string; note?: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-2 border-b border-slate-100 pb-1">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{props.title}</h3>
-        <span className="text-sm font-semibold text-slate-900 tabular-nums">{pen(props.total)}</span>
-      </div>
-      {props.note && <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{props.note}</p>}
-      {props.rows.length === 0 ? (
-        <p className="text-xs text-slate-400 mt-2">{props.empty}</p>
-      ) : (
-        <ul className="mt-1 space-y-1">
-          {props.rows.map((row, index) => (
-            <li key={`${row.label}-${index}`} className="flex items-start justify-between gap-3 text-xs">
-              <span className="text-slate-600">{row.label}</span>
-              <span className="tabular-nums text-slate-800 whitespace-nowrap">{pen(row.amount)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

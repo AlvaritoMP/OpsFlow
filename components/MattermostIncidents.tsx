@@ -93,6 +93,21 @@ function norm(value: string | null | undefined): string {
     .trim();
 }
 
+type IncidentSort = 'registered' | 'incident-desc' | 'incident-asc';
+
+function compareIncidents(a: PayrollAttendanceIncident, b: PayrollAttendanceIncident, ascending: boolean): number {
+  const left = a.incidentDate || '';
+  const right = b.incidentDate || '';
+  if (left !== right) {
+    if (!left) return 1;
+    if (!right) return -1;
+    const byDate = left.localeCompare(right);
+    return ascending ? byDate : -byDate;
+  }
+  const byCreated = (a.createdAt || '').localeCompare(b.createdAt || '');
+  return ascending ? byCreated : -byCreated;
+}
+
 export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
   canEdit = false,
   canDelete = false,
@@ -108,6 +123,7 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [reporterQuery, setReporterQuery] = useState('');
+  const [sortBy, setSortBy] = useState<IncidentSort>('registered');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -165,6 +181,12 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
     });
   }, [rows, workerQuery, unitId, dateFrom, dateTo, reporterQuery]);
 
+  const visible = useMemo(() => {
+    if (sortBy === 'registered') return filtered;
+    const ascending = sortBy === 'incident-asc';
+    return [...filtered].sort((a, b) => compareIncidents(a, b, ascending));
+  }, [filtered, sortBy]);
+
   const hasFilters = Boolean(workerQuery || unitId || dateFrom || dateTo || reporterQuery);
 
   const onStatus = async (id: string, status: PayrollAttendanceIncidentStatus) => {
@@ -208,7 +230,8 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
           </h2>
           <p className="text-sm text-slate-500 mt-1 max-w-3xl">
             Todos los <code className="bg-slate-100 px-1 rounded">/falta</code> reportados por
-            supervisores, en orden de registro. Las fotos y CITT se adjuntan en el hilo de Mattermost.
+            supervisores. Por defecto van en orden de registro; puedes reordenarlos por la fecha de
+            la incidencia. Las fotos y CITT se adjuntan en el hilo de Mattermost.
             {canDelete
               ? ' Puedes borrar un expediente de prueba o erróneo; el mensaje en Mattermost no se elimina.'
               : null}
@@ -309,19 +332,33 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[280px]">
-        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold text-slate-800 flex items-center gap-2 text-sm">
             <ClipboardPlus size={16} className="text-teal-700" />
             Reportes
           </h3>
-          <span className="text-xs text-slate-500">
-            {loading ? 'Cargando…' : `${filtered.length} de ${rows.length}`}
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <span className="font-medium">Ordenar por</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as IncidentSort)}
+                className="border border-slate-300 rounded-lg px-2 py-1 text-xs bg-white text-slate-800"
+              >
+                <option value="registered">Registro (más reciente)</option>
+                <option value="incident-desc">Fecha de incidencia (más reciente)</option>
+                <option value="incident-asc">Fecha de incidencia (más antigua)</option>
+              </select>
+            </label>
+            <span className="text-xs text-slate-500">
+              {loading ? 'Cargando…' : `${visible.length} de ${rows.length}`}
+            </span>
+          </div>
         </div>
 
         {loading ? (
           <p className="p-6 text-sm text-slate-400">Cargando reportes de /falta…</p>
-        ) : filtered.length === 0 ? (
+        ) : visible.length === 0 ? (
           <p className="p-6 text-sm text-slate-500">
             {rows.length === 0
               ? 'Aún no hay reportes. Cuando un supervisor use /falta en Mattermost, aparecerán aquí.'
@@ -329,7 +366,7 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
           </p>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {filtered.map((row) => (
+            {visible.map((row) => (
               <li key={row.id} className="p-4 space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
