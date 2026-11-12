@@ -221,6 +221,10 @@ export function normalizeBillingFormulas(input?: BillingFormulaSet | null): Bill
   return next;
 }
 
+export function sameBillingFormulas(left?: BillingFormulaSet | null, right?: BillingFormulaSet | null): boolean {
+  return JSON.stringify(normalizeBillingFormulas(left)) === JSON.stringify(normalizeBillingFormulas(right));
+}
+
 export function formulaLabel(id: string): string {
   return FORMULA_BY_ID.get(id)?.label || INPUT_BY_ID.get(id)?.label || id;
 }

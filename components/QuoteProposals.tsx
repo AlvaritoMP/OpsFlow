@@ -1,16 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Download, FileText, HelpCircle, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, FileText, HelpCircle, History, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { Unit, User } from '../types';
 import { loadPublishedBillingFormulas } from '../services/clientBillingService';
 import {
   deleteQuote,
+  listQuoteVersions,
   listQuotes,
   QuoteRecord,
   QuoteStatus,
+  QuoteVersion,
+  recordQuoteVersion,
   saveQuote,
   setQuoteStatus,
 } from '../services/quoteProposalService';
-import { describeFormula, BillingFormulaSet } from '../utils/billingFormulas';
+import { describeFormula, sameBillingFormulas, BillingFormulaSet } from '../utils/billingFormulas';
 import {
   BillingCostLine,
   BillingRates,
@@ -50,6 +53,7 @@ interface EditorState {
   updatedByName?: string;
   issuedAt?: string;
   issuedByName?: string;
+  versions?: QuoteVersion[];
 }
 
 type TabId = 'positions' | 'ops' | 'admin' | 'params' | 'terms' | 'preview';
@@ -98,6 +102,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
   const [tab, setTab] = useState<TabId>('positions');
   const [busy, setBusy] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [reopenAsk, setReopenAsk] = useState(false);
   const [publishedFormulas, setPublishedFormulas] = useState<BillingFormulaSet | null>(null);
   const [logoUrl, setLogoUrl] = useState('');
   const [createForm, setCreateForm] = useState({
@@ -163,7 +168,8 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     return haystack.includes(query.trim().toLocaleLowerCase('es'));
   });
 
-  const openRecord = (record: QuoteRecord) => {
+  const openRecord = async (record: QuoteRecord) => {
+    const versions = record.id ? await listQuoteVersions(record.id) : [];
     const next: EditorState = {
       id: record.id,
       code: record.code,
@@ -173,6 +179,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
       updatedByName: record.updatedByName,
       issuedAt: record.issuedAt,
       issuedByName: record.issuedByName,
+      versions,
     };
     setEditor(next);
     setBaseline(newQuoteBaseline(next));
@@ -280,6 +287,22 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         actor,
       });
       const issued = await setQuoteStatus(saved.id, 'issued', actor);
+      let historyNote = '';
+      try {
+        await recordQuoteVersion({
+          quoteId: issued.id,
+          action: 'issued',
+          actor,
+          summary: `Emitió la propuesta. Costo laboral ${pen(issued.laborTotal)}. Total con IGV ${pen(issued.totalWithIgv)}.`,
+          laborTotal: issued.laborTotal,
+          grandTotal: issued.grandTotal,
+          totalWithIgv: issued.totalWithIgv,
+          payload: issued.payload,
+        });
+      } catch (error) {
+        historyNote = error instanceof Error ? ` ${error.message}` : ' No se pudo guardar la versión.';
+      }
+      const versions = await listQuoteVersions(issued.id);
       const next: EditorState = {
         ...editor,
         id: issued.id,
@@ -288,10 +311,12 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         issuedAt: issued.issuedAt,
         issuedByName: issued.issuedByName,
         updatedByName: issued.updatedByName,
+        versions,
       };
       setEditor(next);
       setBaseline(newQuoteBaseline(next));
-      setBanner('Propuesta emitida. Para corregir un monto hay que reabrirla.');
+      const versionLabel = versions[0] ? ` Quedó la versión ${versions[0].versionNo} a nombre de ${actor.name}.` : '';
+      setBanner(`Propuesta emitida.${versionLabel}${historyNote} Para corregir un monto hay que reabrirla.`);
       await loadList();
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo emitir.');
@@ -300,15 +325,122 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     }
   };
 
-  const changeStatus = async (status: QuoteStatus) => {
+  const rememberVersion = async (quoteId: string, input: Parameters<typeof recordQuoteVersion>[0]) => {
+    try {
+      await recordQuoteVersion(input);
+      return '';
+    } catch (error) {
+      return error instanceof Error ? ` ${error.message}` : ' No se pudo guardar la versión.';
+    } finally {
+      try {
+        const versions = await listQuoteVersions(quoteId);
+        setEditor((current) => (current && current.id === quoteId ? { ...current, versions } : current));
+      } catch {
+        /* El estado ya cambió. El listado se vuelve a leer al abrir la propuesta. */
+      }
+    }
+  };
+
+  const reopen = async (updateFormulas: boolean) => {
     if (!editor?.id) return;
+    setReopenAsk(false);
+    setBusy('draft');
+    try {
+      let updated = await setQuoteStatus(editor.id, 'draft', actor);
+      let summary = 'Reabrió la propuesta y dejó el cálculo como estaba.';
+      if (updateFormulas) {
+        const formulas = await loadPublishedBillingFormulas();
+        setPublishedFormulas(formulas);
+        if (!formulas) {
+          summary = 'Reabrió la propuesta. No había un método publicado, así que el cálculo quedó como estaba.';
+        } else {
+          updated = await saveQuote({
+            id: updated.id,
+            code: updated.code,
+            clientName: updated.clientName,
+            payload: { ...updated.payload, model: { ...updated.payload.model, formulas } },
+            actor,
+          });
+          summary = 'Reabrió la propuesta y actualizó el cálculo con las fórmulas publicadas.';
+        }
+      }
+      const historyNote = await rememberVersion(updated.id, {
+        quoteId: updated.id,
+        action: 'reopened',
+        actor,
+        summary,
+        laborTotal: updated.laborTotal,
+        grandTotal: updated.grandTotal,
+        totalWithIgv: updated.totalWithIgv,
+      });
+      const versions = await listQuoteVersions(updated.id);
+      const next: EditorState = {
+        ...editor,
+        id: updated.id,
+        status: updated.status,
+        payload: updated.payload,
+        updatedByName: updated.updatedByName,
+        issuedAt: updated.issuedAt,
+        issuedByName: updated.issuedByName,
+        versions,
+      };
+      setEditor(next);
+      setBaseline(newQuoteBaseline(next));
+      setBanner(`${summary}${historyNote}`);
+      await loadList();
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo reabrir.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const askReopen = async () => {
+    if (!editor) return;
+    setBusy('formulas');
+    try {
+      const formulas = await loadPublishedBillingFormulas();
+      setPublishedFormulas(formulas);
+      if (formulas && !sameBillingFormulas(editor.payload.model.formulas, formulas)) {
+        setReopenAsk(true);
+        return;
+      }
+      await reopen(false);
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo leer el método publicado.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const changeStatus = async (status: QuoteStatus) => {
+    if (!editor?.id || status === 'draft') return;
     setBusy(status);
     try {
       const updated = await setQuoteStatus(editor.id, status, actor);
-      const next: EditorState = { ...editor, status: updated.status, issuedAt: updated.issuedAt, issuedByName: updated.issuedByName, updatedByName: updated.updatedByName };
+      const historyNote = await rememberVersion(updated.id, {
+        quoteId: updated.id,
+        action: 'void',
+        actor,
+        summary: 'Anuló la propuesta.',
+        laborTotal: updated.laborTotal,
+        grandTotal: updated.grandTotal,
+        totalWithIgv: updated.totalWithIgv,
+      });
+      const versions = await listQuoteVersions(updated.id);
+      const next: EditorState = {
+        ...editor,
+        id: updated.id,
+        status: updated.status,
+        payload: updated.payload,
+        updatedByName: updated.updatedByName,
+        issuedAt: updated.issuedAt,
+        issuedByName: updated.issuedByName,
+        versions,
+      };
       setEditor(next);
       setBaseline(newQuoteBaseline(next));
-      setBanner(status === 'draft' ? 'Propuesta reabierta.' : 'Propuesta anulada.');
+      setBanner(`Propuesta anulada.${historyNote}`);
       await loadList();
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'No se pudo cambiar el estado.');
@@ -506,10 +638,10 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
               {busy === 'pdf' ? 'Preparando PDF…' : 'Descargar PDF'}
             </button>
             {editor.status === 'issued' && canEdit && (
-              <button type="button" onClick={() => void changeStatus('draft')} className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm">Reabrir</button>
+              <button type="button" onClick={() => void askReopen()} disabled={!!busy} className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm disabled:opacity-60">Reabrir</button>
             )}
             {editor.status === 'void' && canEdit && (
-              <button type="button" onClick={() => void changeStatus('draft')} className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm">Restaurar a borrador</button>
+              <button type="button" onClick={() => void askReopen()} disabled={!!busy} className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm disabled:opacity-60">Restaurar a borrador</button>
             )}
             {editor.status === 'draft' && canEdit && (
               <>
@@ -525,7 +657,23 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           </div>
         </div>
         {banner && <Banner text={banner} />}
-        {editor.status === 'issued' && <Banner text="Emitida y cerrada. Reábrala para cambiar un sueldo, un costo, una condición o una nota." />}
+        {editor.status === 'issued' && <Banner text="Emitida y cerrada. Reábrala para cambiar un sueldo, un costo, una condición o una nota. Si las fórmulas publicadas cambiaron, puede actualizar el cálculo o dejarlo como estaba." />}
+        {editor.id && <QuoteVersions versions={editor.versions || []} />}
+        {reopenAsk && (
+          <div className="fixed inset-0 z-40 bg-slate-900/40 flex items-start justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-4 mt-16">
+              <h2 className="text-lg font-semibold text-slate-900">Reabrir propuesta</h2>
+              <p className="text-sm text-slate-600">
+                Las fórmulas de cálculo publicadas son distintas de las que usó esta propuesta. Puede actualizar el cálculo o dejarlo como estaba al emitirse.
+              </p>
+              <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
+                <button type="button" onClick={() => setReopenAsk(false)} className="px-3 py-2 rounded-lg border border-slate-200 text-sm">Cancelar</button>
+                <button type="button" onClick={() => void reopen(false)} className="px-3 py-2 rounded-lg border border-slate-200 text-sm">Dejar el cálculo como estaba</button>
+                <button type="button" onClick={() => void reopen(true)} className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Actualizar con las fórmulas nuevas</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <section className="shrink-0 bg-white border border-slate-200 rounded-xl p-4 grid md:grid-cols-2 xl:grid-cols-4 gap-3">
           <label className="text-xs text-slate-500">Código
@@ -905,7 +1053,7 @@ function ParamsPanel(props: {
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold text-slate-900">Parámetros del cálculo</h2>
-          <p className="text-sm text-slate-500 mt-1">Son los mismos de la liquidación. Una propuesta ya guardada no cambia sola cuando se publica otro método.</p>
+          <p className="text-sm text-slate-500 mt-1">Son los mismos de la liquidación. Al reabrir, puede actualizar el cálculo con las fórmulas publicadas o dejarlo como estaba.</p>
         </div>
         {!props.locked && (
           <button type="button" onClick={props.onRefresh} disabled={props.busy} className="px-3 py-2 rounded-lg border border-slate-200 text-sm disabled:opacity-60">
@@ -1151,6 +1299,39 @@ function CreateDialog(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function QuoteVersions({ versions }: { versions: QuoteVersion[] }) {
+  const label = (action: QuoteVersion['action']) => (action === 'issued' ? 'Emitida' : action === 'reopened' ? 'Reabierta' : 'Anulada');
+  return (
+    <section className="shrink-0 bg-white border border-slate-200 rounded-xl p-3">
+      <div className="flex items-center gap-2 text-slate-800">
+        <History size={16} />
+        <h2 className="font-semibold">Versiones</h2>
+      </div>
+      <p className="text-sm text-slate-500 mt-1">Cada emisión queda con quién la emitió. Al reabrir se anota si el cálculo se actualizó o se dejó como estaba.</p>
+      {versions.length === 0 ? (
+        <p className="text-sm text-slate-500 mt-2">Todavía no hay versiones. La primera queda al emitir.</p>
+      ) : (
+        <ol className="mt-2 max-h-36 overflow-auto divide-y divide-slate-100">
+          {versions.map((version) => (
+            <li key={version.id} className="py-2 text-sm">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="font-medium text-slate-900">Versión {version.versionNo}</span>
+                <span className="text-slate-500">{label(version.action)}</span>
+                <span className="text-slate-500">{version.actorName || 'Sin usuario'}</span>
+                <span className="text-slate-400">{formatIssuedAt(version.createdAt)}</span>
+                {version.action === 'issued' && version.totalWithIgv != null && (
+                  <span className="tabular-nums text-slate-700">{pen(version.totalWithIgv)} con IGV</span>
+                )}
+              </div>
+              <p className="text-slate-600 mt-0.5">{version.summary}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
