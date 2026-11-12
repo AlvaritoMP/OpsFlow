@@ -57,6 +57,7 @@ import { listQuotes, QuoteRecord } from '../services/quoteProposalService';
 import {
   applyQuoteCommercials,
   assignWorkerQuotePosition,
+  attachDraftQuotePositions,
   clearWorkerQuotePosition,
   quoteCatalogForBilling,
   workersMissingQuotePosition,
@@ -308,6 +309,20 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       .catch(() => setQuotes([]));
   }, []);
 
+  useEffect(() => {
+    if (!editor || editor.status !== 'draft' || !quotes.length) return;
+    const nextModel = attachDraftQuotePositions(editor.model, quotes);
+    if (!nextModel) return;
+    const nextBaseline = attachDraftQuotePositions(editor.baseline, quotes) || editor.baseline;
+    const pending = workersMissingQuotePosition(nextModel, nextModel.sourceQuotePositions || []);
+    setEditor({ ...editor, model: nextModel, baseline: nextBaseline });
+    if (pending.length) {
+      setBanner(
+        `Este borrador usa ${nextModel.sourceQuoteCode || 'una propuesta'}. Asigne un puesto de esa propuesta a cada trabajador incluido. Faltan ${pending.length}.`
+      );
+    }
+  }, [quotes, editor]);
+
   const activeFormulas = editor?.status === 'draft'
     ? (editor.model.sourceQuoteId && editor.model.formulas) || publishedFormulas || undefined
     : editor?.model.formulas;
@@ -531,7 +546,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       if (!current) return current;
       const catalog = current.model.sourceQuotePositions?.length
         ? current.model.sourceQuotePositions
-        : quoteCatalogForBilling(current.model, quotes);
+        : quoteCatalogForBilling(current.model, quotes, current.status);
       const position = catalog.find((item) => item.id === positionId);
       return {
         ...current,
@@ -747,7 +762,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       return false;
     }
     if (status === 'issued' || status === 'archived') {
-      const pending = workersMissingQuotePosition(origin.model, quoteCatalogForBilling(origin.model, quotes));
+      const pending = workersMissingQuotePosition(origin.model, quoteCatalogForBilling(origin.model, quotes, origin.status));
       if (pending.length) {
         const names = pending
           .slice(0, 3)
@@ -1908,7 +1923,7 @@ function EditorView(props: {
 }) {
   const { editor, computed, locked } = props;
   const projection = isProjectionBilling(editor.model);
-  const quotePositions = quoteCatalogForBilling(editor.model, props.quotes);
+  const quotePositions = quoteCatalogForBilling(editor.model, props.quotes, editor.status);
   const missingQuotePositions = workersMissingQuotePosition(editor.model, quotePositions);
   const compositionTotal = computed.laborTotal + computed.operationalTotal + computed.adminTotal + computed.profitAmount;
   const workerMap = new Map(computed.workers.map((worker) => [worker.id, worker]));

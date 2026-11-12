@@ -325,12 +325,32 @@ export function snapshotQuotePositions(model: ClientBillingModel): BillingQuoteP
 
 export function quoteCatalogForBilling(
   model: ClientBillingModel,
-  quotes: Array<{ id: string; payload: QuoteProposalPayload }>
+  quotes: Array<{ id: string; payload: QuoteProposalPayload }>,
+  status?: string
 ): BillingQuotePosition[] {
   if (!model.sourceQuoteId || isProjectionBilling(model)) return [];
   if (model.sourceQuotePositions?.length) return model.sourceQuotePositions;
+  if (status && status !== 'draft') return [];
   const quote = quotes.find((item) => item.id === model.sourceQuoteId);
   return quote ? snapshotQuotePositions(normalizeQuotePayload(quote.payload).model) : [];
+}
+
+/** Un borrador real ya guardado toma los puestos de su propuesta. No cambia sueldos ni días hasta que se asigne cada persona. */
+export function attachDraftQuotePositions(
+  model: ClientBillingModel,
+  quotes: Array<{ id: string; payload: QuoteProposalPayload }>
+): ClientBillingModel | null {
+  if (model.billingKind !== 'real' || !model.sourceQuoteId || model.sourceQuotePositions?.length) return null;
+  const positions = quoteCatalogForBilling(model, quotes, 'draft');
+  if (!positions.length) return null;
+  return {
+    ...model,
+    sourceQuotePositions: positions,
+    workers: model.workers.map((worker) => ({
+      ...worker,
+      unitPosition: worker.unitPosition || worker.position || '',
+    })),
+  };
 }
 
 export function workersMissingQuotePosition(model: ClientBillingModel, catalog: BillingQuotePosition[]): BillingWorkerInput[] {
