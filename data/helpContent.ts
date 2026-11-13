@@ -1031,6 +1031,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Al armar la facturación indique el PES, el mes de servicio, las fechas de la orden, el documento, el grupo, la línea, la empresa y el DNI cuando va a emitir. Cada clic en Emitir OS crea una orden nueva en OpaloSis. La anterior queda allá. El monto es el total sin IGV; en la nota de crédito va en negativo. Archivar guarda la liquidación sin crear esa orden: sirve para cargar facturaciones históricas y usarlas después como base. Queda cerrada, con el estado Archivo. Para corregirla hay que reabrirla.',
           'Si guarda un borrador sin los datos de la orden, al abrirlo aparecen solo los que faltan, para poder Emitir OS. Archivar no los pide. Una liquidación emitida o en el archivo ya no los muestra.',
           'Un mismo mes puede tener varias liquidaciones de la misma unidad. Nueva facturación siempre crea otra; no reemplaza la que ya está. El filtro del listado separa borradores, emitidas, archivo y papelera. El archivo también sale en la lista general. Un superadministrador envía una a la papelera desde la lista. El filtro Papelera la muestra, y desde ahí se restaura o se elimina del sistema. Si estaba en el archivo, al restaurarla vuelve como Archivo. Las demás del mes no se tocan. Si ya tenía orden en OpaloSis, esa orden se anula allá.',
+          'En el listado, Exportar Excel descarga la relación que se ve en pantalla: periodo, tipo, código o corte, cliente, unidad, estado, montos y último ajuste. Respeta el cliente y el estado elegidos. Los montos quedan como números y la última fila suma el total.',
           'Fórmulas la ve un administrador. Publicar método cambia el cálculo de las liquidaciones, incluidas las que se creen después. Al reabrir una propuesta se elige si el cálculo toma el método publicado o se queda como estaba. Traer método publicado lo copia en un borrador.',
           'Excel: descarga la liquidación en horizontal, ajustada a una sola hoja A4. En Excel use Imprimir o Exportar a PDF.',
           'Si marca «Con fórmulas» antes de descargar, el archivo incluye las fórmulas de cada monto. Las hojas Cálculo y Parámetros muestran de dónde sale cada cifra. Si cambia un dato o una tasa, Excel vuelve a calcular.',
@@ -1252,7 +1253,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Emitir cierra la propuesta y guarda una versión con quién la emitió y los totales. Reabrir y anular también quedan en ese historial. Para corregir un monto hay que reabrirla.',
         ],
         tips: [
-          'La lista muestra laboral, operativo, administrativo, utilidad y el total sin IGV, igual que la lista de facturación.',
+          'La lista muestra laboral, operativo, administrativo, utilidad y el total sin IGV, igual que la lista de facturación. Exportar Excel descarga esa relación con la búsqueda y el estado que estén elegidos. Los montos quedan como números y la última fila suma el total.',
           'El Cotizador está disponible para Administrador, Super Administrador y el rol Comercial.',
           'Si la pantalla pide la migración de propuestas, ejecute migrations/MIGRATION_COMMERCIAL_QUOTES.sql en Supabase. Para el historial de versiones, ejecute migrations/MIGRATION_COMMERCIAL_QUOTE_VERSIONS.sql. Para crear usuarios Comercial, ejecute migrations/MIGRATION_COMMERCIAL_ROLE.sql.',
         ],

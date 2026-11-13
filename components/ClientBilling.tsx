@@ -93,6 +93,7 @@ import {
   formatBillingDateTime,
   formatPeriodLabel,
   parseBillingDate,
+  round2,
   OPALOSIS_BUSINESS_LINES,
   OPALOSIS_COMPANIES,
   OPALOSIS_DOCUMENT_LABELS,
@@ -1084,6 +1085,73 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
   };
 
+  const exportListExcel = async () => {
+    if (visibleRecords.length === 0) return;
+    setBusy('Exportando la relación');
+    try {
+      const { excelService } = await import('../services/excelService');
+      const headers = [
+        'Periodo',
+        'Tipo',
+        'Código o corte',
+        'Cliente',
+        'Unidad',
+        'Estado',
+        'Laboral',
+        'Operativo',
+        'Administrativo',
+        'Utilidad',
+        'Total',
+        'Último ajuste',
+        'Fecha de ajuste',
+      ];
+      const rows = visibleRecords.map((record) => {
+        const projection = isProjectionBilling(record.model);
+        const attendance = resolveAttendanceWindow(record.periodMonth, record.model?.attendanceFrom, record.model?.attendanceTo);
+        return {
+          Periodo: formatPeriodLabel(record.periodMonth),
+          Tipo: projection ? 'Proyección' : 'Real',
+          'Código o corte': projection
+            ? record.model.sourceQuoteCode || ''
+            : formatAttendanceRange(attendance.from, attendance.to),
+          Cliente: record.clientName,
+          Unidad: record.unitName,
+          Estado: billingStatusLabel(record.status),
+          Laboral: round2(record.laborTotal),
+          Operativo: round2(record.operationalTotal),
+          Administrativo: round2(record.adminTotal),
+          Utilidad: round2(record.profitTotal),
+          Total: round2(record.grandTotal),
+          'Último ajuste': record.updatedByName || record.createdByName || '',
+          'Fecha de ajuste': formatBillingDateTime(record.updatedAt),
+        };
+      });
+      const money = ['Laboral', 'Operativo', 'Administrativo', 'Utilidad', 'Total'] as const;
+      const total: Record<string, string | number> = {
+        Periodo: `Total (${rows.length})`,
+        Tipo: '',
+        'Código o corte': '',
+        Cliente: '',
+        Unidad: '',
+        Estado: '',
+        'Último ajuste': '',
+        'Fecha de ajuste': '',
+      };
+      for (const key of money) {
+        total[key] = round2(rows.reduce((sum, row) => sum + Number(row[key]), 0));
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      await excelService.exportToExcel([...rows, total], headers, {
+        filename: `Facturacion_clientes_${stamp}.xlsx`,
+        sheetName: 'Facturacion',
+      });
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo exportar la relación.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const rememberConditions = async () => {
     if (!editor || !canEdit) return;
     setBusy('Guardando condiciones de la unidad');
@@ -1472,7 +1540,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             )}
 
             <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-              <div className="flex flex-col md:flex-row gap-2 p-3 border-b border-slate-100">
+              <div className="flex flex-col md:flex-row md:items-end gap-2 p-3 border-b border-slate-100">
                 <select className={fieldClass} value={filterClient} onChange={(event) => setFilterClient(event.target.value)}>
                   <option value="">Todos los clientes</option>
                   {clients.map((client) => (
@@ -1488,6 +1556,16 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <option value="archived">Solo archivo</option>
                   <option value="void">Papelera</option>
                 </select>
+                <button
+                  type="button"
+                  onClick={() => void exportListExcel()}
+                  disabled={loadingList || visibleRecords.length === 0 || !!busy}
+                  title="Descarga la relación que se ve en esta lista, con el cliente y el estado filtrados"
+                  className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50 md:ml-auto shrink-0"
+                >
+                  {busy === 'Exportando la relación' ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+                  Exportar Excel
+                </button>
               </div>
               {loadingList ? (
                 <div className="p-8 text-center text-slate-500 text-sm">Cargando facturaciones...</div>
@@ -3640,6 +3718,10 @@ function SummaryRow({ label, value, share }: { label: string; value: number; sha
   );
 }
 
+function billingStatusLabel(status: BillingStatus): string {
+  return { draft: 'Borrador', issued: 'Emitida', archived: 'Archivo', void: 'Anulada' }[status];
+}
+
 function StatusPill({ status }: { status: BillingStatus }) {
   const styles = {
     draft: 'bg-slate-100 text-slate-700',
@@ -3647,8 +3729,7 @@ function StatusPill({ status }: { status: BillingStatus }) {
     archived: 'bg-indigo-100 text-indigo-800',
     void: 'bg-red-100 text-red-700',
   }[status];
-  const label = { draft: 'Borrador', issued: 'Emitida', archived: 'Archivo', void: 'Anulada' }[status];
-  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${styles}`}>{label}</span>;
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${styles}`}>{billingStatusLabel(status)}</span>;
 }
 
 function Banner({ tone, text }: { tone: 'info' | 'danger'; text: string }) {

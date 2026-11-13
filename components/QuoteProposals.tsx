@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Download, FileText, HelpCircle, History, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, FileSpreadsheet, FileText, HelpCircle, History, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { Unit, User } from '../types';
 import { loadPublishedBillingFormulas } from '../services/clientBillingService';
 import {
@@ -19,6 +19,7 @@ import {
   BillingRates,
   newBillingId,
   pen,
+  round2,
 } from '../utils/clientBillingCalc';
 import { buildQuoteDocument } from '../utils/quoteDocument';
 import { downloadQuotePdf } from '../utils/quotePdf';
@@ -167,6 +168,65 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     const haystack = `${record.code} ${record.clientName} ${record.serviceName} ${record.issuedByName || ''}`.toLocaleLowerCase('es');
     return haystack.includes(query.trim().toLocaleLowerCase('es'));
   });
+
+  const exportListExcel = async () => {
+    if (visible.length === 0) return;
+    setBusy('Exportando la relación');
+    setBanner(null);
+    try {
+      const { excelService } = await import('../services/excelService');
+      const headers = [
+        'Código',
+        'Cliente',
+        'Servicio',
+        'Estado',
+        'Laboral',
+        'Operativo',
+        'Administrativo',
+        'Utilidad',
+        'Total',
+        'Fecha de emisión',
+        'Emitida por',
+      ];
+      const rows = visible.map((record) => {
+        const issuedAt = formatIssuedAt(record.issuedAt);
+        return {
+          Código: record.code,
+          Cliente: record.clientName,
+          Servicio: record.serviceName,
+          Estado: quoteStatusLabel(record.status),
+          Laboral: round2(record.laborTotal),
+          Operativo: round2(record.operationalTotal),
+          Administrativo: round2(record.adminTotal),
+          Utilidad: round2(record.profitTotal),
+          Total: round2(record.grandTotal),
+          'Fecha de emisión': issuedAt === '—' ? '' : issuedAt,
+          'Emitida por': record.issuedByName || '',
+        };
+      });
+      const money = ['Laboral', 'Operativo', 'Administrativo', 'Utilidad', 'Total'] as const;
+      const total: Record<string, string | number> = {
+        Código: `Total (${rows.length})`,
+        Cliente: '',
+        Servicio: '',
+        Estado: '',
+        'Fecha de emisión': '',
+        'Emitida por': '',
+      };
+      for (const key of money) {
+        total[key] = round2(rows.reduce((sum, row) => sum + Number(row[key]), 0));
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      await excelService.exportToExcel([...rows, total], headers, {
+        filename: `Cotizador_${stamp}.xlsx`,
+        sheetName: 'Cotizador',
+      });
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo exportar la relación.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const openRecord = async (record: QuoteRecord) => {
     const versions = record.id ? await listQuoteVersions(record.id) : [];
@@ -540,6 +600,16 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
               <option value="issued">Emitida</option>
               <option value="void">Anulada</option>
             </select>
+            <button
+              type="button"
+              onClick={() => void exportListExcel()}
+              disabled={loading || visible.length === 0 || !!busy}
+              title="Descarga la relación que se ve en esta lista, con la búsqueda y el estado filtrados"
+              className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50 shrink-0"
+            >
+              {busy === 'Exportando la relación' ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+              Exportar Excel
+            </button>
           </div>
           <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             {loading ? (
@@ -1402,10 +1472,13 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function quoteStatusLabel(status: QuoteStatus): string {
+  return status === 'issued' ? 'Emitida' : status === 'void' ? 'Anulada' : 'Borrador';
+}
+
 function StatusChip({ status }: { status: QuoteStatus }) {
-  const label = status === 'issued' ? 'Emitida' : status === 'void' ? 'Anulada' : 'Borrador';
   const tone = status === 'issued' ? 'bg-emerald-100 text-emerald-800' : status === 'void' ? 'bg-slate-200 text-slate-600' : 'bg-amber-100 text-amber-800';
-  return <span className={`text-xs px-2 py-0.5 rounded-full ${tone}`}>{label}</span>;
+  return <span className={`text-xs px-2 py-0.5 rounded-full ${tone}`}>{quoteStatusLabel(status)}</span>;
 }
 
 function Banner({ text }: { text: string }) {
