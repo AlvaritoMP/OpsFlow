@@ -245,14 +245,21 @@ function roundMoney(value: number): number {
 
 function mapError(error: any): Error {
   const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
-  if (error?.code === '42P01' || /commercial_quotes|schema cache|does not exist/i.test(message)) {
+  // El aviso de tabla ausente iba primero y coincidía con el nombre del índice
+  // commercial_quotes_code_key, así que un código repetido se veía como tabla faltante.
+  if (error?.code === '23505' || /duplicate key/i.test(message)) {
+    return new QuoteStorageError('duplicate', 'Ya existe una propuesta con ese código. Cámbielo e intente de nuevo.');
+  }
+  const missingTable =
+    error?.code === '42P01' ||
+    error?.code === 'PGRST205' ||
+    /could not find the table ['"]?(?:public\.)?commercial_quotes/i.test(message) ||
+    /relation ['"](?:public\.)?commercial_quotes['"] does not exist/i.test(message);
+  if (missingTable) {
     return new QuoteStorageError(
       'missing_table',
       'Falta la tabla de propuestas. Ejecute migrations/MIGRATION_COMMERCIAL_QUOTES.sql en Supabase.'
     );
-  }
-  if (error?.code === '23505' || /duplicate key/i.test(message)) {
-    return new QuoteStorageError('duplicate', 'Ya existe una propuesta con ese código. Cámbielo e intente de nuevo.');
   }
   return new QuoteStorageError('unknown', error?.message || 'No se pudo guardar la propuesta.');
 }
