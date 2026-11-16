@@ -19,6 +19,26 @@ export type ProfitMode = 'margin_on_price' | 'markup_on_cost';
 export type ProfitBase = 'all' | 'labor';
 /** Porcentaje sobre la base laboral, o un monto igual para cada trabajador. */
 export type EssaludMode = 'percent' | 'fixed';
+/** Jornada del puesto en una propuesta. Part time usa otras cargas cuando la propuesta mezcla las dos. */
+export type WorkSchedule = 'full' | 'part';
+
+/** Cargas y horas por día que reemplazan a las de la jornada completa, solo en puestos part time. */
+export interface PartTimeSocialRates {
+  hoursPerDay: number;
+  vacationRate: number;
+  gratiRate: number;
+  gratiBonusFactor: number;
+  ctsRate: number;
+  feriaRate: number;
+  applyFeria: boolean;
+  essaludRate: number;
+  essaludMode: EssaludMode;
+  essaludFixedAmount: number;
+  vidaLeyRate: number;
+  applyVidaLey: boolean;
+  sctrRate: number;
+  applySctr: boolean;
+}
 
 export interface BillingRates {
   familyAllowanceAmount: number;
@@ -102,6 +122,8 @@ export interface BillingWorkerInput {
   socialBaseManual: boolean;
   socialBase: number;
   factor: number;
+  /** Full time usa las tasas generales. Part time, en una propuesta mixta, usa el ajuste de cargas. */
+  schedule?: WorkSchedule;
   /** Días del mes antes de descontar faltas. */
   calendarDays?: number;
   /** Faltas de Mattermost, tareo o asistencia, sin contar dos veces el mismo día. */
@@ -263,6 +285,11 @@ export interface ClientBillingModel {
   comment: string;
   considerations: string;
   rates: BillingRates;
+  /**
+   * Cargas del part time. Se aplican solo si la liquidación o la propuesta incluye puestos full time y part time.
+   * Si todos son de una sola jornada, mandan las tasas generales.
+   */
+  partTimeRates?: PartTimeSocialRates;
   workers: BillingWorkerInput[];
   operational: BillingCostLine[];
   administrative: BillingCostLine[];
@@ -323,6 +350,7 @@ export interface BillingQuotePosition {
   nightManual: number | null;
   socialBaseManual: boolean;
   socialBase: number;
+  schedule?: WorkSchedule;
 }
 
 /** Descuento aplicado al total de la liquidación, antes del IGV. */
@@ -512,6 +540,7 @@ const WORKER_FIELD_LABELS: Record<string, string> = {
   daysManual: 'días editados a mano',
   vacationDays: 'días de vacaciones',
   notes: 'nota',
+  schedule: 'jornada',
 };
 
 export function newBillingId(): string {
@@ -753,6 +782,131 @@ export function normalizeBillingRates(rates: Partial<BillingRates> | undefined):
   merged.rollOvertimeIntoNightBonus = merged.rollOvertimeIntoNightBonus === true;
   return merged;
 }
+
+export function workerSchedule(worker: { schedule?: WorkSchedule | string | null }): WorkSchedule {
+  return worker.schedule === 'part' ? 'part' : 'full';
+}
+
+/** Full, part, o mixed. Solo cuentan las filas incluidas. */
+export function scheduleMix(workers: Array<{ schedule?: WorkSchedule | string | null; included?: boolean }> | undefined): 'full' | 'part' | 'mixed' {
+  const included = (workers || []).filter((worker) => worker.included !== false);
+  const hasPart = included.some((worker) => workerSchedule(worker) === 'part');
+  const hasFull = included.some((worker) => workerSchedule(worker) === 'full');
+  if (hasPart && hasFull) return 'mixed';
+  if (hasPart) return 'part';
+  return 'full';
+}
+
+/** El part time arranca con las mismas cargas que el full time y con 4 horas por día. */
+export function defaultPartTimeRates(rates: Partial<BillingRates> | undefined): PartTimeSocialRates {
+  const base = normalizeBillingRates(rates);
+  return {
+    hoursPerDay: 4,
+    vacationRate: base.vacationRate,
+    gratiRate: base.gratiRate,
+    gratiBonusFactor: base.gratiBonusFactor,
+    ctsRate: base.ctsRate,
+    feriaRate: base.feriaRate,
+    applyFeria: base.applyFeria,
+    essaludRate: base.essaludRate,
+    essaludMode: base.essaludMode,
+    essaludFixedAmount: base.essaludFixedAmount,
+    vidaLeyRate: base.vidaLeyRate,
+    applyVidaLey: base.applyVidaLey,
+    sctrRate: base.sctrRate,
+    applySctr: base.applySctr,
+  };
+}
+
+export function normalizePartTimeRates(
+  raw: Partial<PartTimeSocialRates> | null | undefined,
+  rates: Partial<BillingRates> | undefined
+): PartTimeSocialRates {
+  const defaults = defaultPartTimeRates(rates);
+  const source = raw || {};
+  const numberOr = (value: unknown, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const hours = numberOr(source.hoursPerDay, defaults.hoursPerDay);
+  return {
+    hoursPerDay: hours > 0 ? hours : defaults.hoursPerDay,
+    vacationRate: numberOr(source.vacationRate, defaults.vacationRate),
+    gratiRate: numberOr(source.gratiRate, defaults.gratiRate),
+    gratiBonusFactor: numberOr(source.gratiBonusFactor, defaults.gratiBonusFactor),
+    ctsRate: numberOr(source.ctsRate, defaults.ctsRate),
+    feriaRate: numberOr(source.feriaRate, defaults.feriaRate),
+    applyFeria: source.applyFeria === undefined ? defaults.applyFeria : Boolean(source.applyFeria),
+    essaludRate: numberOr(source.essaludRate, defaults.essaludRate),
+    essaludMode: source.essaludMode === 'fixed' ? 'fixed' : source.essaludMode === 'percent' ? 'percent' : defaults.essaludMode,
+    essaludFixedAmount: numberOr(source.essaludFixedAmount, defaults.essaludFixedAmount),
+    vidaLeyRate: numberOr(source.vidaLeyRate, defaults.vidaLeyRate),
+    applyVidaLey: source.applyVidaLey === undefined ? defaults.applyVidaLey : Boolean(source.applyVidaLey),
+    sctrRate: numberOr(source.sctrRate, defaults.sctrRate),
+    applySctr: source.applySctr === undefined ? defaults.applySctr : Boolean(source.applySctr),
+  };
+}
+
+export function applyPartTimeRates(rates: BillingRates, part: PartTimeSocialRates): BillingRates {
+  return {
+    ...rates,
+    hoursPerDay: part.hoursPerDay,
+    vacationRate: part.vacationRate,
+    gratiRate: part.gratiRate,
+    gratiBonusFactor: part.gratiBonusFactor,
+    ctsRate: part.ctsRate,
+    feriaRate: part.feriaRate,
+    applyFeria: part.applyFeria,
+    essaludRate: part.essaludRate,
+    essaludMode: part.essaludMode,
+    essaludFixedAmount: part.essaludFixedAmount,
+    vidaLeyRate: part.vidaLeyRate,
+    applyVidaLey: part.applyVidaLey,
+    sctrRate: part.sctrRate,
+    applySctr: part.applySctr,
+  };
+}
+
+/** En una combinación, el part time toma su ajuste. Con una sola jornada mandan las tasas generales. */
+export function ratesForWorker(worker: BillingWorkerInput, rates: BillingRates, model: Pick<ClientBillingModel, 'workers' | 'partTimeRates'>): BillingRates {
+  if (scheduleMix(model.workers) !== 'mixed' || workerSchedule(worker) !== 'part') return rates;
+  return applyPartTimeRates(rates, normalizePartTimeRates(model.partTimeRates, rates));
+}
+
+/** Nombres de tasa que el Excel del part time publica con el sufijo Part. */
+export const PART_TIME_RATE_IDS = [
+  'horasDia',
+  'tasaVacaciones',
+  'tasaGratificacion',
+  'factorBonificacion',
+  'tasaCts',
+  'tasaFeriado',
+  'aplicaFeriado',
+  'tasaEssalud',
+  'essaludFijo',
+  'montoEssalud',
+  'tasaVidaLey',
+  'aplicaVidaLey',
+  'tasaSctr',
+  'aplicaSctr',
+] as const satisfies readonly BillingRateId[];
+
+const PART_TIME_RATE_LABELS: Record<keyof PartTimeSocialRates, string> = {
+  hoursPerDay: 'Part time · Horas por día',
+  vacationRate: 'Part time · Tasa de vacaciones',
+  gratiRate: 'Part time · Tasa de gratificación',
+  gratiBonusFactor: 'Part time · Factor de bonificación extraordinaria',
+  ctsRate: 'Part time · Tasa de CTS',
+  feriaRate: 'Part time · Tasa de feriados',
+  applyFeria: 'Part time · Incluir feriados',
+  essaludRate: 'Part time · Tasa de EsSalud',
+  essaludMode: 'Part time · Forma de EsSalud',
+  essaludFixedAmount: 'Part time · Monto fijo de EsSalud',
+  vidaLeyRate: 'Part time · Tasa de Vida Ley',
+  applyVidaLey: 'Part time · Incluir Vida Ley',
+  sctrRate: 'Part time · Tasa de SCTR',
+  applySctr: 'Part time · Incluir SCTR',
+};
 
 export interface OvertimeNightSplit {
   he25: number;
@@ -1010,7 +1164,7 @@ function workerFormulaScope(worker: BillingWorkerInput, rates: BillingRates): Re
 export function computeBilling(model: ClientBillingModel): BillingComputation {
   const rates = normalizeBillingRates(model.rates);
   const sourceWorkers = model.workers || [];
-  const workers = sourceWorkers.map((worker) => computeWorker(worker, rates, model.formulas));
+  const workers = sourceWorkers.map((worker) => computeWorker(worker, ratesForWorker(worker, rates, model), model.formulas));
   const included = new Set(sourceWorkers.filter((worker) => worker.included).map((worker) => worker.id));
   const laborTotal = workers.reduce((sum, worker) => (included.has(worker.id) ? sum + worker.totalCost : sum), 0);
 
@@ -1206,6 +1360,11 @@ export function diffBillingModels(before: ClientBillingModel, after: ClientBilli
 
   (Object.keys(RATE_LABELS) as (keyof BillingRates)[]).forEach((key) => {
     push(RATE_LABELS[key], before.rates?.[key], after.rates?.[key]);
+  });
+  const beforePart = before.partTimeRates;
+  const afterPart = after.partTimeRates;
+  (Object.keys(PART_TIME_RATE_LABELS) as (keyof PartTimeSocialRates)[]).forEach((key) => {
+    push(PART_TIME_RATE_LABELS[key], beforePart?.[key], afterPart?.[key]);
   });
 
   const beforeFormulas = normalizeBillingFormulas(before.formulas);
@@ -1434,5 +1593,7 @@ function displayValue(value: unknown): string {
   if (value === 'labor') return 'Solo costo laboral';
   if (value === 'percent') return 'Porcentaje';
   if (value === 'fixed') return 'Monto fijo';
+  if (value === 'full') return 'Full time';
+  if (value === 'part') return 'Part time';
   return String(value);
 }

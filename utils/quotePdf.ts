@@ -421,10 +421,14 @@ function drawClient(sheet: Sheet, client: string, address: string, attention: st
 
 function annexHeads(input: QuoteDocumentInput, conceptW: number, colW: number): Cell[] {
   const heads: Cell[] = [{ text: 'Concepto', width: conceptW, bold: true }];
+  const mixed =
+    input.view.positions.some((position) => position.schedule === 'part') &&
+    input.view.positions.some((position) => position.schedule !== 'part');
   input.view.positions.forEach((position) => {
+    const jornada = mixed ? (position.schedule === 'part' ? ' · part time' : ' · full time') : '';
     const site = position.site ? ` · ${position.site}` : '';
     heads.push({
-      text: `POSICIÓN ${position.item}: ${position.name}\n(costo de 1 puesto${site})`,
+      text: `POSICIÓN ${position.item}: ${position.name}\n(costo de 1 puesto${jornada}${site})`,
       width: colW,
       align: 'right',
       bold: true,

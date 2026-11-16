@@ -17,10 +17,15 @@ import { describeFormula, sameBillingFormulas, BillingFormulaSet } from '../util
 import {
   BillingCostLine,
   BillingRates,
+  defaultPartTimeRates,
   newBillingId,
+  normalizePartTimeRates,
+  PartTimeSocialRates,
   pen,
   round2,
+  scheduleMix,
 } from '../utils/clientBillingCalc';
+import { PartTimeSocialFields } from './PartTimeSocialFields';
 import { buildQuoteDocument } from '../utils/quoteDocument';
 import { downloadQuotePdf } from '../utils/quotePdf';
 import {
@@ -278,7 +283,20 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         if (patch.factor !== undefined) next.factor = Math.max(1, Math.round(patch.factor || 1));
         return next;
       });
-      return { ...current, payload: { ...current.payload, model: { ...current.payload.model, workers } } };
+      const model = { ...current.payload.model, workers };
+      if (scheduleMix(workers) === 'mixed' && !model.partTimeRates) {
+        model.partTimeRates = defaultPartTimeRates(model.rates);
+      }
+      return { ...current, payload: { ...current.payload, model } };
+    });
+  };
+
+  const patchPartTimeRates = (patch: Partial<PartTimeSocialRates>) => {
+    setEditor((current) => {
+      if (!current) return current;
+      const rates = current.payload.model.rates;
+      const partTimeRates = { ...normalizePartTimeRates(current.payload.model.partTimeRates, rates), ...patch };
+      return { ...current, payload: { ...current.payload, model: { ...current.payload.model, partTimeRates } } };
     });
   };
 
@@ -864,10 +882,12 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         {tab === 'params' && (
           <ParamsPanel
             rates={rates}
+            partTime={scheduleMix(positions) === 'mixed' ? normalizePartTimeRates(editor.payload.model.partTimeRates, rates) : null}
             formulas={editor.payload.model.formulas}
             locked={locked}
             busy={busy === 'formulas'}
             onRates={patchRates}
+            onPartTime={patchPartTimeRates}
             onRefresh={() => void refreshFormulas()}
           />
         )}
@@ -919,7 +939,7 @@ function PositionSheet(props: {
     <section className="h-full min-h-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       <div className="shrink-0 p-3 flex flex-col lg:flex-row gap-2 lg:items-center justify-between border-b border-slate-100">
         <p className="text-sm text-slate-600">
-          Cada fila calcula el costo de 1 puesto. Escriba las horas extra y las horas de bono nocturno: el importe lo calcula el mismo método de una liquidación. La cantidad multiplica solo el costo laboral total.
+          Cada fila calcula el costo de 1 puesto. Elija full time o part time. Si la propuesta mezcla las dos jornadas, las cargas del part time salen del ajuste de Parámetros. La cantidad multiplica solo el costo laboral total.
         </p>
         {!props.locked && (
           <div className="flex flex-wrap gap-2">
@@ -938,6 +958,7 @@ function PositionSheet(props: {
               <tr>
                 <th className={headLeft} />
                 <th className={`${headLeft} sticky left-0 z-30 bg-slate-100 min-w-[16rem]`}>Puesto</th>
+                <th className={headLeft}>Jornada</th>
                 <th className={headLeft}>Sede</th>
                 <th className={head}>Cantidad</th>
                 <th className={head}>Sueldo</th>
@@ -976,6 +997,17 @@ function PositionSheet(props: {
                   <tr key={position.id} className={`border-t border-slate-100 ${position.included ? '' : 'opacity-50'}`}>
                     <td className="px-1.5 py-1"><input type="checkbox" checked={position.included} disabled={props.locked} onChange={(event) => props.onPatch(position.id, { included: event.target.checked })} /></td>
                     <td className="sticky left-0 z-10 bg-white px-1.5 py-1.5 min-w-[16rem]"><input className={gridText} disabled={props.locked} value={position.name} onChange={(event) => props.onPatch(position.id, { name: event.target.value })} /></td>
+                    <td className="px-1.5 py-1.5">
+                      <select
+                        className={`${gridText} min-w-[7.5rem]`}
+                        disabled={props.locked}
+                        value={position.schedule === 'part' ? 'part' : 'full'}
+                        onChange={(event) => props.onPatch(position.id, { schedule: event.target.value === 'part' ? 'part' : 'full' })}
+                      >
+                        <option value="full">Full time</option>
+                        <option value="part">Part time</option>
+                      </select>
+                    </td>
                     <td className="px-1.5 py-1.5"><input className={`${gridText} min-w-[9rem]`} disabled={props.locked} value={position.site || ''} onChange={(event) => props.onPatch(position.id, { site: event.target.value })} /></td>
                     <td className="px-1 py-1"><Num disabled={props.locked} step="1" value={position.factor} onChange={(factor) => props.onPatch(position.id, { factor })} /></td>
                     <td className="px-1 py-1"><Num disabled={props.locked} value={position.contractualSalary} onChange={(contractualSalary) => props.onPatch(position.id, { contractualSalary })} /></td>
@@ -1110,10 +1142,12 @@ function CostEditor(props: {
 
 function ParamsPanel(props: {
   rates: BillingRates;
+  partTime: PartTimeSocialRates | null;
   formulas?: BillingFormulaSet;
   locked: boolean;
   busy: boolean;
   onRates: (patch: Partial<BillingRates>) => void;
+  onPartTime: (patch: Partial<PartTimeSocialRates>) => void;
   onRefresh: () => void;
 }) {
   const percent = (key: keyof BillingRates, label: string, formulaId?: string) => (
@@ -1141,7 +1175,11 @@ function ParamsPanel(props: {
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold text-slate-900">Parámetros del cálculo</h2>
-          <p className="text-sm text-slate-500 mt-1">Son los mismos de la liquidación. Al reabrir, puede actualizar el cálculo con las fórmulas publicadas o dejarlo como estaba.</p>
+          <p className="text-sm text-slate-500 mt-1">
+            {props.partTime
+              ? 'Estas tasas aplican a los puestos full time. El part time usa el ajuste de más abajo. Al reabrir, puede actualizar el cálculo con las fórmulas publicadas o dejarlo como estaba.'
+              : 'Son los mismos de la liquidación y aplican a todos los puestos. Si mezcla full time y part time, aquí aparecen las cargas del part time. Al reabrir, puede actualizar el cálculo con las fórmulas publicadas o dejarlo como estaba.'}
+          </p>
         </div>
         {!props.locked && (
           <button type="button" onClick={props.onRefresh} disabled={props.busy} className="px-3 py-2 rounded-lg border border-slate-200 text-sm disabled:opacity-60">
@@ -1205,6 +1243,9 @@ function ParamsPanel(props: {
         {flag('heNightApplyPremium', 'La hora extra nocturna suma el recargo nocturno')}
         {flag('nightBonusIncludeFamily', 'El bono nocturno incluye la asignación familiar')}
       </div>
+      {props.partTime && (
+        <PartTimeSocialFields rates={props.partTime} locked={props.locked} formulas={props.formulas} onChange={props.onPartTime} />
+      )}
     </section>
   );
 }

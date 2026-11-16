@@ -104,12 +104,16 @@ import {
   inclusiveDayCount,
   monthDateBounds,
   newBillingId,
+  normalizePartTimeRates,
+  PartTimeSocialRates,
   pen,
   presentOvertimeInNightBonus,
+  scheduleMix,
   resolveAttendanceWindow,
   workerOverlapsBillingWindow,
 } from '../utils/clientBillingCalc';
 import { BillingFormulaSet, describeFormula, normalizeBillingFormulas } from '../utils/billingFormulas';
+import { PartTimeSocialFields } from './PartTimeSocialFields';
 
 interface ClientBillingProps {
   units: Unit[];
@@ -2551,6 +2555,7 @@ function EditorView(props: {
             <>
             <ParametersPanel
               rates={editor.model.rates}
+              partTime={scheduleMix(editor.model.workers) === 'mixed' ? normalizePartTimeRates(editor.model.partTimeRates, editor.model.rates) : null}
               formulas={props.formulas}
               considerations={editor.model.considerations}
               locked={locked}
@@ -2558,6 +2563,10 @@ function EditorView(props: {
               issued={editor.status === 'issued'}
               saved={Boolean(editor.id)}
               onRates={props.onPatchRates}
+              onPartTime={(patch) => {
+                const current = normalizePartTimeRates(editor.model.partTimeRates, editor.model.rates);
+                props.onPatchModel({ partTimeRates: { ...current, ...patch } });
+              }}
               onConsiderations={(considerations) => props.onPatchModel({ considerations })}
               onRemember={props.onRemember}
               onSaveEssalud={props.onSaveEssalud}
@@ -2943,7 +2952,7 @@ function LaborSheet(props: {
                     onChange={(event) => props.onPatchWorker(worker.id, props.projection ? { name: event.target.value, position: event.target.value } : { name: event.target.value })}
                   />
                   <div className="flex items-center gap-1 text-[10px] text-slate-400 truncate">
-                    <span className="truncate">{props.projection ? `Puesto de la propuesta · cantidad ${worker.factor || 0}` : worker.origin === 'manual' ? 'Manual' : worker.activeOnUnit === false ? 'Cesó; los días del corte llegan hasta su cese' : worker.missingFromUnit ? 'Ya no está en la unidad' : worker.contractualSalary <= 0 ? 'Sin sueldo en ficha' : ''}</span>
+                    <span className="truncate">{props.projection ? `Puesto de la propuesta · cantidad ${worker.factor || 0}` : worker.origin === 'manual' ? 'Manual' : worker.activeOnUnit === false ? 'Cesó; los días del corte llegan hasta su cese' : worker.missingFromUnit ? 'Ya no está en la unidad' : worker.contractualSalary <= 0 ? 'Sin sueldo en ficha' : ''}{worker.schedule === 'part' ? ' · Part time' : ''}</span>
                     {worker.origin === 'manual' && !props.locked && (
                       <button type="button" className="text-red-500 shrink-0" onClick={() => props.onRemove(worker.id)} title="Quitar">
                         <Trash2 size={11} />
@@ -3431,6 +3440,7 @@ function LinesEditor(props: {
 
 function ParametersPanel(props: {
   rates: BillingRates;
+  partTime: PartTimeSocialRates | null;
   formulas?: BillingFormulaSet;
   considerations: string;
   locked: boolean;
@@ -3440,6 +3450,7 @@ function ParametersPanel(props: {
   canEdit: boolean;
   busy: boolean;
   onRates: (patch: Partial<BillingRates>) => void;
+  onPartTime: (patch: Partial<PartTimeSocialRates>) => void;
   onConsiderations: (value: string) => void;
   onRemember: () => void;
   onSaveEssalud: () => void;
@@ -3463,7 +3474,9 @@ function ParametersPanel(props: {
       <div>
         <h2 className="font-semibold text-slate-900">Parámetros de cargas y utilidad</h2>
         <p className="text-sm text-slate-500 mt-1">
-          Salen del método de facturación de abril: vacaciones 1/12, gratificación 16.67% con bonificación 9%, CTS 9.72%, EsSalud 9%, Vida Ley 0.396% y SCTR 1.65% (0.78% + 0.87%). EsSalud puede quedar como ese porcentaje o como un monto fijo igual para cada trabajador, sin depender del sueldo. Cámbielos solo si el contrato de la unidad usa otras tasas.
+          {props.partTime
+            ? 'Estas tasas aplican a los puestos full time. El part time usa el ajuste de cargas del final. EsSalud puede ser un porcentaje o un monto fijo.'
+            : 'Salen del método de facturación de abril: vacaciones 1/12, gratificación 16.67% con bonificación 9%, CTS 9.72%, EsSalud 9%, Vida Ley 0.396% y SCTR 1.65% (0.78% + 0.87%). EsSalud puede quedar como ese porcentaje o como un monto fijo igual para cada trabajador, sin depender del sueldo. Cámbielos solo si el contrato de la unidad usa otras tasas.'}
         </p>
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -3628,6 +3641,9 @@ function ParametersPanel(props: {
           <input type="checkbox" disabled={props.locked} checked={props.rates.applyFeria} onChange={(event) => props.onRates({ applyFeria: event.target.checked })} /> Incluir feriados
         </label>
       </div>
+      {props.partTime && (
+        <PartTimeSocialFields rates={props.partTime} locked={props.locked} formulas={props.formulas} onChange={props.onPartTime} />
+      )}
       <label className="text-xs text-slate-500 block">
         Consideraciones que salen en el Excel
         <textarea className={`${fieldClass} min-h-28`} disabled={props.locked} value={props.considerations} onChange={(event) => props.onConsiderations(event.target.value)} />

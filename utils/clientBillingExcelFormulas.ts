@@ -21,9 +21,15 @@ import {
   ClientBillingModel,
   WORKER_INPUT_IDS,
   WorkerInputId,
+  PART_TIME_RATE_IDS,
+  applyPartTimeRates,
   billingRateValues,
   formatPeriodLabel,
+  normalizeBillingRates,
+  normalizePartTimeRates,
+  scheduleMix,
   workerInputValues,
+  workerSchedule,
 } from './clientBillingCalc';
 
 export const CALC_SHEET = 'Cálculo';
@@ -164,6 +170,15 @@ export function attachBillingFormulaSheets(
   const formulas = chooseFormulas(source.model.formulas);
   const templates = compileWorkerTemplates(formulas);
   const rates = billingRateValues(source.model.rates);
+  const mixed = scheduleMix(source.model.workers) === 'mixed';
+  const partRates = mixed
+    ? billingRateValues(
+        applyPartTimeRates(
+          normalizeBillingRates(source.model.rates),
+          normalizePartTimeRates(source.model.partTimeRates, source.model.rates)
+        )
+      )
+    : null;
   const columns = calcColumns(formulas);
   const columnOf = new Map<string, number>();
   columns.forEach((column, index) => {
@@ -174,12 +189,12 @@ export function attachBillingFormulaSheets(
     views: [{ showGridLines: false, zoomScale: 90 }],
     properties: { defaultRowHeight: 16, tabColor: { argb: 'FF2F6F4E' } },
   });
-  writeParameterSheet(workbook, source, rates);
+  writeParameterSheet(workbook, source, rates, partRates);
   const headerRow = writeCalcIntro(calc, source, columns);
   const rowOf = new Map<string, number>();
   let row = headerRow + 1;
   workers.forEach((worker, index) => {
-    writeCalcWorker(calc, row, columns, columnOf, worker, formulas, templates, rates, index % 2 === 1);
+    writeCalcWorker(calc, row, columns, columnOf, worker, formulas, templates, rates, partRates, index % 2 === 1);
     rowOf.set(worker.id, row);
     row += 1;
   });
@@ -271,7 +286,8 @@ function calcColumns(formulas: BillingFormulaSet): CalcColumn[] {
 function writeParameterSheet(
   workbook: ExcelJS.Workbook,
   source: FormulaSheetSource,
-  rates: Record<BillingRateId, number>
+  rates: Record<BillingRateId, number>,
+  partRates: Record<BillingRateId, number> | null
 ) {
   const sheet = workbook.addWorksheet(PARAM_SHEET, {
     views: [{ showGridLines: false, zoomScale: 110, state: 'frozen', ySplit: 3, activeCell: 'A1' }],
@@ -287,8 +303,9 @@ function writeParameterSheet(
   sheet.mergeCells(1, 1, 1, 3);
   const note = sheet.getRow(2);
   note.height = 32;
-  note.getCell(1).value =
-    'Estos valores entran en las fórmulas de la hoja Cálculo. 1 es sí y 0 es no. Las tasas se muestran como porcentaje. Si cambia un valor, Excel recalcula la liquidación.';
+  note.getCell(1).value = partRates
+    ? 'Estos valores entran en las fórmulas de la hoja Cálculo. 1 es sí y 0 es no. Las tasas se muestran como porcentaje. Los puestos part time usan los nombres que terminan en Part. Si cambia un valor, Excel recalcula la liquidación.'
+    : 'Estos valores entran en las fórmulas de la hoja Cálculo. 1 es sí y 0 es no. Las tasas se muestran como porcentaje. Si cambia un valor, Excel recalcula la liquidación.';
   note.getCell(1).font = { name: FONT, size: 9, color: { argb: MUTED } };
   note.getCell(1).alignment = { vertical: 'middle', wrapText: true };
   sheet.mergeCells(2, 1, 2, 3);
@@ -332,6 +349,42 @@ function writeParameterSheet(
     token.alignment = { vertical: 'middle' };
     token.border = thinBorder();
     addDefinedName(workbook, id, absSheet(PARAM_SHEET, 2, row));
+    row += 1;
+  });
+  if (!partRates) return;
+  const section = sheet.getRow(row);
+  section.height = 18;
+  for (let col = 1; col <= 3; col += 1) {
+    const cell = section.getCell(col);
+    cell.value = col === 1 ? 'Cargas part time' : null;
+    cell.font = { name: FONT, size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = solid(NAVY);
+    cell.alignment = { vertical: 'middle' };
+  }
+  sheet.mergeCells(row, 1, row, 3);
+  row += 1;
+  PART_TIME_RATE_IDS.forEach((id) => {
+    const meta = RATE_META[id];
+    const line = sheet.getRow(row);
+    line.height = 18;
+    const label = line.getCell(1);
+    label.value = `${sentenceCase(formulaLabel(id))} · part time`;
+    label.font = { name: FONT, size: 9, color: { argb: INK } };
+    label.alignment = { vertical: 'middle' };
+    label.border = thinBorder();
+    const value = line.getCell(2);
+    value.value = partRates[id];
+    value.font = { name: FONT, size: 9, bold: true, color: { argb: INK } };
+    value.numFmt = rateFormat(meta.kind);
+    value.fill = solid(INPUT_FILL);
+    value.alignment = { vertical: 'middle', horizontal: 'right' };
+    value.border = thinBorder();
+    const token = line.getCell(3);
+    token.value = `${id}Part`;
+    token.font = { name: FONT, size: 9, color: { argb: MUTED } };
+    token.alignment = { vertical: 'middle' };
+    token.border = thinBorder();
+    addDefinedName(workbook, `${id}Part`, absSheet(PARAM_SHEET, 2, row));
     row += 1;
   });
 }
@@ -412,10 +465,12 @@ function writeCalcWorker(
   formulas: BillingFormulaSet,
   templates: Map<string, string>,
   rates: Record<BillingRateId, number>,
+  partRates: Record<BillingRateId, number> | null,
   zebra: boolean
 ) {
+  const usePart = Boolean(partRates) && workerSchedule(worker) === 'part';
   const inputs = workerInputValues(worker);
-  const values = evaluateFormulas(formulas, { ...inputs, ...rates }, WORKER_FORMULA_IDS);
+  const values = evaluateFormulas(formulas, { ...inputs, ...(usePart && partRates ? partRates : rates) }, WORKER_FORMULA_IDS);
   const row = sheet.getRow(rowNumber);
   row.height = 18;
   columns.forEach((column, index) => {
@@ -434,7 +489,7 @@ function writeCalcWorker(
       cell.fill = solid(INPUT_FILL);
       return;
     }
-    const template = templates.get(column.id) || '0';
+    const template = usePart ? partTimeFormula(templates.get(column.id) || '0') : templates.get(column.id) || '0';
     cell.value = { formula: applyRow(template, rowNumber, columnOf), result: values[column.id] || 0 };
     cell.numFmt = column.format;
     cell.fill = solid(FORMULA_FILL);
@@ -601,6 +656,14 @@ function presentationFormula(header: string, rollOvertime: boolean, ref: (id: st
     default:
       return null;
   }
+}
+
+function partTimeFormula(template: string): string {
+  let text = template;
+  PART_TIME_RATE_IDS.forEach((id) => {
+    text = text.replace(new RegExp(`\\b${id}\\b`, 'g'), `${id}Part`);
+  });
+  return text;
 }
 
 function applyRow(template: string, rowNumber: number, columnOf: Map<string, number>): string {

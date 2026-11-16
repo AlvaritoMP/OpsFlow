@@ -13,8 +13,11 @@ import {
   isProjectionBilling,
   newBillingId,
   normalizeBillingRates,
+  normalizePartTimeRates,
   round2,
+  scheduleMix,
   withWorkerDefaults,
+  workerSchedule,
 } from './clientBillingCalc';
 import { BillingFormulaSet, normalizeBillingFormulas } from './billingFormulas';
 
@@ -78,6 +81,7 @@ export interface QuotePositionColumn {
   name: string;
   site: string;
   vacancies: number;
+  schedule: 'full' | 'part';
   /** Costo laboral de 1 puesto. */
   laborMonth: number;
   /** Costo laboral de 1 puesto multiplicado por la cantidad. */
@@ -179,6 +183,7 @@ export function defaultQuoteNotes(): string[] {
     'Los montos consignados en el presente anexo no incluyen el Impuesto General a las Ventas (IGV {igv}%).',
     'La asignación familiar aplica conforme a la Ley N° 25129 para colaboradores con carga familiar acreditada. En esta propuesta solo está cargada en los puestos que la incluyen.',
     'Las provisiones laborales (gratificación y bonificación extraordinaria de la Ley N.° 30334, CTS y vacaciones) y los aportes y seguros de ley (EsSalud, SCTR salud y pensión, y Vida Ley) se calculan con el mismo método de una liquidación.',
+    'Si la propuesta combina puestos full time y part time, las cargas del part time salen de los parámetros de ajuste de esa jornada. La jornada completa sigue con las tasas generales.',
     'Cada columna es el costo de 1 puesto. La cantidad se aplica solo en la línea de costo laboral total. Los costos operativos, los gastos administrativos y la utilidad se calculan sobre ese total, igual que en una liquidación, y no se prorratean dentro del sueldo.',
     'No se incluyen alimentación ni horas extraordinarias no programadas. Esas horas se liquidan con autorización previa del cliente.',
   ];
@@ -213,6 +218,7 @@ export function emptyQuotePosition(name: string, rates: BillingRates = DEFAULT_B
     factor: 1,
     daysManual: true,
     vacationDays: 0,
+    schedule: 'full',
   };
 }
 
@@ -262,6 +268,7 @@ function normalizePosition(raw: Partial<QuotePosition> | null | undefined, rates
     position: name,
     site: String(raw?.site || ''),
     factor: Math.max(1, Math.round(Number(raw?.factor) || 1)),
+    schedule: workerSchedule(raw || {}),
   };
 }
 
@@ -274,6 +281,7 @@ export function applyQuoteCommercials(
   const source = payload.model;
   const next = cloneModel(model);
   next.rates = normalizeBillingRates(source.rates);
+  next.partTimeRates = source.partTimeRates ? normalizePartTimeRates(source.partTimeRates, next.rates) : undefined;
   next.serviceLabel = source.serviceLabel.trim() || next.serviceLabel;
   next.formulas = source.formulas || next.formulas;
   next.operational = (source.operational || []).map((line) => ({ ...line, id: newBillingId() }));
@@ -320,6 +328,7 @@ export function snapshotQuotePositions(model: ClientBillingModel): BillingQuoteP
       nightManual: manualOrNull(position.nightManual),
       socialBaseManual: Boolean(position.socialBaseManual),
       socialBase: num(position.socialBase),
+      schedule: workerSchedule(position),
     }));
 }
 
@@ -395,6 +404,7 @@ export function assignWorkerQuotePosition(worker: BillingWorkerInput, position: 
     nightHours: num(position.nightHours),
     nightManual: manualOrNull(position.nightManual),
     factor: 1,
+    schedule: workerSchedule(position),
   };
 }
 
@@ -424,6 +434,7 @@ export function clearWorkerQuotePosition(worker: BillingWorkerInput): BillingWor
     nightHours: 0,
     nightManual: null,
     factor: 1,
+    schedule: 'full',
   };
 }
 
@@ -461,6 +472,7 @@ function workerFromQuotePosition(position: QuotePosition): BillingWorkerInput {
     factor: position.factor,
     daysManual: true,
     vacationDays: position.vacationDays,
+    schedule: workerSchedule(position),
     calendarDays: position.daysWorked,
     absenceDays: 0,
     notes: position.site ? `Sede: ${position.site}` : position.notes,
@@ -476,6 +488,8 @@ export function normalizeQuotePayload(raw: unknown): QuoteProposalPayload {
     modelRaw?.serviceLabel || 'Servicio',
     rates
   );
+  const workers = (modelRaw?.workers || []).map((worker) => normalizePosition(worker, rates));
+  const storedPartTime = modelRaw?.partTimeRates;
   const model: ClientBillingModel = {
     ...base,
     ...(modelRaw || {}),
@@ -485,7 +499,11 @@ export function normalizeQuotePayload(raw: unknown): QuoteProposalPayload {
     comment: modelRaw?.comment || '',
     considerations: modelRaw?.considerations || '',
     rates,
-    workers: (modelRaw?.workers || []).map((worker) => normalizePosition(worker, rates)),
+    workers,
+    partTimeRates:
+      scheduleMix(workers) === 'mixed' || storedPartTime
+        ? normalizePartTimeRates(storedPartTime, rates)
+        : undefined,
     operational: Array.isArray(modelRaw?.operational) ? modelRaw.operational : [],
     administrative: Array.isArray(modelRaw?.administrative) ? modelRaw.administrative : defaultAdministrativeLines(),
     formulas: normalizeBillingFormulas(modelRaw?.formulas),
@@ -572,9 +590,10 @@ interface ConceptDef {
   pick: (worker: QuotePosition, line: ComputedWorker) => number;
 }
 
-function conceptDefs(rates: BillingRates): ConceptDef[] {
-  const essalud =
-    rates.essaludMode === 'fixed'
+function conceptDefs(rates: BillingRates, partTimeEssaludDiffers: boolean): ConceptDef[] {
+  const essalud = partTimeEssaludDiffers
+    ? 'EsSalud (según jornada)'
+    : rates.essaludMode === 'fixed'
       ? 'EsSalud (monto fijo por puesto)'
       : `EsSalud (${formatRatePercent(rates.essaludRate)}%)`;
   return [
@@ -600,6 +619,14 @@ function conceptDefs(rates: BillingRates): ConceptDef[] {
 export function buildQuoteView(payload: QuoteProposalPayload): QuoteView {
   const model = payload.model;
   const rates = normalizeBillingRates(model.rates);
+  const mixed = scheduleMix(model.workers) === 'mixed';
+  const partTime = mixed ? normalizePartTimeRates(model.partTimeRates, rates) : null;
+  const essaludDiffers = Boolean(
+    partTime &&
+      (partTime.essaludMode !== rates.essaludMode ||
+        partTime.essaludRate !== rates.essaludRate ||
+        partTime.essaludFixedAmount !== rates.essaludFixedAmount)
+  );
   const computed = computeBilling({ ...model, rates });
   const lines = new Map(computed.workers.map((line) => [line.id, line]));
   const included = quotePositions(model).filter((worker) => worker.included && lines.has(worker.id));
@@ -610,12 +637,13 @@ export function buildQuoteView(payload: QuoteProposalPayload): QuoteView {
       item: String(index + 1).padStart(2, '0'),
       name: worker.name || 'Puesto',
       site: worker.site || '',
+      schedule: workerSchedule(worker),
       vacancies: Math.max(1, Math.round(num(worker.factor) || 1)),
       laborMonth: line.monthlyCost,
       laborTotal: line.totalCost,
     };
   });
-  const concepts: QuoteConceptRow[] = conceptDefs(rates).map((concept) => {
+  const concepts: QuoteConceptRow[] = conceptDefs(rates, essaludDiffers).map((concept) => {
     const amounts = included.map((worker) => concept.pick(worker, lines.get(worker.id)!));
     return {
       key: concept.key,
@@ -656,13 +684,17 @@ export function buildQuoteView(payload: QuoteProposalPayload): QuoteView {
     }
   );
 
-  const summary: QuoteSummaryRow[] = positions.map((position) => ({
-    item: position.item,
-    quantity: String(position.vacancies),
-    description: position.site ? `${position.name} · ${position.site}` : position.name,
-    amount: position.laborTotal,
-    kind: 'position',
-  }));
+  const summary: QuoteSummaryRow[] = positions.map((position) => {
+    const jornada = mixed ? (position.schedule === 'part' ? 'Part time' : 'Full time') : '';
+    const description = [position.name, jornada, position.site].filter(Boolean).join(' · ');
+    return {
+      item: position.item,
+      quantity: String(position.vacancies),
+      description,
+      amount: position.laborTotal,
+      kind: 'position',
+    };
+  });
   (model.operational || []).forEach((line, index) => {
     summary.push({
       item: '',

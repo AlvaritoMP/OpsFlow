@@ -38,10 +38,14 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
   const columns = Math.max(view.positions.length + 2, 2);
   const share = view.positions.length ? (100 - 36) / (view.positions.length + 1) : 32;
 
+  const mixedSchedules =
+    view.positions.some((position) => position.schedule === 'part') &&
+    view.positions.some((position) => position.schedule !== 'part');
   const positionHeads = view.positions
-    .map(
-      (position) => `<th class="text-right">POSICIÓN ${esc(position.item)}: ${esc(position.name)}<br><span class="th-sub">(costo de 1 puesto${position.site ? ` · ${esc(position.site)}` : ''})</span></th>`
-    )
+    .map((position) => {
+      const jornada = mixedSchedules ? (position.schedule === 'part' ? ' · part time' : ' · full time') : '';
+      return `<th class="text-right">POSICIÓN ${esc(position.item)}: ${esc(position.name)}<br><span class="th-sub">(costo de 1 puesto${jornada}${position.site ? ` · ${esc(position.site)}` : ''})</span></th>`;
+    })
     .join('');
 
   const optionalRows = new Set(['he25', 'he35', 'heNight25', 'heNight35', 'night', 'bonus', 'feria', 'vidaLey', 'sctr']);
