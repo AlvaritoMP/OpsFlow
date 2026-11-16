@@ -1244,7 +1244,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         heading: 'Cómo se arma',
         body: 'Cada puesto se calcula como una fila de liquidación para 1 persona: sueldo, días, asignación familiar, condición de trabajo, bonos, horas extra y cargas. La cantidad multiplica solo el costo laboral total. Los costos operativos, los gastos administrativos y la utilidad se suman sobre ese total.',
         steps: [
-          'Nueva propuesta: cliente, servicio, dirección, atención y meses. Puede tomar el nombre desde una unidad.',
+          'Nueva propuesta: cliente, servicio, dirección, atención y meses. Puede tomar el nombre desde una unidad, o reutilizar un borrador o una propuesta ya emitida. La nueva sale con otro código y la anterior no cambia. En la lista, Reutilizar abre ese mismo paso.',
           'Puestos: una fila por puesto, siempre de 1 persona. En Jornada elija Full time o Part time. Las horas extra y el bono nocturno se escriben en horas; el importe en soles lo calcula el mismo método de una liquidación. La cantidad multiplica solo la columna Costo total.',
           'Operativo y administrativo: los mismos conceptos de la liquidación. El costo financiero usa la tasa y los días de Parámetros.',
           'Parámetros: tasas de cargas, utilidad e IGV. Si la propuesta mezcla full time y part time, al final aparecen las cargas del part time (vacaciones, gratificación, CTS, feriados, EsSalud, Vida Ley, SCTR y horas por día). Esas tasas solo entran en los puestos part time. Al reabrir, elija si actualiza el cálculo con las fórmulas publicadas o lo deja como estaba. Traer método publicado copia las fórmulas en un borrador.',

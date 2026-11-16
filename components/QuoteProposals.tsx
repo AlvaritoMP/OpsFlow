@@ -30,6 +30,7 @@ import { buildQuoteDocument } from '../utils/quoteDocument';
 import { downloadQuotePdf } from '../utils/quotePdf';
 import {
   buildQuoteView,
+  cloneQuotePayload,
   createEmptyQuote,
   defaultCommercialTerms,
   emptyQuotePosition,
@@ -113,6 +114,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
   const [logoUrl, setLogoUrl] = useState('');
   const [createForm, setCreateForm] = useState({
     unitId: '',
+    sourceId: '',
     clientName: '',
     address: '',
     attention: '',
@@ -300,15 +302,36 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     });
   };
 
+  const formFromQuote = (record: QuoteRecord) => ({
+    unitId: '',
+    sourceId: record.id,
+    clientName: record.clientName,
+    address: record.payload.address || '',
+    attention: record.payload.attention || '',
+    serviceName: record.serviceName || record.payload.model.serviceLabel || '',
+    months: Math.max(1, Math.round(Number(record.payload.months) || 1)),
+    issueDate: new Date().toISOString().slice(0, 10),
+  });
+
   const startCreate = () => {
-    const payload = createEmptyQuote({
-      serviceName: createForm.serviceName,
-      address: createForm.address,
-      attention: createForm.attention,
-      months: createForm.months,
-      issueDate: createForm.issueDate,
-      formulas: publishedFormulas,
-    });
+    const source = records.find((record) => record.id === createForm.sourceId);
+    const payload = source
+      ? cloneQuotePayload(source.payload, createForm.issueDate)
+      : createEmptyQuote({
+          serviceName: createForm.serviceName,
+          address: createForm.address,
+          attention: createForm.attention,
+          months: createForm.months,
+          issueDate: createForm.issueDate,
+          formulas: publishedFormulas,
+        });
+    if (source) {
+      payload.address = createForm.address.trim();
+      payload.attention = createForm.attention.trim();
+      payload.months = Math.max(1, Math.round(Number(createForm.months) || 1));
+      payload.issueDate = /^\d{4}-\d{2}-\d{2}$/.test(createForm.issueDate) ? createForm.issueDate : payload.issueDate;
+      payload.model.serviceLabel = createForm.serviceName.trim() || payload.model.serviceLabel;
+    }
     const next: EditorState = {
       code: nextQuoteCode(records.map((record) => record.code)),
       clientName: createForm.clientName.trim(),
@@ -319,7 +342,11 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     setBaseline('');
     setShowCreate(false);
     setTab('positions');
-    setBanner('La propuesta usa el método de liquidación. Guárdela cuando los puestos estén listos.');
+    setBanner(
+      source
+        ? `Borrador nuevo a partir de ${source.code}. La propuesta anterior queda como estaba.`
+        : 'La propuesta usa el método de liquidación. Guárdela cuando los puestos estén listos.'
+    );
   };
 
   const save = async () => {
@@ -595,7 +622,10 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
               {canEdit && (
                 <button
                   type="button"
-                  onClick={() => setShowCreate(true)}
+                  onClick={() => {
+                    setCreateForm((form) => ({ ...form, sourceId: '' }));
+                    setShowCreate(true);
+                  }}
                   className="inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-lg hover:bg-slate-800"
                 >
                   <Plus size={18} /> Nueva propuesta
@@ -679,6 +709,18 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                         <td className="px-3 py-2 text-slate-700">{record.issuedByName || '—'}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button type="button" className="text-blue-700 text-sm" onClick={() => openRecord(record)}>Abrir</button>
+                          {canEdit && (record.status === 'draft' || record.status === 'issued') && (
+                            <button
+                              type="button"
+                              className="ml-3 text-slate-700 text-sm"
+                              onClick={() => {
+                                setCreateForm(formFromQuote(record));
+                                setShowCreate(true);
+                              }}
+                            >
+                              Reutilizar
+                            </button>
+                          )}
                           {canEdit && record.status !== 'issued' && (
                             <button type="button" className="ml-3 text-red-600 text-sm" disabled={busy === record.id} onClick={() => void remove(record)}>Eliminar</button>
                           )}
@@ -693,6 +735,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           {showCreate && (
             <CreateDialog
               units={units}
+              quotes={records}
               form={createForm}
               onChange={setCreateForm}
               onClose={() => setShowCreate(false)}
@@ -1390,27 +1433,80 @@ function QuotePreview({ html }: { html: string }) {
 
 function CreateDialog(props: {
   units: Unit[];
-  form: { unitId: string; clientName: string; address: string; attention: string; serviceName: string; months: number; issueDate: string };
-  onChange: (form: { unitId: string; clientName: string; address: string; attention: string; serviceName: string; months: number; issueDate: string }) => void;
+  quotes: QuoteRecord[];
+  form: { unitId: string; sourceId: string; clientName: string; address: string; attention: string; serviceName: string; months: number; issueDate: string };
+  onChange: (form: { unitId: string; sourceId: string; clientName: string; address: string; attention: string; serviceName: string; months: number; issueDate: string }) => void;
   onClose: () => void;
   onCreate: () => void;
 }) {
+  const [sourceQuery, setSourceQuery] = useState('');
+  const reusable = props.quotes.filter((quote) => quote.status === 'draft' || quote.status === 'issued');
+  const needle = sourceQuery.trim().toLocaleLowerCase('es');
+  const chosen = reusable.find((quote) => quote.id === props.form.sourceId);
+  const matches = reusable.filter((quote) =>
+    `${quote.code} ${quote.clientName} ${quote.serviceName} ${quoteStatusLabel(quote.status)}`.toLocaleLowerCase('es').includes(needle)
+  );
+  const sourceOptions = chosen && !matches.some((quote) => quote.id === chosen.id) ? [chosen, ...matches] : matches;
   const chooseUnit = (unitId: string) => {
     const unit = props.units.find((item) => item.id === unitId);
     props.onChange({
       ...props.form,
       unitId,
+      sourceId: '',
       clientName: unit?.clientName || props.form.clientName,
       serviceName: props.form.serviceName || unit?.name || '',
+    });
+  };
+  const chooseSource = (sourceId: string) => {
+    const quote = reusable.find((item) => item.id === sourceId);
+    if (!quote) {
+      props.onChange({ ...props.form, sourceId: '' });
+      return;
+    }
+    props.onChange({
+      unitId: '',
+      sourceId: quote.id,
+      clientName: quote.clientName,
+      address: quote.payload.address || '',
+      attention: quote.payload.attention || '',
+      serviceName: quote.serviceName || quote.payload.model.serviceLabel || '',
+      months: Math.max(1, Math.round(Number(quote.payload.months) || 1)),
+      issueDate: new Date().toISOString().slice(0, 10),
     });
   };
   return (
     <div className="fixed inset-0 z-40 bg-slate-900/40 flex items-start justify-center p-4 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-5 space-y-4 my-8">
         <h2 className="text-lg font-semibold text-slate-900">Nueva propuesta</h2>
-        <p className="text-sm text-slate-500">Puede partir de una unidad ya registrada o escribir un cliente que todavía no está en el sistema.</p>
+        <p className="text-sm text-slate-500">
+          Puede partir de una unidad, escribir un cliente nuevo, o reutilizar un borrador o una propuesta ya emitida. La nueva queda como borrador y la anterior no cambia.
+        </p>
+        <div className="space-y-2">
+          <label className="text-xs text-slate-500 block">Reutilizar una propuesta
+            <input
+              className={fieldClass}
+              value={sourceQuery}
+              placeholder="Buscar por código, cliente o servicio"
+              onChange={(event) => setSourceQuery(event.target.value)}
+            />
+          </label>
+          <select className={fieldClass} value={props.form.sourceId} onChange={(event) => chooseSource(event.target.value)}>
+            <option value="">{reusable.length ? 'En blanco, sin copiar una propuesta' : 'Todavía no hay propuestas guardadas'}</option>
+            {sourceOptions.map((quote) => (
+              <option key={quote.id} value={quote.id}>
+                {quote.code} · {quote.clientName} · {quote.serviceName} · {quoteStatusLabel(quote.status)}
+              </option>
+            ))}
+          </select>
+          {chosen && (
+            <p className="text-xs text-slate-500">
+              Se copian los puestos, las cargas, los costos operativos, los administrativos, la utilidad y las condiciones de {chosen.code}. La fecha de esta propuesta es la de hoy. Puede cambiar el cliente, el servicio y el resto antes de armarla.
+            </p>
+          )}
+          {needle && matches.length === 0 && <p className="text-xs text-slate-500">Ninguna propuesta coincide con esa búsqueda.</p>}
+        </div>
         <label className="text-xs text-slate-500 block">Unidad de referencia
-          <select className={fieldClass} value={props.form.unitId} onChange={(event) => chooseUnit(event.target.value)}>
+          <select className={fieldClass} value={props.form.unitId} onChange={(event) => chooseUnit(event.target.value)} disabled={Boolean(props.form.sourceId)}>
             <option value="">Sin unidad</option>
             {props.units.map((unit) => (
               <option key={unit.id} value={unit.id}>{unit.clientName} · {unit.name}</option>
@@ -1427,7 +1523,9 @@ function CreateDialog(props: {
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={props.onClose} className="px-3 py-2 rounded-lg border border-slate-200 text-sm">Cancelar</button>
-          <button type="button" onClick={props.onCreate} disabled={!props.form.clientName.trim()} className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50">Armar propuesta</button>
+          <button type="button" onClick={props.onCreate} disabled={!props.form.clientName.trim()} className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50">
+            {props.form.sourceId ? 'Crear a partir de esta propuesta' : 'Armar propuesta'}
+          </button>
         </div>
       </div>
     </div>

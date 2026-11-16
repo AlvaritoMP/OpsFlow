@@ -222,6 +222,28 @@ export function emptyQuotePosition(name: string, rates: BillingRates = DEFAULT_B
   };
 }
 
+/** Copia puestos, cargas, costos y condiciones. La nueva queda como borrador, con otros identificadores y la fecha que se indique. */
+export function cloneQuotePayload(source: QuoteProposalPayload, issueDate?: string): QuoteProposalPayload {
+  const normalized = normalizeQuotePayload(source);
+  const model = cloneModel(normalized.model);
+  model.workers = (model.workers || []).map((worker) => ({ ...worker, id: newBillingId() }));
+  model.operational = (model.operational || []).map((line) => ({ ...line, id: newBillingId() }));
+  model.administrative = (model.administrative || []).map((line) => ({ ...line, id: newBillingId() }));
+  model.internalNotes = [];
+  model.sourceQuoteId = undefined;
+  model.sourceQuoteCode = undefined;
+  model.sourceQuotePositions = undefined;
+  model.opalosisRegistration = undefined;
+  model.billingKind = undefined;
+  const date = issueDate && /^\d{4}-\d{2}-\d{2}$/.test(issueDate) ? issueDate : new Date().toISOString().slice(0, 10);
+  return {
+    ...normalized,
+    issueDate: date,
+    clauses: normalized.clauses.map((clause) => ({ ...clause, id: newBillingId() })),
+    model,
+  };
+}
+
 export function createEmptyQuote(input: {
   clientName?: string;
   serviceName: string;
