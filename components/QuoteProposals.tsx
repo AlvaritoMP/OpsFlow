@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Download, FileSpreadsheet, FileText, HelpCircle, History, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, FileSpreadsheet, FileText, HelpCircle, History, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { Unit, User } from '../types';
 import { loadPublishedBillingFormulas } from '../services/clientBillingService';
 import {
@@ -602,6 +602,16 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             </select>
             <button
               type="button"
+              onClick={() => void loadList()}
+              disabled={loading}
+              title="Trae de nuevo las propuestas para ver lo que crearon otros usuarios"
+              className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50 shrink-0"
+            >
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              Actualizar
+            </button>
+            <button
+              type="button"
               onClick={() => void exportListExcel()}
               disabled={loading || visible.length === 0 || !!busy}
               title="Descarga la relación que se ve en esta lista, con la búsqueda y el estado filtrados"
@@ -612,7 +622,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             </button>
           </div>
           <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            {loading ? (
+            {loading && records.length === 0 ? (
               <div className="p-8 text-sm text-slate-500 flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> Cargando propuestas…</div>
             ) : visible.length === 0 ? (
               <div className="p-8 text-sm text-slate-500">No hay propuestas para este filtro.</div>

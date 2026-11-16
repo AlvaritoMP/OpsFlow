@@ -291,6 +291,15 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     };
   }, [showCreate, createUnitId]);
 
+  const refreshLists = async () => {
+    await Promise.all([
+      loadList(),
+      listQuotes()
+        .then((rows) => setQuotes(rows.filter((row) => row.status !== 'void')))
+        .catch(() => undefined),
+    ]);
+  };
+
   useEffect(() => {
     void loadList();
     void loadPublishedBillingFormulas()
@@ -1556,18 +1565,30 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   <option value="archived">Solo archivo</option>
                   <option value="void">Papelera</option>
                 </select>
-                <button
-                  type="button"
-                  onClick={() => void exportListExcel()}
-                  disabled={loadingList || visibleRecords.length === 0 || !!busy}
-                  title="Descarga la relación que se ve en esta lista, con el cliente y el estado filtrados"
-                  className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50 md:ml-auto shrink-0"
-                >
-                  {busy === 'Exportando la relación' ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
-                  Exportar Excel
-                </button>
+                <div className="flex flex-wrap gap-2 md:ml-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void refreshLists()}
+                    disabled={loadingList}
+                    title="Trae de nuevo las facturaciones y propuestas para ver lo que crearon otros usuarios"
+                    className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <RefreshCw size={16} className={loadingList ? 'animate-spin' : ''} />
+                    Actualizar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void exportListExcel()}
+                    disabled={loadingList || visibleRecords.length === 0 || !!busy}
+                    title="Descarga la relación que se ve en esta lista, con el cliente y el estado filtrados"
+                    className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {busy === 'Exportando la relación' ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+                    Exportar Excel
+                  </button>
+                </div>
               </div>
-              {loadingList ? (
+              {loadingList && records.length === 0 ? (
                 <div className="p-8 text-center text-slate-500 text-sm">Cargando facturaciones...</div>
               ) : visibleRecords.length === 0 ? (
                 <div className="p-8 text-center text-slate-500 text-sm">Todavía no hay facturaciones con este filtro.</div>
