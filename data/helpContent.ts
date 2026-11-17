@@ -325,7 +325,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'El colaborador aparece de inmediato en la nueva unidad con todo su historial.',
         ],
         tips: [
-          'No use cese + archivo + recuperar para un simple cambio de sede: el traslado mantiene el estado activo.',
+          'Un cambio de sede se hace con Trasladar. El cese cierra la relación y deja la ficha en Ver Cesados.',
         ],
       },
       {
@@ -711,7 +711,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Busque por nombre o documento.',
           'Abra el registro para ver el historial asociado.',
           'Use «Exportar Excel» para descargar la tabla visible: si hay un filtro de búsqueda, solo se exportan esos resultados; si no, se exporta toda la lista en pantalla.',
-          'Al cesar o archivar se elige un motivo de la lista y, aparte, un detalle libre. El detalle explica el caso y no reemplaza el motivo, así se puede medir la categoría. En Renuncia voluntaria y en Otro el detalle es obligatorio. Ambos aparecen en esta tabla y en el Excel; se editan desde Acciones.',
+          'Esta pantalla guarda fichas que ya estaban archivadas. Un cese nuevo no entra aquí: queda en la unidad, en Ver Cesados.',
+          'Al editar un cese se mantiene el motivo de la lista y, aparte, el detalle libre. En Renuncia voluntaria y en Otro el detalle es obligatorio. Ambos aparecen en esta tabla y en el Excel.',
           'Recuperar devuelve la misma ficha a una unidad, como estaba antes del cese. Quita el cese de esa ficha y no envía un contrato nuevo a Opalosis.',
           'Recontratar abre otra relación laboral, en otra unidad o en la misma si cambia el régimen o las condiciones. Se pueden ajustar puesto, fechas, salario, beneficios y jornada. El cese o archivo anterior permanece en esta lista.',
           'La ficha nueva entra a Envío Opalosis para que generen un contrato distinto. Activos y tareo de la relación anterior no se mueven.',

@@ -1106,6 +1106,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       const { excelService } = await import('../services/excelService');
       const headers = [
         'Periodo',
+        'Título',
         'Tipo',
         'Código o corte',
         'Cliente',
@@ -1124,6 +1125,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         const attendance = resolveAttendanceWindow(record.periodMonth, record.model?.attendanceFrom, record.model?.attendanceTo);
         return {
           Periodo: formatPeriodLabel(record.periodMonth),
+          Título: record.title || record.model?.title || '',
           Tipo: projection ? 'Proyección' : 'Real',
           'Código o corte': projection
             ? record.model.sourceQuoteCode || ''
@@ -1143,6 +1145,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       const money = ['Laboral', 'Operativo', 'Administrativo', 'Utilidad', 'Total'] as const;
       const total: Record<string, string | number> = {
         Periodo: `Total (${rows.length})`,
+        Título: '',
         Tipo: '',
         'Código o corte': '',
         Cliente: '',
@@ -1190,7 +1193,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
 
   return (
     <div className={editor ? 'h-full min-h-0 flex flex-col bg-slate-50' : 'h-full overflow-y-auto bg-slate-50'}>
-      <div className={editor ? 'flex-1 min-h-0 flex flex-col gap-3 p-3 md:p-4' : 'max-w-[1500px] mx-auto p-4 md:p-6 space-y-4'}>
+      <div className={editor ? 'flex-1 min-h-0 flex flex-col gap-3 p-3 md:p-4' : 'w-full p-4 md:p-6 space-y-4'}>
         {!editor && (
           <>
             <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
@@ -1603,6 +1606,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                     <thead className="bg-slate-50 text-slate-500 text-left">
                       <tr>
                         <th className="px-3 py-2 font-medium">Periodo</th>
+                        <th className="px-3 py-2 font-medium">Título</th>
                         <th className="px-3 py-2 font-medium">Cliente / unidad</th>
                         <th className="px-3 py-2 font-medium">Estado</th>
                         <th className="px-3 py-2 font-medium text-right">Laboral</th>
@@ -1627,6 +1631,9 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                                 ? `Proyección${record.model.sourceQuoteCode ? ` · ${record.model.sourceQuoteCode}` : ''}`
                                 : `Real · ${formatAttendanceRange(attendance.from, attendance.to)}`}
                             </div>
+                          </td>
+                          <td className="px-3 py-3 text-slate-800 min-w-[16rem]">
+                            {record.title || record.model?.title || '—'}
                           </td>
                           <td className="px-3 py-3">
                             <div className="text-slate-800">{record.clientName}</div>

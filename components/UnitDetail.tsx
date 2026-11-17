@@ -48,6 +48,7 @@ import {
   terminationReasonError,
 } from '../utils/terminationReason';
 import { TerminationReasonFields } from './TerminationReasonFields';
+import { RehireWorkerModal } from './RehireWorkerModal';
 import { pauseUnitsBackgroundRefresh, resumeUnitsBackgroundRefresh } from '../hooks/unitsRefreshLock';
 import { RosterHourCoverageGrid } from './RosterHourCoverageGrid';
 import {
@@ -528,11 +529,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   // Cese y renovación de contrato states
   const [showTerminateModal, setShowTerminateModal] = useState(false);
   const [selectedWorkerForTermination, setSelectedWorkerForTermination] = useState<Resource | null>(null);
-  const [terminationType, setTerminationType] = useState<'cesado' | 'archivado'>('cesado');
   const [terminationDate, setTerminationDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [terminationReasonPreset, setTerminationReasonPreset] = useState('');
   const [terminationDetail, setTerminationDetail] = useState('');
   const [isTerminating, setIsTerminating] = useState(false);
+  const [cesadoRehireWorker, setCesadoRehireWorker] = useState<Resource | null>(null);
+  const [rehireUnits, setRehireUnits] = useState<Unit[]>([]);
+  const [rehiringWorker, setRehiringWorker] = useState(false);
+  const [cesadoRehireSuccessor, setCesadoRehireSuccessor] = useState<import('../services/workerRehireService').WorkerRehireBadge | null>(null);
   const [workerToTransfer, setWorkerToTransfer] = useState<Resource | null>(null);
   
   const [showRenewContractModal, setShowRenewContractModal] = useState(false);
@@ -4328,11 +4332,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         image: finalResourceImage,
         phone: lockedPhone || editingResource.phone?.trim() || undefined,
         jornadaType: lockedJornada || editingResource.jornadaType?.trim() || undefined,
-        // Si NO está archivado explícitamente, forzar estado "activo"
-        // Esto previene que trabajadores con endDate sean marcados como "cesado"
-        personnelStatus: editingResource.archived === true 
-          ? (editingResource.personnelStatus || 'activo')
-          : 'activo' // Si no está archivado, siempre debe ser "activo"
+        // La fecha de fin no cesa. Un cesado o un archivado histórico conserva su estado.
+        personnelStatus: editingResource.personnelStatus === 'cesado' || editingResource.personnelStatus === 'archivado'
+          ? editingResource.personnelStatus
+          : 'activo'
       };
       
       // Guardar en la BD y usar la respuesta ya recargada del servicio.
@@ -7070,7 +7073,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             {showArchivedPersonnel
               ? 'Personal archivado. Abajo de cada ficha están el salario, el bono, la asignación, el turno y las demás condiciones de ingreso anteriores al archivo.'
               : showCesadoPersonnel
-              ? 'Personal cesado. Abajo de cada ficha están el salario, el bono, la asignación, el turno y las demás condiciones de ingreso anteriores al cese.'
+              ? 'Personal cesado. El cierre queda en esta unidad. Abajo de cada ficha están las condiciones anteriores al cese. Recuperar devuelve la ficha a activos.'
               : 'Administración de colaboradores, asistencias y capacitaciones.'}
           </p>
         </div>
@@ -7504,7 +7507,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                         onClick={() => {
                                             setSelectedWorkerForTermination(worker);
                                             setTerminationDate(new Date().toISOString().split('T')[0]);
-                                            setTerminationType('cesado');
                                             setTerminationReasonPreset('');
                                             setTerminationDetail('');
                                             setShowTerminateModal(true);
@@ -7550,50 +7552,74 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 >
                                     <Trash2 size={16} />
                                 </button>
-                                {/* El botón de archivar manual ya no es necesario para cesados, 
-                                    ya que se archivan automáticamente. Pero lo mantenemos por si 
-                                    alguien quiere archivar manualmente antes de cesar */}
-                                {worker.personnelStatus === 'cesado' && !worker.archived && (
-                                    <button 
+                                {showCesadoPersonnel && worker.personnelStatus === 'cesado' && !worker.archived && (
+                                    <button
                                         onClick={async () => {
-                                            if (confirm('¿Archivar este trabajador cesado? El trabajador será removido de la vista normal pero permanecerá en la base de datos para consultas en informes.')) {
-                                                setIsArchivingPersonnel(worker.id);
-                                                try {
-                                                    const { resourcesService } = await import('../services/resourcesService');
-                                                    await resourcesService.archivePersonnel(worker.id);
-                                                    // Actualizar solo los recursos localmente para mantener el tab activo
-                                                    if (onUpdate) {
-                                                        const currentTab = activeTabRef.current; // Guardar el tab actual
-                                                        const updatedUnit = { ...unit };
-                                                        updatedUnit.resources = updatedUnit.resources.filter(r => r.id !== worker.id);
-                                                        onUpdate(updatedUnit);
-                                                        // Asegurar que el tab se mantenga
-                                                        setTimeout(() => {
-                                                            if (activeTab !== currentTab) {
-                                                                setActiveTab(currentTab);
-                                                            }
-                                                        }, 100);
+                                            if (!confirm(`¿Recuperar a ${worker.name}? Vuelve a la lista activa y se quita el cese de esta ficha.`)) return;
+                                            setIsArchivingPersonnel(worker.id);
+                                            try {
+                                                const { resourcesService } = await import('../services/resourcesService');
+                                                const { findActivePersonnelByDocument } = await import('../services/workerRehireService');
+                                                if (worker.dni) {
+                                                    const active = await findActivePersonnelByDocument(worker.dni);
+                                                    if (active && active.id !== worker.id) {
+                                                        setNotification({ type: 'error', message: `No se puede recuperar: el documento ya tiene una relación activa (${active.name}).` });
+                                                        setTimeout(() => setNotification(null), 5000);
+                                                        return;
                                                     }
-                                                    setNotification({ type: 'success', message: 'Trabajador archivado correctamente' });
-                                                    setTimeout(() => setNotification(null), 3000);
-                                                } catch (error) {
-                                                    console.error('Error al archivar trabajador:', error);
-                                                    setNotification({ type: 'error', message: 'Error al archivar el trabajador. Por favor, intente nuevamente.' });
-                                                    setTimeout(() => setNotification(null), 5000);
-                                                } finally {
-                                                    setIsArchivingPersonnel(null);
                                                 }
+                                                await resourcesService.update(worker.id, {
+                                                    archived: false,
+                                                    personnelStatus: 'activo',
+                                                    endDate: null,
+                                                    terminationReason: null,
+                                                    terminationDetail: null,
+                                                });
+                                                if (onUpdate) {
+                                                    const { unitsService } = await import('../services/unitsService');
+                                                    const refreshedUnit = await unitsService.getById(unit.id);
+                                                    if (refreshedUnit) onUpdate(refreshedUnit);
+                                                }
+                                                setNotification({ type: 'success', message: 'Trabajador recuperado. El cese de esta ficha quedó quitado.' });
+                                                setTimeout(() => setNotification(null), 4000);
+                                            } catch (error) {
+                                                console.error('Error al recuperar trabajador:', error);
+                                                setNotification({ type: 'error', message: 'No se pudo recuperar al trabajador.' });
+                                                setTimeout(() => setNotification(null), 5000);
+                                            } finally {
+                                                setIsArchivingPersonnel(null);
                                             }
                                         }}
-                                        className="text-amber-600 hover:text-amber-900 p-1 disabled:opacity-50" 
-                                        title="Archivar trabajador cesado"
-                                        disabled={isArchivingPersonnel === worker.id}
+                                        className="text-green-600 hover:text-green-900 p-1 disabled:opacity-50"
+                                        title="Recuperar: devuelve esta ficha a activos y quita el cese"
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
                                     >
-                                        {isArchivingPersonnel === worker.id ? (
-                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-amber-600"></div>
-                                        ) : (
-                                          <Archive size={16} />
-                                        )}
+                                        <RefreshCw size={16} />
+                                    </button>
+                                )}
+                                {showCesadoPersonnel && worker.personnelStatus === 'cesado' && !worker.archived && (
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                const { unitsService } = await import('../services/unitsService');
+                                                const { listRehireBadges } = await import('../services/workerRehireService');
+                                                if (rehireUnits.length === 0) {
+                                                    setRehireUnits(await unitsService.getAll());
+                                                }
+                                                const badges = await listRehireBadges([worker.id]);
+                                                setCesadoRehireSuccessor(badges.get(worker.id) || null);
+                                                setCesadoRehireWorker(worker);
+                                            } catch (error) {
+                                                console.error('Error al preparar la recontratación:', error);
+                                                setNotification({ type: 'error', message: 'No se pudieron cargar las unidades para recontratar.' });
+                                                setTimeout(() => setNotification(null), 5000);
+                                            }
+                                        }}
+                                        className="text-indigo-600 hover:text-indigo-900 p-1"
+                                        title="Recontratar: abre otra relación laboral. Este cese permanece."
+                                        disabled={isArchivingPersonnel === worker.id || isUpdatingResource || rehiringWorker}
+                                    >
+                                        <UserPlus size={16} />
                                     </button>
                                 )}
                               </>
@@ -7603,7 +7629,6 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                     <button 
                                         onClick={() => {
                                             setSelectedWorkerForTermination(worker);
-                                            setTerminationType(worker.personnelStatus === 'cesado' ? 'archivado' : 'cesado');
                                             setTerminationDate(worker.endDate || new Date().toISOString().split('T')[0]);
                                             const split = splitTerminationReason(worker.terminationReason);
                                             setTerminationReasonPreset(split.preset);
@@ -7611,14 +7636,14 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             setShowTerminateModal(true);
                                         }}
                                         className="text-blue-600 hover:text-blue-900 p-1" 
-                                        title={`Cambiar estado a ${worker.personnelStatus === 'cesado' ? 'Archivado' : 'Cesado'}`}
+                                        title="Editar datos del cese"
                                         disabled={isArchivingPersonnel === worker.id || isUpdatingResource || isTerminating}
                                     >
                                         <Edit2 size={16} />
                                     </button>
                                     <button 
                                         onClick={async () => {
-                                            if (confirm(`¿Desarchivar a ${worker.name}? El trabajador volverá a aparecer en la lista de personal activo.`)) {
+                                            if (confirm(`¿Recuperar a ${worker.name}? Vuelve a la lista activa y se quita el cese de esta ficha.`)) {
                                                 setIsArchivingPersonnel(worker.id);
                                                 try {
                                                     const { resourcesService } = await import('../services/resourcesService');
@@ -7638,7 +7663,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                                             onUpdate(refreshedUnit);
                                                         }
                                                     }
-                                                    setNotification({ type: 'success', message: 'Trabajador desarchivado correctamente' });
+                                                    setNotification({ type: 'success', message: 'Trabajador recuperado. El cese de esta ficha quedó quitado.' });
                                                     setTimeout(() => setNotification(null), 3000);
                                                 } catch (error) {
                                                     console.error('Error al desarchivar trabajador:', error);
@@ -7650,7 +7675,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                             }
                                         }}
                                         className="text-green-600 hover:text-green-900 p-1 disabled:opacity-50" 
-                                        title="Desarchivar trabajador"
+                                        title="Recuperar: devuelve esta ficha a activos y quita el cese"
                                         disabled={isArchivingPersonnel === worker.id || isUpdatingResource}
                                     >
                                         {isArchivingPersonnel === worker.id ? (
@@ -10227,7 +10252,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Fin</label>
                     <DateInput className="w-full border border-slate-300 rounded-lg p-2 outline-none" value={newWorkerForm.endDate || ''} onChange={endDate => setNewWorkerForm({...newWorkerForm, endDate})} />
                     {newWorkerForm.endDate && (
-                      <p className="text-xs text-amber-600 mt-1">El trabajador será cesado y archivado automáticamente</p>
+                      <p className="text-xs text-blue-600 mt-1">La fecha de fin es solo para monitorear el vencimiento. No cesa al trabajador.</p>
                     )}
                   </div>
                 </div>
@@ -11983,6 +12008,54 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       )}
 
       {/* Modal de Confirmación de Cese */}
+      {cesadoRehireWorker && (
+        <RehireWorkerModal
+          personnel={{ ...cesadoRehireWorker, originalUnitId: unit.id, originalUnitName: unit.name }}
+          units={rehireUnits.length > 0 ? rehireUnits : [unit]}
+          successor={cesadoRehireSuccessor}
+          submitting={rehiringWorker}
+          onClose={() => {
+            if (rehiringWorker) return;
+            setCesadoRehireWorker(null);
+          }}
+          onConfirm={async (input) => {
+            const target = rehireUnits.find((item) => item.id === input.targetUnitId) || (input.targetUnitId === unit.id ? unit : null);
+            if (!target) {
+              setNotification({ type: 'error', message: 'Seleccione la unidad de la nueva relación laboral.' });
+              setTimeout(() => setNotification(null), 4000);
+              return;
+            }
+            setRehiringWorker(true);
+            try {
+              const { rehirePersonnel } = await import('../services/workerRehireService');
+              const result = await rehirePersonnel(
+                { ...cesadoRehireWorker, originalUnitId: unit.id, originalUnitName: unit.name },
+                input,
+                { unit: target, usuarioOf: currentUser?.email || currentUser?.name || null },
+              );
+              const refreshedCurrent = await unitsService.getById(unit.id);
+              if (refreshedCurrent && onUpdate) await onUpdate(refreshedCurrent);
+              if (target.id !== unit.id) {
+                const refreshedTarget = await unitsService.getById(target.id);
+                if (refreshedTarget && onUpdate) await onUpdate(refreshedTarget);
+              }
+              const enqueueNote = result.enqueued
+                ? 'Quedó en la cola de Envío Opalosis.'
+                : `La alta se creó, pero no se encoló en Opalosis: ${result.enqueueWarning || 'revise Envío Opalosis.'}`;
+              setNotification({ type: 'success', message: `${cesadoRehireWorker.name} fue recontratado en ${target.name}. Este cese permanece. ${enqueueNote}` });
+              setTimeout(() => setNotification(null), 7000);
+              setCesadoRehireWorker(null);
+            } catch (error) {
+              console.error('Error al recontratar trabajador:', error);
+              setNotification({ type: 'error', message: error instanceof Error ? error.message : 'No se pudo recontratar al trabajador.' });
+              setTimeout(() => setNotification(null), 6000);
+            } finally {
+              setRehiringWorker(false);
+            }
+          }}
+        />
+      )}
+
       {showTerminateModal && selectedWorkerForTermination && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
@@ -12001,59 +12074,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
             
             <div className="mb-4">
               <p className="text-sm text-slate-600 mb-4">
-                {selectedWorkerForTermination.archived 
-                  ? `Cambiar estado de <strong>${selectedWorkerForTermination.name}</strong> (actualmente: ${selectedWorkerForTermination.personnelStatus === 'cesado' ? 'Cesado' : 'Archivado'}). Seleccione el nuevo estado:`
-                  : `Está a punto de cesar a <strong>${selectedWorkerForTermination.name}</strong>. Seleccione el tipo de cese:`
+                {selectedWorkerForTermination.archived
+                  ? <>Edite el cese de <strong>{selectedWorkerForTermination.name}</strong>. La ficha sigue en el archivo histórico.</>
+                  : <>Va a cesar a <strong>{selectedWorkerForTermination.name}</strong>. Si el contrato se renovó, no corresponde este paso: el trabajador sigue activo. El cese puede registrarse en cualquier momento y pide la fecha, el motivo y el detalle que el motivo exija.</>
                 }
               </p>
-              
-              <div className="space-y-3 mb-4">
-                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="terminationType"
-                    value="cesado"
-                    checked={terminationType === 'cesado'}
-                    onChange={(e) => {
-                      const next = e.target.value as 'cesado' | 'archivado';
-                      setTerminationType(next);
-                      if (next === 'archivado' && !terminationReasonPreset) {
-                        setTerminationReasonPreset('Fin de contrato');
-                      }
-                    }}
-                    className="mt-1"
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-slate-800">Cesado</div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      Se decidió sacar al trabajador (despido/terminación de relación laboral)
-                    </div>
-                  </div>
-                </label>
-                
-                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="terminationType"
-                    value="archivado"
-                    checked={terminationType === 'archivado'}
-                    onChange={(e) => {
-                      const next = e.target.value as 'cesado' | 'archivado';
-                      setTerminationType(next);
-                      if (next === 'archivado' && !terminationReasonPreset) {
-                        setTerminationReasonPreset('Fin de contrato');
-                      }
-                    }}
-                    className="mt-1"
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-slate-800">Archivado</div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      El contrato se terminó naturalmente (fin de contrato)
-                    </div>
-                  </div>
-                </label>
-              </div>
               
               <div className="mb-4">
                 <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -12108,7 +12133,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     // Si el trabajador ya está archivado, solo cambiar el estado
                     if (selectedWorkerForTermination.archived) {
                       const updateData: any = {
-                        personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+                        personnelStatus: 'cesado',
                         terminationReason,
                         terminationDetail: terminationDetailValue,
                       };
@@ -12136,15 +12161,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       // IMPORTANTE: Incluir type para que transformResourceToDB procese los campos de personal
                       const updateData: any = {
                         type: ResourceType.PERSONNEL, // Necesario para que transformResourceToDB procese los campos
-                        personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+                        personnelStatus: 'cesado',
+                        archived: false,
                         endDate: terminationDate,
                         terminationReason,
                         terminationDetail: terminationDetailValue,
                       };
-                      
-                      if (terminationType === 'archivado') {
-                        updateData.archived = true;
-                      }
                       
                       console.log('🔄 [UnitDetail] Actualizando trabajador con datos:', {
                         id: selectedWorkerForTermination.id,
@@ -12189,11 +12211,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     }
                     
                     const isNewTermination = !selectedWorkerForTermination.archived;
-                    const statusLabel = terminationType === 'cesado' ? 'cesado' : 'archivado';
                     let noticeType: 'success' | 'info' | 'error' = 'success';
                     let notice = isNewTermination
-                      ? `Trabajador ${statusLabel} en OpsFlow.`
-                      : `Estado del trabajador actualizado a ${terminationType === 'cesado' ? 'Cesado' : 'Archivado'}.`;
+                      ? 'Trabajador cesado. Queda en Ver Cesados de esta unidad.'
+                      : 'Cese actualizado.';
 
                     if (isNewTermination) {
                       try {
@@ -12206,7 +12227,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                           fechaCese: terminationDate,
                           terminationReason,
                           terminationDetail: terminationDetailValue,
-                          personnelStatus: terminationType,
+                          personnelStatus: 'cesado',
                           usuarioOf: currentUser?.email || currentUser?.name || null,
                         });
                         notice = `${notice} ${opalosis.userMessage}`;
@@ -12238,14 +12259,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                     }, 2000);
                   }
                 }}
-                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
-                  terminationType === 'cesado'
-                    ? 'bg-orange-600 text-white hover:bg-orange-700'
-                    : 'bg-amber-600 text-white hover:bg-amber-700'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                className="flex-1 py-2 px-4 rounded-lg font-medium transition-colors bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isTerminating || !terminationDate || !isTerminationReasonComplete(terminationReasonPreset, terminationDetail)}
               >
-                {isTerminating ? 'Procesando...' : `Confirmar ${terminationType === 'cesado' ? 'Cese' : 'Archivo'}`}
+                {isTerminating ? 'Procesando...' : 'Confirmar cese'}
               </button>
             </div>
           </div>

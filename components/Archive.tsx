@@ -52,7 +52,6 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
   // Estados para cambiar estado
   const [showChangeStatusModal, setShowChangeStatusModal] = useState(false);
   const [selectedPersonnelForStatusChange, setSelectedPersonnelForStatusChange] = useState<ArchivedPersonnel | null>(null);
-  const [terminationType, setTerminationType] = useState<'cesado' | 'archivado'>('cesado');
   const [terminationDate, setTerminationDate] = useState<string>('');
   const [terminationReasonPreset, setTerminationReasonPreset] = useState('');
   const [terminationDetail, setTerminationDetail] = useState('');
@@ -196,7 +195,6 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
 
   const handleChangeStatus = (personnel: ArchivedPersonnel) => {
     setSelectedPersonnelForStatusChange(personnel);
-    setTerminationType(personnel.personnelStatus === 'cesado' ? 'cesado' : 'archivado');
     setTerminationDate(personnel.endDate || new Date().toISOString().split('T')[0]);
     const split = splitTerminationReason(personnel.terminationReason);
     setTerminationReasonPreset(split.preset);
@@ -215,7 +213,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
     setChangingStatus(true);
     try {
       const updateData: any = {
-        personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
+        personnelStatus: 'cesado',
         terminationReason: buildTerminationReason(terminationReasonPreset),
         terminationDetail: terminationDetail.trim() || null,
       };
@@ -226,7 +224,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
       
       await resourcesService.update(selectedPersonnelForStatusChange.id, updateData);
       
-      alert(`✅ Estado de ${selectedPersonnelForStatusChange.name} actualizado a ${terminationType === 'cesado' ? 'Cesado' : 'Archivado'} correctamente.`);
+      alert(`✅ Cese de ${selectedPersonnelForStatusChange.name} actualizado.`);
       setShowChangeStatusModal(false);
       setSelectedPersonnelForStatusChange(null);
       setTerminationReasonPreset('');
@@ -348,7 +346,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
           Archivo de Personal
         </h1>
         <p className="text-slate-600">
-          Trabajadores cesados o archivados, con el salario, bono, asignación, turno y demás condiciones que formaban su ingreso antes del cese. Recuperar devuelve la misma ficha. Recontratar abre otra relación laboral y deja el cese en este archivo.
+          Fichas que ya estaban archivadas, con el salario, bono, asignación, turno y demás condiciones de antes del cierre. Los ceses nuevos quedan en la unidad, en Ver Cesados. Recuperar devuelve la misma ficha. Recontratar abre otra relación y deja este cierre guardado.
         </p>
       </div>
 
@@ -791,7 +789,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-slate-800 flex items-center">
                   <Edit2 className="mr-2" size={24} />
-                  Cambiar Estado
+                  Editar cese
                 </h2>
                 <button
                   onClick={() => {
@@ -808,44 +806,8 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
             <div className="p-6">
               <div className="mb-4">
                 <p className="text-sm text-slate-600 mb-4">
-                  Cambiar estado o motivo de <strong>{selectedPersonnelForStatusChange.name}</strong> (actualmente: {selectedPersonnelForStatusChange.personnelStatus === 'cesado' ? 'Cesado' : 'Archivado'}).
+                  Ajuste la fecha, el motivo y el detalle del cese de <strong>{selectedPersonnelForStatusChange.name}</strong>.
                 </p>
-                
-                <div className="space-y-3 mb-4">
-                  <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
-                    <input
-                      type="radio"
-                      name="terminationType"
-                      value="cesado"
-                      checked={terminationType === 'cesado'}
-                      onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-800">Cesado</div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        Se decidió sacar al trabajador (despido/terminación de relación laboral)
-                      </div>
-                    </div>
-                  </label>
-                  
-                  <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
-                    <input
-                      type="radio"
-                      name="terminationType"
-                      value="archivado"
-                      checked={terminationType === 'archivado'}
-                      onChange={(e) => setTerminationType(e.target.value as 'cesado' | 'archivado')}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-800">Archivado</div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        El contrato se terminó naturalmente (fin de contrato)
-                      </div>
-                    </div>
-                  </label>
-                </div>
                 
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -882,13 +844,9 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                 <button
                   onClick={handleConfirmStatusChange}
                   disabled={!terminationDate || changingStatus || !isTerminationReasonComplete(terminationReasonPreset, terminationDetail)}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    terminationType === 'cesado'
-                      ? 'bg-orange-600 text-white hover:bg-orange-700'
-                      : 'bg-amber-600 text-white hover:bg-amber-700'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  className="px-4 py-2 rounded-lg font-medium transition-colors bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {changingStatus ? 'Procesando...' : `Confirmar ${terminationType === 'cesado' ? 'Cese' : 'Archivo'}`}
+                  {changingStatus ? 'Procesando...' : 'Guardar cese'}
                 </button>
               </div>
             </div>
