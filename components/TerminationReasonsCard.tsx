@@ -19,6 +19,7 @@ const PRESET_COLORS: Record<string, string> = {
   'No renovación': '#06b6d4',
   'Término de obra o servicio': '#6366f1',
   'Fallecimiento': '#64748b',
+  'Otro': '#ea580c',
   'Sin motivo': '#94a3b8',
 };
 
@@ -109,7 +110,7 @@ export const TerminationReasonsCard: React.FC<TerminationReasonsCardProps> = ({
         <div>
           <h3 className="text-base md:text-lg font-semibold text-slate-800">Motivos de cese</h3>
           <p className="text-xs md:text-sm text-slate-500 mt-0.5">
-            Ceses y archivos históricos, según la fecha de cese de la ficha.
+            Cuenta el motivo de la lista, según la fecha de cese. El detalle libre no abre una categoría.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:items-end">

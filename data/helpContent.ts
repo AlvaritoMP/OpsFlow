@@ -100,7 +100,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Revise las tarjetas superiores (unidades, personal, incidencias).',
           'En Rotación histórica, filtre por uno o varios clientes para ver 12 meses de rotación, ingreso y salida.',
-          'Debajo del mapa y de las últimas actividades críticas, Motivos de cese muestra el histórico por motivo. Elija 12 meses, este año, todo, o un desde y hasta.',
+          'Debajo del mapa y de las últimas actividades críticas, Motivos de cese agrupa por el motivo de la lista. El detalle libre no crea una categoría; un texto antiguo escrito en lugar del motivo entra en Otro. Elija 12 meses, este año, todo, o un desde y hasta.',
           'Use el mapa o listados para ir directo a una unidad (clic en la unidad).',
           'Pase el cursor sobre indicadores para ver el detalle del cálculo cuando esté disponible.',
         ],
@@ -711,7 +711,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Busque por nombre o documento.',
           'Abra el registro para ver el historial asociado.',
           'Use «Exportar Excel» para descargar la tabla visible: si hay un filtro de búsqueda, solo se exportan esos resultados; si no, se exporta toda la lista en pantalla.',
-          'Al cesar o archivar un trabajador se registra el motivo del cese. Ese motivo aparece en esta tabla y en el Excel; puede editarse desde Acciones.',
+          'Al cesar o archivar se elige un motivo de la lista y, aparte, un detalle libre. El detalle explica el caso y no reemplaza el motivo, así se puede medir la categoría. En Renuncia voluntaria y en Otro el detalle es obligatorio. Ambos aparecen en esta tabla y en el Excel; se editan desde Acciones.',
           'Recuperar devuelve la misma ficha a una unidad, como estaba antes del cese. Quita el cese de esa ficha y no envía un contrato nuevo a Opalosis.',
           'Recontratar abre otra relación laboral, en otra unidad o en la misma si cambia el régimen o las condiciones. Se pueden ajustar puesto, fechas, salario, beneficios y jornada. El cese o archivo anterior permanece en esta lista.',
           'La ficha nueva entra a Envío Opalosis para que generen un contrato distinto. Activos y tareo de la relación anterior no se mueven.',

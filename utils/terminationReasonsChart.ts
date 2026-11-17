@@ -45,12 +45,11 @@ function isPersonnel(resource: CeseSource): boolean {
   return !resource.type || resource.type === ResourceType.PERSONNEL;
 }
 
+/** Categoría de la lista. Un texto libre antiguo, guardado en lugar del motivo, cuenta como Otro. */
 export function motiveLabel(reason?: string | null): string {
   const trimmed = reason?.trim() || '';
   if (!trimmed) return 'Sin motivo';
-  const split = splitTerminationReason(trimmed);
-  if (split.preset && split.preset !== 'Otro') return split.preset;
-  return trimmed;
+  return splitTerminationReason(trimmed).preset || 'Sin motivo';
 }
 
 function spellKey(resource: CeseSource): string {

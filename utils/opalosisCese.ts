@@ -52,10 +52,13 @@ export function mapTerminationReasonToMotivoCeseId(reason: string | null | undef
 export function buildCeseObservaciones(
   terminationReason: string,
   personnelStatus: 'cesado' | 'archivado',
+  terminationDetail?: string | null,
 ): string {
   const tipo = personnelStatus === 'archivado' ? 'Archivado en OpsFlow' : 'Cesado en OpsFlow';
   const reason = terminationReason.trim();
-  const text = reason ? `${tipo}. Motivo: ${reason}` : tipo;
+  const detail = (terminationDetail || '').replace(/\s+/g, ' ').trim();
+  const head = reason ? `${tipo}. Motivo: ${reason}` : tipo;
+  const text = detail ? `${head}. Detalle: ${detail}` : head;
   return text.slice(0, OBSERVACIONES_MAX);
 }
 
@@ -63,13 +66,18 @@ export function buildRegistroCesePayload(input: {
   documento: string;
   fechaCese: string;
   terminationReason: string;
+  terminationDetail?: string | null;
   personnelStatus: 'cesado' | 'archivado';
   usuarioOf?: string | null;
   resourceId: string;
   unitId?: string | null;
 }): RegistroCesePayload {
   const motivoCeseId = mapTerminationReasonToMotivoCeseId(input.terminationReason);
-  const observaciones = buildCeseObservaciones(input.terminationReason, input.personnelStatus);
+  const observaciones = buildCeseObservaciones(
+    input.terminationReason,
+    input.personnelStatus,
+    input.terminationDetail,
+  );
   const usuario = (input.usuarioOf || '').trim().slice(0, 120) || null;
   const payloadJson = JSON.stringify({
     origen: 'opsflow',
@@ -77,6 +85,7 @@ export function buildRegistroCesePayload(input: {
     unitId: input.unitId || null,
     personnelStatus: input.personnelStatus,
     terminationReason: input.terminationReason,
+    terminationDetail: input.terminationDetail?.trim() || null,
   });
 
   return {

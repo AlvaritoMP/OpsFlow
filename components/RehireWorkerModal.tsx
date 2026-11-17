@@ -232,6 +232,9 @@ export const RehireWorkerModal: React.FC<RehireWorkerModalProps> = ({
               <div className="sm:col-span-2">
                 <span className="text-slate-500">Motivo del cese que permanece:</span>{' '}
                 <span className="font-medium">{personnel.terminationReason}</span>
+                {personnel.terminationDetail && (
+                  <span className="block text-slate-600">{personnel.terminationDetail}</span>
+                )}
               </div>
             )}
           </div>

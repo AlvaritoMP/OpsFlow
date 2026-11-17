@@ -282,6 +282,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
           personnelStatus: fresh.personnelStatus ?? resource.personnelStatus,
           archived: fresh.archived,
           terminationReason: fresh.terminationReason,
+          terminationDetail: fresh.terminationDetail,
           contractHistory: fresh.contractHistory?.length ? fresh.contractHistory : resource.contractHistory,
         };
       });

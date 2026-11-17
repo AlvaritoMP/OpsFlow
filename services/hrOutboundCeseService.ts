@@ -13,6 +13,7 @@ export interface RegisterCeseInput {
   documento?: string | null;
   fechaCese: string;
   terminationReason: string;
+  terminationDetail?: string | null;
   personnelStatus: 'cesado' | 'archivado';
   usuarioOf?: string | null;
 }
@@ -177,6 +178,7 @@ export const hrOutboundCeseService = {
       documento,
       fechaCese,
       terminationReason: input.terminationReason,
+      terminationDetail: input.terminationDetail,
       personnelStatus: input.personnelStatus,
       usuarioOf: input.usuarioOf,
       resourceId: input.resourceId,
@@ -290,7 +292,7 @@ export const hrOutboundCeseService = {
 
     const { data: resource } = await supabase
       .from('resources')
-      .select('dni, name, end_date, termination_reason, personnel_status, unit_id')
+      .select('dni, name, end_date, termination_reason, termination_detail, personnel_status, unit_id')
       .eq('id', current.resourceId)
       .maybeSingle();
 
@@ -300,6 +302,9 @@ export const hrOutboundCeseService = {
       typeof resourceRow.end_date === 'string' ? resourceRow.end_date : current.fechaCese
     ).slice(0, 10);
     const terminationReason = String(resourceRow.termination_reason || current.terminationReason || '');
+    const terminationDetail = typeof resourceRow.termination_detail === 'string'
+      ? resourceRow.termination_detail
+      : null;
     const personnelStatus =
       resourceRow.personnel_status === 'archivado' || current.personnelStatus === 'archivado'
         ? 'archivado'
@@ -308,6 +313,7 @@ export const hrOutboundCeseService = {
       documento,
       fechaCese,
       terminationReason,
+      terminationDetail,
       personnelStatus,
       usuarioOf: current.usuarioOf,
       resourceId: current.resourceId,

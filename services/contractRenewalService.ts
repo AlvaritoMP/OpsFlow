@@ -39,6 +39,7 @@ export async function applyPlannedRenewal(plan: PlannedRenewal): Promise<Resourc
         personnelStatus: 'activo',
         archived: false,
         terminationReason: null,
+        terminationDetail: null,
       };
       if (plan.nextSalary !== undefined) patch.monthlySalary = plan.nextSalary;
       if (plan.nextCondition !== undefined) patch.workConditionAmount = plan.nextCondition;

@@ -373,8 +373,10 @@ export interface Resource {
   endDate?: string; // Fecha de fin del último contrato (YYYY-MM-DD); referencial para monitoreo, NO archiva automáticamente
   personnelStatus?: 'activo' | 'cesado' | 'archivado'; // Estado: activo, cesado (despido) o archivado (fin de contrato)
   archived?: boolean; // Si está archivado (no se muestra en vista normal)
-  /** Motivo del cese o archivo (texto libre o valor de catálogo). Se limpia al reactivar. */
+  /** Motivo del cese o archivo (valor del catálogo, incluido «Otro»). Se limpia al reactivar. */
   terminationReason?: string | null;
+  /** Texto libre que explica el cese. No reemplaza el motivo. Se limpia al reactivar. */
+  terminationDetail?: string | null;
   contractHistory?: ContractHistory[]; // Historial de contratos y renovaciones
   inTraining?: boolean; // Si está en periodo de capacitación
   trainingStartDate?: string; // Fecha de inicio de capacitación (YYYY-MM-DD)

@@ -11,11 +11,13 @@ import { DateInput } from './DateInput';
 import { excelService } from '../services/excelService';
 import { formatDateDisplay } from '../utils/dateFormat';
 import {
-  TERMINATION_REASON_PRESETS,
   buildTerminationReason,
+  initialTerminationDetail,
   isTerminationReasonComplete,
   splitTerminationReason,
+  terminationReasonError,
 } from '../utils/terminationReason';
+import { TerminationReasonFields } from './TerminationReasonFields';
 import { RehireWorkerModal } from './RehireWorkerModal';
 import { economicExportFields, formatPenAmount, familyAllowanceLabel, PersonnelEconomicSummary } from './PersonnelEconomicSummary';
 import {
@@ -53,7 +55,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
   const [terminationType, setTerminationType] = useState<'cesado' | 'archivado'>('cesado');
   const [terminationDate, setTerminationDate] = useState<string>('');
   const [terminationReasonPreset, setTerminationReasonPreset] = useState('');
-  const [terminationReasonOther, setTerminationReasonOther] = useState('');
+  const [terminationDetail, setTerminationDetail] = useState('');
   const [changingStatus, setChangingStatus] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [showRehireModal, setShowRehireModal] = useState(false);
@@ -131,6 +133,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
           personnelStatus: 'activo',
           endDate: null, // Eliminar fecha de fin si existe (null se guarda en BD)
           terminationReason: null,
+          terminationDetail: null,
         },
         selectedUnitId // Nuevo unit_id
       );
@@ -197,14 +200,15 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
     setTerminationDate(personnel.endDate || new Date().toISOString().split('T')[0]);
     const split = splitTerminationReason(personnel.terminationReason);
     setTerminationReasonPreset(split.preset);
-    setTerminationReasonOther(split.other);
+    setTerminationDetail(initialTerminationDetail(personnel.terminationReason, personnel.terminationDetail));
     setShowChangeStatusModal(true);
   };
 
   const handleConfirmStatusChange = async () => {
     if (!selectedPersonnelForStatusChange) return;
-    if (!isTerminationReasonComplete(terminationReasonPreset, terminationReasonOther)) {
-      alert('Indique el motivo del cese.');
+    const reasonError = terminationReasonError(terminationReasonPreset, terminationDetail);
+    if (reasonError) {
+      alert(reasonError);
       return;
     }
 
@@ -212,7 +216,8 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
     try {
       const updateData: any = {
         personnelStatus: terminationType === 'cesado' ? 'cesado' : 'archivado',
-        terminationReason: buildTerminationReason(terminationReasonPreset, terminationReasonOther),
+        terminationReason: buildTerminationReason(terminationReasonPreset),
+        terminationDetail: terminationDetail.trim() || null,
       };
       
       if (terminationDate) {
@@ -225,7 +230,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
       setShowChangeStatusModal(false);
       setSelectedPersonnelForStatusChange(null);
       setTerminationReasonPreset('');
-      setTerminationReasonOther('');
+      setTerminationDetail('');
       await loadData(); // Recargar datos
     } catch (error) {
       console.error('Error al cambiar estado:', error);
@@ -242,7 +247,8 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
       personnel.dni?.toLowerCase().includes(searchLower) ||
       personnel.puesto?.toLowerCase().includes(searchLower) ||
       personnel.originalUnitName.toLowerCase().includes(searchLower) ||
-      personnel.terminationReason?.toLowerCase().includes(searchLower)
+      personnel.terminationReason?.toLowerCase().includes(searchLower) ||
+      personnel.terminationDetail?.toLowerCase().includes(searchLower)
     );
   });
 
@@ -270,6 +276,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
         'Fecha de Cese',
         'Estado',
         'Motivo del Cese',
+        'Detalle del motivo',
         'Fecha de Nacimiento',
         'Turno',
         'Jornada',
@@ -298,6 +305,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
           'Fecha de Cese': endDate,
           'Estado': getPersonnelStatusLabel(personnel),
           'Motivo del Cese': personnel.terminationReason || '',
+          'Detalle del motivo': personnel.terminationDetail || '',
           'Fecha de Nacimiento': personnel.birthDate ? formatDateDisplay(personnel.birthDate) : '',
           ...economicExportFields(personnel),
           'Recontratado': rehireBadges[personnel.id]
@@ -551,9 +559,16 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600 max-w-xs">
                       {personnel.terminationReason ? (
-                        <span className="line-clamp-2" title={personnel.terminationReason}>
-                          {personnel.terminationReason}
-                        </span>
+                        <div>
+                          <span className="line-clamp-2" title={personnel.terminationReason}>
+                            {personnel.terminationReason}
+                          </span>
+                          {personnel.terminationDetail && (
+                            <span className="line-clamp-2 text-xs text-slate-500" title={personnel.terminationDetail}>
+                              {personnel.terminationDetail}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-slate-300 italic">Sin motivo registrado</span>
                       )}
@@ -697,6 +712,12 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                         <span className="font-medium">{selectedPersonnel.terminationReason}</span>
                       </div>
                     )}
+                    {selectedPersonnel.terminationDetail && (
+                      <div className="col-span-2">
+                        <span className="text-slate-500">Detalle:</span>{' '}
+                        <span className="font-medium">{selectedPersonnel.terminationDetail}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -838,33 +859,13 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                   />
                 </div>
 
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Motivo del cese *
-                  </label>
-                  <select
-                    value={terminationReasonPreset}
-                    onChange={(e) => {
-                      setTerminationReasonPreset(e.target.value);
-                      if (e.target.value !== 'Otro') setTerminationReasonOther('');
-                    }}
-                    className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-orange-500"
-                  >
-                    <option value="">Seleccione un motivo...</option>
-                    {TERMINATION_REASON_PRESETS.map((preset) => (
-                      <option key={preset} value={preset}>{preset}</option>
-                    ))}
-                  </select>
-                  {terminationReasonPreset === 'Otro' && (
-                    <textarea
-                      value={terminationReasonOther}
-                      onChange={(e) => setTerminationReasonOther(e.target.value)}
-                      placeholder="Indique el motivo..."
-                      rows={2}
-                      className="mt-2 w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                    />
-                  )}
-                </div>
+                <TerminationReasonFields
+                  preset={terminationReasonPreset}
+                  detail={terminationDetail}
+                  onPresetChange={setTerminationReasonPreset}
+                  onDetailChange={setTerminationDetail}
+                  focusRingClass="focus:ring-orange-500"
+                />
               </div>
 
               <div className="flex justify-end gap-3">
@@ -880,7 +881,7 @@ export const Archive: React.FC<ArchiveProps> = ({ currentUserRole, currentUserNa
                 </button>
                 <button
                   onClick={handleConfirmStatusChange}
-                  disabled={!terminationDate || changingStatus || !isTerminationReasonComplete(terminationReasonPreset, terminationReasonOther)}
+                  disabled={!terminationDate || changingStatus || !isTerminationReasonComplete(terminationReasonPreset, terminationDetail)}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                     terminationType === 'cesado'
                       ? 'bg-orange-600 text-white hover:bg-orange-700'
