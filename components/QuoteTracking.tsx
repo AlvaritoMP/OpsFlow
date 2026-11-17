@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react';
 import {
   createQuoteField,
@@ -102,17 +102,26 @@ function TextCell(props: {
 }) {
   const text = props.value == null ? '' : String(props.value);
   const [draft, setDraft] = useState(text);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => setDraft(text), [text]);
+  useLayoutEffect(() => {
+    const area = areaRef.current;
+    if (!area) return;
+    area.style.height = '0px';
+    area.style.height = `${area.scrollHeight}px`;
+  }, [draft]);
   if (props.disabled) {
     return (
-      <span className="block max-w-[14rem] truncate text-slate-700" title={text || undefined}>
+      <div className="w-72 whitespace-pre-wrap break-words text-sm leading-5 text-slate-700">
         {text || '—'}
-      </span>
+      </div>
     );
   }
   return (
-    <input
-      className="w-full min-w-[8.5rem] rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800"
+    <textarea
+      ref={areaRef}
+      rows={1}
+      className="block w-72 resize-y overflow-hidden rounded border border-slate-200 bg-white px-2 py-1 text-sm leading-5 text-slate-800 whitespace-pre-wrap break-words"
       value={draft}
       maxLength={500}
       aria-label={props.field.label}
@@ -121,9 +130,6 @@ function TextCell(props: {
         const next = draft.trim();
         if (next === text) return;
         props.onCommit(next || null);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur();
       }}
     />
   );
@@ -197,44 +203,6 @@ function CategoryCell(props: {
         </option>
       ))}
     </select>
-  );
-}
-
-export function QuoteTrackingPanel(props: {
-  fields: QuoteField[];
-  tracking: QuoteTracking;
-  canEdit: boolean;
-  saved: boolean;
-  onCommit: (fieldId: string, value: string | number | null) => void;
-}) {
-  if (props.fields.length === 0) return null;
-  return (
-    <section className="shrink-0 bg-white border border-slate-200 rounded-xl p-4">
-      <h2 className="text-sm font-semibold text-slate-900">Seguimiento</h2>
-      <p className="text-xs text-slate-500 mt-0.5">
-        {props.saved
-          ? 'Estas notas son del equipo. No entran en el PDF y se pueden cambiar con la propuesta emitida.'
-          : 'Guarde la propuesta para anotar el seguimiento. Esas notas no entran en el PDF.'}
-      </p>
-      <div className="mt-3 grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        {props.fields.map((field) => (
-          <label key={field.id} className="block text-xs text-slate-500">
-            <span className="flex items-center justify-between gap-2">
-              <span className="font-medium text-slate-700">{field.label}</span>
-              <span className="text-[10px] uppercase tracking-wide text-slate-400">{quoteFieldKindLabel(field.kind)}</span>
-            </span>
-            <div className="mt-1">
-              <TrackingCell
-                field={field}
-                value={props.tracking[field.id]}
-                disabled={!props.canEdit || !props.saved}
-                onCommit={(value) => props.onCommit(field.id, value)}
-              />
-            </div>
-          </label>
-        ))}
-      </div>
-    </section>
   );
 }
 

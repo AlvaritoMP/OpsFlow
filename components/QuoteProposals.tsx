@@ -48,7 +48,7 @@ import {
   QuotePosition,
   QuoteProposalPayload,
 } from '../utils/quoteProposal';
-import { QuoteFieldManager, QuoteTrackingPanel, TrackingCell, quoteFieldKindLabel, trackingExcelHeaders, trackingSearchText } from './QuoteTracking';
+import { QuoteFieldManager, TrackingCell, quoteFieldKindLabel, trackingExcelHeaders, trackingSearchText } from './QuoteTracking';
 
 interface QuoteProposalsProps {
   units: Unit[];
@@ -845,7 +845,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             ) : visible.length === 0 ? (
               <div className="p-8 text-sm text-slate-500">No hay propuestas para este filtro.</div>
             ) : (
-              <div className="flex-1 min-h-0 min-w-0 overflow-auto">
+              <div className="flex-1 basis-0 w-full max-w-full min-h-0 min-w-0 overflow-x-scroll overflow-y-auto overscroll-x-contain">
                 <table className="w-max min-w-full border-separate border-spacing-0 text-sm [&_td]:border-b [&_td]:border-slate-100">
                   <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
@@ -865,7 +865,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                         <th
                           key={field.id}
                           data-quote-field={field.id}
-                          className={`sticky top-0 z-20 px-3 py-2 bg-blue-50 text-blue-900 border-l border-blue-100 whitespace-nowrap shadow-[0_1px_0_#dbeafe] ${field.kind === 'number' ? 'text-right' : ''} ${dragFieldId === field.id ? 'opacity-50' : ''} ${dragOverId === field.id ? 'outline outline-2 outline-blue-500' : ''}`}
+                          className={`sticky top-0 z-20 px-3 py-2 bg-blue-50 text-blue-900 border-l border-blue-100 whitespace-nowrap shadow-[0_1px_0_#dbeafe] ${field.kind === 'text' ? 'min-w-72' : ''} ${field.kind === 'number' ? 'text-right' : ''} ${dragFieldId === field.id ? 'opacity-50' : ''} ${dragOverId === field.id ? 'outline outline-2 outline-blue-500' : ''}`}
                           title={quoteFieldKindLabel(field.kind)}
                         >
                           <span className={`inline-flex items-center gap-1 ${field.kind === 'number' ? 'justify-end w-full' : ''}`}>
@@ -927,7 +927,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                           )}
                         </td>
                         {fields.map((field) => (
-                          <td key={field.id} className={`px-3 py-2 bg-blue-50/30 border-l border-blue-50 ${field.kind === 'number' ? 'text-right' : ''}`}>
+                          <td key={field.id} className={`px-3 py-2 align-top bg-blue-50/30 border-l border-blue-50 ${field.kind === 'text' ? 'min-w-72 w-72' : ''} ${field.kind === 'number' ? 'text-right whitespace-nowrap' : ''}`}>
                             <TrackingCell
                               field={field}
                               value={record.tracking?.[field.id]}
@@ -1065,14 +1065,6 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             <input className={fieldClass} type="number" min={1} step={1} disabled={locked} value={editor.payload.months} onChange={(event) => patchPayload({ months: Math.max(1, Math.round(Number(event.target.value) || 1)) })} />
           </label>
         </section>
-
-        <QuoteTrackingPanel
-          fields={fields}
-          tracking={records.find((record) => record.id === editor.id)?.tracking || {}}
-          canEdit={canEdit}
-          saved={Boolean(editor.id)}
-          onCommit={(fieldId, value) => void commitTracking(editor.id || '', fieldId, value)}
-        />
 
         <div className="shrink-0 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
           <Stat label="Costo laboral" value={pen(view.computed.laborTotal)} />

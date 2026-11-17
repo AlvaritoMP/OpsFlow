@@ -1264,7 +1264,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Columnas abre el panel para crear una columna de texto, número o categoría.',
           'En una categoría escriba las opciones y elija el color de cada una. Las columnas quedan al extremo derecho de la tabla y ocupan todo el ancho disponible. Arrastre el encabezado para cambiarlas de lugar.',
-          'Anote el valor en la fila de la propuesta. Al abrirla, las mismas notas aparecen en Seguimiento.',
+          'Anote el valor en la fila de la lista. Esas columnas no se repiten al abrir la propuesta, para dejar sitio a la tabla de cálculos.',
           'Cada categoría se puede filtrar, también las filas sin dato. La búsqueda incluye lo anotado.',
           'Reutilizar arma otra propuesta con los mismos puestos y costos. El seguimiento no se copia.',
         ],
