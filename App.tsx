@@ -4174,7 +4174,7 @@ const App: React.FC = () => {
         </header>
 
         {/* Scrollable Content Area - FIXED LAYOUT for Control Center */}
-        <div ref={mainScrollRef} className={`flex-1 relative ${currentView === 'control-center' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <div ref={mainScrollRef} className={`flex-1 min-h-0 relative flex flex-col ${currentView === 'control-center' || currentView === 'quotes' || currentUser.role === 'COMMERCIAL' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {pendingVacationAuthCount > 0 &&
             currentView !== 'vacations' &&
             canActAsVacationAuthorizer(currentUser.role) && (
@@ -4199,7 +4199,11 @@ const App: React.FC = () => {
               </button>
             </div>
           )}
-           {renderContent()}
+           {currentView === 'control-center' || currentView === 'quotes' || currentUser.role === 'COMMERCIAL' ? (
+             <div className="flex-1 min-h-0 overflow-hidden">{renderContent()}</div>
+           ) : (
+             renderContent()
+           )}
         </div>
       </main>
 

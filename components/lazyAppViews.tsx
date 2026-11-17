@@ -177,7 +177,7 @@ export const KeepAlivePane: React.FC<{
 }> = ({ active, fillHeight, children }) => (
   <div
     hidden={!active}
-    className={!active ? 'hidden' : fillHeight ? 'h-full' : undefined}
+    className={!active ? 'hidden' : fillHeight ? 'h-full min-h-0' : undefined}
     aria-hidden={!active}
   >
     {children}

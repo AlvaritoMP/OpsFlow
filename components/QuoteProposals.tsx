@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Columns3, Download, FileSpreadsheet, FileText, GripVertical, HelpCircle, History, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, Download, FileSpreadsheet, FileText, GripVertical, HelpCircle, History, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { Unit, User } from '../types';
 import { loadPublishedBillingFormulas } from '../services/clientBillingService';
 import {
@@ -110,6 +110,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
   const [fieldsError, setFieldsError] = useState<string | null>(null);
   const [showFields, setShowFields] = useState(false);
   const [dragFieldId, setDragFieldId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -268,6 +269,33 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
       setFields(previous);
       setBanner(error instanceof Error ? error.message : 'No se pudo cambiar el orden de las columnas.');
     }
+  };
+
+  const beginFieldDrag = (event: React.PointerEvent<HTMLElement>, fieldId: string) => {
+    if (!canEdit || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    setDragFieldId(fieldId);
+    const overAt = (clientX: number, clientY: number) => {
+      const node = document.elementFromPoint(clientX, clientY);
+      return node?.closest('[data-quote-field]')?.getAttribute('data-quote-field') || '';
+    };
+    const move = (ev: PointerEvent) => {
+      const overId = overAt(ev.clientX, ev.clientY);
+      setDragOverId(overId && overId !== fieldId ? overId : null);
+    };
+    const up = (ev: PointerEvent) => {
+      const overId = overAt(ev.clientX, ev.clientY);
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      setDragFieldId(null);
+      setDragOverId(null);
+      if (overId) void reorderFields(fieldId, overId);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
   };
 
   const exportListExcel = async () => {
@@ -706,9 +734,9 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
 
   if (!editor || !view) {
     return (
-      <div className="h-full w-full min-w-0 overflow-auto bg-slate-50">
-        <div className="w-full min-w-0 p-4 md:p-6 space-y-4">
-          <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+      <div className="h-full w-full min-h-0 min-w-0 flex flex-col overflow-hidden bg-slate-50">
+        <div className="flex-1 min-h-0 w-full min-w-0 flex flex-col gap-4 p-4 md:p-6">
+          <header className="shrink-0 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-blue-700">
                 <FileText size={22} />
@@ -741,7 +769,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           {storageError && <Banner text={storageError} />}
           {fieldsError && <Banner text={fieldsError} />}
           {banner && <Banner text={banner} />}
-          <div className="flex flex-col md:flex-row gap-2">
+          <div className="shrink-0 flex flex-col md:flex-row gap-2">
             <input
               className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
               placeholder="Buscar por código, cliente, servicio o seguimiento"
@@ -790,7 +818,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             )}
           </div>
           {categoryFields.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <div className="shrink-0 flex flex-wrap gap-2">
               {categoryFields.map((field) => (
                 <label key={field.id} className="text-xs text-slate-500">
                   {field.label}
@@ -811,76 +839,67 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
               ))}
             </div>
           )}
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <section className="flex-1 min-h-0 min-w-0 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden">
             {loading && records.length === 0 ? (
               <div className="p-8 text-sm text-slate-500 flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> Cargando propuestas…</div>
             ) : visible.length === 0 ? (
               <div className="p-8 text-sm text-slate-500">No hay propuestas para este filtro.</div>
             ) : (
-              <div className="w-full overflow-x-auto">
-                <table className="w-full min-w-max text-sm">
-                  <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <div className="flex-1 min-h-0 min-w-0 overflow-auto">
+                <table className="w-max min-w-full border-separate border-spacing-0 text-sm [&_td]:border-b [&_td]:border-slate-100">
+                  <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Código</th>
-                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Cliente</th>
-                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Servicio</th>
-                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Estado</th>
-                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Laboral</th>
-                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Operativo</th>
-                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Administrativo</th>
-                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Utilidad</th>
-                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Total</th>
-                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Fecha de emisión</th>
-                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Emitida por</th>
-                      <th className="px-3 py-2" rowSpan={fields.length ? 2 : undefined} />
-                      {fields.length > 0 && (
-                        <th colSpan={fields.length} className="px-3 py-1.5 text-center bg-blue-50 text-blue-800 border-l border-blue-100">
-                          Seguimiento
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Código</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Cliente</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Servicio</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 shadow-[0_1px_0_#e2e8f0]">Estado</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 text-right whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Laboral</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 text-right whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Operativo</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 text-right whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Administrativo</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 text-right whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Utilidad</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 text-right whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Total</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Fecha de emisión</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Emitida por</th>
+                      <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2 whitespace-nowrap shadow-[0_1px_0_#e2e8f0]">Acciones</th>
+                      {fields.map((field, index) => (
+                        <th
+                          key={field.id}
+                          data-quote-field={field.id}
+                          className={`sticky top-0 z-20 px-3 py-2 bg-blue-50 text-blue-900 border-l border-blue-100 whitespace-nowrap shadow-[0_1px_0_#dbeafe] ${field.kind === 'number' ? 'text-right' : ''} ${dragFieldId === field.id ? 'opacity-50' : ''} ${dragOverId === field.id ? 'outline outline-2 outline-blue-500' : ''}`}
+                          title={quoteFieldKindLabel(field.kind)}
+                        >
+                          <span className={`inline-flex items-center gap-1 ${field.kind === 'number' ? 'justify-end w-full' : ''}`}>
+                            {canEdit && (
+                              <span
+                                className="cursor-grab active:cursor-grabbing text-blue-700/70 touch-none"
+                                title="Arrastre para cambiar de lugar"
+                                onPointerDown={(event) => beginFieldDrag(event, field.id)}
+                              >
+                                <GripVertical size={14} />
+                              </span>
+                            )}
+                            <span>{field.label}</span>
+                            {canEdit && (
+                              <span className="inline-flex">
+                                <button type="button" className="p-0.5 text-blue-800/70 hover:text-blue-950 disabled:opacity-30" aria-label={`Mover ${field.label} a la izquierda`} disabled={index === 0} onClick={() => void reorderFields(field.id, fields[index - 1].id)}>
+                                  <ChevronLeft size={14} />
+                                </button>
+                                <button type="button" className="p-0.5 text-blue-800/70 hover:text-blue-950 disabled:opacity-30" aria-label={`Mover ${field.label} a la derecha`} disabled={index === fields.length - 1} onClick={() => void reorderFields(field.id, fields[index + 1].id)}>
+                                  <ChevronRight size={14} />
+                                </button>
+                              </span>
+                            )}
+                          </span>
                         </th>
-                      )}
+                      ))}
                     </tr>
-                    {fields.length > 0 && (
-                      <tr>
-                        {fields.map((field) => (
-                          <th
-                            key={field.id}
-                            draggable={canEdit}
-                            onDragStart={(event) => {
-                              if (!canEdit) return;
-                              setDragFieldId(field.id);
-                              event.dataTransfer.effectAllowed = 'move';
-                              event.dataTransfer.setData('text/plain', field.id);
-                            }}
-                            onDragOver={(event) => {
-                              if (!canEdit) return;
-                              event.preventDefault();
-                              event.dataTransfer.dropEffect = 'move';
-                            }}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              const fromId = event.dataTransfer.getData('text/plain') || dragFieldId || '';
-                              setDragFieldId(null);
-                              void reorderFields(fromId, field.id);
-                            }}
-                            onDragEnd={() => setDragFieldId(null)}
-                            className={`px-3 py-2 bg-blue-50/80 text-blue-900 border-l border-blue-100 whitespace-nowrap select-none ${field.kind === 'number' ? 'text-right' : ''} ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''} ${dragFieldId === field.id ? 'opacity-50' : ''}`}
-                            title={canEdit ? `${quoteFieldKindLabel(field.kind)}. Arrastre para cambiar de lugar.` : quoteFieldKindLabel(field.kind)}
-                          >
-                            <span className={`inline-flex items-center gap-1 ${field.kind === 'number' ? 'justify-end w-full' : ''}`}>
-                              {canEdit && <GripVertical size={12} className="shrink-0 opacity-60" />}
-                              {field.label}
-                            </span>
-                          </th>
-                        ))}
-                      </tr>
-                    )}
                   </thead>
                   <tbody>
                     {visible.map((record) => (
-                      <tr key={record.id} className="border-t border-slate-100">
-                        <td className="px-3 py-2 font-medium text-slate-900">{record.code}</td>
-                        <td className="px-3 py-2">{record.clientName}</td>
-                        <td className="px-3 py-2 text-slate-600">{record.serviceName}</td>
+                      <tr key={record.id}>
+                        <td className="px-3 py-2 font-medium text-slate-900 whitespace-nowrap">{record.code}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{record.clientName}</td>
+                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{record.serviceName}</td>
                         <td className="px-3 py-2"><StatusChip status={record.status} /></td>
                         <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{pen(record.laborTotal)}</td>
                         <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{pen(record.operationalTotal)}</td>
