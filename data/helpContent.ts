@@ -1253,9 +1253,25 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Emitir cierra la propuesta y guarda una versión con quién la emitió y los totales. Reabrir y anular también quedan en ese historial. Para corregir un monto hay que reabrirla.',
         ],
         tips: [
-          'La lista muestra laboral, operativo, administrativo, utilidad y el total sin IGV, igual que la lista de facturación. Exportar Excel descarga esa relación con la búsqueda y el estado que estén elegidos. Los montos quedan como números y la última fila suma el total.',
+          'La lista muestra laboral, operativo, administrativo, utilidad y el total sin IGV, igual que la lista de facturación. Exportar Excel descarga esa relación, más las columnas de seguimiento, con la búsqueda y los filtros que estén elegidos. Los montos quedan como números y la última fila suma el total.',
           'El Cotizador está disponible para Administrador, Super Administrador y el rol Comercial.',
-          'Si la pantalla pide la migración de propuestas, ejecute migrations/MIGRATION_COMMERCIAL_QUOTES.sql en Supabase. Para el historial de versiones, ejecute migrations/MIGRATION_COMMERCIAL_QUOTE_VERSIONS.sql. Para crear usuarios Comercial, ejecute migrations/MIGRATION_COMMERCIAL_ROLE.sql.',
+          'Si la pantalla pide la migración de propuestas, ejecute migrations/MIGRATION_COMMERCIAL_QUOTES.sql en Supabase. Para el historial de versiones, ejecute migrations/MIGRATION_COMMERCIAL_QUOTE_VERSIONS.sql. Para el seguimiento por columnas, ejecute migrations/MIGRATION_COMMERCIAL_QUOTE_TRACKING.sql. Para crear usuarios Comercial, ejecute migrations/MIGRATION_COMMERCIAL_ROLE.sql.',
+        ],
+      },
+      {
+        heading: 'Seguimiento en la lista',
+        body: 'La lista puede crecer con columnas del equipo, aparte del cálculo. Sirven para anotar la etapa, un responsable, una probabilidad o cualquier dato de seguimiento. No entran en el PDF ni cambian los montos, y se pueden editar con la propuesta emitida o anulada.',
+        steps: [
+          'Columnas abre el panel para crear una columna de texto, número o categoría.',
+          'En una categoría escriba las opciones, por ejemplo Enviada, En negociación o Ganada. Subir y bajar cambia el orden para todos.',
+          'Anote el valor en la fila de la propuesta. Al abrirla, las mismas notas aparecen en Seguimiento.',
+          'Cada categoría se puede filtrar, también las filas sin dato. La búsqueda incluye lo anotado.',
+          'Reutilizar arma otra propuesta con los mismos puestos y costos. El seguimiento no se copia.',
+        ],
+        tips: [
+          'Quitar una columna la saca de la lista. Si vuelve a crearla, los datos anteriores no regresan.',
+          'El tipo de una columna queda fijo. Para usar otro, cree una columna nueva.',
+          'Si la pantalla pide la migración de seguimiento, ejecute migrations/MIGRATION_COMMERCIAL_QUOTE_TRACKING.sql en Supabase.',
         ],
       },
     ],

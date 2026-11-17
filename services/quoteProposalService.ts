@@ -3,9 +3,22 @@ import { buildQuoteView, normalizeQuotePayload, QuoteProposalPayload } from '../
 
 const db = supabase as unknown as {
   from: (table: string) => any;
+  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: any; error: any }>;
 };
 
 export type QuoteStatus = 'draft' | 'issued' | 'void';
+
+export type QuoteFieldKind = 'text' | 'number' | 'category';
+
+export interface QuoteField {
+  id: string;
+  label: string;
+  kind: QuoteFieldKind;
+  options: string[];
+  position: number;
+}
+
+export type QuoteTracking = Record<string, string | number>;
 
 export type QuoteVersionAction = 'issued' | 'reopened' | 'void';
 
@@ -44,12 +57,13 @@ export interface QuoteRecord {
   updatedByName?: string;
   issuedAt?: string;
   issuedByName?: string;
+  tracking: QuoteTracking;
   createdAt: string;
   updatedAt: string;
 }
 
 export class QuoteStorageError extends Error {
-  code: 'missing_table' | 'duplicate' | 'unknown';
+  code: 'missing_table' | 'duplicate' | 'unknown' | 'missing_tracking';
   constructor(code: QuoteStorageError['code'], message: string) {
     super(message);
     this.code = code;
@@ -181,6 +195,116 @@ export async function deleteQuote(id: string): Promise<void> {
   if (error) throw mapError(error);
 }
 
+const TRACKING_MIGRATION = 'Falta el seguimiento de propuestas. Ejecute migrations/MIGRATION_COMMERCIAL_QUOTE_TRACKING.sql en Supabase.';
+
+export async function listQuoteFields(): Promise<QuoteField[]> {
+  const { data, error } = await db
+    .from('commercial_quote_fields')
+    .select('id, label, kind, options, position, created_at')
+    .order('position', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) {
+    if (isMissingFields(error)) throw new QuoteStorageError('missing_tracking', TRACKING_MIGRATION);
+    throw mapError(error);
+  }
+  return (data || []).map(mapField);
+}
+
+export async function createQuoteField(input: {
+  label: string;
+  kind: QuoteFieldKind;
+  options: string[];
+  position: number;
+}): Promise<QuoteField> {
+  const label = input.label.trim();
+  if (!label) throw new Error('Indique el nombre de la columna.');
+  const kind: QuoteFieldKind = input.kind === 'number' || input.kind === 'category' ? input.kind : 'text';
+  const { data, error } = await db
+    .from('commercial_quote_fields')
+    .insert({
+      label,
+      kind,
+      options: kind === 'category' ? cleanOptions(input.options) : [],
+      position: Number.isFinite(input.position) ? input.position : 0,
+      updated_at: new Date().toISOString(),
+    })
+    .select('id, label, kind, options, position')
+    .single();
+  if (error) {
+    if (isMissingFields(error)) throw new QuoteStorageError('missing_tracking', TRACKING_MIGRATION);
+    throw mapError(error);
+  }
+  return mapField(data);
+}
+
+export async function updateQuoteField(id: string, input: { label: string; options: string[] }): Promise<QuoteField> {
+  const label = input.label.trim();
+  if (!label) throw new Error('Indique el nombre de la columna.');
+  const { data, error } = await db
+    .from('commercial_quote_fields')
+    .update({
+      label,
+      options: cleanOptions(input.options),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('id, label, kind, options, position')
+    .single();
+  if (error) {
+    if (isMissingFields(error)) throw new QuoteStorageError('missing_tracking', TRACKING_MIGRATION);
+    throw mapError(error);
+  }
+  return mapField(data);
+}
+
+export async function deleteQuoteField(id: string): Promise<void> {
+  const { error } = await db.from('commercial_quote_fields').delete().eq('id', id);
+  if (error) {
+    if (isMissingFields(error)) throw new QuoteStorageError('missing_tracking', TRACKING_MIGRATION);
+    throw mapError(error);
+  }
+}
+
+export async function reorderQuoteFields(ids: string[]): Promise<void> {
+  const results = await Promise.all(
+    ids.map((id, position) =>
+      db.from('commercial_quote_fields').update({ position, updated_at: new Date().toISOString() }).eq('id', id)
+    )
+  );
+  const failed = results.find((result) => result.error);
+  if (failed?.error) {
+    if (isMissingFields(failed.error)) throw new QuoteStorageError('missing_tracking', TRACKING_MIGRATION);
+    throw mapError(failed.error);
+  }
+}
+
+export async function saveQuoteTracking(quoteId: string, fieldId: string, value: string | number | null): Promise<void> {
+  const payload = value == null || value === '' ? null : value;
+  const { error } = await db.rpc('set_quote_tracking', {
+    p_quote_id: quoteId,
+    p_field_id: fieldId,
+    p_value: payload,
+  });
+  if (!error) return;
+  if (!isMissingRpc(error)) {
+    if (isMissingTrackingColumn(error)) throw new QuoteStorageError('missing_tracking', TRACKING_MIGRATION);
+    throw mapError(error);
+  }
+  const { data, error: readError } = await db.from('commercial_quotes').select('tracking').eq('id', quoteId).single();
+  if (readError) {
+    if (isMissingTrackingColumn(readError)) throw new QuoteStorageError('missing_tracking', TRACKING_MIGRATION);
+    throw mapError(readError);
+  }
+  const tracking = mapTracking(data?.tracking);
+  if (payload == null) delete tracking[fieldId];
+  else tracking[fieldId] = payload;
+  const { error: writeError } = await db.from('commercial_quotes').update({ tracking }).eq('id', quoteId);
+  if (writeError) {
+    if (isMissingTrackingColumn(writeError)) throw new QuoteStorageError('missing_tracking', TRACKING_MIGRATION);
+    throw mapError(writeError);
+  }
+}
+
 function mapRecord(row: any): QuoteRecord {
   const payload = normalizeQuotePayload(row.payload);
   let computed: ReturnType<typeof buildQuoteView>['computed'] | null = null;
@@ -206,9 +330,66 @@ function mapRecord(row: any): QuoteRecord {
     updatedByName: row.updated_by_name || undefined,
     issuedAt: row.issued_at || undefined,
     issuedByName: row.issued_by_name || undefined,
+    tracking: mapTracking(row.tracking),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function mapField(row: any): QuoteField {
+  const kind: QuoteFieldKind = row?.kind === 'number' || row?.kind === 'category' ? row.kind : 'text';
+  return {
+    id: row.id,
+    label: String(row.label || '').trim() || 'Columna',
+    kind,
+    options: kind === 'category' ? cleanOptions(row.options) : [],
+    position: Number(row.position) || 0,
+  };
+}
+
+function mapTracking(value: unknown): QuoteTracking {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const tracking: QuoteTracking = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw === 'number' && Number.isFinite(raw)) tracking[key] = raw;
+    else if (typeof raw === 'string' && raw.trim()) tracking[key] = raw.trim();
+  }
+  return tracking;
+}
+
+function cleanOptions(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const options: string[] = [];
+  for (const item of value) {
+    const label = String(item ?? '').trim();
+    if (!label) continue;
+    const key = label.toLocaleLowerCase('es');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    options.push(label);
+    if (options.length >= 40) break;
+  }
+  return options;
+}
+
+function isMissingFields(error: any): boolean {
+  const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  return (
+    error?.code === '42P01' ||
+    error?.code === 'PGRST205' ||
+    /commercial_quote_fields/i.test(message)
+  );
+}
+
+function isMissingTrackingColumn(error: any): boolean {
+  const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  return /tracking/i.test(message) && /column|schema cache|could not find/i.test(message);
+}
+
+function isMissingRpc(error: any): boolean {
+  const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  return error?.code === 'PGRST202' || (/set_quote_tracking/i.test(message) && /function|could not find|schema cache/i.test(message));
 }
 
 function mapVersion(row: any): QuoteVersion {

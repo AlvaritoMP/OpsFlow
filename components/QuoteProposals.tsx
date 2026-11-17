@@ -1,16 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Download, FileSpreadsheet, FileText, HelpCircle, History, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Columns3, Download, FileSpreadsheet, FileText, HelpCircle, History, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { Unit, User } from '../types';
 import { loadPublishedBillingFormulas } from '../services/clientBillingService';
 import {
   deleteQuote,
+  listQuoteFields,
   listQuoteVersions,
   listQuotes,
+  QuoteField,
   QuoteRecord,
   QuoteStatus,
   QuoteVersion,
   recordQuoteVersion,
   saveQuote,
+  saveQuoteTracking,
   setQuoteStatus,
 } from '../services/quoteProposalService';
 import { describeFormula, sameBillingFormulas, BillingFormulaSet } from '../utils/billingFormulas';
@@ -44,6 +47,7 @@ import {
   QuotePosition,
   QuoteProposalPayload,
 } from '../utils/quoteProposal';
+import { QuoteFieldManager, QuoteTrackingPanel, TrackingCell, quoteFieldKindLabel, trackingExcelHeaders, trackingSearchText } from './QuoteTracking';
 
 interface QuoteProposalsProps {
   units: Unit[];
@@ -100,6 +104,11 @@ export function newQuoteBaseline(editor: EditorState): string {
 export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUser, canEdit, onOpenHelp }) => {
   const actor = { id: currentUser.id, name: currentUser.name || currentUser.email };
   const [records, setRecords] = useState<QuoteRecord[]>([]);
+  const recordsRef = useRef<QuoteRecord[]>([]);
+  const [fields, setFields] = useState<QuoteField[]>([]);
+  const [fieldsError, setFieldsError] = useState<string | null>(null);
+  const [showFields, setShowFields] = useState(false);
+  const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -136,8 +145,37 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     }
   };
 
+  const loadFields = async () => {
+    try {
+      setFields(await listQuoteFields());
+      setFieldsError(null);
+    } catch (error) {
+      setFields([]);
+      setFieldsError(error instanceof Error ? error.message : 'No se pudieron cargar las columnas de seguimiento.');
+    }
+  };
+
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
+
+  useEffect(() => {
+    setFieldFilters((current) => {
+      const ids = new Set(fields.filter((field) => field.kind === 'category').map((field) => field.id));
+      let changed = false;
+      const next: Record<string, string> = {};
+      for (const id of Object.keys(current)) {
+        const value = current[id];
+        if (ids.has(id) && value) next[id] = value;
+        else changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [fields]);
+
   useEffect(() => {
     void loadList();
+    void loadFields();
     void loadPublishedBillingFormulas()
       .then((formulas) => setPublishedFormulas(formulas))
       .catch(() => setPublishedFormulas(null));
@@ -171,11 +209,46 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
   const dirty = editor ? newQuoteBaseline(editor) !== baseline : false;
   const locked = !canEdit || editor?.status !== 'draft';
 
+  const categoryFields = fields.filter((field) => field.kind === 'category');
   const visible = records.filter((record) => {
     if (filterStatus && record.status !== filterStatus) return false;
-    const haystack = `${record.code} ${record.clientName} ${record.serviceName} ${record.issuedByName || ''}`.toLocaleLowerCase('es');
+    for (const field of categoryFields) {
+      const wanted = fieldFilters[field.id];
+      if (!wanted) continue;
+      const current = record.tracking?.[field.id];
+      const empty = current == null || current === '';
+      if (wanted === '__empty__') {
+        if (!empty) return false;
+      } else if (String(current ?? '') !== wanted) return false;
+    }
+    const haystack = `${record.code} ${record.clientName} ${record.serviceName} ${record.issuedByName || ''} ${trackingSearchText(record.tracking, fields)}`.toLocaleLowerCase('es');
     return haystack.includes(query.trim().toLocaleLowerCase('es'));
   });
+
+  const commitTracking = async (quoteId: string, fieldId: string, value: string | number | null) => {
+    if (!quoteId) return;
+    const record = recordsRef.current.find((item) => item.id === quoteId);
+    if (!record) return;
+    const previousValue = record.tracking[fieldId];
+    const tracking = { ...record.tracking };
+    if (value == null || value === '') delete tracking[fieldId];
+    else tracking[fieldId] = value;
+    recordsRef.current = recordsRef.current.map((item) => (item.id === quoteId ? { ...item, tracking } : item));
+    setRecords(recordsRef.current);
+    try {
+      await saveQuoteTracking(quoteId, fieldId, value);
+    } catch (error) {
+      recordsRef.current = recordsRef.current.map((item) => {
+        if (item.id !== quoteId) return item;
+        const restored = { ...item.tracking };
+        if (previousValue == null || previousValue === '') delete restored[fieldId];
+        else restored[fieldId] = previousValue;
+        return { ...item, tracking: restored };
+      });
+      setRecords(recordsRef.current);
+      setBanner(error instanceof Error ? error.message : 'No se pudo guardar el seguimiento.');
+    }
+  };
 
   const exportListExcel = async () => {
     if (visible.length === 0) return;
@@ -183,6 +256,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
     setBanner(null);
     try {
       const { excelService } = await import('../services/excelService');
+      const extra = trackingExcelHeaders(fields);
       const headers = [
         'Código',
         'Cliente',
@@ -195,10 +269,11 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         'Total',
         'Fecha de emisión',
         'Emitida por',
+        ...extra.map((column) => column.header),
       ];
       const rows = visible.map((record) => {
         const issuedAt = formatIssuedAt(record.issuedAt);
-        return {
+        const row: Record<string, string | number> = {
           Código: record.code,
           Cliente: record.clientName,
           Servicio: record.serviceName,
@@ -211,6 +286,11 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           'Fecha de emisión': issuedAt === '—' ? '' : issuedAt,
           'Emitida por': record.issuedByName || '',
         };
+        for (const column of extra) {
+          const value = record.tracking?.[column.field.id];
+          row[column.header] = column.field.kind === 'number' ? (typeof value === 'number' ? value : '') : value == null ? '' : String(value);
+        }
+        return row;
       });
       const money = ['Laboral', 'Operativo', 'Administrativo', 'Utilidad', 'Total'] as const;
       const total: Record<string, string | number> = {
@@ -223,6 +303,10 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
       };
       for (const key of money) {
         total[key] = round2(rows.reduce((sum, row) => sum + Number(row[key]), 0));
+      }
+      for (const column of extra) {
+        total[column.header] =
+          column.field.kind === 'number' ? round2(rows.reduce((sum, row) => sum + (Number(row[column.header]) || 0), 0)) : '';
       }
       const stamp = new Date().toISOString().slice(0, 10);
       await excelService.exportToExcel([...rows, total], headers, {
@@ -611,7 +695,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                 <h1 className="text-2xl font-bold text-slate-900">Cotizador</h1>
               </div>
               <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-                Arma una propuesta con los mismos puestos, cargas, costos y utilidad de una liquidación. El documento conserva el resumen comercial y deja editar las condiciones del servicio y las notas del anexo.
+                Arma una propuesta con los mismos puestos, cargas, costos y utilidad de una liquidación. En la lista puede agregar columnas de texto, número o categoría para el seguimiento, sin reabrir la propuesta y sin cambiar el PDF.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -635,11 +719,12 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             </div>
           </header>
           {storageError && <Banner text={storageError} />}
+          {fieldsError && <Banner text={fieldsError} />}
           {banner && <Banner text={banner} />}
           <div className="flex flex-col md:flex-row gap-2">
             <input
               className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-              placeholder="Buscar por código, cliente o servicio"
+              placeholder="Buscar por código, cliente, servicio o seguimiento"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -651,9 +736,12 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             </select>
             <button
               type="button"
-              onClick={() => void loadList()}
+              onClick={() => {
+                void loadList();
+                void loadFields();
+              }}
               disabled={loading}
-              title="Trae de nuevo las propuestas para ver lo que crearon otros usuarios"
+              title="Trae de nuevo las propuestas y las columnas de seguimiento"
               className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50 shrink-0"
             >
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -663,13 +751,46 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
               type="button"
               onClick={() => void exportListExcel()}
               disabled={loading || visible.length === 0 || !!busy}
-              title="Descarga la relación que se ve en esta lista, con la búsqueda y el estado filtrados"
+              title="Descarga la relación visible, con la búsqueda, el estado y las columnas de seguimiento"
               className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white text-slate-800 px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50 shrink-0"
             >
               {busy === 'Exportando la relación' ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
               Exportar Excel
             </button>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setShowFields(true)}
+                title="Agregar o editar columnas de texto, número o categoría"
+                className="inline-flex items-center justify-center gap-2 border border-blue-200 bg-blue-50 text-blue-900 px-3 py-2 rounded-lg hover:bg-blue-100 shrink-0"
+              >
+                <Columns3 size={16} />
+                Columnas
+              </button>
+            )}
           </div>
+          {categoryFields.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {categoryFields.map((field) => (
+                <label key={field.id} className="text-xs text-slate-500">
+                  {field.label}
+                  <select
+                    className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                    value={fieldFilters[field.id] || ''}
+                    onChange={(event) => setFieldFilters((current) => ({ ...current, [field.id]: event.target.value }))}
+                  >
+                    <option value="">Todas</option>
+                    <option value="__empty__">Sin dato</option>
+                    {field.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          )}
           <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             {loading && records.length === 0 ? (
               <div className="p-8 text-sm text-slate-500 flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> Cargando propuestas…</div>
@@ -680,19 +801,37 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="px-3 py-2">Código</th>
-                      <th className="px-3 py-2">Cliente</th>
-                      <th className="px-3 py-2">Servicio</th>
-                      <th className="px-3 py-2">Estado</th>
-                      <th className="px-3 py-2 text-right">Laboral</th>
-                      <th className="px-3 py-2 text-right">Operativo</th>
-                      <th className="px-3 py-2 text-right">Administrativo</th>
-                      <th className="px-3 py-2 text-right">Utilidad</th>
-                      <th className="px-3 py-2 text-right">Total</th>
-                      <th className="px-3 py-2">Fecha de emisión</th>
-                      <th className="px-3 py-2">Emitida por</th>
-                      <th className="px-3 py-2" />
+                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Código</th>
+                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Cliente</th>
+                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Servicio</th>
+                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Estado</th>
+                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Laboral</th>
+                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Operativo</th>
+                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Administrativo</th>
+                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Utilidad</th>
+                      <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Total</th>
+                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Fecha de emisión</th>
+                      <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Emitida por</th>
+                      {fields.length > 0 && (
+                        <th colSpan={fields.length} className="px-3 py-1.5 text-center bg-blue-50 text-blue-800 border-l border-blue-100">
+                          Seguimiento
+                        </th>
+                      )}
+                      <th className="px-3 py-2" rowSpan={fields.length ? 2 : undefined} />
                     </tr>
+                    {fields.length > 0 && (
+                      <tr>
+                        {fields.map((field) => (
+                          <th
+                            key={field.id}
+                            className={`px-3 py-2 bg-blue-50/80 text-blue-900 border-l border-blue-100 whitespace-nowrap ${field.kind === 'number' ? 'text-right' : ''}`}
+                            title={quoteFieldKindLabel(field.kind)}
+                          >
+                            {field.label}
+                          </th>
+                        ))}
+                      </tr>
+                    )}
                   </thead>
                   <tbody>
                     {visible.map((record) => (
@@ -708,6 +847,16 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                         <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap font-semibold text-slate-900" title="Suma sin IGV">{pen(record.grandTotal)}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatIssuedAt(record.issuedAt)}</td>
                         <td className="px-3 py-2 text-slate-700">{record.issuedByName || '—'}</td>
+                        {fields.map((field) => (
+                          <td key={field.id} className={`px-3 py-2 bg-blue-50/30 border-l border-blue-50 ${field.kind === 'number' ? 'text-right' : ''}`}>
+                            <TrackingCell
+                              field={field}
+                              value={record.tracking?.[field.id]}
+                              disabled={!canEdit}
+                              onCommit={(value) => void commitTracking(record.id, field.id, value)}
+                            />
+                          </td>
+                        ))}
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button type="button" className="text-blue-700 text-sm" onClick={() => openRecord(record)}>Abrir</button>
                           {canEdit && (record.status === 'draft' || record.status === 'issued') && (
@@ -741,6 +890,13 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
               onChange={setCreateForm}
               onClose={() => setShowCreate(false)}
               onCreate={startCreate}
+            />
+          )}
+          {showFields && (
+            <QuoteFieldManager
+              fields={fields}
+              onChange={setFields}
+              onClose={() => setShowFields(false)}
             />
           )}
         </div>
@@ -848,6 +1004,14 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             <input className={fieldClass} type="number" min={1} step={1} disabled={locked} value={editor.payload.months} onChange={(event) => patchPayload({ months: Math.max(1, Math.round(Number(event.target.value) || 1)) })} />
           </label>
         </section>
+
+        <QuoteTrackingPanel
+          fields={fields}
+          tracking={records.find((record) => record.id === editor.id)?.tracking || {}}
+          canEdit={canEdit}
+          saved={Boolean(editor.id)}
+          onCommit={(fieldId, value) => void commitTracking(editor.id || '', fieldId, value)}
+        />
 
         <div className="shrink-0 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
           <Stat label="Costo laboral" value={pen(view.computed.laborTotal)} />
