@@ -50,6 +50,11 @@ export interface QuoteProposalPayload {
   issueDate: string;
   /** Texto libre: en qué consiste el servicio. */
   serviceScope: string;
+  /**
+   * En la propuesta, los gastos administrativos salen línea por línea.
+   * En false, el anexo muestra solo la suma.
+   */
+  showAdminDetail: boolean;
   commercialTerms: QuoteCommercialTerms;
   clauses: QuoteClause[];
   notes: string[];
@@ -266,6 +271,7 @@ export function createEmptyQuote(input: {
     months: Math.max(1, Math.round(Number(input.months) || 1)),
     issueDate: input.issueDate || new Date().toISOString().slice(0, 10),
     serviceScope: '',
+    showAdminDetail: true,
     commercialTerms: defaultCommercialTerms(),
     clauses: defaultQuoteClauses(),
     notes: defaultQuoteNotes(),
@@ -553,6 +559,7 @@ export function normalizeQuotePayload(raw: unknown): QuoteProposalPayload {
     months: Math.max(1, Math.round(Number(source.months) || 1)),
     issueDate: /^\d{4}-\d{2}-\d{2}$/.test(issueDate) ? issueDate : new Date().toISOString().slice(0, 10),
     serviceScope: String(source.serviceScope || ''),
+    showAdminDetail: source.showAdminDetail !== false,
     commercialTerms,
     clauses,
     notes,
@@ -636,6 +643,53 @@ function conceptDefs(rates: BillingRates, partTimeEssaludDiffers: boolean): Conc
     { key: 'sctr', label: 'SCTR salud y pensión', group: 'aportes', pick: (_worker, line) => line.sctr },
     { key: 'vidaLey', label: 'Seguro de Vida Ley', group: 'aportes', pick: (_worker, line) => line.vidaLey },
   ];
+}
+
+export interface ProposalAdminRow {
+  description: string;
+  amount: number;
+  strong?: boolean;
+}
+
+function adminKindLabel(kind: string): string {
+  if (kind === 'financiero') return 'Costo financiero';
+  if (kind === 'gestion_rrhh') return 'Gestión de RRHH';
+  if (kind === 'estructura') return 'Estructura';
+  return 'Gasto administrativo';
+}
+
+/** Líneas de gastos administrativos que salen en la propuesta. */
+export function proposalAdministrativeTable(
+  model: ClientBillingModel,
+  computed: BillingComputation,
+  showDetail: boolean
+): { rows: ProposalAdminRow[]; subtotalLabel: string | null; subtotal: number } {
+  const lines = model.administrative || [];
+  const amounts = computed.administrative || [];
+  const byId = new Map(amounts.map((line) => [line.id, line.amount]));
+  const rows = lines
+    .map((line, index) => ({
+      description: line.description?.trim() || adminKindLabel(line.kind),
+      amount: byId.get(line.id) ?? amounts[index]?.amount ?? 0,
+    }))
+    .filter((line) => Math.abs(line.amount) >= 0.005);
+
+  if (!showDetail) {
+    if (Math.abs(computed.adminTotal) < 0.005) {
+      return { rows: [], subtotalLabel: null, subtotal: computed.adminTotal };
+    }
+    return {
+      rows: [{ description: 'Gastos administrativos', amount: computed.adminTotal, strong: true }],
+      subtotalLabel: null,
+      subtotal: computed.adminTotal,
+    };
+  }
+
+  return {
+    rows,
+    subtotalLabel: rows.length ? 'Subtotal de gastos administrativos' : null,
+    subtotal: computed.adminTotal,
+  };
 }
 
 export function buildQuoteView(payload: QuoteProposalPayload): QuoteView {
@@ -726,12 +780,12 @@ export function buildQuoteView(payload: QuoteProposalPayload): QuoteView {
       kind: 'ops',
     });
   });
-  (model.administrative || []).forEach((line, index) => {
+  proposalAdministrativeTable(model, computed, payload.showAdminDetail !== false).rows.forEach((line) => {
     summary.push({
       item: '',
       quantity: '',
-      description: line.description?.trim() || 'Gasto administrativo',
-      amount: computed.administrative[index]?.amount || 0,
+      description: line.description,
+      amount: line.amount,
       kind: 'admin',
     });
   });

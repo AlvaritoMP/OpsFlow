@@ -1,4 +1,4 @@
-import { defaultCommercialTerms, formatRatePercent, fillQuoteTokens, formatQuoteDate, quoteMoney, QuoteProposalPayload, QuoteView } from './quoteProposal';
+import { defaultCommercialTerms, formatRatePercent, fillQuoteTokens, formatQuoteDate, proposalAdministrativeTable, quoteMoney, QuoteProposalPayload, QuoteView } from './quoteProposal';
 
 /** A4 vertical admite el concepto y hasta 3 puestos con el total, en columnas legibles. */
 export function annexNeedsLandscape(positionCount: number): boolean {
@@ -67,14 +67,22 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
     })
     .join('');
 
-  const costRows = (title: string, rows: Array<{ description: string; amount: number }>, subtotalLabel: string, subtotal: number) => {
+  const costRows = (
+    title: string,
+    rows: Array<{ description: string; amount: number; strong?: boolean }>,
+    subtotalLabel: string | null,
+    subtotal: number
+  ) => {
     if (!rows.length) return '';
     const body = rows
-      .map(
-        (row) =>
-          `<tr><td>${esc(row.description || title)}</td><td class="text-right">${esc(symbol)} ${money(row.amount)}</td></tr>`
-      )
+      .map((row) => {
+        const klass = row.strong ? ' class="row-highlight"' : '';
+        return `<tr${klass}><td>${esc(row.description || title)}</td><td class="text-right">${esc(symbol)} ${money(row.amount)}</td></tr>`;
+      })
       .join('');
+    const foot = subtotalLabel
+      ? `<tr class="row-highlight"><td>${esc(subtotalLabel)}</td><td class="text-right">${esc(symbol)} ${money(subtotal)}</td></tr>`
+      : '';
     return `<h2 class="section-heading">${esc(title)}</h2>
       <table class="data-table">
         <thead>
@@ -83,7 +91,7 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
         </thead>
         <tbody>
           ${body}
-          <tr class="row-highlight"><td>${esc(subtotalLabel)}</td><td class="text-right">${esc(symbol)} ${money(subtotal)}</td></tr>
+          ${foot}
         </tbody>
       </table>`;
   };
@@ -94,12 +102,7 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
       amount: view.computed.operational[index]?.amount || 0,
     }))
     .filter((line) => Math.abs(line.amount) >= 0.005);
-  const administrative = (payload.model.administrative || [])
-    .map((line, index) => ({
-      description: line.description,
-      amount: view.computed.administrative[index]?.amount || 0,
-    }))
-    .filter((line) => Math.abs(line.amount) >= 0.005);
+  const administrative = proposalAdministrativeTable(payload.model, view.computed, payload.showAdminDetail !== false);
   const clauses = payload.clauses.filter((clause) => clause.title.trim() || clause.text.trim());
   const monthLabel = months === 1 ? 'mes' : 'meses';
   const conditionBlocks = [
@@ -305,7 +308,7 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
         </tbody>
       </table>
       ${costRows('Gastos operativos', operational, 'Subtotal de gastos operativos', view.computed.operationalTotal)}
-      ${costRows('Gastos administrativos', administrative, 'Subtotal de gastos administrativos', view.computed.adminTotal)}
+      ${costRows('Gastos administrativos', administrative.rows, administrative.subtotalLabel, administrative.subtotal)}
       <table class="data-table">
         <tbody>
           <tr><td>Margen de utilidad</td><td class="text-right" style="width: 28%;">${esc(symbol)} ${money(view.computed.profitAmount)}</td></tr>

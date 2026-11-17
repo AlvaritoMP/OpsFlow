@@ -25,6 +25,7 @@ import {
   round2,
   scheduleMix,
 } from '../utils/clientBillingCalc';
+import { AdminCostLines } from './AdminCostLines';
 import { PartTimeSocialFields } from './PartTimeSocialFields';
 import { buildQuoteDocument } from '../utils/quoteDocument';
 import { downloadQuotePdf } from '../utils/quotePdf';
@@ -912,13 +913,16 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           />
         )}
         {tab === 'admin' && (
-          <CostEditor
+          <AdminCostLines
             title="Gastos administrativos"
-            hint="El costo financiero sale de la tasa y los días de los parámetros. Gestión de RRHH y estructura se escriben como monto."
+            hint="Cada categoría admite las líneas que necesite. El total de la categoría es la suma de esas líneas. La primera línea de costo financiero sale de la tasa y los días de Parámetros."
             lines={editor.payload.model.administrative}
             kinds={ADMIN_KINDS}
             locked={locked}
             amounts={view.computed.administrative}
+            total={view.computed.adminTotal}
+            showDetail={editor.payload.showAdminDetail}
+            onShowDetail={(showAdminDetail) => patchPayload({ showAdminDetail })}
             onChange={(administrative) => patchModel({ administrative })}
           />
         )}

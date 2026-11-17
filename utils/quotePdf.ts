@@ -1,5 +1,5 @@
 import type { jsPDF } from 'jspdf';
-import { defaultCommercialTerms, fillQuoteTokens, formatQuoteDate, formatRatePercent, quoteMoney, QuoteConceptRow } from './quoteProposal';
+import { defaultCommercialTerms, fillQuoteTokens, formatQuoteDate, formatRatePercent, proposalAdministrativeTable, quoteMoney, QuoteConceptRow } from './quoteProposal';
 import { annexNeedsLandscape, QuoteDocumentInput } from './quoteDocument';
 
 type RGB = [number, number, number];
@@ -484,7 +484,15 @@ function drawAnnexTable(sheet: Sheet, input: QuoteDocumentInput, symbol: string)
   }
 }
 
-function drawCostTable(sheet: Sheet, title: string, rows: Array<{ description: string; amount: number }>, subtotalLabel: string, subtotal: number, symbol: string, note: string): void {
+function drawCostTable(
+  sheet: Sheet,
+  title: string,
+  rows: Array<{ description: string; amount: number; strong?: boolean }>,
+  subtotalLabel: string | null,
+  subtotal: number,
+  symbol: string,
+  note: string
+): void {
   if (!rows.length) return;
   drawHeading(sheet, title);
   const amountW = 46;
@@ -503,12 +511,13 @@ function drawCostTable(sheet: Sheet, title: string, rows: Array<{ description: s
     drawCells(
       sheet,
       [
-        { text: row.description || title, width: labelW },
-        { text: money(symbol, row.amount), width: amountW, align: 'right' },
+        { text: row.description || title, width: labelW, bold: row.strong },
+        { text: money(symbol, row.amount), width: amountW, align: 'right', bold: row.strong },
       ],
-      { fill: WHITE, color: INK, size: 8, minH: 5 }
+      { fill: row.strong ? CARD : WHITE, color: INK, size: 8, minH: 5 }
     );
   });
+  if (!subtotalLabel) return;
   drawCells(
     sheet,
     [
@@ -639,11 +648,9 @@ function compose(doc: jsPDF, input: QuoteDocumentInput, logo: LogoMark | null, f
   const operational = (payload.model.operational || [])
     .map((line, index) => ({ description: line.description, amount: input.view.computed.operational[index]?.amount || 0 }))
     .filter((line) => Math.abs(line.amount) >= 0.005);
-  const administrative = (payload.model.administrative || [])
-    .map((line, index) => ({ description: line.description, amount: input.view.computed.administrative[index]?.amount || 0 }))
-    .filter((line) => Math.abs(line.amount) >= 0.005);
+  const administrative = proposalAdministrativeTable(payload.model, input.view.computed, payload.showAdminDetail !== false);
   drawCostTable(sheet, 'Gastos operativos', operational, 'Subtotal de gastos operativos', input.view.computed.operationalTotal, symbol, note);
-  drawCostTable(sheet, 'Gastos administrativos', administrative, 'Subtotal de gastos administrativos', input.view.computed.adminTotal, symbol, note);
+  drawCostTable(sheet, 'Gastos administrativos', administrative.rows, administrative.subtotalLabel, administrative.subtotal, symbol, note);
   drawClosing(sheet, input, symbol, igv, months, monthLabel);
   const notes = payload.notes.map((item) => fill(item).trim()).filter(Boolean);
   drawNotes(sheet, notes);

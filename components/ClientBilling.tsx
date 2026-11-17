@@ -113,6 +113,7 @@ import {
   workerOverlapsBillingWindow,
 } from '../utils/clientBillingCalc';
 import { BillingFormulaSet, describeFormula, normalizeBillingFormulas } from '../utils/billingFormulas';
+import { AdminCostLines } from './AdminCostLines';
 import { PartTimeSocialFields } from './PartTimeSocialFields';
 
 interface ClientBillingProps {
@@ -2532,13 +2533,15 @@ function EditorView(props: {
                   </label>
                 </div>
               </section>
-              <LinesEditor
+              <AdminCostLines
                 title="Gastos administrativos"
-                hint="Ítems de estructura del cliente. El costo financiero puede seguir la fórmula o un monto que usted escriba."
+                hint="Cada categoría admite las líneas que necesite. El total de la categoría es la suma de esas líneas. El costo financiero puede seguir la fórmula o un monto que usted escriba."
                 lines={editor.model.administrative}
                 kinds={ADMIN_KINDS}
                 locked={locked}
-                computed={computed.administrative}
+                amounts={computed.administrative}
+                total={computed.adminTotal}
+                allowFormulaToggle
                 onChange={(administrative) => props.onPatchModel({ administrative })}
               />
               <TabBitacora
