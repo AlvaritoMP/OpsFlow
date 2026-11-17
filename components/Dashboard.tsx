@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Building2, Users, AlertTriangle, CheckCircle, Sun, Moon, Clock, Shield, UserPlus, Activity, FileText, TrendingUp, UserMinus, GripVertical, Star, UserX } from 'lucide-react';
 import { UnitsMap } from './UnitsMap';
 import { PersonnelTurnoverHistory } from './PersonnelTurnoverHistory';
+import { TerminationReasonsCard } from './TerminationReasonsCard';
 import { computePersonnelTurnoverHistory } from '../utils/personnelTurnoverHistory';
 
 interface DashboardProps {
@@ -797,6 +798,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({ units, onSelect
             </div>
           </div>
         </div>
+
+        <TerminationReasonsCard
+          units={units}
+          archivedPersonnel={archivedPersonnel}
+          loading={archivedLoading}
+        />
         
         {/* Resto de los gráficos en layout vertical */}
         {chartOrder.map((chartId) => {

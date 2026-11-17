@@ -100,6 +100,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Revise las tarjetas superiores (unidades, personal, incidencias).',
           'En Rotación histórica, filtre por uno o varios clientes para ver 12 meses de rotación, ingreso y salida.',
+          'Debajo del mapa y de las últimas actividades críticas, Motivos de cese muestra el histórico por motivo. Elija 12 meses, este año, todo, o un desde y hasta.',
           'Use el mapa o listados para ir directo a una unidad (clic en la unidad).',
           'Pase el cursor sobre indicadores para ver el detalle del cálculo cuando esté disponible.',
         ],
