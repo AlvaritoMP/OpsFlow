@@ -10,11 +10,37 @@ export type QuoteStatus = 'draft' | 'issued' | 'void';
 
 export type QuoteFieldKind = 'text' | 'number' | 'category';
 
+export interface QuoteFieldOption {
+  label: string;
+  color: string;
+}
+
+export const QUOTE_CATEGORY_COLORS = [
+  '#e0f2fe',
+  '#dbeafe',
+  '#e0e7ff',
+  '#ede9fe',
+  '#fce7f3',
+  '#ffe4e6',
+  '#fee2e2',
+  '#ffedd5',
+  '#fef3c7',
+  '#ecfccb',
+  '#d1fae5',
+  '#ccfbf1',
+  '#cffafe',
+  '#e2e8f0',
+];
+
+export function nextCategoryColor(index: number): string {
+  return QUOTE_CATEGORY_COLORS[Math.abs(index) % QUOTE_CATEGORY_COLORS.length];
+}
+
 export interface QuoteField {
   id: string;
   label: string;
   kind: QuoteFieldKind;
-  options: string[];
+  options: QuoteFieldOption[];
   position: number;
 }
 
@@ -213,7 +239,7 @@ export async function listQuoteFields(): Promise<QuoteField[]> {
 export async function createQuoteField(input: {
   label: string;
   kind: QuoteFieldKind;
-  options: string[];
+  options: QuoteFieldOption[];
   position: number;
 }): Promise<QuoteField> {
   const label = input.label.trim();
@@ -237,7 +263,7 @@ export async function createQuoteField(input: {
   return mapField(data);
 }
 
-export async function updateQuoteField(id: string, input: { label: string; options: string[] }): Promise<QuoteField> {
+export async function updateQuoteField(id: string, input: { label: string; options: QuoteFieldOption[] }): Promise<QuoteField> {
   const label = input.label.trim();
   if (!label) throw new Error('Indique el nombre de la columna.');
   const { data, error } = await db
@@ -357,20 +383,36 @@ function mapTracking(value: unknown): QuoteTracking {
   return tracking;
 }
 
-function cleanOptions(value: unknown): string[] {
+function cleanOptions(value: unknown): QuoteFieldOption[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
-  const options: string[] = [];
+  const options: QuoteFieldOption[] = [];
   for (const item of value) {
-    const label = String(item ?? '').trim();
+    let label = '';
+    let color = '';
+    if (typeof item === 'string') {
+      label = item.trim();
+    } else if (item && typeof item === 'object') {
+      const record = item as { label?: unknown; color?: unknown };
+      label = String(record.label ?? '').trim();
+      color = normalizeCategoryColor(record.color);
+    }
     if (!label) continue;
     const key = label.toLocaleLowerCase('es');
     if (seen.has(key)) continue;
     seen.add(key);
-    options.push(label);
+    options.push({ label, color: color || nextCategoryColor(options.length) });
     if (options.length >= 40) break;
   }
   return options;
+}
+
+function normalizeCategoryColor(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed.toLowerCase();
+  if (/^[0-9a-fA-F]{6}$/.test(trimmed)) return `#${trimmed.toLowerCase()}`;
+  return '';
 }
 
 function isMissingFields(error: any): boolean {

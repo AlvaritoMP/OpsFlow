@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Columns3, Download, FileSpreadsheet, FileText, HelpCircle, History, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Columns3, Download, FileSpreadsheet, FileText, GripVertical, HelpCircle, History, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { Unit, User } from '../types';
 import { loadPublishedBillingFormulas } from '../services/clientBillingService';
 import {
@@ -12,6 +12,7 @@ import {
   QuoteStatus,
   QuoteVersion,
   recordQuoteVersion,
+  reorderQuoteFields,
   saveQuote,
   saveQuoteTracking,
   setQuoteStatus,
@@ -108,6 +109,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
   const [fields, setFields] = useState<QuoteField[]>([]);
   const [fieldsError, setFieldsError] = useState<string | null>(null);
   const [showFields, setShowFields] = useState(false);
+  const [dragFieldId, setDragFieldId] = useState<string | null>(null);
   const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -247,6 +249,24 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
       });
       setRecords(recordsRef.current);
       setBanner(error instanceof Error ? error.message : 'No se pudo guardar el seguimiento.');
+    }
+  };
+
+  const reorderFields = async (fromId: string, toId: string) => {
+    if (!canEdit || !fromId || fromId === toId) return;
+    const from = fields.findIndex((field) => field.id === fromId);
+    const to = fields.findIndex((field) => field.id === toId);
+    if (from < 0 || to < 0) return;
+    const previous = fields;
+    const next = fields.slice();
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    setFields(next);
+    try {
+      await reorderQuoteFields(next.map((field) => field.id));
+    } catch (error) {
+      setFields(previous);
+      setBanner(error instanceof Error ? error.message : 'No se pudo cambiar el orden de las columnas.');
     }
   };
 
@@ -686,8 +706,8 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
 
   if (!editor || !view) {
     return (
-      <div className="h-full overflow-y-auto bg-slate-50">
-        <div className="max-w-[1500px] mx-auto p-4 md:p-6 space-y-4">
+      <div className="h-full w-full min-w-0 overflow-auto bg-slate-50">
+        <div className="w-full min-w-0 p-4 md:p-6 space-y-4">
           <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-blue-700">
@@ -695,7 +715,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                 <h1 className="text-2xl font-bold text-slate-900">Cotizador</h1>
               </div>
               <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-                Arma una propuesta con los mismos puestos, cargas, costos y utilidad de una liquidación. En la lista puede agregar columnas de texto, número o categoría para el seguimiento, sin reabrir la propuesta y sin cambiar el PDF.
+                Arma una propuesta con los mismos puestos, cargas, costos y utilidad de una liquidación. Las columnas de seguimiento quedan al extremo derecho, ocupan todo el ancho de la pantalla y se arrastran para cambiarlas de lugar.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -782,8 +802,8 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                     <option value="">Todas</option>
                     <option value="__empty__">Sin dato</option>
                     {field.options.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
+                      <option key={option.label} value={option.label}>
+                        {option.label}
                       </option>
                     ))}
                   </select>
@@ -797,8 +817,8 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
             ) : visible.length === 0 ? (
               <div className="p-8 text-sm text-slate-500">No hay propuestas para este filtro.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-max text-sm">
                   <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Código</th>
@@ -812,22 +832,44 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                       <th className="px-3 py-2 text-right align-bottom" rowSpan={fields.length ? 2 : undefined}>Total</th>
                       <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Fecha de emisión</th>
                       <th className="px-3 py-2 align-bottom" rowSpan={fields.length ? 2 : undefined}>Emitida por</th>
+                      <th className="px-3 py-2" rowSpan={fields.length ? 2 : undefined} />
                       {fields.length > 0 && (
                         <th colSpan={fields.length} className="px-3 py-1.5 text-center bg-blue-50 text-blue-800 border-l border-blue-100">
                           Seguimiento
                         </th>
                       )}
-                      <th className="px-3 py-2" rowSpan={fields.length ? 2 : undefined} />
                     </tr>
                     {fields.length > 0 && (
                       <tr>
                         {fields.map((field) => (
                           <th
                             key={field.id}
-                            className={`px-3 py-2 bg-blue-50/80 text-blue-900 border-l border-blue-100 whitespace-nowrap ${field.kind === 'number' ? 'text-right' : ''}`}
-                            title={quoteFieldKindLabel(field.kind)}
+                            draggable={canEdit}
+                            onDragStart={(event) => {
+                              if (!canEdit) return;
+                              setDragFieldId(field.id);
+                              event.dataTransfer.effectAllowed = 'move';
+                              event.dataTransfer.setData('text/plain', field.id);
+                            }}
+                            onDragOver={(event) => {
+                              if (!canEdit) return;
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = 'move';
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              const fromId = event.dataTransfer.getData('text/plain') || dragFieldId || '';
+                              setDragFieldId(null);
+                              void reorderFields(fromId, field.id);
+                            }}
+                            onDragEnd={() => setDragFieldId(null)}
+                            className={`px-3 py-2 bg-blue-50/80 text-blue-900 border-l border-blue-100 whitespace-nowrap select-none ${field.kind === 'number' ? 'text-right' : ''} ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''} ${dragFieldId === field.id ? 'opacity-50' : ''}`}
+                            title={canEdit ? `${quoteFieldKindLabel(field.kind)}. Arrastre para cambiar de lugar.` : quoteFieldKindLabel(field.kind)}
                           >
-                            {field.label}
+                            <span className={`inline-flex items-center gap-1 ${field.kind === 'number' ? 'justify-end w-full' : ''}`}>
+                              {canEdit && <GripVertical size={12} className="shrink-0 opacity-60" />}
+                              {field.label}
+                            </span>
                           </th>
                         ))}
                       </tr>
@@ -847,16 +889,6 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                         <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap font-semibold text-slate-900" title="Suma sin IGV">{pen(record.grandTotal)}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatIssuedAt(record.issuedAt)}</td>
                         <td className="px-3 py-2 text-slate-700">{record.issuedByName || '—'}</td>
-                        {fields.map((field) => (
-                          <td key={field.id} className={`px-3 py-2 bg-blue-50/30 border-l border-blue-50 ${field.kind === 'number' ? 'text-right' : ''}`}>
-                            <TrackingCell
-                              field={field}
-                              value={record.tracking?.[field.id]}
-                              disabled={!canEdit}
-                              onCommit={(value) => void commitTracking(record.id, field.id, value)}
-                            />
-                          </td>
-                        ))}
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button type="button" className="text-blue-700 text-sm" onClick={() => openRecord(record)}>Abrir</button>
                           {canEdit && (record.status === 'draft' || record.status === 'issued') && (
@@ -875,6 +907,16 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
                             <button type="button" className="ml-3 text-red-600 text-sm" disabled={busy === record.id} onClick={() => void remove(record)}>Eliminar</button>
                           )}
                         </td>
+                        {fields.map((field) => (
+                          <td key={field.id} className={`px-3 py-2 bg-blue-50/30 border-l border-blue-50 ${field.kind === 'number' ? 'text-right' : ''}`}>
+                            <TrackingCell
+                              field={field}
+                              value={record.tracking?.[field.id]}
+                              disabled={!canEdit}
+                              onCommit={(value) => void commitTracking(record.id, field.id, value)}
+                            />
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>

@@ -1263,7 +1263,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: 'La lista puede crecer con columnas del equipo, aparte del cálculo. Sirven para anotar la etapa, un responsable, una probabilidad o cualquier dato de seguimiento. No entran en el PDF ni cambian los montos, y se pueden editar con la propuesta emitida o anulada.',
         steps: [
           'Columnas abre el panel para crear una columna de texto, número o categoría.',
-          'En una categoría escriba las opciones, por ejemplo Enviada, En negociación o Ganada. Subir y bajar cambia el orden para todos.',
+          'En una categoría escriba las opciones y elija el color de cada una. Las columnas quedan al extremo derecho de la tabla y ocupan todo el ancho disponible. Arrastre el encabezado para cambiarlas de lugar.',
           'Anote el valor en la fila de la propuesta. Al abrirla, las mismas notas aparecen en Seguimiento.',
           'Cada categoría se puede filtrar, también las filas sin dato. La búsqueda incluye lo anotado.',
           'Reutilizar arma otra propuesta con los mismos puestos y costos. El seguimiento no se copia.',

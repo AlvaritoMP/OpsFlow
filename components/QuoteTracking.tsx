@@ -3,23 +3,15 @@ import { ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react';
 import {
   createQuoteField,
   deleteQuoteField,
+  nextCategoryColor,
+  QUOTE_CATEGORY_COLORS,
   QuoteField,
   QuoteFieldKind,
+  QuoteFieldOption,
   QuoteTracking,
   reorderQuoteFields,
   updateQuoteField,
 } from '../services/quoteProposalService';
-
-const TONES = [
-  'bg-sky-100 text-sky-800',
-  'bg-violet-100 text-violet-800',
-  'bg-emerald-100 text-emerald-800',
-  'bg-amber-100 text-amber-900',
-  'bg-rose-100 text-rose-800',
-  'bg-cyan-100 text-cyan-900',
-  'bg-orange-100 text-orange-900',
-  'bg-indigo-100 text-indigo-800',
-];
 
 const FIXED_EXCEL_HEADERS = [
   'Código',
@@ -35,10 +27,19 @@ const FIXED_EXCEL_HEADERS = [
   'Emitida por',
 ];
 
-export function categoryTone(label: string): string {
-  let hash = 0;
-  for (const char of label) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return TONES[hash % TONES.length];
+export function categoryStyle(color: string | undefined): { backgroundColor: string; color: string } {
+  const background = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#e2e8f0';
+  return { backgroundColor: background, color: textOn(background) };
+}
+
+function textOn(hex: string): string {
+  const raw = hex.replace('#', '');
+  const red = Number.parseInt(raw.slice(0, 2), 16);
+  const green = Number.parseInt(raw.slice(2, 4), 16);
+  const blue = Number.parseInt(raw.slice(4, 6), 16);
+  if (![red, green, blue].every((channel) => Number.isFinite(channel))) return '#0f172a';
+  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+  return luminance > 0.62 ? '#0f172a' : '#ffffff';
 }
 
 export function quoteFieldKindLabel(kind: QuoteFieldKind): string {
@@ -171,25 +172,28 @@ function CategoryCell(props: {
   onCommit: (value: string | number | null) => void;
 }) {
   const current = typeof props.value === 'string' ? props.value : '';
-  const options = !current || props.field.options.includes(current) ? props.field.options : [...props.field.options, current];
+  const known = props.field.options.find((option) => option.label === current);
+  const options = !current || known ? props.field.options : [...props.field.options, { label: current, color: '#e2e8f0' }];
+  const tone = known ? categoryStyle(known.color) : current ? categoryStyle('#e2e8f0') : undefined;
   if (props.disabled) {
     return current ? (
-      <span className={`inline-flex text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${categoryTone(current)}`}>{current}</span>
+      <span className="inline-flex text-xs px-2 py-0.5 rounded-full whitespace-nowrap" style={tone}>{current}</span>
     ) : (
       <span className="text-slate-400">—</span>
     );
   }
   return (
     <select
-      className={`max-w-[12rem] rounded-full border px-2 py-1 text-xs ${current ? `${categoryTone(current)} border-transparent` : 'bg-white border-slate-200 text-slate-500'}`}
+      className={`max-w-[12rem] rounded-full border px-2 py-1 text-xs ${current ? 'border-transparent' : 'bg-white border-slate-200 text-slate-500'}`}
+      style={tone}
       aria-label={props.field.label}
       value={current}
       onChange={(event) => props.onCommit(event.target.value || null)}
     >
       <option value="">—</option>
       {options.map((option) => (
-        <option key={option} value={option}>
-          {option}
+        <option key={option.label} value={option.label} style={categoryStyle(option.color)}>
+          {option.label}
         </option>
       ))}
     </select>
@@ -241,7 +245,7 @@ export function QuoteFieldManager(props: {
 }) {
   const [label, setLabel] = useState('');
   const [kind, setKind] = useState<QuoteFieldKind>('text');
-  const [options, setOptions] = useState<string[]>([]);
+  const [options, setOptions] = useState<QuoteFieldOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -311,7 +315,7 @@ export function QuoteFieldManager(props: {
     }
   };
 
-  const changeOptions = async (field: QuoteField, nextOptions: string[]) => {
+  const changeOptions = async (field: QuoteField, nextOptions: QuoteFieldOption[]) => {
     setBusy(true);
     setError(null);
     try {
@@ -373,7 +377,7 @@ export function QuoteFieldManager(props: {
             <div>
               <h2 id="quote-fields-title" className="text-lg font-semibold text-slate-900">Columnas de seguimiento</h2>
               <p className="text-sm text-slate-600 mt-1">
-                Quedan para todo el equipo. Texto libre, un número o una categoría con opciones. No cambian el cálculo ni el PDF.
+                Quedan al extremo derecho de la tabla. Arrastre el encabezado para cambiarlas de lugar. En una categoría, el círculo de cada opción elige su color.
               </p>
             </div>
             <button type="button" onClick={props.onClose} className="text-slate-400 hover:text-slate-700" aria-label="Cerrar">
@@ -459,7 +463,7 @@ function FieldRow(props: {
   total: number;
   disabled: boolean;
   onRename: (label: string) => Promise<void>;
-  onOptions: (options: string[]) => Promise<void>;
+  onOptions: (options: QuoteFieldOption[]) => Promise<void>;
   onMove: (delta: number) => void;
   onDelete: () => void;
 }) {
@@ -469,10 +473,10 @@ function FieldRow(props: {
     <>
       <div className="flex items-start gap-2">
         <div className="flex flex-col">
-          <button type="button" className="text-slate-400 hover:text-slate-700 disabled:opacity-30" aria-label="Subir columna" disabled={props.disabled || props.index === 0} onClick={() => props.onMove(-1)}>
+          <button type="button" className="text-slate-400 hover:text-slate-700 disabled:opacity-30" aria-label="Mover a la izquierda" title="Queda más a la izquierda en la tabla" disabled={props.disabled || props.index === 0} onClick={() => props.onMove(-1)}>
             <ChevronUp size={16} />
           </button>
-          <button type="button" className="text-slate-400 hover:text-slate-700 disabled:opacity-30" aria-label="Bajar columna" disabled={props.disabled || props.index === props.total - 1} onClick={() => props.onMove(1)}>
+          <button type="button" className="text-slate-400 hover:text-slate-700 disabled:opacity-30" aria-label="Mover a la derecha" title="Queda más a la derecha en la tabla" disabled={props.disabled || props.index === props.total - 1} onClick={() => props.onMove(1)}>
             <ChevronDown size={16} />
           </button>
         </div>
@@ -514,16 +518,27 @@ function FieldRow(props: {
 }
 
 function OptionEditor(props: {
-  options: string[];
+  options: QuoteFieldOption[];
   disabled?: boolean;
-  onChange: (options: string[]) => void | Promise<void>;
+  onChange: (options: QuoteFieldOption[]) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState('');
+  const [draftColor, setDraftColor] = useState(nextCategoryColor(0));
+  const [openLabel, setOpenLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const apply = async (next: QuoteFieldOption[]) => {
+    setError(null);
+    try {
+      await props.onChange(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo guardar la opción.');
+      throw cause;
+    }
+  };
   const add = async () => {
-    const next = draft.trim();
-    if (!next) return;
-    if (props.options.some((option) => option.toLocaleLowerCase('es') === next.toLocaleLowerCase('es'))) {
+    const label = draft.trim();
+    if (!label) return;
+    if (props.options.some((option) => option.label.toLocaleLowerCase('es') === label.toLocaleLowerCase('es'))) {
       setError('Esa opción ya está.');
       return;
     }
@@ -531,61 +546,112 @@ function OptionEditor(props: {
       setError('Una categoría admite hasta 40 opciones.');
       return;
     }
-    setError(null);
     try {
-      await props.onChange([...props.options, next]);
+      await apply([...props.options, { label, color: draftColor }]);
       setDraft('');
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo agregar la opción.');
+      setDraftColor(nextCategoryColor(props.options.length + 1));
+      setOpenLabel(null);
+    } catch {
+      /* El mensaje queda en el editor. */
     }
   };
   return (
     <div>
       {props.options.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="space-y-2">
           {props.options.map((option) => (
-            <span key={option} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${categoryTone(option)}`}>
-              {option}
-              {!props.disabled && (
-                <button
-                  type="button"
-                  className="hover:opacity-70"
-                  aria-label={`Quitar ${option}`}
-                  onClick={() => {
-                    setError(null);
-                    void Promise.resolve(props.onChange(props.options.filter((item) => item !== option))).catch((cause) => {
-                      setError(cause instanceof Error ? cause.message : 'No se pudo quitar la opción.');
-                    });
-                  }}
-                >
-                  <X size={12} />
-                </button>
+            <div key={option.label}>
+              <span className="inline-flex items-center gap-1 rounded-full pl-1 pr-2 py-0.5 text-xs" style={categoryStyle(option.color)}>
+                {!props.disabled && (
+                  <button
+                    type="button"
+                    className="h-4 w-4 rounded-full border border-white/80"
+                    style={{ backgroundColor: option.color }}
+                    aria-label={`Color de ${option.label}`}
+                    title="Elegir color"
+                    onClick={() => setOpenLabel((current) => (current === option.label ? null : option.label))}
+                  />
+                )}
+                {option.label}
+                {!props.disabled && (
+                  <button
+                    type="button"
+                    className="hover:opacity-70"
+                    aria-label={`Quitar ${option.label}`}
+                    onClick={() => {
+                      void apply(props.options.filter((item) => item.label !== option.label)).catch(() => undefined);
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </span>
+              {openLabel === option.label && !props.disabled && (
+                <div className="mt-1">
+                  <ColorChoices
+                    value={option.color}
+                    onPick={(color) => {
+                      void apply(props.options.map((item) => (item.label === option.label ? { ...item, color } : item))).catch(() => undefined);
+                    }}
+                  />
+                </div>
               )}
-            </span>
+            </div>
           ))}
         </div>
       )}
       {!props.disabled && (
-        <div className="mt-2 flex gap-2">
-          <input
-            className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-            placeholder="Nueva opción"
-            value={draft}
-            maxLength={40}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                void add();
-              }
-            }}
-          />
-          <button type="button" onClick={() => void add()} className="px-2 py-1.5 rounded-md border border-slate-200 text-sm text-slate-700">
-            Agregar
-          </button>
+        <div className="mt-2 space-y-2">
+          <div className="flex gap-2">
+            <input
+              className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+              placeholder="Nueva opción"
+              value={draft}
+              maxLength={40}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void add();
+                }
+              }}
+            />
+            <button type="button" onClick={() => void add()} className="px-2 py-1.5 rounded-md border border-slate-200 text-sm text-slate-700">
+              Agregar
+            </button>
+          </div>
+          <ColorChoices value={draftColor} onPick={setDraftColor} />
         </div>
       )}
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+function ColorChoices(props: { value: string; onPick: (color: string) => void }) {
+  const selected = props.value.toLowerCase();
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {QUOTE_CATEGORY_COLORS.map((color) => (
+        <button
+          key={color}
+          type="button"
+          className={`h-5 w-5 rounded-full border ${selected === color ? 'ring-2 ring-slate-900 ring-offset-1' : 'border-slate-200'}`}
+          style={{ backgroundColor: color }}
+          aria-label={`Color ${color}`}
+          onClick={() => props.onPick(color)}
+        />
+      ))}
+      <label className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+        Otro
+        <input
+          type="color"
+          value={/^#[0-9a-fA-F]{6}$/.test(selected) ? selected : '#e2e8f0'}
+          aria-label="Otro color"
+          className="h-5 w-7 cursor-pointer border-0 bg-transparent p-0"
+          onChange={(event) => props.onPick(event.target.value)}
+        />
+      </label>
     </div>
   );
 }

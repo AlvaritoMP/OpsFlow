@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS public.commercial_quote_fields (
 );
 
 COMMENT ON TABLE public.commercial_quote_fields IS 'Columnas de seguimiento del cotizador: texto, número o categoría';
-COMMENT ON COLUMN public.commercial_quote_fields.options IS 'Opciones de una columna de categoría';
+COMMENT ON COLUMN public.commercial_quote_fields.options IS 'Opciones de una categoría. Cada una es un texto o un objeto {label, color} con color hex.';
 
 CREATE INDEX IF NOT EXISTS idx_commercial_quote_fields_position
     ON public.commercial_quote_fields(position, created_at);
