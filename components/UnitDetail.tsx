@@ -290,6 +290,13 @@ type PersonnelSortKey = 'name' | 'dni' | 'birthDate' | 'status' | 'dates' | 'shi
 function isIssuedTrainingCode(value?: string): boolean {
   return !!value && /^(CERT|ACTA)-\d{4}-\d+$/.test(value);
 }
+
+/** Personal que sigue ocupando un puesto. El cese deja archived en false para el archivo de la unidad. */
+function isActiveOperationalPersonnel(resource: { type?: string; archived?: boolean; personnelStatus?: string | null }): boolean {
+  if (resource.type !== ResourceType.PERSONNEL || resource.archived === true) return false;
+  const status = (resource.personnelStatus || '').trim().toLowerCase();
+  return status !== 'cesado' && status !== 'archivado';
+}
 type SortDirection = 'asc' | 'desc';
 
 export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availableStaff, currentUser, availableClients = [], onBack, onUpdate, replaceUnitInState, onPersonnelMoved, googleMapsApiKey }) => {
@@ -5797,10 +5804,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     const zoneResources = selectedZone ? unit.resources.filter(r => r.assignedZones?.includes(selectedZone.name)) : [];
 
     // Split for better display in sidebar
-    const zonePersonnel = zoneResources.filter(r => r.type === ResourceType.PERSONNEL);
+    const zonePersonnel = zoneResources.filter(r => isActiveOperationalPersonnel(r));
     const zoneEquipment = zoneResources.filter(r => r.type === ResourceType.EQUIPMENT);
     const zoneMaterials = zoneResources.filter(r => r.type === ResourceType.MATERIAL);
-    const zoneAssignedAssets = zonePersonnel.flatMap(worker =>
+    const zoneAssignedAssets = zoneResources.filter(r => r.type === ResourceType.PERSONNEL).flatMap(worker =>
       (worker.assignedAssets || []).map(asset => ({
         ...asset,
         workerId: worker.id,
@@ -5810,7 +5817,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
     // Summary Calculations for Header
     const totalArea = zonesToUse.reduce((acc, z) => acc + (z.area || 0), 0);
-    const totalPersonnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL).length;
+    const totalPersonnel = unit.resources.filter(r => isActiveOperationalPersonnel(r)).length;
     const totalEquipment = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT).length;
     const totalMaterials = unit.resources.filter(r => r.type === ResourceType.MATERIAL).length;
     
@@ -6019,7 +6026,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       )}
                       {displayZones.map(zone => {
                           // Count resources in this zone (checking inclusion in array)
-                          const zP = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && r.assignedZones?.includes(zone.name)).length;
+                          const zP = unit.resources.filter(r => isActiveOperationalPersonnel(r) && r.assignedZones?.includes(zone.name)).length;
                           const zE = unit.resources.filter(r => r.type === ResourceType.EQUIPMENT && r.assignedZones?.includes(zone.name)).length;
                           const zM = unit.resources.filter(r => r.type === ResourceType.MATERIAL && r.assignedZones?.includes(zone.name)).length;
                           const zA = unit.resources
@@ -6872,7 +6879,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              
              {(() => {
                const requiredPositions = unit.requiredPositions || [];
-               const personnel = unit.resources.filter(r => r.type === ResourceType.PERSONNEL && !r.archived);
+               const personnel = unit.resources.filter(r => isActiveOperationalPersonnel(r));
                
                if (requiredPositions.length === 0) {
                  return (
@@ -12185,13 +12192,41 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                       });
                     }
                     
-                    // Recargar la unidad para reflejar los cambios
+                    // Recargar la unidad para reflejar los cambios.
+                    // No usar onUpdate: ese guardado reescribe todos los recursos y puede
+                    // volver a dejar al cesado como activo en el headcount.
                     console.log('🔄 Recargando unidad para reflejar cambios...');
                     const { unitsService } = await import('../services/unitsService');
                     const refreshedUnit = await unitsService.getById(unit.id);
                     if (refreshedUnit) {
                       console.log('✅ Unidad recargada, actualizando estado local');
-                      onUpdate(refreshedUnit);
+                      const reloadedWorker = refreshedUnit.resources.find(r => r.id === selectedWorkerForTermination.id);
+                      if (reloadedWorker && (reloadedWorker.personnelStatus || '').toLowerCase() !== 'cesado') {
+                        await resourcesService.update(selectedWorkerForTermination.id, {
+                          type: ResourceType.PERSONNEL,
+                          personnelStatus: 'cesado',
+                          archived: selectedWorkerForTermination.archived === true,
+                          terminationReason,
+                          terminationDetail: terminationDetailValue,
+                        });
+                      }
+                      const nextUnit = {
+                        ...refreshedUnit,
+                        resources: refreshedUnit.resources.map((resource) =>
+                          resource.id === selectedWorkerForTermination.id
+                            ? {
+                                ...resource,
+                                personnelStatus: 'cesado' as const,
+                                archived: selectedWorkerForTermination.archived === true,
+                                endDate: terminationDate || resource.endDate,
+                                terminationReason,
+                                terminationDetail: terminationDetailValue,
+                              }
+                            : resource
+                        ),
+                      };
+                      if (replaceUnitInState) replaceUnitInState(nextUnit);
+                      else await onUpdate(nextUnit);
                       
                       // Verificar que el trabajador se actualizó correctamente
                       const updatedWorker = refreshedUnit.resources.find(r => r.id === selectedWorkerForTermination.id);

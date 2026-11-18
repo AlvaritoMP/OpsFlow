@@ -126,6 +126,13 @@ const matchesPosition = (worker: Resource, positionId: string, positionName: str
   return worker.puesto === positionName || worker.puesto === positionId;
 };
 
+/** El cese deja archived en false. Esos registros no ocupan puesto. */
+const isActiveHeadcountPersonnel = (worker: Resource): boolean => {
+  if (worker.type !== ResourceType.PERSONNEL || worker.archived === true) return false;
+  const status = (worker.personnelStatus || '').trim().toLowerCase();
+  return status !== 'cesado' && status !== 'archivado';
+};
+
 const formatCurrency = (value: number): string => {
   if (!value) return '—';
   return `S/ ${value.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -361,7 +368,7 @@ export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdate
     sortedUnits.forEach(unit => {
       const requiredPositions = unit.requiredPositions || [];
       const personnel = (unit.resources || []).filter(
-        r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado' && !r.archived
+        (r) => isActiveHeadcountPersonnel(r)
       );
 
       // Agrupar requerimientos por puesto (existen aunque no haya personal contratado)
@@ -597,7 +604,7 @@ export const Headcount: React.FC<HeadcountProps> = React.memo(({ units, onUpdate
 
     filteredUnits.forEach(unit => {
       const personnel = (unit.resources || []).filter(
-        r => r.type === ResourceType.PERSONNEL && r.personnelStatus !== 'cesado' && !r.archived
+        (r) => isActiveHeadcountPersonnel(r)
       );
       personnel.forEach(p => {
         const todayShift = p.workSchedule?.find(s => normalizeDateStr(s.date) === today);
