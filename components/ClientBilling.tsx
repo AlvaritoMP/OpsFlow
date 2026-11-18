@@ -68,6 +68,7 @@ import { BillingRunCompare } from './BillingRunCompare';
 import {
   BillingComputation,
   BillingCostLine,
+  costLineHasBreakdown,
   BillingAdjustmentKey,
   BillingCellAdjustment,
   BILLING_ADJUSTMENT_LABELS,
@@ -2505,7 +2506,7 @@ function EditorView(props: {
             <>
             <LinesEditor
               title="Costos operativos"
-              hint="Materiales, equipos o maquinaria del mes. El monto es el costo mensual que entra a la factura."
+              hint="Materiales, equipos o maquinaria del mes. Si el ítem viene de una propuesta, el monto es cantidad × precio unitario × frecuencia. Al escribir un monto, ese detalle deja de aplicar."
               lines={editor.model.operational}
               kinds={OPS_KINDS}
               locked={locked}
@@ -3407,6 +3408,7 @@ function LinesEditor(props: {
         {props.lines.map((line) => {
           const shown = amounts.get(line.id)?.amount ?? line.amount;
           const formula = line.kind === 'financiero' && line.formulaLocked;
+          const fromBreakdown = costLineHasBreakdown(line);
           return (
             <div key={line.id} className="p-3 grid md:grid-cols-[160px_1fr_140px_auto] gap-2 items-end">
               <label className="text-xs text-slate-500">
@@ -3425,7 +3427,27 @@ function LinesEditor(props: {
               </label>
               <label className="text-xs text-slate-500">
                 Monto mensual
-                <input className={fieldClass} type="number" step="0.01" disabled={props.locked || formula} value={formula ? Number(shown.toFixed(2)) : line.amount} onChange={(event) => update(line.id, { amount: Number(event.target.value) || 0, formulaLocked: false })} />
+                <input
+                  className={fieldClass}
+                  type="number"
+                  step="0.01"
+                  disabled={props.locked || formula}
+                  value={formula || fromBreakdown ? Number(shown.toFixed(2)) : line.amount}
+                  onChange={(event) =>
+                    update(line.id, {
+                      amount: Number(event.target.value) || 0,
+                      formulaLocked: false,
+                      quantity: undefined,
+                      unitPrice: undefined,
+                      frequency: undefined,
+                    })
+                  }
+                />
+                {fromBreakdown && (
+                  <span className="block text-[11px] text-slate-400 mt-1">
+                    {Number(line.quantity) || 0} × {Number(line.unitPrice) || 0} × {Number(line.frequency) || 0}
+                  </span>
+                )}
               </label>
               <div className="flex items-center gap-2 pb-1">
                 {line.kind === 'financiero' && !props.locked && (

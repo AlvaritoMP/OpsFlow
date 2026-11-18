@@ -205,6 +205,23 @@ export interface BillingCostLine {
   amount: number;
   formulaLocked?: boolean;
   note?: string;
+  /** Cantidad del detalle. El total de la fila es cantidad × precio unitario × frecuencia. */
+  quantity?: number;
+  /** Precio de cada unidad del detalle. */
+  unitPrice?: number;
+  /** Veces que se aplica el precio. En la propuesta operativa entra al mes. */
+  frequency?: number;
+}
+
+/** La fila trae el detalle de cantidad, precio unitario y frecuencia. */
+export function costLineHasBreakdown(line: Pick<BillingCostLine, 'quantity' | 'unitPrice' | 'frequency'>): boolean {
+  return line.quantity != null || line.unitPrice != null || line.frequency != null;
+}
+
+/** Con detalle, el monto es el producto de los tres valores. Sin detalle, se usa el monto cargado. */
+export function costLineAmount(line: BillingCostLine): number {
+  if (!costLineHasBreakdown(line)) return round2(num(line.amount));
+  return round2(num(line.quantity) * num(line.unitPrice) * num(line.frequency));
 }
 
 /** Pestañas de la liquidación que pueden llevar bitácora interna. */
@@ -1168,7 +1185,7 @@ export function computeBilling(model: ClientBillingModel): BillingComputation {
   const included = new Set(sourceWorkers.filter((worker) => worker.included).map((worker) => worker.id));
   const laborTotal = workers.reduce((sum, worker) => (included.has(worker.id) ? sum + worker.totalCost : sum), 0);
 
-  const operational = (model.operational || []).map((line) => ({ id: line.id, amount: num(line.amount), formula: false }));
+  const operational = (model.operational || []).map((line) => ({ id: line.id, amount: costLineAmount(line), formula: false }));
   const operationalTotal = operational.reduce((sum, line) => sum + line.amount, 0);
 
   const billingScope: Record<string, number> = {
@@ -1461,6 +1478,23 @@ function diffLines(changes: BillingChange[], group: string, before: BillingCostL
         after: displayValue(line.amount),
       });
     }
+    (
+      [
+        ['quantity', 'cantidad'],
+        ['unitPrice', 'precio unitario'],
+        ['frequency', 'frecuencia'],
+      ] as const
+    ).forEach(([key, label]) => {
+      const before = prev[key];
+      const after = line[key];
+      if (before == null && after == null) return;
+      if (sameNumber(before, after) && (before == null) === (after == null)) return;
+      changes.push({
+        label: `${group}: ${name} · ${label}`,
+        before: before == null ? '—' : displayValue(before),
+        after: after == null ? '—' : displayValue(after),
+      });
+    });
     if (Boolean(prev.formulaLocked) !== Boolean(line.formulaLocked)) {
       changes.push({
         label: `${group}: ${name} · cálculo`,

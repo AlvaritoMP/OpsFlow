@@ -21,6 +21,7 @@ import { describeFormula, sameBillingFormulas, BillingFormulaSet } from '../util
 import {
   BillingCostLine,
   BillingRates,
+  costLineHasBreakdown,
   defaultPartTimeRates,
   newBillingId,
   normalizePartTimeRates,
@@ -1121,7 +1122,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
         {tab === 'ops' && (
           <CostEditor
             title="Costos operativos"
-            hint="Materiales, equipos, supervisión, capacitación, EPP y otros. Entran al total de la propuesta, igual que en una liquidación, y no se prorratean dentro del puesto."
+            hint="Materiales, equipos, supervisión, capacitación, EPP y otros. Complete cantidad, precio unitario y frecuencia. El total de la fila multiplica esos tres valores y entra a la propuesta, sin prorratearse dentro del puesto."
             lines={editor.payload.model.operational}
             kinds={OPS_KINDS}
             locked={locked}
@@ -1346,6 +1347,17 @@ function PositionSheet(props: {
   );
 }
 
+function shownOperational(line: BillingCostLine) {
+  if (!costLineHasBreakdown(line)) {
+    const unitPrice = Number(line.amount) || 0;
+    return { quantity: 1, unitPrice, frequency: 1, total: round2(unitPrice) };
+  }
+  const quantity = Number(line.quantity) || 0;
+  const unitPrice = Number(line.unitPrice) || 0;
+  const frequency = Number(line.frequency) || 0;
+  return { quantity, unitPrice, frequency, total: round2(quantity * unitPrice * frequency) };
+}
+
 function CostEditor(props: {
   title: string;
   hint: string;
@@ -1355,15 +1367,28 @@ function CostEditor(props: {
   amounts: Array<{ id: string; amount: number }>;
   onChange: (lines: BillingCostLine[]) => void;
 }) {
-  const amounts = new Map(props.amounts.map((line) => [line.id, line.amount]));
+  const total = props.amounts.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const head = 'sticky top-0 z-10 bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500 px-2 py-2.5 whitespace-nowrap border-b border-slate-200';
   const add = (kind: string) => {
     const label = props.kinds.find((item) => item[0] === kind)?.[1] || 'Concepto';
-    const formulaLocked = kind === 'financiero' && !props.lines.some((line) => line.kind === 'financiero' && line.formulaLocked);
-    props.onChange([...props.lines, { id: newBillingId(), kind, description: label, amount: 0, formulaLocked }]);
+    props.onChange([
+      ...props.lines,
+      { id: newBillingId(), kind, description: label, quantity: 1, unitPrice: 0, frequency: 1, amount: 0 },
+    ]);
+  };
+  const patchLine = (id: string, patch: Partial<BillingCostLine>) => {
+    props.onChange(props.lines.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+  const patchDetail = (line: BillingCostLine, patch: Partial<Pick<BillingCostLine, 'quantity' | 'unitPrice' | 'frequency'>>) => {
+    const current = shownOperational(line);
+    const quantity = patch.quantity ?? current.quantity;
+    const unitPrice = patch.unitPrice ?? current.unitPrice;
+    const frequency = patch.frequency ?? current.frequency;
+    patchLine(line.id, { quantity, unitPrice, frequency, amount: round2(quantity * unitPrice * frequency) });
   };
   return (
-    <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="p-4 flex flex-col md:flex-row md:items-start justify-between gap-3 border-b border-slate-100">
         <div>
           <h2 className="font-semibold text-slate-900">{props.title}</h2>
           <p className="text-sm text-slate-500 mt-1">{props.hint}</p>
@@ -1378,26 +1403,51 @@ function CostEditor(props: {
         )}
       </div>
       {props.lines.length === 0 ? (
-        <p className="text-sm text-slate-500">Sin conceptos. El total de este bloque queda en cero.</p>
+        <p className="p-4 text-sm text-slate-500">Sin conceptos. El total de este bloque queda en cero.</p>
       ) : (
-        <div className="space-y-2">
-          {props.lines.map((line) => (
-            <div key={line.id} className="grid md:grid-cols-[180px_minmax(0,1fr)_140px_auto] gap-2 items-center">
-              <div className="text-xs text-slate-500">{props.kinds.find((item) => item[0] === line.kind)?.[1] || line.kind}</div>
-              <input className={fieldClass} disabled={props.locked} value={line.description} onChange={(event) => props.onChange(props.lines.map((item) => (item.id === line.id ? { ...item, description: event.target.value } : item)))} />
-              <input
-                className={fieldClass}
-                type="number"
-                step="0.01"
-                disabled={props.locked || line.formulaLocked}
-                value={line.formulaLocked ? amounts.get(line.id) || 0 : line.amount}
-                onChange={(event) => props.onChange(props.lines.map((item) => (item.id === line.id ? { ...item, amount: Number(event.target.value) || 0 } : item)))}
-              />
-              {!props.locked && (
-                <button type="button" className="text-red-500" onClick={() => props.onChange(props.lines.filter((item) => item.id !== line.id))}><Trash2 size={16} /></button>
-              )}
-            </div>
-          ))}
+        <div className="overflow-auto">
+          <table className="min-w-full border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th className={`${head} text-left`}>Concepto</th>
+                <th className={`${head} text-left min-w-[16rem]`}>Descripción</th>
+                <th className={`${head} text-right`} title="Cuántas unidades entran en el cálculo">Cantidad</th>
+                <th className={`${head} text-right`} title="Precio de cada unidad">Precio unitario</th>
+                <th className={`${head} text-right`} title="Veces que se aplica el precio en el mes">Frecuencia</th>
+                <th className={`${head} text-right`} title="Cantidad × precio unitario × frecuencia">Total</th>
+                <th className={head} />
+              </tr>
+            </thead>
+            <tbody>
+              {props.lines.map((line) => {
+                const shown = shownOperational(line);
+                return (
+                  <tr key={line.id} className="border-t border-slate-100">
+                    <td className="px-2 py-1.5 text-xs text-slate-500 whitespace-nowrap">{props.kinds.find((item) => item[0] === line.kind)?.[1] || line.kind}</td>
+                    <td className="px-1.5 py-1.5">
+                      <input className={gridText} disabled={props.locked} value={line.description} onChange={(event) => patchLine(line.id, { description: event.target.value })} />
+                    </td>
+                    <td className="px-1 py-1"><Num disabled={props.locked} value={shown.quantity} onChange={(quantity) => patchDetail(line, { quantity })} /></td>
+                    <td className="px-1 py-1"><Num disabled={props.locked} value={shown.unitPrice} onChange={(unitPrice) => patchDetail(line, { unitPrice })} /></td>
+                    <td className="px-1 py-1"><Num disabled={props.locked} value={shown.frequency} onChange={(frequency) => patchDetail(line, { frequency })} /></td>
+                    <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">{pen(shown.total)}</td>
+                    <td className="px-1 py-1">
+                      {!props.locked && (
+                        <button type="button" className="text-red-500" title="Quitar concepto" onClick={() => props.onChange(props.lines.filter((item) => item.id !== line.id))}><Trash2 size={16} /></button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-50">
+                <td className="px-2 py-2 text-sm font-semibold text-slate-800" colSpan={5}>Total operativo</td>
+                <td className="px-2 py-2 text-right tabular-nums font-semibold text-slate-900">{pen(total)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
     </section>

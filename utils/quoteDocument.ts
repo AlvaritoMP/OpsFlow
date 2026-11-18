@@ -1,4 +1,5 @@
-import { defaultCommercialTerms, formatRatePercent, fillQuoteTokens, formatQuoteDate, proposalAdministrativeTable, quoteMoney, QuoteProposalPayload, QuoteView } from './quoteProposal';
+import { costLineHasBreakdown } from './clientBillingCalc';
+import { defaultCommercialTerms, formatRatePercent, fillQuoteTokens, formatQuoteDate, proposalAdministrativeTable, quoteCount, quoteMoney, QuoteProposalPayload, QuoteView } from './quoteProposal';
 
 /** A4 vertical admite el concepto y hasta 3 puestos con el total, en columnas legibles. */
 export function annexNeedsLandscape(positionCount: number): boolean {
@@ -96,12 +97,54 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
       </table>`;
   };
 
+  const operationalDetailRows = (
+    title: string,
+    rows: Array<{ description: string; amount: number; quantity?: number; unitPrice?: number; frequency?: number; detailed?: boolean }>,
+    subtotalLabel: string,
+    subtotal: number
+  ) => {
+    const cell = (value: number | undefined, moneyValue = false) =>
+      value == null ? '—' : moneyValue ? `${esc(symbol)} ${money(value)}` : esc(quoteCount(value));
+    const body = rows
+      .map((row) => {
+        const detail = row.detailed
+          ? `<td class="text-right">${cell(row.quantity)}</td><td class="text-right">${cell(row.unitPrice, true)}</td><td class="text-right">${cell(row.frequency)}</td>`
+          : '<td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td>';
+        return `<tr><td>${esc(row.description || title)}</td>${detail}<td class="text-right">${esc(symbol)} ${money(row.amount)}</td></tr>`;
+      })
+      .join('');
+    return `<h2 class="section-heading">${esc(title)}</h2>
+      <table class="data-table">
+        <thead>
+          <tr><th colspan="5" class="money-head">${esc(moneyNote)} El total de cada fila es cantidad × precio unitario × frecuencia.</th></tr>
+          <tr>
+            <th>Concepto</th>
+            <th class="text-right">Cantidad</th>
+            <th class="text-right">Precio unitario</th>
+            <th class="text-right">Frecuencia</th>
+            <th class="text-right">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${body}
+          <tr class="row-highlight"><td colspan="4">${esc(subtotalLabel)}</td><td class="text-right">${esc(symbol)} ${money(subtotal)}</td></tr>
+        </tbody>
+      </table>`;
+  };
+
   const operational = (payload.model.operational || [])
     .map((line, index) => ({
       description: line.description,
       amount: view.computed.operational[index]?.amount || 0,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      frequency: line.frequency,
+      detailed: costLineHasBreakdown(line),
     }))
     .filter((line) => Math.abs(line.amount) >= 0.005);
+  const operationalHtml = operational.some((line) => line.detailed)
+    ? operationalDetailRows('Gastos operativos', operational, 'Subtotal de gastos operativos', view.computed.operationalTotal)
+    : costRows('Gastos operativos', operational, 'Subtotal de gastos operativos', view.computed.operationalTotal);
   const administrative = proposalAdministrativeTable(payload.model, view.computed, payload.showAdminDetail !== false);
   const clauses = payload.clauses.filter((clause) => clause.title.trim() || clause.text.trim());
   const monthLabel = months === 1 ? 'mes' : 'meses';
@@ -307,7 +350,7 @@ export function buildQuoteDocument(input: QuoteDocumentInput): string {
           ${conceptRows || `<tr><td colspan="${columns}">No hay puestos incluidos.</td></tr>`}
         </tbody>
       </table>
-      ${costRows('Gastos operativos', operational, 'Subtotal de gastos operativos', view.computed.operationalTotal)}
+      ${operationalHtml}
       ${costRows('Gastos administrativos', administrative.rows, administrative.subtotalLabel, administrative.subtotal)}
       <table class="data-table">
         <tbody>

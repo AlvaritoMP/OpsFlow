@@ -1,5 +1,6 @@
 import type { jsPDF } from 'jspdf';
-import { defaultCommercialTerms, fillQuoteTokens, formatQuoteDate, formatRatePercent, proposalAdministrativeTable, quoteMoney, QuoteConceptRow } from './quoteProposal';
+import { costLineHasBreakdown } from './clientBillingCalc';
+import { defaultCommercialTerms, fillQuoteTokens, formatQuoteDate, formatRatePercent, proposalAdministrativeTable, quoteCount, quoteMoney, QuoteConceptRow } from './quoteProposal';
 import { annexNeedsLandscape, QuoteDocumentInput } from './quoteDocument';
 
 type RGB = [number, number, number];
@@ -528,6 +529,61 @@ function drawCostTable(
   );
 }
 
+function drawOperationalTable(
+  sheet: Sheet,
+  title: string,
+  rows: Array<{ description: string; amount: number; quantity?: number; unitPrice?: number; frequency?: number; detailed?: boolean }>,
+  subtotalLabel: string,
+  subtotal: number,
+  symbol: string,
+  note: string
+): void {
+  if (!rows.length) return;
+  drawHeading(sheet, title);
+  const qtyW = 22;
+  const priceW = 32;
+  const freqW = 26;
+  const totalW = 34;
+  const labelW = Math.max(40, sheet.width - qtyW - priceW - freqW - totalW);
+  const head = { fill: NAVY, color: WHITE, size: 7.2, minH: 5.2 };
+  drawCells(sheet, [{ text: `${note} El total de cada fila es cantidad × precio unitario × frecuencia.`, width: sheet.width }], head);
+  drawCells(
+    sheet,
+    [
+      { text: 'Concepto', width: labelW, bold: true },
+      { text: 'Cantidad', width: qtyW, align: 'right', bold: true },
+      { text: 'P. unitario', width: priceW, align: 'right', bold: true },
+      { text: 'Frecuencia', width: freqW, align: 'right', bold: true },
+      { text: 'Total', width: totalW, align: 'right', bold: true },
+    ],
+    { ...head, size: 7.4 }
+  );
+  const plain = { fill: WHITE, color: INK, size: 7.6, minH: 5 };
+  rows.forEach((row) => {
+    const count = (value: number | undefined) => (row.detailed && value != null ? quoteCount(value) : '—');
+    const price = row.detailed && row.unitPrice != null ? money(symbol, row.unitPrice) : '—';
+    drawCells(
+      sheet,
+      [
+        { text: row.description || title, width: labelW },
+        { text: count(row.quantity), width: qtyW, align: 'right' },
+        { text: price, width: priceW, align: 'right' },
+        { text: count(row.frequency), width: freqW, align: 'right' },
+        { text: money(symbol, row.amount), width: totalW, align: 'right', bold: true },
+      ],
+      plain
+    );
+  });
+  drawCells(
+    sheet,
+    [
+      { text: subtotalLabel, width: labelW + qtyW + priceW + freqW, bold: true },
+      { text: money(symbol, subtotal), width: totalW, align: 'right', bold: true },
+    ],
+    { fill: CARD, color: INK, size: 8, minH: 5.2 }
+  );
+}
+
 function drawClosing(sheet: Sheet, input: QuoteDocumentInput, symbol: string, igv: string, months: number, monthLabel: string): void {
   const amountW = 52;
   const labelW = sheet.width - amountW;
@@ -646,10 +702,21 @@ function compose(doc: jsPDF, input: QuoteDocumentInput, logo: LogoMark | null, f
   drawParagraph(sheet, 'Cada puesto detalla la remuneración, las provisiones y los aportes de 1 persona. La cantidad indicada multiplica ese costo en la línea de costo laboral total. Debajo se agregan los gastos operativos, los gastos administrativos y el margen de utilidad.', { size: 8.5 });
   drawAnnexTable(sheet, input, symbol);
   const operational = (payload.model.operational || [])
-    .map((line, index) => ({ description: line.description, amount: input.view.computed.operational[index]?.amount || 0 }))
+    .map((line, index) => ({
+      description: line.description,
+      amount: input.view.computed.operational[index]?.amount || 0,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      frequency: line.frequency,
+      detailed: costLineHasBreakdown(line),
+    }))
     .filter((line) => Math.abs(line.amount) >= 0.005);
   const administrative = proposalAdministrativeTable(payload.model, input.view.computed, payload.showAdminDetail !== false);
-  drawCostTable(sheet, 'Gastos operativos', operational, 'Subtotal de gastos operativos', input.view.computed.operationalTotal, symbol, note);
+  if (operational.some((line) => line.detailed)) {
+    drawOperationalTable(sheet, 'Gastos operativos', operational, 'Subtotal de gastos operativos', input.view.computed.operationalTotal, symbol, note);
+  } else {
+    drawCostTable(sheet, 'Gastos operativos', operational, 'Subtotal de gastos operativos', input.view.computed.operationalTotal, symbol, note);
+  }
   drawCostTable(sheet, 'Gastos administrativos', administrative.rows, administrative.subtotalLabel, administrative.subtotal, symbol, note);
   drawClosing(sheet, input, symbol, igv, months, monthLabel);
   const notes = payload.notes.map((item) => fill(item).trim()).filter(Boolean);

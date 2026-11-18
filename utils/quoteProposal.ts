@@ -1,5 +1,6 @@
 import {
   BillingComputation,
+  BillingCostLine,
   BillingQuotePosition,
   BillingRates,
   BillingWorkerInput,
@@ -8,6 +9,8 @@ import {
   DEFAULT_BILLING_RATES,
   computeBilling,
   cloneModel,
+  costLineAmount,
+  costLineHasBreakdown,
   defaultAdministrativeLines,
   emptyBillingModel,
   isProjectionBilling,
@@ -123,6 +126,12 @@ export function quoteMoney(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(round2(value));
+}
+
+/** Cantidad o frecuencia, sin forzar dos decimales. */
+export function quoteCount(value: number): string {
+  const parsed = Number(value);
+  return new Intl.NumberFormat('es-PE', { maximumFractionDigits: 4 }).format(Number.isFinite(parsed) ? parsed : 0);
 }
 
 export function formatRatePercent(rate: number): string {
@@ -532,7 +541,7 @@ export function normalizeQuotePayload(raw: unknown): QuoteProposalPayload {
       scheduleMix(workers) === 'mixed' || storedPartTime
         ? normalizePartTimeRates(storedPartTime, rates)
         : undefined,
-    operational: Array.isArray(modelRaw?.operational) ? modelRaw.operational : [],
+    operational: Array.isArray(modelRaw?.operational) ? modelRaw.operational.map((line) => normalizeOperationalLine(line)) : [],
     administrative: Array.isArray(modelRaw?.administrative) ? modelRaw.administrative : defaultAdministrativeLines(),
     formulas: normalizeBillingFormulas(modelRaw?.formulas),
   };
@@ -574,6 +583,24 @@ export function quotePositions(model: ClientBillingModel): QuotePosition[] {
 function num(value: unknown): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeOperationalLine(raw: Partial<BillingCostLine> | null | undefined): BillingCostLine {
+  const source = raw || {};
+  const line: BillingCostLine = {
+    id: String(source.id || newBillingId()),
+    kind: String(source.kind || 'otros'),
+    description: String(source.description || ''),
+    amount: num(source.amount),
+  };
+  if (source.formulaLocked) line.formulaLocked = true;
+  if (source.note) line.note = String(source.note);
+  if (!costLineHasBreakdown(source)) return line;
+  line.quantity = num(source.quantity);
+  line.unitPrice = num(source.unitPrice);
+  line.frequency = num(source.frequency);
+  line.amount = costLineAmount(line);
+  return line;
 }
 
 function legacyConditionCovered(text: string): boolean {
@@ -774,7 +801,7 @@ export function buildQuoteView(payload: QuoteProposalPayload): QuoteView {
   (model.operational || []).forEach((line, index) => {
     summary.push({
       item: '',
-      quantity: '',
+      quantity: costLineHasBreakdown(line) ? String(num(line.quantity)) : '',
       description: line.description?.trim() || 'Costo operativo',
       amount: computed.operational[index]?.amount || 0,
       kind: 'ops',

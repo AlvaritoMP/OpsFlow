@@ -764,7 +764,11 @@ function writeCostBlock(
   items.forEach((line) => {
     const info = line.id === 'empty' ? undefined : amounts.get(line.id);
     const amount = info?.amount ?? line.amount ?? 0;
-    const label = line.description?.trim() || KIND_LABELS[line.kind] || line.kind || 'Ítem';
+    const baseLabel = line.description?.trim() || KIND_LABELS[line.kind] || line.kind || 'Ítem';
+    const label =
+      line.quantity == null && line.unitPrice == null && line.frequency == null
+        ? baseLabel
+        : `${baseLabel} (${Number(line.quantity) || 0} × ${Number(line.unitPrice) || 0} × ${Number(line.frequency) || 0})`;
     writeAmountRow(sheet, row, lastCol, label, amount, false);
     amountRows.push({ id: line.id, row, useFormula: info?.formula === true });
     row += 1;
