@@ -20,6 +20,8 @@ import {
 import { describeFormula, sameBillingFormulas, BillingFormulaSet } from '../utils/billingFormulas';
 import {
   BillingCostLine,
+  BillingInternalNote,
+  BillingInternalTab,
   BillingRates,
   costLineHasBreakdown,
   defaultPartTimeRates,
@@ -31,6 +33,7 @@ import {
   scheduleMix,
 } from '../utils/clientBillingCalc';
 import { AdminCostLines } from './AdminCostLines';
+import { CostBitacora } from './CostBitacora';
 import { PartTimeSocialFields } from './PartTimeSocialFields';
 import { buildQuoteDocument } from '../utils/quoteDocument';
 import { downloadQuotePdf } from '../utils/quotePdf';
@@ -71,6 +74,26 @@ interface EditorState {
 }
 
 type TabId = 'positions' | 'ops' | 'admin' | 'params' | 'terms' | 'preview';
+
+const QUOTE_BITACORA_HINT = 'Anote el sustento de esta categoría. Queda guardado en la propuesta para el equipo. No sale en el PDF ni en el documento que ve el cliente.';
+
+function quoteNoteCount(notes: BillingInternalNote[] | undefined, tab: TabId): number {
+  const tabs: BillingInternalTab[] =
+    tab === 'positions' ? ['labor'] : tab === 'ops' ? ['ops'] : tab === 'admin' ? ['admin'] : tab === 'params' ? ['params', 'profit'] : [];
+  if (!tabs.length) return 0;
+  return (notes || []).filter((note) => tabs.includes(note.tab)).length;
+}
+
+function QuoteBitacora(props: {
+  tab: BillingInternalTab;
+  title: string;
+  notes: BillingInternalNote[] | undefined;
+  locked: boolean;
+  authorName: string;
+  onChange: (notes: BillingInternalNote[]) => void;
+}) {
+  return <CostBitacora {...props} hint={QUOTE_BITACORA_HINT} />;
+}
 
 const OPS_KINDS: Array<[string, string]> = [
   ['materiales', 'Materiales'],
@@ -1088,73 +1111,96 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
               ['terms', 'Condiciones y notas'],
               ['preview', 'Propuesta'],
             ] as Array<[TabId, string]>
-          ).map(([id, label]) => (
+          ).map(([id, label]) => {
+            const notes = quoteNoteCount(editor.payload.model.internalNotes, id);
+            return (
             <button key={id} type="button" onClick={() => setTab(id)} className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap ${tab === id ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>
               {label}
+              {notes > 0 && (
+                <span className={`ml-1.5 inline-flex min-w-[1.1rem] justify-center rounded-full px-1 text-[10px] ${tab === id ? 'bg-white/20' : 'bg-amber-100 text-amber-800'}`} title="Notas de sustento">
+                  {notes}
+                </span>
+              )}
             </button>
-          ))}
+            );
+          })}
         </div>
 
         <div className="flex-1 min-h-0 overflow-auto">
         {tab === 'positions' && (
-          <PositionSheet
-            positions={positions}
-            view={view}
-            locked={locked}
-            formulas={editor.payload.model.formulas}
-            familyAmount={rates.familyAllowanceAmount}
-            commercialDays={rates.commercialMonthDays}
-            onPatch={patchPosition}
-            onAdd={() => patchModel({ workers: [...positions, emptyQuotePosition(`Puesto ${positions.length + 1}`, rates)] })}
-            onRemove={(id) => patchModel({ workers: positions.filter((position) => position.id !== id) })}
-            onFamily={() =>
-              patchModel({
-                workers: positions.map((position) => (position.included ? { ...position, familyAllowance: rates.familyAllowanceAmount } : position)),
-              })
-            }
-            onDays={() =>
-              patchModel({
-                workers: positions.map((position) => (position.included ? { ...position, daysWorked: rates.commercialMonthDays || 30, daysManual: true } : position)),
-              })
-            }
-          />
+          <div className="space-y-3 pb-3">
+            <div className="h-[min(36rem,62vh)] min-h-[16rem]">
+              <PositionSheet
+                positions={positions}
+                view={view}
+                locked={locked}
+                formulas={editor.payload.model.formulas}
+                familyAmount={rates.familyAllowanceAmount}
+                commercialDays={rates.commercialMonthDays}
+                onPatch={patchPosition}
+                onAdd={() => patchModel({ workers: [...positions, emptyQuotePosition(`Puesto ${positions.length + 1}`, rates)] })}
+                onRemove={(id) => patchModel({ workers: positions.filter((position) => position.id !== id) })}
+                onFamily={() =>
+                  patchModel({
+                    workers: positions.map((position) => (position.included ? { ...position, familyAllowance: rates.familyAllowanceAmount } : position)),
+                  })
+                }
+                onDays={() =>
+                  patchModel({
+                    workers: positions.map((position) => (position.included ? { ...position, daysWorked: rates.commercialMonthDays || 30, daysManual: true } : position)),
+                  })
+                }
+              />
+            </div>
+            <QuoteBitacora tab="labor" title="Bitácora del costo laboral" notes={editor.payload.model.internalNotes} locked={locked} authorName={actor.name} onChange={(internalNotes) => patchModel({ internalNotes })} />
+          </div>
         )}
         {tab === 'ops' && (
-          <CostEditor
-            title="Costos operativos"
-            hint="Materiales, equipos, supervisión, capacitación, EPP y otros. Complete cantidad, precio unitario y frecuencia. El total de la fila multiplica esos tres valores y entra a la propuesta, sin prorratearse dentro del puesto."
-            lines={editor.payload.model.operational}
-            kinds={OPS_KINDS}
-            locked={locked}
-            amounts={view.computed.operational}
-            onChange={(operational) => patchModel({ operational })}
-          />
+          <div className="space-y-3 pb-3">
+            <CostEditor
+              title="Costos operativos"
+              hint="Materiales, equipos, supervisión, capacitación, EPP y otros. Complete cantidad, precio unitario y frecuencia. El total de la fila multiplica esos tres valores y entra a la propuesta, sin prorratearse dentro del puesto."
+              lines={editor.payload.model.operational}
+              kinds={OPS_KINDS}
+              locked={locked}
+              amounts={view.computed.operational}
+              onChange={(operational) => patchModel({ operational })}
+            />
+            <QuoteBitacora tab="ops" title="Bitácora del costo operativo" notes={editor.payload.model.internalNotes} locked={locked} authorName={actor.name} onChange={(internalNotes) => patchModel({ internalNotes })} />
+          </div>
         )}
         {tab === 'admin' && (
-          <AdminCostLines
-            title="Gastos administrativos"
-            hint="Cada categoría admite las líneas que necesite. El total de la categoría es la suma de esas líneas. La primera línea de costo financiero sale de la tasa y los días de Parámetros."
-            lines={editor.payload.model.administrative}
-            kinds={ADMIN_KINDS}
-            locked={locked}
-            amounts={view.computed.administrative}
-            total={view.computed.adminTotal}
-            showDetail={editor.payload.showAdminDetail}
-            onShowDetail={(showAdminDetail) => patchPayload({ showAdminDetail })}
-            onChange={(administrative) => patchModel({ administrative })}
-          />
+          <div className="space-y-3 pb-3">
+            <AdminCostLines
+              title="Gastos administrativos"
+              hint="Cada categoría admite las líneas que necesite. El total de la categoría es la suma de esas líneas. La primera línea de costo financiero sale de la tasa y los días de Parámetros."
+              lines={editor.payload.model.administrative}
+              kinds={ADMIN_KINDS}
+              locked={locked}
+              amounts={view.computed.administrative}
+              total={view.computed.adminTotal}
+              showDetail={editor.payload.showAdminDetail}
+              onShowDetail={(showAdminDetail) => patchPayload({ showAdminDetail })}
+              onChange={(administrative) => patchModel({ administrative })}
+            />
+            <QuoteBitacora tab="admin" title="Bitácora del costo administrativo" notes={editor.payload.model.internalNotes} locked={locked} authorName={actor.name} onChange={(internalNotes) => patchModel({ internalNotes })} />
+          </div>
         )}
         {tab === 'params' && (
-          <ParamsPanel
-            rates={rates}
-            partTime={scheduleMix(positions) === 'mixed' ? normalizePartTimeRates(editor.payload.model.partTimeRates, rates) : null}
-            formulas={editor.payload.model.formulas}
-            locked={locked}
-            busy={busy === 'formulas'}
-            onRates={patchRates}
-            onPartTime={patchPartTimeRates}
-            onRefresh={() => void refreshFormulas()}
-          />
+          <div className="space-y-3 pb-3">
+            <ParamsPanel
+              rates={rates}
+              partTime={scheduleMix(positions) === 'mixed' ? normalizePartTimeRates(editor.payload.model.partTimeRates, rates) : null}
+              formulas={editor.payload.model.formulas}
+              locked={locked}
+              busy={busy === 'formulas'}
+              onRates={patchRates}
+              onPartTime={patchPartTimeRates}
+              onRefresh={() => void refreshFormulas()}
+            />
+            <QuoteBitacora tab="params" title="Bitácora de parámetros" notes={editor.payload.model.internalNotes} locked={locked} authorName={actor.name} onChange={(internalNotes) => patchModel({ internalNotes })} />
+            <QuoteBitacora tab="profit" title="Bitácora de la utilidad" notes={editor.payload.model.internalNotes} locked={locked} authorName={actor.name} onChange={(internalNotes) => patchModel({ internalNotes })} />
+          </div>
         )}
         {tab === 'terms' && (
           <TermsPanel

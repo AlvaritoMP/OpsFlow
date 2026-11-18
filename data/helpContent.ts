@@ -1250,6 +1250,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Puestos: una fila por puesto, siempre de 1 persona. En Jornada elija Full time o Part time. Las horas extra y el bono nocturno se escriben en horas; el importe en soles lo calcula el mismo método de una liquidación. La cantidad multiplica solo la columna Costo total.',
           'Operativo: cada concepto se completa con cantidad, precio unitario y frecuencia. El total de la fila es la multiplicación de esos tres valores y entra a la propuesta. En el PDF, esa tabla muestra las tres columnas y el total. Administrativo: cada categoría admite varias líneas y muestra su suma. Puede elegir si la propuesta lista cada línea o solo el total. El costo financiero de la primera línea usa la tasa y los días de Parámetros.',
           'Parámetros: tasas de cargas, utilidad e IGV. Si la propuesta mezcla full time y part time, al final aparecen las cargas del part time (vacaciones, gratificación, CTS, feriados, EsSalud, Vida Ley, SCTR y horas por día). Esas tasas solo entran en los puestos part time. Al reabrir, elija si actualiza el cálculo con las fórmulas publicadas o lo deja como estaba. Traer método publicado copia las fórmulas en un borrador.',
+          'Bitácora: en Puestos, Operativo, Administrativo y Parámetros puede anotar el sustento de esa categoría. La utilidad tiene su propia bitácora, debajo de Parámetros. El número de la pestaña indica cuántas notas hay. Esas notas quedan en la propuesta para el equipo y no salen en el PDF. Reutilizar copia también esas notas.',
           'Condiciones y notas: el alcance describe en qué consiste el servicio. Modalidad, plazo, facturación, crédito, corte, emisión de factura y vigencia se editan como datos. Las demás condiciones salen en el mismo bloque, cada una con su título. {meses} y {igv} se reemplazan al imprimir.',
           'Propuesta: revise el documento. Descargar PDF genera un archivo liviano, con texto nítido, sin usar la ventana de impresión del equipo.',
           'Emitir cierra la propuesta y guarda una versión con quién la emitió y los totales. Reabrir y anular también quedan en ese historial. Para corregir un monto hay que reabrirla.',
@@ -1268,7 +1269,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'En una categoría escriba las opciones y elija el color de cada una. Las columnas quedan al extremo derecho de la tabla y ocupan todo el ancho disponible. Arrastre el encabezado para cambiarlas de lugar.',
           'Anote el valor en la fila de la lista. Esas columnas no se repiten al abrir la propuesta, para dejar sitio a la tabla de cálculos.',
           'Cada categoría se puede filtrar, también las filas sin dato. La búsqueda incluye lo anotado.',
-          'Reutilizar arma otra propuesta con los mismos puestos y costos. El seguimiento no se copia.',
+          'Reutilizar arma otra propuesta con los mismos puestos, costos y bitácoras de sustento. El seguimiento de la lista no se copia.',
         ],
         tips: [
           'Quitar una columna la saca de la lista. Si vuelve a crearla, los datos anteriores no regresan.',

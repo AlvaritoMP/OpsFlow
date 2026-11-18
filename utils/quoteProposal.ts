@@ -1,6 +1,8 @@
 import {
   BillingComputation,
   BillingCostLine,
+  BillingInternalNote,
+  BillingInternalTab,
   BillingQuotePosition,
   BillingRates,
   BillingWorkerInput,
@@ -243,7 +245,7 @@ export function cloneQuotePayload(source: QuoteProposalPayload, issueDate?: stri
   model.workers = (model.workers || []).map((worker) => ({ ...worker, id: newBillingId() }));
   model.operational = (model.operational || []).map((line) => ({ ...line, id: newBillingId() }));
   model.administrative = (model.administrative || []).map((line) => ({ ...line, id: newBillingId() }));
-  model.internalNotes = [];
+  model.internalNotes = (model.internalNotes || []).map((note) => ({ ...note, id: newBillingId() }));
   model.sourceQuoteId = undefined;
   model.sourceQuoteCode = undefined;
   model.sourceQuotePositions = undefined;
@@ -544,6 +546,7 @@ export function normalizeQuotePayload(raw: unknown): QuoteProposalPayload {
     operational: Array.isArray(modelRaw?.operational) ? modelRaw.operational.map((line) => normalizeOperationalLine(line)) : [],
     administrative: Array.isArray(modelRaw?.administrative) ? modelRaw.administrative : defaultAdministrativeLines(),
     formulas: normalizeBillingFormulas(modelRaw?.formulas),
+    internalNotes: normalizeQuoteNotes(modelRaw?.internalNotes),
   };
   const commercialTerms = normalizeCommercialTerms(
     (source as { commercialTerms?: Partial<QuoteCommercialTerms> }).commercialTerms
@@ -601,6 +604,27 @@ function normalizeOperationalLine(raw: Partial<BillingCostLine> | null | undefin
   line.frequency = num(source.frequency);
   line.amount = costLineAmount(line);
   return line;
+}
+
+const QUOTE_NOTE_TABS = new Set<BillingInternalTab>(['labor', 'ops', 'admin', 'params', 'profit']);
+
+function normalizeQuoteNotes(raw: unknown): BillingInternalNote[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const note = item && typeof item === 'object' ? (item as Partial<BillingInternalNote>) : {};
+    const tab = String(note.tab || '') as BillingInternalTab;
+    const text = String(note.text || '').trim();
+    if (!QUOTE_NOTE_TABS.has(tab) || !text) return [];
+    return [
+      {
+        id: String(note.id || newBillingId()),
+        tab,
+        text,
+        authorName: String(note.authorName || 'Usuario').trim() || 'Usuario',
+        createdAt: String(note.createdAt || new Date().toISOString()),
+      },
+    ];
+  });
 }
 
 function legacyConditionCovered(text: string): boolean {

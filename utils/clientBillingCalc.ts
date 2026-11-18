@@ -224,8 +224,8 @@ export function costLineAmount(line: BillingCostLine): number {
   return round2(num(line.quantity) * num(line.unitPrice) * num(line.frequency));
 }
 
-/** Pestañas de la liquidación que pueden llevar bitácora interna. */
-export type BillingInternalTab = 'labor' | 'ops' | 'admin' | 'params' | 'trace';
+/** Pestañas que pueden llevar bitácora interna. En la propuesta, utilidad tiene la suya. */
+export type BillingInternalTab = 'labor' | 'ops' | 'admin' | 'params' | 'profit' | 'trace';
 
 /** Nota interna de una pestaña. No sale en el Excel, el PDF ni en las corridas. */
 export interface BillingInternalNote {
@@ -241,6 +241,7 @@ export const BILLING_INTERNAL_TAB_LABELS: Record<BillingInternalTab, string> = {
   ops: 'Bitácora operativa',
   admin: 'Bitácora administrativa',
   params: 'Bitácora de parámetros',
+  profit: 'Bitácora de utilidad',
   trace: 'Bitácora de trazabilidad',
 };
 
