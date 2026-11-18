@@ -160,6 +160,12 @@ const ADMIN_KINDS: [string, string][] = [
   ['estructura', 'Estructura'],
 ];
 
+function quoteChoiceLabel(quote: QuoteRecord): string {
+  const client = quote.clientName.trim() || 'Sin cliente';
+  const service = quote.serviceName.trim() || 'Sin servicio';
+  return `${quote.code} · ${client} · ${service}`;
+}
+
 const ACTION_LABEL: Record<string, string> = {
   created: 'Creación',
   saved: 'Ajuste',
@@ -1377,14 +1383,14 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                       <option value="">{createKind === 'projection' ? 'Elija la propuesta' : 'Sin propuesta. El personal sale del corte.'}</option>
                       {ownQuotes.map((quote) => (
                         <option key={quote.id} value={quote.id}>
-                          {quote.code} · {quote.clientName} · {quote.status === 'issued' ? 'Emitida' : 'Borrador'}
+                          {quoteChoiceLabel(quote)}
                         </option>
                       ))}
                       {otherQuotes.length > 0 && (
                         <optgroup label="Otros clientes">
                           {otherQuotes.map((quote) => (
                             <option key={quote.id} value={quote.id}>
-                              {quote.code} · {quote.clientName} · {quote.status === 'issued' ? 'Emitida' : 'Borrador'}
+                              {quoteChoiceLabel(quote)}
                             </option>
                           ))}
                         </optgroup>
@@ -2141,7 +2147,7 @@ function EditorView(props: {
             <label className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
               {projection ? 'Cambiar propuesta' : 'Traer condiciones de una propuesta'}
               <select
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                className="min-w-[min(100%,36rem)] max-w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
                 value={editor.model.sourceQuoteId || ''}
                 onChange={(event) => {
                   const quoteId = event.target.value;
@@ -2150,8 +2156,8 @@ function EditorView(props: {
               >
                 <option value="">{editor.model.sourceQuoteId ? 'Mantener la actual' : 'Elegir PES…'}</option>
                 {props.quotes.map((quote) => (
-                  <option key={quote.id} value={quote.id}>
-                    {quote.code} · {quote.clientName} · {quote.status === 'issued' ? 'Emitida' : 'Borrador'}
+                  <option key={quote.id} value={quote.id} title={quoteChoiceLabel(quote)}>
+                    {quoteChoiceLabel(quote)}
                   </option>
                 ))}
               </select>
