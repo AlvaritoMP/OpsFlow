@@ -127,7 +127,11 @@ export const AdminCostLines: React.FC<AdminCostLinesProps> = ({
                           <button
                             type="button"
                             className="text-xs text-blue-700 whitespace-nowrap"
-                            onClick={() => (formula ? update(line.id, { formulaLocked: false }) : useFormula(line.id))}
+                            onClick={() =>
+                              formula
+                                ? update(line.id, { formulaLocked: false, amount: shown.get(line.id) || 0 })
+                                : useFormula(line.id)
+                            }
                           >
                             {formula ? 'Escribir monto' : 'Usar fórmula'}
                           </button>

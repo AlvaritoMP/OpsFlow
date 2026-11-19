@@ -1173,12 +1173,13 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           <div className="space-y-3 pb-3">
             <AdminCostLines
               title="Gastos administrativos"
-              hint="Cada categoría admite las líneas que necesite. El total de la categoría es la suma de esas líneas. La primera línea de costo financiero sale de la tasa y los días de Parámetros."
+              hint="Cada categoría admite las líneas que necesite. El total de la categoría es la suma de esas líneas. El costo financiero puede seguir la tasa y los días de Parámetros, o un monto que usted escriba."
               lines={editor.payload.model.administrative}
               kinds={ADMIN_KINDS}
               locked={locked}
               amounts={view.computed.administrative}
               total={view.computed.adminTotal}
+              allowFormulaToggle
               showDetail={editor.payload.showAdminDetail}
               onShowDetail={(showAdminDetail) => patchPayload({ showAdminDetail })}
               onChange={(administrative) => patchModel({ administrative })}
