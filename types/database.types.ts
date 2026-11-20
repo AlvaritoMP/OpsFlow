@@ -56,6 +56,7 @@ export interface Database {
           coordinator_id: string | null
           roving_supervisor_id: string | null
           resident_supervisor_id: string | null
+          multi_employer: boolean
           created_at: string
           updated_at: string
         }
@@ -69,6 +70,7 @@ export interface Database {
           coordinator_id?: string | null
           roving_supervisor_id?: string | null
           resident_supervisor_id?: string | null
+          multi_employer?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -82,6 +84,7 @@ export interface Database {
           coordinator_id?: string | null
           roving_supervisor_id?: string | null
           resident_supervisor_id?: string | null
+          multi_employer?: boolean
           created_at?: string
           updated_at?: string
         }

@@ -1155,6 +1155,10 @@ function transformResourceFromDB(
           ? false
           : undefined,
     unitId: data.unit_id || undefined,
+    employerCompanyCode:
+      data.employer_company_code !== null && data.employer_company_code !== undefined
+        ? Number(data.employer_company_code)
+        : undefined,
     rehiredFromResourceId: data.rehired_from_resource_id || undefined,
     rehireReason: data.rehire_reason || undefined,
   };
@@ -1739,7 +1743,8 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
                              resource.mobilityBonus !== undefined ||
                              resource.familyAllowance !== undefined ||
                              resource.rehiredFromResourceId !== undefined ||
-                             resource.rehireReason !== undefined;
+                             resource.rehireReason !== undefined ||
+                             resource.employerCompanyCode !== undefined;
   
   if (hasPersonnelFields) {
     if (resource.dni !== undefined) result.dni = resource.dni;
@@ -1790,6 +1795,9 @@ function transformResourceToDB(resource: Partial<Resource>, unitId?: string): an
     }
     if (resource.rehireReason !== undefined) {
       result.rehire_reason = resource.rehireReason?.trim() || null;
+    }
+    if (resource.employerCompanyCode !== undefined) {
+      result.employer_company_code = resource.employerCompanyCode;
     }
   }
 

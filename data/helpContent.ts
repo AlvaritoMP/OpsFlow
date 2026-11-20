@@ -186,6 +186,19 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
       },
       {
+        heading: 'Staff con varias razones sociales',
+        body: 'Un administrador puede marcar una unidad, como Staff Opalo, para que agrupe trabajadores de más de una empresa del grupo: Opalo Peru, Opalo Intermediación y Opalo Tercerización. El personal sigue en la misma unidad; cada ficha indica su razón social.',
+        steps: [
+          'Abra la unidad → General → Editar información.',
+          'Active «Agrupar varias razones sociales» y guarde. Solo administrador o superadministrador ve esa opción.',
+          'En Personal, filtre por empresa o seleccione trabajadores y asigne la razón social. También puede hacerlo al crear un colaborador o al expandir su ficha.',
+        ],
+        tips: [
+          'Hay que aplicar database/migrations/add_multi_employer_unit.sql en la base de datos antes de guardar.',
+          'Si el alta todavía está pendiente de envío a Opalosis, la razón social asignada se usa en ese envío.',
+        ],
+      },
+      {
         heading: 'Pedidos al almacén y equipos del personal',
         body: 'Arriba de Logística está el pedido de esa unidad al almacén central. Un mismo pedido lleva varios productos. El almacén lo autoriza en Inventario y el stock pasa al almacén virtual de la unidad.',
         steps: [

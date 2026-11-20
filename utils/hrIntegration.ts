@@ -93,6 +93,15 @@ export const HR_DEFAULT_PAIS_ID = 173;
 /** OpaloId por defecto = Opalo Peru SAC. */
 export const HR_DEFAULT_OPALO_ID = 103;
 
+export function employerCompanyOption(code?: number | null) {
+  if (code === null || code === undefined || Number.isNaN(Number(code))) return undefined;
+  return HR_EMPRESA_OPTIONS.find((option) => option.code === Number(code));
+}
+
+export function employerCompanyLabel(code?: number | null): string {
+  return employerCompanyOption(code)?.label ?? '';
+}
+
 /** Biblioteca SharePoint RRHH para UrlDocumentoAdjunto. */
 export const HR_SHAREPOINT_DOCS_LIBRARY_URL =
   'https://opaloperu1.sharepoint.com/:f:/s/INDICADORESRRHH/IgB1TkyjRpcpSLPf-jZj9HUIAZY7gf2sdub0qIvk6ZqyVkU?e=253bjH';

@@ -64,8 +64,11 @@ async function readFunctionsInvokeError(
   return error?.message || fallback;
 }
 
-const SYNC_RESOURCE_SELECT =
+const SYNC_RESOURCE_SELECT_BASE =
   'id, name, dni, unit_id, puesto, localidad, phone, email, birth_date, start_date, end_date, assigned_shift, monthly_salary, personnel_status, external_id, inbound_source_data, type, jornada_type, labor_regime, mobility_bonus, family_allowance, work_days, entry_time, exit_time';
+
+/** Se apaga si la migración de razón social todavía no está aplicada. */
+let employerCompanyColumnAvailable = true;
 
 function lightResourceFromRow(data: Record<string, unknown>): Resource {
   const birth = typeof data.birth_date === 'string' ? data.birth_date.split('T')[0] : undefined;
@@ -110,6 +113,10 @@ function lightResourceFromRow(data: Record<string, unknown>): Resource {
       : undefined,
     entryTime: (data.entry_time as string) || undefined,
     exitTime: (data.exit_time as string) || undefined,
+    employerCompanyCode:
+      data.employer_company_code !== null && data.employer_company_code !== undefined
+        ? Number(data.employer_company_code)
+        : undefined,
     trainings: [],
     assignedAssets: [],
   };
@@ -161,15 +168,44 @@ async function loadQueuedResourceIds(): Promise<Set<string>> {
   return ids;
 }
 
+function empresaCodigoForWorker(
+  resource: Pick<Resource, 'employerCompanyCode'>,
+  mapping: HrUnitMapping | null,
+  fallback?: number | null,
+): number | undefined {
+  if (typeof resource.employerCompanyCode === 'number' && Number.isFinite(resource.employerCompanyCode)) {
+    return resource.employerCompanyCode;
+  }
+  if (typeof mapping?.empresaCodigo === 'number') return mapping.empresaCodigo;
+  if (typeof fallback === 'number' && Number.isFinite(fallback)) return fallback;
+  return undefined;
+}
+
+function syncResourceColumns(): string {
+  return employerCompanyColumnAvailable
+    ? `${SYNC_RESOURCE_SELECT_BASE}, employer_company_code`
+    : SYNC_RESOURCE_SELECT_BASE;
+}
+
+async function selectSyncResources(ids: string[]) {
+  const result = await supabase.from('resources').select(syncResourceColumns()).in('id', ids);
+  if (
+    result.error &&
+    employerCompanyColumnAvailable &&
+    /employer_company_code/i.test(result.error.message || '')
+  ) {
+    employerCompanyColumnAvailable = false;
+    return supabase.from('resources').select(SYNC_RESOURCE_SELECT_BASE).in('id', ids);
+  }
+  return result;
+}
+
 async function loadResourcesByIds(resourceIds: string[]): Promise<Map<string, Resource>> {
   const map = new Map<string, Resource>();
   const chunkSize = 100;
   for (let i = 0; i < resourceIds.length; i += chunkSize) {
     const chunk = resourceIds.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from('resources')
-      .select(SYNC_RESOURCE_SELECT)
-      .in('id', chunk);
+    const { data, error } = await selectSyncResources(chunk);
     if (error) {
       throw new Error(`No se pudieron cargar recursos para sincronizar: ${error.message}`);
     }
@@ -337,6 +373,7 @@ export const hrOutboundIngresoService = {
     }
 
     const mapping = await this.getUnitMapping(input.unit.id);
+    const empresaCodigo = empresaCodigoForWorker(input.resource, mapping, input.empresaCodigo);
     const refOperaciones =
       existingRow?.queue_status === 'excluido' && existingRow.ref_operaciones
         ? existingRow.ref_operaciones
@@ -344,11 +381,11 @@ export const hrOutboundIngresoService = {
     const workerSnapshot = buildOutboundWorkerSnapshot({
       ...input,
       opalosisUnidadId: mapping?.opalosisUnidadId ?? input.opalosisUnidadId,
-      empresaCodigo: mapping?.empresaCodigo ?? input.empresaCodigo,
+      empresaCodigo,
     });
     const hrFields = mapSnapshotToHrFields(workerSnapshot, refOperaciones, {
       opalosisUnidadId: mapping?.opalosisUnidadId ?? null,
-      empresaCodigo: mapping?.empresaCodigo ?? 103,
+      empresaCodigo: empresaCodigo ?? 103,
       usuarioOf: input.usuarioOf ?? 'opsflow',
     });
 
@@ -473,6 +510,11 @@ export const hrOutboundIngresoService = {
 
     const handoffItem = handoffByResourceId.get(resourceId) ?? null;
     const mapping = await this.getUnitMapping(unit.id);
+    const empresaCodigo = empresaCodigoForWorker(
+      resource,
+      mapping,
+      current.hrFields?.opaloId,
+    );
     const snapshot = buildOutboundWorkerSnapshot({
       resource: { ...resource, unitId: resource.unitId || unit.id },
       unit,
@@ -481,7 +523,7 @@ export const hrOutboundIngresoService = {
         resource.inboundSourceData?.sourceApp ?? (handoffItem ? 'Opalo ATS' : 'OpsFlow'),
       sourcePackageId: handoffItem?.packageId ?? resource.inboundSourceData?.sourcePackageId,
       opalosisUnidadId: mapping?.opalosisUnidadId ?? current.hrFields?.lugarTrabajoId,
-      empresaCodigo: mapping?.empresaCodigo ?? current.hrFields?.opaloId,
+      empresaCodigo,
     });
     const hrFields = refreshHrFieldsFromLiveSnapshot(
       current.hrFields,
@@ -489,10 +531,13 @@ export const hrOutboundIngresoService = {
       current.refOperaciones,
       {
         opalosisUnidadId: mapping?.opalosisUnidadId ?? current.hrFields?.lugarTrabajoId ?? null,
-        empresaCodigo: mapping?.empresaCodigo ?? current.hrFields?.opaloId ?? null,
+        empresaCodigo: empresaCodigo ?? null,
         usuarioOf: current.hrFields?.usuarioOf ?? 'opsflow',
       },
     );
+    if (typeof resource.employerCompanyCode === 'number') {
+      hrFields.opaloId = resource.employerCompanyCode;
+    }
     if (mapping?.opalosisUnidadNombre && !hrFields.labels?.lugarTrabajo) {
       hrFields.labels = {
         ...hrFields.labels,
@@ -625,11 +670,24 @@ export const hrOutboundIngresoService = {
       }
     }
 
-    const { data: rows, error } = await supabase
-      .from('resources')
-      .select(SYNC_RESOURCE_SELECT)
-      .eq('type', 'Personal')
-      .in('dni', [...variants]);
+    const queryPersonnelByDni = (columns: string) =>
+      supabase
+        .from('resources')
+        .select(columns)
+        .eq('type', 'Personal')
+        .in('dni', [...variants]);
+
+    let byDniResult = await queryPersonnelByDni(syncResourceColumns());
+    if (
+      byDniResult.error &&
+      employerCompanyColumnAvailable &&
+      /employer_company_code/i.test(byDniResult.error.message || '')
+    ) {
+      employerCompanyColumnAvailable = false;
+      byDniResult = await queryPersonnelByDni(SYNC_RESOURCE_SELECT_BASE);
+    }
+
+    const { data: rows, error } = byDniResult;
 
     if (error) {
       throw new Error(`No se pudieron buscar DNIs: ${error.message}`);

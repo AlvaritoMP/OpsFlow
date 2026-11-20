@@ -401,6 +401,11 @@ export interface Resource {
   salaryIncrements?: SalaryIncrement[]; // Historial de incrementos salariales
   /** Unidad actual del recurso (FK resources.unit_id) */
   unitId?: string;
+  /**
+   * Razón social empleadora cuando la unidad agrupa varias empresas del grupo.
+   * 103 Opalo Peru, 104 Opalo Intermediación, 153 Opalo Tercerización.
+   */
+  employerCompanyCode?: number | null;
   /** Ficha cesada o archivada de la que nace esta relación. Esa ficha no se modifica. */
   rehiredFromResourceId?: string;
   /** Motivo de la recontratación (nueva unidad, cambio de régimen o condiciones, u otro). */
@@ -693,6 +698,12 @@ export interface Unit {
 
   /** true cuando se cargó el detalle completo (documentos, turnos, contratos, activos). */
   detailsHydrated?: boolean;
+
+  /**
+   * La unidad agrupa trabajadores de más de una razón social del grupo.
+   * Caso Staff Opalo. Solo un administrador puede activarlo.
+   */
+  multiEmployer?: boolean;
 }
 
 // ============================================

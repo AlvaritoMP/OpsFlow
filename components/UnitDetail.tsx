@@ -37,6 +37,7 @@ import {
 import { isUnitOperational } from '../utils/unitStatus';
 import { nextZoneLayout, withVisibleLayouts, zoneBelongsToLayer } from '../utils/blueprintLayout';
 import { formatDateDisplay } from '../utils/dateFormat';
+import { HR_EMPRESA_OPTIONS, employerCompanyLabel, employerCompanyOption } from '../utils/hrIntegration';
 import { documentNumbersMatch, normalizeDocumentNumber } from '../utils/documentNumber';
 import { formatPersonnelDocumentAlert, PersonnelDocumentMatch } from '../services/resourcesService';
 import { DateInput } from './DateInput';
@@ -521,12 +522,16 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   const [showArchivedPersonnel, setShowArchivedPersonnel] = useState(false); // Mostrar personal archivado
   const [showCesadoPersonnel, setShowCesadoPersonnel] = useState(false); // Mostrar personal cesado (no archivado)
   const [personnelSearchQuery, setPersonnelSearchQuery] = useState<string>(''); // Barra de búsqueda para personal
+  const [employerFilter, setEmployerFilter] = useState<'all' | 'unassigned' | number>('all');
+  const [bulkEmployerCode, setBulkEmployerCode] = useState('');
+  const [assigningEmployer, setAssigningEmployer] = useState(false);
   const [personnelSort, setPersonnelSort] = useState<{ key: PersonnelSortKey; direction: SortDirection } | null>(null);
   
   // Limpiar búsqueda cuando cambie el modo de vista o el estado de archivados/cesados
   React.useEffect(() => {
     setPersonnelSearchQuery('');
-  }, [personnelViewMode, showArchivedPersonnel, showCesadoPersonnel]);
+    setEmployerFilter('all');
+  }, [personnelViewMode, showArchivedPersonnel, showCesadoPersonnel, unit.id]);
   
   // Salary increments states
   const [showSalaryIncrementModal, setShowSalaryIncrementModal] = useState(false);
@@ -967,7 +972,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
   };
 
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
-  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; email?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number; familyAllowance?: boolean }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
+  const [newWorkerForm, setNewWorkerForm] = useState<{ name: string; zones: string[]; shift: string; image?: string; dni?: string; puesto?: string; localidad?: string; phone?: string; email?: string; birthDate?: string; startDate?: string; endDate?: string; isShared?: boolean; monthlySalary?: number; workConditionAmount?: number; workDays?: string[]; entryTime?: string; exitTime?: string; jornadaType?: string; laborRegime?: string; mobilityBonus?: number; familyAllowance?: boolean; employerCompanyCode?: number }>({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined, employerCompanyCode: undefined });
   const [duplicateDniMatches, setDuplicateDniMatches] = useState<PersonnelDocumentMatch[]>([]);
 
   useEffect(() => {
@@ -1122,6 +1127,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
   // --- PERMISSIONS CHECKS ---
   const canEditGeneral = checkPermission(userRole, 'UNIT_OVERVIEW', 'edit');
+  const canManageMultiEmployer = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
   const canViewPersonnel = checkPermission(userRole, 'PERSONNEL', 'view');
   const canEditPersonnel = checkPermission(userRole, 'PERSONNEL', 'edit');
   const canViewUnitBook = checkPermission(userRole, 'UNIT_BOOK', 'view');
@@ -1531,6 +1537,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         errorMessage = 'La solicitud tardó demasiado tiempo.\n\n' +
                       'Por favor, intenta de nuevo. Si el problema persiste, verifica tu conexión a internet.\n\n' +
                       'Los cambios que hiciste se mantendrán en el formulario.';
+      } else if (error.message?.includes('multi_employer')) {
+        errorMessage = 'No se pudo activar la unidad con varias razones sociales. Aplique en la base de datos el script database/migrations/add_multi_employer_unit.sql y vuelva a guardar.';
       } else if (error.message?.includes('permission') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
         errorMessage = `Error de permisos al guardar. Verifica que tengas permisos para editar unidades y que las políticas RLS estén configuradas correctamente.\n\nError: ${error.message}`;
       }
@@ -2724,6 +2732,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       setTimeout(() => setNotification(null), 3000);
       return;
     }
+    if (unit.multiEmployer && canManageMultiEmployer && !newWorkerForm.employerCompanyCode) {
+      setNotification({ type: 'error', message: 'Seleccione la razón social del trabajador.' });
+      setTimeout(() => setNotification(null), 4000);
+      return;
+    }
     setIsSavingWorker(true);
     try {
       const { resourcesService } = await import('../services/resourcesService');
@@ -2774,6 +2787,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
           newWorkerForm.familyAllowance === true || newWorkerForm.familyAllowance === false
             ? newWorkerForm.familyAllowance
             : undefined,
+        employerCompanyCode: newWorkerForm.employerCompanyCode,
       trainings: [],
       assignedAssets: []
       }, unit.id);
@@ -2792,7 +2806,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       
       // Cerrar modal y limpiar formulario
     setShowAddWorkerModal(false);
-      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined });
+      setNewWorkerForm({ name: '', zones: [], shift: '', image: undefined, dni: '', puesto: '', localidad: '', phone: '', email: '', birthDate: '', startDate: '', endDate: '', isShared: false, monthlySalary: undefined, workConditionAmount: undefined, workDays: [], entryTime: '', exitTime: '', jornadaType: '', laborRegime: '', mobilityBonus: undefined, familyAllowance: undefined, employerCompanyCode: undefined });
 
       let enqueueWarning: string | null = null;
       try {
@@ -2837,10 +2851,68 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       }, 500);
     } catch (error) {
       console.error('Error al agregar trabajador:', error);
-      setNotification({ type: 'error', message: 'Error al agregar el trabajador. Por favor, intente nuevamente.' });
+      const detail = error instanceof Error ? error.message : '';
+      setNotification({
+        type: 'error',
+        message: /employer_company_code/i.test(detail)
+          ? 'No se pudo guardar la razón social. Aplique database/migrations/add_multi_employer_unit.sql en la base de datos.'
+          : 'Error al agregar el trabajador. Por favor, intente nuevamente.',
+      });
       setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsSavingWorker(false);
+    }
+  };
+
+  const handleSetWorkerEmployer = async (workerIds: string[], code: number | null) => {
+    if (!canManageMultiEmployer || !unit.multiEmployer || !onUpdate || workerIds.length === 0) return;
+    if (code !== null && !employerCompanyOption(code)) return;
+
+    setAssigningEmployer(true);
+    try {
+      const { resourcesService } = await import('../services/resourcesService');
+      const { hrOutboundIngresoService } = await import('../services/hrOutboundIngresoService');
+      for (const id of workerIds) {
+        await resourcesService.update(id, { employerCompanyCode: code });
+      }
+
+      const queueWarnings: string[] = [];
+      for (const id of workerIds) {
+        try {
+          await hrOutboundIngresoService.refreshPendingQueueFromResource(id);
+        } catch (error) {
+          queueWarnings.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+
+      onUpdate({
+        ...unit,
+        resources: unit.resources.map((resource) =>
+          workerIds.includes(resource.id) ? { ...resource, employerCompanyCode: code } : resource
+        ),
+      });
+
+      const label = code === null ? 'sin razón social' : employerCompanyLabel(code);
+      setNotification({
+        type: queueWarnings.length > 0 ? 'info' : 'success',
+        message: queueWarnings.length > 0
+          ? `Razón social actualizada (${label}). La cola de Opalosis no se pudo refrescar en todos los pendientes.`
+          : workerIds.length === 1
+            ? `Trabajador asignado a ${label}.`
+            : `${workerIds.length} trabajadores asignados a ${label}.`,
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo guardar la razón social.';
+      setNotification({
+        type: 'error',
+        message: /employer_company_code/i.test(message)
+          ? 'Falta aplicar database/migrations/add_multi_employer_unit.sql en la base de datos.'
+          : message,
+      });
+      setTimeout(() => setNotification(null), 8000);
+    } finally {
+      setAssigningEmployer(false);
     }
   };
 
@@ -4205,7 +4277,8 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'En Capacitación',
         'Archivado',
         'Cantidad Capacitaciones',
-        'Cantidad Activos Asignados'
+        'Cantidad Activos Asignados',
+        ...(unit.multiEmployer ? ['Razón social'] : []),
       ];
       
       const data = personnelToExport.map(worker => ({
@@ -4239,7 +4312,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         'En Capacitación': worker.inTraining ? 'Sí' : 'No',
         'Archivado': worker.archived ? 'Sí' : 'No',
         'Cantidad Capacitaciones': worker.trainings?.length || 0,
-        'Cantidad Activos Asignados': worker.assignedAssets?.length || 0
+        'Cantidad Activos Asignados': worker.assignedAssets?.length || 0,
+        ...(unit.multiEmployer
+          ? { 'Razón social': employerCompanyLabel(worker.employerCompanyCode) || 'Sin razón social' }
+          : {}),
       }));
       
       const filename = `personal_${unit.name}_${showArchivedPersonnel ? 'archivado' : 'activo'}_${new Date().toISOString().split('T')[0]}.xlsx`;
@@ -5128,10 +5204,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     });
   };
 
-  // Filtrar personal basado en la búsqueda
+  const employerBreakdown = useMemo(() => {
+    const counts = new Map<number, number>();
+    let unassigned = 0;
+    for (const worker of personnel) {
+      if (worker.employerCompanyCode) {
+        counts.set(worker.employerCompanyCode, (counts.get(worker.employerCompanyCode) || 0) + 1);
+      } else {
+        unassigned += 1;
+      }
+    }
+    return { counts, unassigned };
+  }, [personnel]);
+
+  // Filtrar personal basado en la búsqueda y, si aplica, la razón social
   const filteredPersonnel = useMemo(() => {
+    const byEmployer = !unit.multiEmployer || employerFilter === 'all'
+      ? personnel
+      : personnel.filter((worker) =>
+          employerFilter === 'unassigned'
+            ? !worker.employerCompanyCode
+            : worker.employerCompanyCode === employerFilter
+        );
     const query = personnelSearchQuery.toLowerCase().trim();
-    const filtered = query ? personnel.filter(worker => {
+    const filtered = query ? byEmployer.filter(worker => {
       const name = (worker.name || '').toLowerCase();
       const dni = (worker.dni || '').toLowerCase();
       const puesto = (worker.puesto || '').toLowerCase();
@@ -5139,6 +5235,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
       const localidad = (worker.localidad || '').toLowerCase();
       const email = (worker.email || '').toLowerCase();
       const phone = (worker.phone || '').toLowerCase();
+      const employer = employerCompanyLabel(worker.employerCompanyCode).toLowerCase();
       
       return name.includes(query) || 
              dni.includes(query) || 
@@ -5146,8 +5243,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              zones.includes(query) ||
              localidad.includes(query) ||
              email.includes(query) ||
-             phone.includes(query);
-    }) : personnel;
+             phone.includes(query) ||
+             employer.includes(query);
+    }) : byEmployer;
 
     if (!personnelSort) {
       return filtered;
@@ -5169,7 +5267,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       return personnelSort.direction === 'asc' ? comparison : -comparison;
     });
-  }, [personnel, personnelSearchQuery, personnelSort, contractHistory]);
+  }, [personnel, personnelSearchQuery, personnelSort, contractHistory, employerFilter, unit.multiEmployer]);
 
   const allUnitPersonnel = useMemo(() => (
     unit.resources.filter(r => r.type === ResourceType.PERSONNEL)
@@ -6635,6 +6733,23 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   </div>
                   <div><label className="block text-sm font-medium text-slate-700">Descripción Operativa</label><textarea className="w-full border border-slate-300 rounded p-2" value={editForm.description || ''} onChange={e => setEditForm({...editForm, description: e.target.value})} /></div>
 
+                  {canManageMultiEmployer && (
+                    <label className="flex items-start gap-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                      <input
+                        type="checkbox"
+                        className="mt-1 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={editForm.multiEmployer === true}
+                        onChange={(e) => setEditForm({ ...editForm, multiEmployer: e.target.checked })}
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-slate-800">Agrupar varias razones sociales</span>
+                        <span className="block text-xs text-slate-600 mt-1">
+                          Para unidades de staff, como Staff Opalo. Los trabajadores siguen en esta unidad y cada uno puede pertenecer a Opalo Peru, Opalo Intermediación u Opalo Tercerización. Solo un administrador asigna la razón social.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+
                   {/* Staff Selectors */}
                   <div>
                       <label className="block text-sm font-medium text-slate-700">Coordinador General</label>
@@ -6788,6 +6903,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
              ) : (
                <div className="text-sm text-slate-600 space-y-3">
                  <p className="line-clamp-3">{unit.description || "Sin descripción."}</p>
+                 {unit.multiEmployer && (
+                   <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+                     Esta unidad agrupa personal de varias razones sociales: Opalo Peru, Opalo Intermediación y Opalo Tercerización.
+                   </div>
+                 )}
                  <div className="grid grid-cols-2 gap-4 pt-2">
                     <div>
                         <span className="block text-xs font-semibold text-slate-400 uppercase">Cliente</span>
@@ -7137,6 +7257,30 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                </button>
              )}
              
+            {canManageMultiEmployer && unit.multiEmployer && selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
+              <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1">
+                <select
+                  value={bulkEmployerCode}
+                  onChange={(e) => setBulkEmployerCode(e.target.value)}
+                  disabled={assigningEmployer}
+                  className="border border-indigo-200 rounded-md px-2 py-1.5 text-sm bg-white text-slate-700"
+                  aria-label="Razón social para los trabajadores seleccionados"
+                >
+                  <option value="">Razón social...</option>
+                  {HR_EMPRESA_OPTIONS.map((option) => (
+                    <option key={option.code} value={option.code}>{option.label}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!bulkEmployerCode || assigningEmployer}
+                  onClick={() => handleSetWorkerEmployer(selectedPersonnelIds, Number(bulkEmployerCode))}
+                  className="text-sm font-medium text-indigo-700 hover:text-indigo-900 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {assigningEmployer ? 'Guardando...' : `Asignar (${selectedPersonnelIds.length})`}
+                </button>
+              </div>
+            )}
             {canEditPersonnel && selectedPersonnelIds.length > 0 && personnelViewMode === 'list' && (
               <>
                 <button onClick={() => {
@@ -7247,7 +7391,47 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
               </button>
             )}
           </div>
-          {personnelSearchQuery && (
+          {unit.multiEmployer && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setEmployerFilter('all')}
+                className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                  employerFilter === 'all'
+                    ? 'bg-slate-800 text-white border-slate-800'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Todas ({personnel.length})
+              </button>
+              {HR_EMPRESA_OPTIONS.map((option) => (
+                <button
+                  key={option.code}
+                  type="button"
+                  onClick={() => setEmployerFilter(option.code)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                    employerFilter === option.code
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50'
+                  }`}
+                >
+                  {option.alias} ({employerBreakdown.counts.get(option.code) || 0})
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setEmployerFilter('unassigned')}
+                className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                  employerFilter === 'unassigned'
+                    ? 'bg-amber-600 text-white border-amber-600'
+                    : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'
+                }`}
+              >
+                Sin razón social ({employerBreakdown.unassigned})
+              </button>
+            </div>
+          )}
+          {(personnelSearchQuery || (unit.multiEmployer && employerFilter !== 'all')) && (
             <p className="mt-2 text-xs text-slate-500">
               Mostrando {filteredPersonnel.length} de {personnel.length} colaborador{personnel.length !== 1 ? 'es' : ''}
               {showCesadoPersonnel && (
@@ -7353,6 +7537,15 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                              </span>
                            )}
                          </div>
+                         {unit.multiEmployer && (
+                           <span className={`mt-1 inline-flex max-w-full items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                             worker.employerCompanyCode
+                               ? 'bg-indigo-100 text-indigo-800'
+                               : 'bg-amber-100 text-amber-800'
+                           }`}>
+                             {employerCompanyOption(worker.employerCompanyCode)?.alias || 'Sin razón social'}
+                           </span>
+                         )}
                          {/* Zona/Grupo: solo en columna dedicada (lg+). En <lg la columna está oculta: mostrar aquí */}
                          <p className="text-xs min-w-0 lg:hidden">
                            <span className="text-slate-500">
@@ -7726,6 +7919,29 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Puesto</p>
                                 <p className="text-slate-700 break-words">{worker.puesto?.trim() || '—'}</p>
                               </div>
+                              {unit.multiEmployer && (
+                                <div className="min-w-0 sm:col-span-2">
+                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Razón social</p>
+                                  {canManageMultiEmployer ? (
+                                    <select
+                                      className="mt-1 w-full max-w-sm border border-slate-300 rounded-lg p-2 text-sm bg-white"
+                                      value={worker.employerCompanyCode ?? ''}
+                                      disabled={assigningEmployer}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        handleSetWorkerEmployer([worker.id], raw ? Number(raw) : null);
+                                      }}
+                                    >
+                                      <option value="">Sin razón social</option>
+                                      {HR_EMPRESA_OPTIONS.map((option) => (
+                                        <option key={option.code} value={option.code}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <p className="text-slate-700">{employerCompanyLabel(worker.employerCompanyCode) || 'Sin razón social'}</p>
+                                  )}
+                                </div>
+                              )}
                               <div className="min-w-0">
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Teléfono</p>
                                 {worker.phone?.trim() ? (
@@ -10100,6 +10316,26 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
                   )}
                 </div>
                 
+                {unit.multiEmployer && canManageMultiEmployer && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Razón social *</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-lg p-2 outline-none"
+                      value={newWorkerForm.employerCompanyCode ?? ''}
+                      onChange={e => setNewWorkerForm({
+                        ...newWorkerForm,
+                        employerCompanyCode: e.target.value ? Number(e.target.value) : undefined,
+                      })}
+                    >
+                      <option value="">Seleccionar empresa del grupo...</option>
+                      {HR_EMPRESA_OPTIONS.map((option) => (
+                        <option key={option.code} value={option.code}>{option.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">Empresa del grupo a la que pertenece este trabajador del staff.</p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Puesto</label>
                   <select 

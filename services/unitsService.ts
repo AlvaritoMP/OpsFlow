@@ -760,6 +760,7 @@ function transformUnitFromDB(
     } : undefined,
     assignedStaff: assignedStaff,
     documents: documents || [],
+    multiEmployer: data.multi_employer === true ? true : data.multi_employer === false ? false : undefined,
   };
 }
 
@@ -779,6 +780,10 @@ function transformUnitToDB(unit: Partial<Unit>): any {
 
   if (unit.unitClass !== undefined) {
     data.unit_class = unit.unitClass;
+  }
+
+  if (typeof unit.multiEmployer === 'boolean') {
+    data.multi_employer = unit.multiEmployer;
   }
   
   // Incluir required_positions si está definido
