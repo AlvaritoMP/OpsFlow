@@ -140,7 +140,7 @@ export const TAREO_PAYROLL_FIELD_OPTIONS: { value: TareoPayrollField; label: str
   { value: 'licencia_maternidad', label: 'Licencia Maternidad/Paternidad LM', unit: 'DIAS' },
   { value: 'lgc_fallecimiento', label: 'LGC por fallecimiento', unit: 'DIAS' },
   { value: 'bono_nocturno', label: 'Bono nocturno', unit: 'HORAS' },
-  { value: 'descansos_dom_feriado', label: 'Descansos Dom/feriados', unit: 'HORAS' },
+  { value: 'descansos_dom_feriado', label: 'Descansos Dom/feriados', unit: 'DIAS' },
   { value: 'he_d_25', label: 'HE D 25%', unit: 'HORAS' },
   { value: 'he_d_35', label: 'HE D 35%', unit: 'HORAS' },
   { value: 'he_n_25', label: 'HE N 25%', unit: 'HORAS' },
@@ -178,17 +178,36 @@ export const TAREO_EXPORT_HEADERS = [
   'Total horas de trabajo en descansos o feriados HT',
 ] as const;
 
+/**
+ * DS y FER se sembraron con columna «none»: se ven en novedades y no entraban al tareo.
+ * Si siguen así, cada día suma 1 en Descansos Domingos y Días no laborables.
+ * Una columna distinta ya elegida se respeta.
+ */
+function payrollFieldForKey(code: string, valueKind: TareoValueKind, payrollField: TareoPayrollField): TareoPayrollField {
+  if (
+    payrollField === 'none' &&
+    valueKind !== 'hours' &&
+    (code === 'DS' || code === 'FER')
+  ) {
+    return 'descansos_dom_feriado';
+  }
+  return payrollField;
+}
+
 function mapKey(row: any): AttendanceTareoKey {
+  const code = String(row.code || '');
+  const valueKind = (row.value_kind || 'day') as TareoValueKind;
+  const payrollField = payrollFieldForKey(code, valueKind, (row.payroll_field || 'none') as TareoPayrollField);
   return {
     id: row.id,
-    code: row.code,
+    code,
     name: row.name,
     icon: row.icon || 'circle',
     color: row.color || '#64748b',
-    valueKind: (row.value_kind || 'day') as TareoValueKind,
+    valueKind,
     valueAmount: Number(row.value_amount ?? 1),
     countsAsPresentismo: !!row.counts_as_presentismo,
-    payrollField: (row.payroll_field || 'none') as TareoPayrollField,
+    payrollField,
     sortOrder: Number(row.sort_order ?? 100),
     isActive: row.is_active !== false,
     isSystem: !!row.is_system,
