@@ -201,7 +201,7 @@ export async function listOpenIncidentsForPolling(maxAgeDays = 7) {
     .not('mattermost_post_id', 'is', null)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(40);
   if (error) throw error;
   return data || [];
 }

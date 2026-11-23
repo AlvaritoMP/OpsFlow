@@ -21,6 +21,7 @@ import {
 import type { PayrollAttendanceIncident, PayrollAttendanceIncidentStatus } from '../types';
 import { SafeImage } from './SafeImage';
 import { DateInput } from './DateInput';
+import { isoShiftDays, isoToday } from '../utils/queryWindow';
 
 interface MattermostIncidentsProps {
   canEdit?: boolean;
@@ -120,8 +121,8 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [workerQuery, setWorkerQuery] = useState('');
   const [unitId, setUnitId] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(() => isoShiftDays(-7));
+  const [dateTo, setDateTo] = useState(() => isoToday());
   const [reporterQuery, setReporterQuery] = useState('');
   const [sortBy, setSortBy] = useState<IncidentSort>('registered');
 
@@ -129,14 +130,18 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const list = await attendanceIncidentService.listAll();
+      const list = await attendanceIncidentService.listAll({
+        from: dateFrom || isoShiftDays(-7),
+        to: dateTo || isoToday(),
+        unitId: unitId || undefined,
+      });
       setRows(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudieron cargar los reportes');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateFrom, dateTo, unitId]);
 
   useEffect(() => {
     void load();
@@ -465,6 +470,7 @@ export const MattermostIncidents: React.FC<MattermostIncidentsProps> = ({
                             src={file.public_url}
                             alt={file.file_name}
                             className="w-full h-full object-cover"
+                            previewWidth={160}
                             bucket="attendance-incident-attachments"
                             fallback={
                               <span className="flex items-center justify-center h-full text-slate-400">

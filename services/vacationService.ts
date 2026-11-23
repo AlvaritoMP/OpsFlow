@@ -662,7 +662,11 @@ async function syncVacationShifts(resourceId: string, dates: string[]): Promise<
 
   let existingByDate = new Map<string, DailyShift>();
   try {
-    const existing = await resourcesService.getDailyShifts(resourceId);
+    const sortedDates = [...uniqueDates].sort();
+  const existing = await resourcesService.getDailyShifts(resourceId, {
+    from: sortedDates[0],
+    to: sortedDates[sortedDates.length - 1],
+  });
     existingByDate = new Map(existing.map((shift) => [shift.date, shift]));
   } catch (error) {
     console.warn('No se pudieron leer turnos previos al marcar vacaciones:', error);
@@ -724,7 +728,8 @@ function namesLooselyMatch(a?: string | null, b?: string | null): boolean {
 
 async function collectIssuedVacationDates(
   workers: RosterVacationWorker[],
-  unitId?: string
+  unitId?: string,
+  range?: { from?: string; to?: string }
 ): Promise<Map<string, string[]>> {
   const dates = new Map<string, Set<string>>();
   const workerById = new Map(workers.map((worker) => [worker.id, worker]));
@@ -774,16 +779,25 @@ async function collectIssuedVacationDates(
 
   if (unitId) {
     tasks.push(loadSafe('papeletas de la unidad', async () => {
-      const { data, error } = await supabase.from('vacation_papeletas').select('*').eq('unit_id', unitId);
+      let query = supabase
+        .from('vacation_papeletas')
+        .select('id, unit_id, resource_id, worker_dni, worker_name, start_date, end_date, status')
+        .eq('unit_id', unitId);
+      if (range?.from) query = query.gte('end_date', range.from);
+      if (range?.to) query = query.lte('start_date', range.to);
+      const { data, error } = await query;
       if (error) throw error;
       for (const row of data || []) papeletaRows.push(transformPapeletaFromDB(row));
     }));
     tasks.push(loadSafe('días a cuenta de la unidad', async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('vacation_day_entries')
-        .select('*')
+        .select('id, resource_id, unit_id, vacation_date, status')
         .eq('unit_id', unitId)
         .neq('status', 'cancelled');
+      if (range?.from) query = query.gte('vacation_date', range.from);
+      if (range?.to) query = query.lte('vacation_date', range.to);
+      const { data, error } = await query;
       if (error) throw error;
       for (const row of data || []) dayRows.push(transformDayEntryFromDB(row));
     }));
@@ -792,7 +806,13 @@ async function collectIssuedVacationDates(
   if (workerIds.length > 0) {
     tasks.push(loadSafe('papeletas del personal', async () => {
       const rows = await fetchInChunks(workerIds, 80, async (ids) => {
-        const { data, error } = await supabase.from('vacation_papeletas').select('*').in('resource_id', ids);
+        let query = supabase
+          .from('vacation_papeletas')
+          .select('id, unit_id, resource_id, worker_dni, worker_name, start_date, end_date, status')
+          .in('resource_id', ids);
+        if (range?.from) query = query.gte('end_date', range.from);
+        if (range?.to) query = query.lte('start_date', range.to);
+        const { data, error } = await query;
         if (error) throw error;
         return data || [];
       });
@@ -800,11 +820,14 @@ async function collectIssuedVacationDates(
     }));
     tasks.push(loadSafe('días a cuenta del personal', async () => {
       const rows = await fetchInChunks(workerIds, 80, async (ids) => {
-        const { data, error } = await supabase
+        let query = supabase
           .from('vacation_day_entries')
-          .select('*')
+          .select('id, resource_id, unit_id, vacation_date, status')
           .in('resource_id', ids)
           .neq('status', 'cancelled');
+        if (range?.from) query = query.gte('vacation_date', range.from);
+        if (range?.to) query = query.lte('vacation_date', range.to);
+        const { data, error } = await query;
         if (error) throw error;
         return data || [];
       });
@@ -1009,11 +1032,18 @@ export const vacationService = {
 
   // --- Day entries ---
 
-  async getDayEntries(resourceId?: string, unitId?: string): Promise<VacationDayEntry[]> {
+  async getDayEntries(
+    resourceId?: string,
+    unitId?: string,
+    range?: { from?: string; to?: string }
+  ): Promise<VacationDayEntry[]> {
     try {
-      let query = supabase.from('vacation_day_entries').select('*').order('vacation_date', { ascending: false });
+      let query = supabase.from('vacation_day_entries').select('id, resource_id, unit_id, vacation_date, days_count, status, papeleta_id, notes, created_at, created_by, cancelled_by, cancelled_at, updated_by, updated_at').order('vacation_date', { ascending: false });
       if (resourceId) query = query.eq('resource_id', resourceId);
       if (unitId) query = query.eq('unit_id', unitId);
+      if (range?.from) query = query.gte('vacation_date', range.from);
+      if (range?.to) query = query.lte('vacation_date', range.to);
+      if (!range?.from && !range?.to) query = query.limit(50);
       const { data, error } = await query;
       if (error) throw error;
       return (data || []).map(transformDayEntryFromDB);
@@ -1245,11 +1275,21 @@ export const vacationService = {
 
   // --- Papeletas ---
 
-  async getPapeletas(resourceId?: string, unitId?: string): Promise<VacationPapeleta[]> {
+  async getPapeletas(
+    resourceId?: string,
+    unitId?: string,
+    range?: { from?: string; to?: string }
+  ): Promise<VacationPapeleta[]> {
     try {
-      let query = supabase.from('vacation_papeletas').select('*').order('start_date', { ascending: false });
+      let query = supabase
+        .from('vacation_papeletas')
+        .select('id, resource_id, unit_id, code, worker_name, worker_dni, unit_name, start_date, end_date, return_date, calendar_days, source_type, status, is_advance, notes, issued_at, issued_by, authorized_by, cancelled_by, cancelled_at, updated_by, created_at, updated_at')
+        .order('start_date', { ascending: false });
       if (resourceId) query = query.eq('resource_id', resourceId);
       if (unitId) query = query.eq('unit_id', unitId);
+      if (range?.from) query = query.gte('end_date', range.from);
+      if (range?.to) query = query.lte('start_date', range.to);
+      if (!range?.from && !range?.to) query = query.limit(50);
       const { data, error } = await query;
       if (error) throw error;
       return (data || []).map(transformPapeletaFromDB);
@@ -1707,7 +1747,7 @@ export const vacationService = {
         fetchAllPaged(async (from, to) => {
           const { data, error } = await supabase
             .from('vacation_day_entries')
-            .select('*')
+            .select('id, resource_id, unit_id, vacation_date, days_count, status, papeleta_id, notes, created_at, created_by, cancelled_by, cancelled_at, updated_by, updated_at')
             .in('unit_id', ids)
             .order('vacation_date', { ascending: false })
             .range(from, to);
@@ -1729,7 +1769,7 @@ export const vacationService = {
         fetchAllPaged(async (from, to) => {
           const { data, error } = await supabase
             .from('vacation_papeletas')
-            .select('*')
+            .select('id, resource_id, unit_id, code, worker_name, worker_dni, unit_name, start_date, end_date, return_date, calendar_days, source_type, status, is_advance, notes, issued_at, issued_by, authorized_by, cancelled_by, cancelled_at, updated_by, created_at, updated_at')
             .in('unit_id', ids)
             .order('start_date', { ascending: false })
             .range(from, to);
@@ -1751,11 +1791,12 @@ export const vacationService = {
    */
   async getIssuedVacationDatesForResources(
     workers: RosterVacationWorker[],
-    unitId?: string
+    unitId?: string,
+    range?: { from?: string; to?: string }
   ): Promise<Map<string, string[]> | null> {
     if ((!workers || workers.length === 0) && !unitId) return new Map();
     try {
-      return await collectIssuedVacationDates(workers || [], unitId);
+      return await collectIssuedVacationDates(workers || [], unitId, range);
     } catch (error) {
       console.warn('No se pudieron leer las papeletas para el roster:', error);
       return null;

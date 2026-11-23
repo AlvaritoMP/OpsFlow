@@ -7,6 +7,19 @@ import { zonesService } from './zonesService';
 import { auditService } from './auditService';
 import { zoneLayoutFromRow } from '../utils/blueprintLayout';
 
+const UNIT_LIST_SELECT = `
+  id, name, client_name, address, status, unit_class, description,
+  latitude, longitude, required_positions, headcount_meta, multi_employer, created_at,
+  coordinator:management_staff!units_coordinator_id_fkey(id, name, email, phone),
+  roving_supervisor:management_staff!units_roving_supervisor_id_fkey(id, name, email, phone),
+  resident_supervisor:management_staff!units_resident_supervisor_id_fkey(id, name, email, phone),
+  unit_images(image_url, display_order),
+  blueprint_layers(id, name),
+  zones(id, name, area, layout_x, layout_y, layout_w, layout_h, layout_color, layout_layer_id),
+  compliance_history(month, score),
+  unit_management_staff(management_staff_id)
+`;
+
 // Tipos para la base de datos
 interface UnitRow {
   id: string;
@@ -39,17 +52,7 @@ export const unitsService = {
       }
       const { data, error } = await supabase
         .from('units')
-        .select(`
-          *,
-          coordinator:management_staff!units_coordinator_id_fkey(*),
-          roving_supervisor:management_staff!units_roving_supervisor_id_fkey(*),
-          resident_supervisor:management_staff!units_resident_supervisor_id_fkey(*),
-          unit_images(*),
-          blueprint_layers(*),
-          zones(*),
-          compliance_history(*),
-          unit_management_staff(management_staff_id)
-        `)
+        .select(UNIT_LIST_SELECT)
         .order('created_at', { ascending: false });
 
       if (error) {

@@ -1,4 +1,5 @@
 import { supabase, handleSupabaseError } from './supabase';
+import { isoShiftDays } from '../utils/queryWindow';
 import { authService } from './authService';
 import { UserRole } from '../types';
 
@@ -250,7 +251,8 @@ export const auditService = {
 
       // Construir parámetros para RPC (solo incluir los que no son null/undefined)
       const rpcParams: any = {
-        p_limit_count: 10000
+        p_limit_count: Math.min(500, Math.max(1, filters?.limit ?? 200)),
+        p_start_date: filters?.startDate || `${isoShiftDays(-7)}T00:00:00`,
       };
       
       if (filters?.actionType) {
@@ -261,9 +263,6 @@ export const auditService = {
       }
       if (filters?.userId) {
         rpcParams.p_user_id = filters.userId;
-      }
-      if (filters?.startDate) {
-        rpcParams.p_start_date = filters.startDate;
       }
       if (filters?.endDate) {
         rpcParams.p_end_date = filters.endDate;
@@ -333,10 +332,11 @@ export const auditService = {
     try {
       const { data, error } = await supabase
         .from('audit_logs')
-        .select('*')
+        .select('id, user_id, user_name, user_email, action_type, entity_type, entity_id, entity_name, description, changes, created_at')
         .eq('entity_type', entityType)
         .eq('entity_id', entityId)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(50);
 
       if (error) {
         handleSupabaseError(error);
@@ -364,14 +364,12 @@ export const auditService = {
       ];
       let query = supabase
         .from('audit_logs')
-        .select('*')
+        .select('id, user_id, user_name, user_email, action_type, entity_type, entity_id, entity_name, description, changes, created_at')
         .in('entity_type', types)
+        .gte('created_at', `${filters?.startDate || isoShiftDays(-7)}T00:00:00`)
         .order('created_at', { ascending: false })
-        .limit(filters?.limit ?? 5000);
+        .limit(Math.min(filters?.limit ?? 200, 200));
 
-      if (filters?.startDate) {
-        query = query.gte('created_at', `${filters.startDate}T00:00:00`);
-      }
       if (filters?.endDate) {
         query = query.lte('created_at', `${filters.endDate}T23:59:59`);
       }

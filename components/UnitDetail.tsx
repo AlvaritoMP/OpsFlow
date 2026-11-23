@@ -75,6 +75,25 @@ import {
   type RosterShiftGroupKey,
 } from '../utils/rosterGroups';
 
+function mergeShifts(existing: DailyShift[] | undefined, incoming: DailyShift[]): DailyShift[] {
+  const byDate = new Map((existing || []).map((shift) => [shift.date, shift]));
+  incoming.forEach((shift) => byDate.set(shift.date, shift));
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function rosterShiftRange(startMonday: Date, weekCount: number): { from: string; to: string } {
+  const start = new Date(startMonday);
+  start.setDate(start.getDate() - 7);
+  const end = new Date(startMonday);
+  end.setDate(end.getDate() + weekCount * 7 + 6);
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+  const from = [toLocalDateStr(start), toLocalDateStr(monthStart)].sort()[0];
+  const to = [toLocalDateStr(end), toLocalDateStr(monthEnd)].sort().pop() as string;
+  return { from, to };
+}
+
 interface UnitDetailProps {
   unit: Unit;
   userRole: UserRole;
@@ -716,10 +735,11 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         isSavingRosterRef.current ||
         rosterHasUnsavedChangesRef.current ||
         dirtyRosterShiftsRef.current.size > 0;
+      const shiftRange = rosterShiftRange(rosterStartDate, rosterWeekCount);
 
       try {
         const { vacationService } = await import('../services/vacationService');
-        const loadedDates = await vacationService.getIssuedVacationDatesForResources(workers, currentUnit.id);
+        const loadedDates = await vacationService.getIssuedVacationDatesForResources(workers, currentUnit.id, shiftRange);
         if (loadedDates) {
           vacationDates = loadedDates;
           vacationDatesByResourceRef.current = loadedDates;
@@ -747,7 +767,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
 
       try {
         const { resourcesService } = await import('../services/resourcesService');
-        const shiftsById = await resourcesService.getDailyShiftsByResourceIds(ids);
+        const shiftsById = await resourcesService.getDailyShiftsByResourceIds(ids, shiftRange);
         if (cancelled) return;
         if (
           isSavingRosterRef.current ||
@@ -762,10 +782,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
         const next = overlayVacationDatesOnResources(
           base.map((r) => {
             if (r.type !== ResourceType.PERSONNEL) return r;
-            return { ...r, workSchedule: shiftsById.get(r.id) || [] };
+            return { ...r, workSchedule: mergeShifts(r.workSchedule, shiftsById.get(r.id) || []) };
           }),
           vacationDates
-        );
+        ) as Resource[];
 
         if (vacationDates) {
           const phantomWrites = next.flatMap((resource) => {
@@ -799,7 +819,7 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     return () => {
       cancelled = true;
     };
-  }, [unit.id, personnelViewMode, activeTab]);
+  }, [unit.id, personnelViewMode, activeTab, rosterStartDate, rosterWeekCount]);
 
   // Mass Training State
   const [showMassTrainingModal, setShowMassTrainingModal] = useState(false);
@@ -1210,7 +1230,9 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     setLoadingNightSupervision(true);
     try {
       const shifts = await nightSupervisionService.getAllShifts({
-        unitId: unit.id
+        unitId: unit.id,
+        dateFrom: toLocalDateStr(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+        dateTo: toLocalDateStr(new Date()),
       });
       setNightSupervisionShifts(shifts.sort((a, b) => {
         const dateA = new Date(a.date);
@@ -2212,20 +2234,13 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
     void refreshFromServer();
     const unsubRealtime = requestsService.subscribeToRequestComments(ids, scheduleRefresh);
 
-    const pollMs = 8000;
-    const pollId = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      void refreshFromServer();
-    }, pollMs);
-
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void refreshFromServer();
+      if (document.visibilityState === 'visible') scheduleRefresh();
     };
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       unsubRealtime();
-      window.clearInterval(pollId);
       document.removeEventListener('visibilitychange', onVisibility);
       if (debounceTimer) clearTimeout(debounceTimer);
     };
@@ -3816,7 +3831,10 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          const dirtyResourceIds = Array.from(
              new Set(
                  Array.from(dirtyKeys)
-                     .map((key) => key.slice(0, key.indexOf('|')))
+                     .map((key) => {
+                       const value = String(key);
+                       return value.slice(0, value.indexOf('|'));
+                     })
                      .filter(Boolean)
              )
          );
@@ -3862,12 +3880,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          }
 
          if (changedShiftsByResource.size === 0) {
-             const shiftsById = await resourcesService.getDailyShiftsByResourceIds(dirtyResourceIds);
+             const shiftsById = await resourcesService.getDailyShiftsByResourceIds(dirtyResourceIds, rosterShiftRange(rosterStartDate, rosterWeekCount));
              const nextResources = overlayVacationDatesOnResources(
                  resourcesSnapshot.map((r) => {
                  const fromDb = shiftsById.get(r.id);
                  if (!fromDb) return r;
-                 return { ...r, workSchedule: fromDb };
+                 return { ...r, workSchedule: mergeShifts(r.workSchedule, fromDb) };
                  }),
                  vacationDatesByResourceRef.current
              );
@@ -3897,12 +3915,12 @@ export const UnitDetail: React.FC<UnitDetailProps> = ({ unit, userRole, availabl
          const reloadIds = Array.from(new Set([...changedShiftsByResource.keys(), ...dirtyResourceIds]));
          let nextResources = resourcesSnapshot;
          try {
-             const shiftsById = await resourcesService.getDailyShiftsByResourceIds(reloadIds);
+             const shiftsById = await resourcesService.getDailyShiftsByResourceIds(reloadIds, rosterShiftRange(rosterStartDate, rosterWeekCount));
              nextResources = overlayVacationDatesOnResources(
                  resourcesSnapshot.map((r) => {
                  const fromDb = shiftsById.get(r.id);
                  if (!fromDb) return r;
-                 return { ...r, workSchedule: fromDb };
+                 return { ...r, workSchedule: mergeShifts(r.workSchedule, fromDb) };
                  }),
                  vacationDatesByResourceRef.current
              );

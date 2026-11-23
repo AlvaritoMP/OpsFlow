@@ -1,4 +1,8 @@
 import { supabase, handleSupabaseError } from './supabase';
+import { isoShiftDays, isoToday, LIST_PAGE_SIZE } from '../utils/queryWindow';
+
+const INCIDENT_LIST_COLUMNS =
+  'id, unit_id, employee_id, incident_type, incident_reason, has_coverage, status, incident_date, observations, reported_by, mattermost_permalink, attachments, created_at, updated_at, resources!employee_id(id, name, dni), units!unit_id(id, name)';
 import type {
   PayrollAttendanceCoverage,
   PayrollAttendanceIncident,
@@ -203,11 +207,12 @@ export const attendanceIncidentService = {
     try {
       const { data, error } = await supabase
         .from('payroll_attendance_incidents')
-        .select('*, resources!employee_id(id, name, dni), units!unit_id(id, name)')
+        .select(INCIDENT_LIST_COLUMNS)
         .eq('unit_id', unitId)
+        .gte('incident_date', isoShiftDays(-30))
         .order('incident_date', { ascending: false })
         .order('created_at', { ascending: false })
-        .limit(limit);
+        .limit(Math.min(limit, LIST_PAGE_SIZE));
       if (error) throw error;
       return (data || []).map(mapIncident);
     } catch (error) {
@@ -216,24 +221,29 @@ export const attendanceIncidentService = {
     }
   },
 
-  async listAll(limit = 500): Promise<PayrollAttendanceIncident[]> {
+  async listAll(options?: {
+    from?: string;
+    to?: string;
+    unitId?: string;
+    limit?: number;
+  }): Promise<PayrollAttendanceIncident[]> {
     try {
-      const pageSize = 200;
-      const rows: Record<string, any>[] = [];
-      let from = 0;
-      while (rows.length < limit) {
-        const to = Math.min(from + pageSize - 1, limit - 1);
-        const { data, error } = await supabase
-          .from('payroll_attendance_incidents')
-          .select('*, resources!employee_id(id, name, dni), units!unit_id(id, name)')
-          .order('created_at', { ascending: false })
-          .range(from, to);
-        if (error) throw error;
-        const chunk = data || [];
-        rows.push(...chunk);
-        if (chunk.length < pageSize) break;
-        from += pageSize;
-      }
+      const fromDay = options?.from || isoShiftDays(-7);
+      const toDay = options?.to || isoToday();
+      const limit = Math.min(options?.limit ?? LIST_PAGE_SIZE, LIST_PAGE_SIZE);
+      let query = supabase
+        .from('payroll_attendance_incidents')
+        .select(INCIDENT_LIST_COLUMNS)
+        .or(`and(incident_date.gte.${fromDay},incident_date.lte.${toDay}),status.eq.PENDING_JUSTIFICATION`);
+      if (options?.unitId) query = query.eq('unit_id', options.unitId);
+      const { data, error } = await query.order('incident_date', { ascending: false }).limit(limit);
+      if (error) throw error;
+      const seen = new Set<string>();
+      const rows = (data || []).filter((row: { id?: string }) => {
+        if (!row.id || seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      });
       return rows.map(mapIncident);
     } catch (error) {
       handleSupabaseError(error);

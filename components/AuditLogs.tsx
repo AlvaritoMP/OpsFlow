@@ -3,6 +3,7 @@ import { FileText, Search, Filter, Download, Calendar, User, Activity, RefreshCw
 import { auditService, AuditLog, AuditActionType, AuditEntityType } from '../services/auditService';
 import { excelService } from '../services/excelService';
 import { DateInput } from './DateInput';
+import { isoShiftDays, isoToday } from '../utils/queryWindow';
 
 export const AuditLogs: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -13,8 +14,8 @@ export const AuditLogs: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActionType, setFilterActionType] = useState<AuditActionType | ''>('');
   const [filterEntityType, setFilterEntityType] = useState<AuditEntityType | ''>('');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState(() => isoShiftDays(-7));
+  const [filterEndDate, setFilterEndDate] = useState(() => isoToday());
   
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
@@ -35,7 +36,7 @@ export const AuditLogs: React.FC = () => {
         entityType: filterEntityType || undefined,
         startDate,
         endDate,
-        // NO pasar limit ni offset - obtener todos y paginar en memoria
+        limit: 200,
       });
       
       // Log para debugging

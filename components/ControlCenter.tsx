@@ -3,6 +3,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Unit, OperationalLog, MaintenanceRecord, Training, ResourceType, ManagementStaff, UserRole } from '../types';
 import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Edit2, X, Save, Plus, UserCheck, Camera, Image as ImageIcon, Trash2, Cake } from 'lucide-react';
 import { checkPermission } from '../services/permissionService';
+import { logsService } from '../services/logsService';
+import { monthBounds } from '../utils/queryWindow';
 import { SafeImage } from './SafeImage';
 import { DateInput } from './DateInput';
 
@@ -80,29 +82,57 @@ export const ControlCenter: React.FC<ControlCenterProps> = React.memo(({ units, 
   
   // State for day events modal
   const [selectedDayEvents, setSelectedDayEvents] = useState<{ date: string; events: GlobalEvent[] } | null>(null);
+  const [monthLogs, setMonthLogs] = useState<Array<OperationalLog & { unitId: string; unitName: string }>>([]);
+  const monthKey = `${currentDate.getFullYear()}-${currentDate.getMonth()}`;
+
+  useEffect(() => {
+    const { from, to } = monthBounds(currentDate);
+    const ids = units.map((unit) => unit.id).filter(Boolean);
+    if (ids.length === 0) {
+      setMonthLogs([]);
+      return;
+    }
+    let cancelled = false;
+    logsService.getByUnitIds(ids, { light: true, from, to }).then((grouped) => {
+      if (cancelled) return;
+      const nameById = new Map<string, string>(units.map((unit) => [unit.id, unit.name]));
+      const rows: Array<OperationalLog & { unitId: string; unitName: string }> = [];
+      grouped.forEach((logs, unitId) => {
+        const id = String(unitId);
+        logs.forEach((log) => {
+          rows.push({ ...log, unitId: id, unitName: nameById.get(id) || 'Unidad' });
+        });
+      });
+      setMonthLogs(rows);
+    }).catch(() => {
+      if (!cancelled) setMonthLogs([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [monthKey, units]);
 
   // --- Data Aggregation ---
   const allEvents = useMemo(() => {
     let events: GlobalEvent[] = [];
 
-    units.forEach(unit => {
-      // 1. Logs
-      unit.logs.forEach(log => {
-        events.push({
-          id: log.id,
-          unitId: unit.id,
-          unitName: unit.name,
-          date: log.date,
-          category: 'Log',
-          type: log.type,
-          description: log.description,
-          author: log.author,
-          status: 'Registrado',
-          originalRef: log
-        });
+    monthLogs.forEach((log) => {
+      events.push({
+        id: log.id,
+        unitId: log.unitId,
+        unitName: log.unitName,
+        date: log.date,
+        category: 'Log',
+        type: log.type,
+        description: log.description,
+        author: log.author,
+        status: 'Registrado',
+        originalRef: log,
       });
+    });
 
-      // 2. Resources (Maintenance & Training)
+    units.forEach(unit => {
+      // Resources (Maintenance & Training)
       unit.resources.forEach(res => {
         // Maintenance
         if (res.maintenanceHistory) {
@@ -255,7 +285,7 @@ export const ControlCenter: React.FC<ControlCenterProps> = React.memo(({ units, 
     }
 
     return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [units, isOperationsUser]);
+  }, [units, isOperationsUser, monthLogs]);
 
   // --- Filtering ---
   const filteredEvents = useMemo(() => {

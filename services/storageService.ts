@@ -1,5 +1,13 @@
 import { supabase } from './supabase';
 
+/** Miniatura de Storage. La URL original se conserva para el visor a tamaño completo. */
+export function storageThumbnailUrl(url: string | null | undefined, width = 160): string | null | undefined {
+  if (!url || !url.includes('/storage/v1/object/')) return url;
+  const transformed = url.replace('/storage/v1/object/', '/storage/v1/render/image/');
+  const join = transformed.includes('?') ? '&' : '?';
+  return `${transformed}${join}width=${width}&quality=60&resize=cover`;
+}
+
 export const storageService = {
   /**
    * Sube un archivo a Supabase Storage

@@ -394,7 +394,10 @@ export function totalsToExportRow(
 
 export const attendanceTareoService = {
   async listKeys(includeInactive = false): Promise<AttendanceTareoKey[]> {
-    let q = supabase.from('attendance_tareo_keys').select('*').order('sort_order', { ascending: true });
+    let q = supabase
+      .from('attendance_tareo_keys')
+      .select('id, code, name, icon, color, value_kind, value_amount, counts_as_presentismo, payroll_field, sort_order, is_active, is_system')
+      .order('sort_order', { ascending: true });
     if (!includeInactive) q = q.eq('is_active', true);
     const { data, error } = await q;
     if (error) throw error;
@@ -489,7 +492,7 @@ export const attendanceTareoService = {
     const keyById = new Map<string, AttendanceTareoKey>(keys.map((k) => [k.id, k]));
     const { data, error } = await supabase
       .from('attendance_tareo_novedades')
-      .select('*')
+      .select('id, unit_id, resource_id, day, day_key_id, hours_key_id, hours_value, comment, source, updated_by')
       .eq('unit_id', unitId)
       .gte('day', dateFrom)
       .lte('day', dateTo)
@@ -571,9 +574,9 @@ export const attendanceTareoService = {
     const [keys, existing, history, papeletas, dayEntries] = await Promise.all([
       this.listKeys(false),
       this.listNovedades(unit.id, dateFrom, dateTo),
-      attendanceReportService.getUnitAttendanceRowsWithMeta(unit.id),
-      vacationService.getPapeletas(undefined, unit.id),
-      vacationService.getDayEntries(undefined, unit.id),
+      attendanceReportService.getUnitAttendanceRowsWithMeta(unit.id, dateFrom, dateTo),
+      vacationService.getPapeletas(undefined, unit.id, { from: dateFrom, to: dateTo }),
+      vacationService.getDayEntries(undefined, unit.id, { from: dateFrom, to: dateTo }),
     ]);
 
     const keyByCode = new Map<string, AttendanceTareoKey>(keys.map((k) => [k.code, k]));

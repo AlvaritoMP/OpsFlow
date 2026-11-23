@@ -28,6 +28,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const loadRequestIdRef = useRef(0);
+  const lastSuccessAtRef = useRef(0);
 
   const loadUnits = async (options?: { silent?: boolean }) => {
     const silent = options?.silent === true;
@@ -142,6 +143,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
       if (requestId !== loadRequestIdRef.current) {
         return;
       }
+      lastSuccessAtRef.current = Date.now();
       setUnits((prev) => mergeUnitsPreservingHydrated(prev, data));
     } catch (err: any) {
       console.error('❌ useUnits: Error al cargar unidades:', err);
@@ -206,6 +208,7 @@ export const useUnits = (isAuthenticated: boolean, currentUser?: User | null) =>
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastSuccessAtRef.current < 3 * 60 * 1000) return;
       if (pendingUpdatesRef.current > 0 || isUnitsBackgroundRefreshPaused()) return;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {

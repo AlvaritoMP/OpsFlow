@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { storageService } from '../services/storageService';
+import { storageService, storageThumbnailUrl } from '../services/storageService';
 
 interface SafeImageProps {
   src: string | null | undefined;
@@ -9,6 +9,7 @@ interface SafeImageProps {
   fallback?: React.ReactNode; // Componente a mostrar si la imagen falla
   onError?: () => void;
   onClick?: () => void; // Handler de click
+  previewWidth?: number;
 }
 
 /**
@@ -22,7 +23,8 @@ export const SafeImage: React.FC<SafeImageProps> = ({
   bucket,
   fallback,
   onError,
-  onClick
+  onClick,
+  previewWidth,
 }) => {
   const [imageSrc, setImageSrc] = useState<string | null>(src || null);
   const [hasError, setHasError] = useState(false);
@@ -31,13 +33,13 @@ export const SafeImage: React.FC<SafeImageProps> = ({
   // Actualizar src cuando cambie la prop
   useEffect(() => {
     if (src) {
-      setImageSrc(src);
+      setImageSrc(previewWidth ? storageThumbnailUrl(src, previewWidth) || src : src);
       setHasError(false);
     } else {
       setImageSrc(null);
       setHasError(true);
     }
-  }, [src]);
+  }, [src, previewWidth]);
 
   const handleImageError = async () => {
     if (hasError || !imageSrc || !bucket) {

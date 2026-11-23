@@ -1,4 +1,8 @@
 import { supabase, handleSupabaseError } from './supabase';
+import { isoShiftDays, isoToday } from '../utils/queryWindow';
+
+const NIGHT_SHIFT_COLUMNS =
+  'id, date, unit_id, unit_name, supervisor_id, supervisor_name, shift_start, shift_end, status, completion_percentage, notes, created_at, updated_at, created_by, updated_by';
 import { 
   NightSupervisionShift, 
   NightSupervisionCall, 
@@ -207,7 +211,7 @@ export const nightSupervisionService = {
     try {
       let query = supabase
         .from('night_supervision_shifts')
-        .select('*');
+        .select(NIGHT_SHIFT_COLUMNS);
 
       // Aplicar filtros en orden específico para mejor rendimiento
       if (filters?.unitId) {
@@ -240,10 +244,12 @@ export const nightSupervisionService = {
         // Solo dateTo: buscar hasta esa fecha
         const dateToNormalized = filters.dateTo.split('T')[0];
         query = query.lte('date', dateToNormalized);
+      } else if (!filters?.dateFrom && !filters?.dateTo) {
+        query = query.gte('date', isoShiftDays(-7)).lte('date', isoToday());
       }
 
-      // Ordenar al final
-      query = query.order('date', { ascending: false }).order('created_at', { ascending: false });
+      // Ordenar al final. Tope de seguridad: la pantalla ya filtra por semana.
+      query = query.order('date', { ascending: false }).order('created_at', { ascending: false }).limit(200);
 
       const { data, error } = await query;
       if (error) throw error;
@@ -258,7 +264,7 @@ export const nightSupervisionService = {
     try {
       const { data, error } = await supabase
         .from('night_supervision_shifts')
-        .select('*')
+        .select(NIGHT_SHIFT_COLUMNS)
         .eq('id', id)
         .single();
 
@@ -333,7 +339,7 @@ export const nightSupervisionService = {
     try {
       const { data, error } = await supabase
         .from('night_supervision_calls')
-        .select('*')
+        .select('id, shift_id, worker_id, worker_name, worker_phone, call_number, scheduled_time, actual_time, answered, photo_received, photo_url, photo_timestamp, on_rest, notes, non_conformity, non_conformity_description, created_at, updated_at, created_by, updated_by')
         .eq('shift_id', shiftId)
         .order('call_number', { ascending: true })
         .order('worker_name', { ascending: true });
@@ -432,7 +438,7 @@ export const nightSupervisionService = {
     try {
       const { data, error } = await supabase
         .from('night_supervision_camera_reviews')
-        .select('*')
+        .select('id, shift_id, unit_id, unit_name, review_number, scheduled_time, actual_time, screenshot_url, screenshot_timestamp, cameras_reviewed, notes, non_conformity, non_conformity_description, created_at, updated_at, created_by, updated_by')
         .eq('shift_id', shiftId)
         .order('review_number', { ascending: true });
 
@@ -524,7 +530,7 @@ export const nightSupervisionService = {
     try {
       let query = supabase
         .from('night_supervision_alerts')
-        .select('*')
+        .select('id, shift_id, type, severity, title, description, related_entity_type, related_entity_id, resolved, resolved_at, resolved_by, created_at, updated_at')
         .eq('shift_id', shiftId)
         .order('severity', { ascending: false })
         .order('created_at', { ascending: false });

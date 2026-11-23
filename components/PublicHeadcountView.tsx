@@ -8,7 +8,7 @@ import {
   type HeadcountShiftCounts,
 } from '../services/publicHeadcountService';
 
-const POLL_MS = 60_000;
+const POLL_MS = 3 * 60_000;
 
 function formatCurrency(value: number): string {
   if (!value) return '—';

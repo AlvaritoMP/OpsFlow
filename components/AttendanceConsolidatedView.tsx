@@ -120,7 +120,7 @@ export const AttendanceConsolidatedView: React.FC<AttendanceConsolidatedViewProp
     setLoading(true);
     setError(null);
     try {
-      const rows = await attendanceReportService.getUnitAttendanceRowsWithMeta(unit.id);
+      const rows = await attendanceReportService.getUnitAttendanceRowsWithMeta(unit.id, dateFrom, dateTo);
       setHistory(rows);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al cargar datos');
@@ -128,7 +128,7 @@ export const AttendanceConsolidatedView: React.FC<AttendanceConsolidatedViewProp
     } finally {
       setLoading(false);
     }
-  }, [unit.id]);
+  }, [unit.id, dateFrom, dateTo]);
 
   useEffect(() => {
     void load();

@@ -3,7 +3,33 @@ import { Resource, ResourceType, Training, AssignedAsset, DailyShift, Maintenanc
 import { normalizeShiftTime, isVacationWithCoverage } from '../utils/rosterHours';
 import { mapContractFromDB } from './contractService';
 import { todayLocalISODate } from '../utils/queryBatch';
+import { isoShiftDays } from '../utils/queryWindow';
 import { documentNumbersMatch, normalizeDocumentNumber } from '../utils/documentNumber';
+
+/** Listados: sin foto, sin JSON de ficha ATS y sin texto largo de cese. */
+const RESOURCE_LIST_COLUMNS = [
+  'id', 'unit_id', 'name', 'type', 'quantity', 'unit_of_measure', 'status',
+  'assigned_shift', 'compliance_percentage', 'last_restock', 'next_maintenance',
+  'external_id', 'last_sync', 'dni', 'localidad', 'phone', 'email', 'puesto',
+  'birth_date', 'is_shared', 'start_date', 'end_date', 'personnel_status', 'archived',
+  'termination_reason', 'in_training', 'training_start_date', 'contract_generated',
+  'monthly_salary', 'work_condition_amount', 'work_days', 'entry_time', 'exit_time',
+  'jornada_type', 'labor_regime', 'mobility_bonus', 'family_allowance',
+  'employer_company_code', 'rehired_from_resource_id', 'rehire_reason', 'created_at',
+].join(', ');
+
+const RESOURCE_DETAIL_COLUMNS = `${RESOURCE_LIST_COLUMNS}, image, inbound_source_data, termination_detail`;
+
+const DAILY_SHIFT_COLUMNS = 'resource_id, date, type, hours, start_time, end_time';
+
+const TRAINING_LIST_COLUMNS = 'id, resource_id, topic, date, status, score';
+
+const MAINTENANCE_LIST_COLUMNS = 'id, resource_id, date, type, description, technician, cost, status, next_scheduled_date';
+
+function isMissingSelectedColumn(error: any): boolean {
+  const msg = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  return error?.code === '42703' || error?.code === 'PGRST204' || msg.includes('column');
+}
 
 export interface PersonnelDocumentMatch {
   id: string;
@@ -89,7 +115,7 @@ export const resourcesService = {
     try {
       let query = supabase
         .from('resources')
-        .select('*')
+        .select(RESOURCE_DETAIL_COLUMNS)
         .eq('unit_id', unitId);
       
       // Si no se incluyen archivados, filtrarlos (solo para Personal)
@@ -104,7 +130,10 @@ export const resourcesService = {
       if (!data || data.length === 0) return [];
 
       // Cargar datos relacionados en lote (evita N×6 requests y ERR_CONNECTION_CLOSED)
-      const related = await loadRelatedDataBatched(data.map((r: any) => r.id), { includeContracts: true });
+      const related = await loadRelatedDataBatched(data.map((r: any) => r.id), {
+        includeContracts: true,
+        includeShifts: 'today',
+      });
 
       return data.map((resource: any) => {
         const transformed = transformResourceFromDB(
@@ -138,13 +167,20 @@ export const resourcesService = {
     try {
       const rows = await fetchInChunks(unitIds, 80, (ids) =>
         fetchAllPaged(async (from, to) => {
-          const { data, error } = await supabase
-            .from('resources')
-            .select('*')
-            .in('unit_id', ids)
-            .or('archived.is.null,archived.eq.false,type.neq.Personal')
-            .order('created_at', { ascending: false })
-            .range(from, to);
+          const run = (columns: string) =>
+            supabase
+              .from('resources')
+              .select(columns)
+              .in('unit_id', ids)
+              .or('archived.is.null,archived.eq.false,type.neq.Personal')
+              .order('created_at', { ascending: false })
+              .range(from, to);
+          let { data, error } = await run(RESOURCE_LIST_COLUMNS);
+          if (error && isMissingSelectedColumn(error)) {
+            const fallback = await run('*');
+            data = fallback.data;
+            error = fallback.error;
+          }
           if (error) throw error;
           return data || [];
         })
@@ -155,8 +191,14 @@ export const resourcesService = {
       const related = await loadRelatedDataBatched(
         rows.map((r: any) => r.id),
         mode === 'full'
-          ? { includeContracts: true, includeAssets: true, includeShifts: 'all' }
-          : { includeContracts: false, includeAssets: false, includeShifts: 'today', includeZoneAssignments: false }
+          ? { includeContracts: true, includeAssets: true, includeShifts: 'window' as const, recentOnly: true }
+          : {
+              includeContracts: false,
+              includeAssets: false,
+              includeShifts: 'today' as const,
+              includeZoneAssignments: false,
+              recentOnly: true,
+            }
       );
 
       for (const resource of rows as any[]) {
@@ -189,7 +231,7 @@ export const resourcesService = {
     try {
       const { data, error } = await supabase
         .from('resources')
-        .select('*')
+        .select(RESOURCE_LIST_COLUMNS)
         .eq('unit_id', unitId)
         .eq('type', 'Personal')
         .eq('archived', true)
@@ -198,7 +240,12 @@ export const resourcesService = {
       if (error) throw error;
       if (!data || data.length === 0) return [];
 
-      const related = await loadRelatedDataBatched(data.map((r: any) => r.id), { includeContracts: true });
+      const related = await loadRelatedDataBatched(data.map((r: any) => r.id), {
+        includeContracts: true,
+        includeShifts: 'none',
+        includeTrainings: false,
+        includeMaintenance: false,
+      });
 
       return data.map((resource: any) => {
         const transformed = transformResourceFromDB(
@@ -229,7 +276,7 @@ export const resourcesService = {
       const { data, error } = await supabase
         .from('resources')
         .select(`
-          *,
+          ${RESOURCE_LIST_COLUMNS},
           unit:units!resources_unit_id_fkey(id, name)
         `)
         .eq('type', 'Personal')
@@ -241,7 +288,14 @@ export const resourcesService = {
 
       const includeRelated = options?.includeRelated !== false;
       const related = includeRelated
-        ? await loadRelatedDataBatched(data.map((r: any) => r.id), { includeContracts: false })
+        ? await loadRelatedDataBatched(data.map((r: any) => r.id), {
+            includeContracts: false,
+            includeShifts: 'none',
+            includeTrainings: false,
+            includeMaintenance: false,
+            includeAssets: false,
+            includeZoneAssignments: false,
+          })
         : {
             trainingsById: new Map<string, Training[]>(),
             assetsById: new Map<string, AssignedAsset[]>(),
@@ -294,7 +348,7 @@ export const resourcesService = {
     try {
       const { data, error } = await supabase
         .from('resources')
-        .select('*')
+        .select(RESOURCE_DETAIL_COLUMNS)
         .eq('id', id)
         .single();
 
@@ -811,13 +865,17 @@ export const resourcesService = {
     }
   },
 
-  async getDailyShifts(resourceId: string): Promise<DailyShift[]> {
+  async getDailyShifts(resourceId: string, range?: { from?: string; to?: string }): Promise<DailyShift[]> {
     try {
+      const fromDay = range?.from || isoShiftDays(-120);
+      const toDay = range?.to || isoShiftDays(90);
       const data = await fetchAllPaged(async (from, to) => {
         const { data: page, error } = await supabase
           .from('daily_shifts')
-          .select('*')
+          .select(DAILY_SHIFT_COLUMNS)
           .eq('resource_id', resourceId)
+          .gte('date', fromDay)
+          .lte('date', toDay)
           .order('date', { ascending: true })
           .range(from, to);
         if (error) throw error;
@@ -834,16 +892,23 @@ export const resourcesService = {
     }
   },
 
-  async getDailyShiftsByResourceIds(resourceIds: string[]): Promise<Map<string, DailyShift[]>> {
+  async getDailyShiftsByResourceIds(
+    resourceIds: string[],
+    range?: { from?: string; to?: string }
+  ): Promise<Map<string, DailyShift[]>> {
     const shiftsById = new Map<string, DailyShift[]>();
     if (resourceIds.length === 0) return shiftsById;
+    const fromDay = range?.from || isoShiftDays(-21);
+    const toDay = range?.to || isoShiftDays(28);
 
     const shiftRows = await fetchInChunks(resourceIds, 80, async (ids) =>
       fetchAllPaged(async (from, to) => {
         const { data, error } = await supabase
           .from('daily_shifts')
-          .select('*')
+          .select(DAILY_SHIFT_COLUMNS)
           .in('resource_id', ids)
+          .gte('date', fromDay)
+          .lte('date', toDay)
           .order('resource_id', { ascending: true })
           .order('date', { ascending: true })
           .range(from, to);
@@ -1465,10 +1530,12 @@ type RelatedDataMaps = {
 type RelatedLoadOptions = {
   includeContracts?: boolean;
   includeAssets?: boolean;
-  includeShifts?: 'none' | 'today' | 'all';
+  includeShifts?: 'none' | 'today' | 'window' | 'all';
   includeTrainings?: boolean;
   includeMaintenance?: boolean;
   includeZoneAssignments?: boolean;
+  /** Calendario y padrón: sin certificados, sin fotos de mantenimiento y sin histórico largo. */
+  recentOnly?: boolean;
 };
 
 async function loadRelatedDataBatched(
@@ -1507,11 +1574,14 @@ async function loadRelatedDataBatched(
     includeTrainings
       ? safeFetch('capacitaciones', () =>
           fetchInChunks(resourceIds, CHUNK, async (ids) => {
-            const { data, error } = await supabase
+            let query = supabase
               .from('trainings')
-              .select('*')
-              .in('resource_id', ids)
-              .order('date', { ascending: false });
+              .select(options.recentOnly ? TRAINING_LIST_COLUMNS : 'id, resource_id, topic, date, status, score, certificate_url')
+              .in('resource_id', ids);
+            if (options.recentOnly) {
+              query = query.or(`date.gte.${isoShiftDays(-45)},status.eq.Programado`);
+            }
+            const { data, error } = await query.order('date', { ascending: false });
             if (error) throw error;
             return data || [];
           })
@@ -1537,10 +1607,14 @@ async function loadRelatedDataBatched(
             fetchAllPaged(async (from, to) => {
               let query = supabase
                 .from('daily_shifts')
-                .select('*')
+                .select(DAILY_SHIFT_COLUMNS)
                 .in('resource_id', ids);
               if (includeShifts === 'today') {
                 query = query.eq('date', todayLocalISODate());
+              } else if (includeShifts === 'window') {
+                query = query.gte('date', isoShiftDays(-21)).lte('date', isoShiftDays(35));
+              } else {
+                query = query.gte('date', isoShiftDays(-120)).lte('date', isoShiftDays(90));
               }
               const { data, error } = await query
                 .order('resource_id', { ascending: true })
@@ -1554,11 +1628,12 @@ async function loadRelatedDataBatched(
     includeMaintenance
       ? safeFetch('mantenimiento', () =>
           fetchInChunks(resourceIds, CHUNK, async (ids) => {
-            const { data, error } = await supabase
+            let query = supabase
               .from('maintenance_records')
-              .select('*, maintenance_images(*)')
-              .in('resource_id', ids)
-              .order('date', { ascending: false });
+              .select(options.recentOnly ? MAINTENANCE_LIST_COLUMNS : `${MAINTENANCE_LIST_COLUMNS}, maintenance_images(image_url)`)
+              .in('resource_id', ids);
+            if (options.recentOnly) query = query.gte('date', isoShiftDays(-45));
+            const { data, error } = await query.order('date', { ascending: false });
             if (error) throw error;
             return data || [];
           })

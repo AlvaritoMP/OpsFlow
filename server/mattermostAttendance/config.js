@@ -83,7 +83,7 @@ export function loadConfig() {
     supabaseKey: serviceKey || anonKey,
     hasServiceRole: Boolean(serviceKey),
     stateSecret: trimEnv('MATTERMOST_STATE_SECRET') || trimEnv('MATTERMOST_SLASH_TOKEN', 'MATTERMOST_COMMAND_TOKEN') || trimEnv('MATTERMOST_BOT_TOKEN'),
-    pollIntervalMs: Number(trimEnv('MATTERMOST_THREAD_POLL_MS') || '20000') || 20000,
+    pollIntervalMs: Number(trimEnv('MATTERMOST_THREAD_POLL_MS') || '60000') || 60000,
     adminUserIds: trimEnv('MATTERMOST_ADMIN_USER_IDS')
       .split(',')
       .map((id) => id.trim())

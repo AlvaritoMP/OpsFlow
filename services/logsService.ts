@@ -1,6 +1,7 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { OperationalLog } from '../types';
 import { fetchAllPaged, fetchInChunks } from '../utils/queryBatch';
+import { isoShiftDays } from '../utils/queryWindow';
 
 async function buildResponsibleRows(operationalLogId: string, responsibleIds: string[]) {
   const ids = [...new Set(responsibleIds.filter(Boolean))];
@@ -53,9 +54,11 @@ export const logsService = {
     try {
       const { data, error } = await supabase
         .from('operational_logs')
-        .select('*, log_images(image_url), log_responsible(*)')
+        .select('id, unit_id, date, type, description, author, log_images(image_url), log_responsible(resource_id, management_staff_id)')
         .eq('unit_id', unitId)
-        .order('date', { ascending: false });
+        .gte('date', isoShiftDays(-30))
+        .order('date', { ascending: false })
+        .limit(50);
 
       if (error) throw error;
 
@@ -66,20 +69,27 @@ export const logsService = {
     }
   },
 
-  async getByUnitIds(unitIds: string[], options?: { light?: boolean }): Promise<Map<string, OperationalLog[]>> {
+  async getByUnitIds(
+    unitIds: string[],
+    options?: { light?: boolean; from?: string; to?: string }
+  ): Promise<Map<string, OperationalLog[]>> {
     const grouped = new Map<string, OperationalLog[]>();
     if (unitIds.length === 0) return grouped;
     const light = options?.light === true;
+    const fromDay = options?.from || isoShiftDays(-7);
     const select = light
       ? 'id, unit_id, date, type, description, author'
-      : '*, log_images(image_url), log_responsible(*)';
+      : 'id, unit_id, date, type, description, author, log_images(image_url), log_responsible(resource_id, management_staff_id)';
     try {
       const rows = await fetchInChunks(unitIds, 80, (ids) =>
         fetchAllPaged(async (from, to) => {
-          const { data, error } = await supabase
+          let query = supabase
             .from('operational_logs')
             .select(select)
             .in('unit_id', ids)
+            .gte('date', fromDay);
+          if (options?.to) query = query.lte('date', options.to);
+          const { data, error } = await query
             .order('date', { ascending: false })
             .range(from, to);
           if (error) throw error;

@@ -52,7 +52,7 @@ export const operationsMetricsService = {
     try {
       const user = await supabase
         .from('users')
-        .select('*')
+        .select('id, name, email, role')
         .eq('id', userId)
         .single();
 
@@ -64,10 +64,11 @@ export const operationsMetricsService = {
       // Obtener logs operacionales del usuario
       const { data: logsData } = await supabase
         .from('operational_logs')
-        .select('*, units!inner(id, name)')
+        .select('id, date, type, author')
         .eq('author', user.data.name)
         .gte('date', periodStart)
-        .lte('date', periodEnd);
+        .lte('date', periodEnd)
+        .limit(400);
 
       const logs = logsData || [];
       const visitsCount = logs.filter((l: any) => l.type === 'Visita Cliente').length;
@@ -82,14 +83,16 @@ export const operationsMetricsService = {
         userId,
         startDate: periodStart,
         endDate: periodEnd,
+        limit: 200,
       });
 
       // Obtener todas las solicitudes y calcular tiempos de respuesta
       const { data: allRequestsData } = await supabase
         .from('client_requests')
-        .select('*, request_comments(*)')
+        .select('id, date, status, resolved_date, request_comments(author, role)')
         .gte('date', periodStart)
-        .lte('date', periodEnd);
+        .lte('date', periodEnd)
+        .limit(400);
 
       const allRequests = allRequestsData || [];
       
@@ -186,7 +189,7 @@ export const operationsMetricsService = {
       // Obtener todos los usuarios de Operaciones y Supervisores
       const { data: usersData } = await supabase
         .from('users')
-        .select('*')
+        .select('id, name, email, role')
         .in('role', ['OPERATIONS', 'OPERATIONS_SUPERVISOR']);
 
       if (!usersData || usersData.length === 0) {
@@ -200,13 +203,83 @@ export const operationsMetricsService = {
         };
       }
 
-      // Obtener métricas para cada usuario
-      const userMetricsPromises = usersData.map(user =>
-        this.getUserMetrics(user.id, periodStart, periodEnd)
-      );
-      const userMetrics = (await Promise.all(userMetricsPromises)).filter(
-        (m): m is UserMetrics => m !== null
-      );
+      const [logsRes, requestsRes, auditLogs] = await Promise.all([
+        supabase
+          .from('operational_logs')
+          .select('id, date, type, author')
+          .gte('date', periodStart)
+          .lte('date', periodEnd)
+          .limit(800),
+        supabase
+          .from('client_requests')
+          .select('id, date, status, resolved_date, request_comments(author, role)')
+          .gte('date', periodStart)
+          .lte('date', periodEnd)
+          .limit(400),
+        auditService.getAll({
+          startDate: periodStart,
+          endDate: periodEnd,
+          limit: 400,
+        }),
+      ]);
+      const logs = logsRes.data || [];
+      const allRequests = requestsRes.data || [];
+      const userMetrics = usersData.map((user) => {
+        const userLogs = logs.filter((row: { author?: string }) => row.author === user.name);
+        const logsByType: Record<string, number> = {};
+        userLogs.forEach((row: { type?: string }) => {
+          const type = row.type || 'Otro';
+          logsByType[type] = (logsByType[type] || 0) + 1;
+        });
+        const userAudit = auditLogs.filter((log) => log.userId === user.id);
+        const userRequestIds = new Set<string>();
+        allRequests.forEach((req: any) => {
+          const hasUserComment = req.request_comments?.some((comment: { author?: string; role?: string }) =>
+            comment.author === user.name || comment.role === user.role
+          );
+          if (hasUserComment) userRequestIds.add(req.id);
+        });
+        userAudit
+          .filter((log) => log.actionType === 'UPDATE' && log.entityType === 'REQUEST' && log.entityId)
+          .forEach((log) => userRequestIds.add(log.entityId!));
+        const userRequests = userRequestIds.size > 0
+          ? allRequests.filter((row: { id: string }) => userRequestIds.has(row.id))
+          : allRequests;
+        let totalResponseTime = 0;
+        let resolvedWithTime = 0;
+        userRequests
+          .filter((row: { status?: string; resolved_date?: string }) => row.status === 'RESOLVED' && row.resolved_date)
+          .forEach((req: { date: string; resolved_date: string }) => {
+            const hours = (new Date(req.resolved_date).getTime() - new Date(req.date).getTime()) / (1000 * 60 * 60);
+            if (hours > 0) {
+              totalResponseTime += hours;
+              resolvedWithTime++;
+            }
+          });
+        const actionsByType: Record<string, number> = {};
+        userAudit.forEach((log) => {
+          const key = `${log.actionType}_${log.entityType}`;
+          actionsByType[key] = (actionsByType[key] || 0) + 1;
+        });
+        return {
+          userId: user.id,
+          userName: user.name,
+          userEmail: user.email,
+          role: user.role as UserRole,
+          totalLogs: userLogs.length,
+          logsByType,
+          visitsCount: userLogs.filter((row: { type?: string }) => row.type === 'Visita Cliente').length,
+          requestsResolved: userRequests.filter((row: { status?: string }) => row.status === 'RESOLVED').length,
+          requestsPending: userRequests.filter((row: { status?: string }) => row.status === 'PENDING').length,
+          requestsInProgress: userRequests.filter((row: { status?: string }) => row.status === 'IN_PROGRESS').length,
+          averageResponseTime: resolvedWithTime > 0 ? totalResponseTime / resolvedWithTime : 0,
+          totalResponseTime,
+          totalActions: userAudit.length,
+          actionsByType,
+          periodStart,
+          periodEnd,
+        } satisfies UserMetrics;
+      });
 
       // Calcular totales
       const totalRequests = userMetrics.reduce((sum, m) => sum + m.requestsResolved + m.requestsPending + m.requestsInProgress, 0);

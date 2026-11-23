@@ -6,6 +6,7 @@ import {
   Bell, TrendingUp, Users, Eye, Save, X, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { nightSupervisionService } from '../services/nightSupervisionService';
+import { storageThumbnailUrl } from '../services/storageService';
 import { 
   NightSupervisionShift, 
   NightSupervisionCall, 
@@ -1501,7 +1502,7 @@ export const NightSupervision: React.FC<NightSupervisionProps> = React.memo(({
                         {review.screenshot_url && (
                           <div className="mb-2">
                             <img
-                              src={review.screenshot_url}
+                              src={storageThumbnailUrl(review.screenshot_url, 480) || review.screenshot_url}
                               alt={`Revisión ${reviewNum}`}
                               className="w-full h-32 object-cover rounded cursor-pointer hover:opacity-90 transition-opacity"
                               onClick={() => {

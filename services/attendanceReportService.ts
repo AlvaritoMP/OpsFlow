@@ -6,6 +6,13 @@ import {
   guessReportDateFromFilename,
 } from './attendanceReportExcelParser';
 import { documentNumbersMatch } from '../utils/documentNumber';
+import { isoShiftDays, isoToday } from '../utils/queryWindow';
+
+const ATTENDANCE_ROW_COLUMNS =
+  'id, import_id, row_index, worker_name, dni, normalized_dni, attendance_status, minutes_late, notes, user_comment, matched_resource_id, mark_date, punch_arrival, punch_lunch_out, punch_lunch_in, punch_departure';
+
+const ATTENDANCE_MARK_COLUMNS =
+  'id, unit_id, resource_id, mark_date, attendance_status, minutes_late, notes, user_comment, punch_arrival, punch_lunch_out, punch_lunch_in, punch_departure, dni, normalized_dni, worker_name, source_import_id, source_row_id, source_filename, uploaded_at';
 
 export interface AttendanceReportImportDTO {
   id: string;
@@ -229,7 +236,7 @@ async function listMarksFromImportFiles(unitId: string, from?: string, to?: stri
     const rows = await fetchAllPages<any>((start, end) =>
       supabase
         .from('attendance_report_rows')
-        .select('*')
+        .select(ATTENDANCE_ROW_COLUMNS)
         .eq('import_id', imp.id)
         .order('row_index', { ascending: true })
         .range(start, end)
@@ -376,10 +383,11 @@ export const attendanceReportService = {
   async listImports(unitId: string): Promise<AttendanceReportImportDTO[]> {
     const { data, error } = await supabase
       .from('attendance_report_imports')
-      .select('*')
+      .select('id, unit_id, report_date, source_filename, sheet_used, uploaded_at, uploaded_by, column_mapping')
       .eq('unit_id', unitId)
       .order('report_date', { ascending: false })
-      .order('uploaded_at', { ascending: false });
+      .order('uploaded_at', { ascending: false })
+      .limit(50);
 
     if (error) throw error;
     return (data || []).map((r: any) => ({
@@ -399,16 +407,21 @@ export const attendanceReportService = {
    * Si la tabla todavía no existe, lee los archivos importados página a página.
    */
   async listSettledMarks(unitId: string, from?: string, to?: string): Promise<AttendanceRowWithImportMeta[]> {
+    const fromDay = from || isoShiftDays(-45);
+    const toDay = to || isoToday();
     const probe = await supabase.from('attendance_worker_marks').select('id').eq('unit_id', unitId).limit(1);
     if (probe.error) {
-      if (isMissingWorkerMarksTable(probe.error)) return listMarksFromImportFiles(unitId, from, to);
+      if (isMissingWorkerMarksTable(probe.error)) return listMarksFromImportFiles(unitId, fromDay, toDay);
       throw probe.error;
     }
 
     const rows = await fetchAllPages<any>((start, end) => {
-      let query = supabase.from('attendance_worker_marks').select('*').eq('unit_id', unitId);
-      if (from) query = query.gte('mark_date', from);
-      if (to) query = query.lte('mark_date', to);
+      const query = supabase
+        .from('attendance_worker_marks')
+        .select(ATTENDANCE_MARK_COLUMNS)
+        .eq('unit_id', unitId)
+        .gte('mark_date', fromDay)
+        .lte('mark_date', toDay);
       return query.order('mark_date', { ascending: true }).order('id', { ascending: true }).range(start, end);
     });
 
@@ -418,15 +431,15 @@ export const attendanceReportService = {
     });
   },
 
-  async getUnitAttendanceRowsWithMeta(unitId: string): Promise<AttendanceRowWithImportMeta[]> {
-    return this.listSettledMarks(unitId);
+  async getUnitAttendanceRowsWithMeta(unitId: string, from?: string, to?: string): Promise<AttendanceRowWithImportMeta[]> {
+    return this.listSettledMarks(unitId, from, to);
   },
 
   async getRows(importId: string): Promise<AttendanceReportRowDTO[]> {
     const rows = await fetchAllPages<any>((start, end) =>
       supabase
         .from('attendance_report_rows')
-        .select('*')
+        .select(ATTENDANCE_ROW_COLUMNS)
         .eq('import_id', importId)
         .order('row_index', { ascending: true })
         .range(start, end)

@@ -1,4 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { logsService } from '../services/logsService';
+import { monthBounds } from '../utils/queryWindow';
 import { Unit, ManagementStaff } from '../types';
 import { Calendar as CalendarIcon, List, Search, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Wrench, GraduationCap, Eye, X, Image as ImageIcon, UserCheck } from 'lucide-react';
 
@@ -35,27 +37,62 @@ export const ClientControlCenter: React.FC<ClientControlCenterProps> = ({ units,
   
   // Modal state for day events
   const [selectedDayEvents, setSelectedDayEvents] = useState<{ date: string; events: GlobalEvent[] } | null>(null);
+  const [monthLogs, setMonthLogs] = useState<Array<{ id: string; unitId: string; unitName: string; date: string; type: string; description: string }>>([]);
+  const monthKey = `${currentDate.getFullYear()}-${currentDate.getMonth()}`;
+
+  useEffect(() => {
+    const { from, to } = monthBounds(currentDate);
+    const ids = units.map((unit) => unit.id).filter(Boolean);
+    if (ids.length === 0) {
+      setMonthLogs([]);
+      return;
+    }
+    let cancelled = false;
+    logsService.getByUnitIds(ids, { light: true, from, to }).then((grouped) => {
+      if (cancelled) return;
+      const nameById = new Map<string, string>(units.map((unit) => [unit.id, unit.name]));
+      const rows: Array<{ id: string; unitId: string; unitName: string; date: string; type: string; description: string }> = [];
+      grouped.forEach((logs, unitId) => {
+        const id = String(unitId);
+        logs.forEach((log) => {
+          rows.push({
+            id: String(log.id),
+            unitId: id,
+            unitName: nameById.get(id) || 'Unidad',
+            date: String(log.date),
+            type: String(log.type),
+            description: String(log.description || ''),
+          });
+        });
+      });
+      setMonthLogs(rows);
+    }).catch(() => {
+      if (!cancelled) setMonthLogs([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [monthKey, units]);
 
   // --- Data Aggregation (Read-only) ---
   const allEvents = useMemo(() => {
     let events: GlobalEvent[] = [];
 
-    units.forEach(unit => {
-      // 1. Logs
-      unit.logs.forEach(log => {
-        events.push({
-          id: log.id,
-          unitId: unit.id,
-          unitName: unit.name,
-          date: log.date,
-          category: 'Log',
-          type: log.type,
-          description: log.description,
-          status: 'Registrado'
-        });
+    monthLogs.forEach((log) => {
+      events.push({
+        id: log.id,
+        unitId: log.unitId,
+        unitName: log.unitName,
+        date: log.date,
+        category: 'Log',
+        type: log.type,
+        description: log.description,
+        status: 'Registrado',
       });
+    });
 
-      // 2. Resources (Maintenance & Training)
+    units.forEach(unit => {
+      // Resources (Maintenance & Training)
       unit.resources.forEach(res => {
         // Maintenance
         if (res.maintenanceHistory) {
@@ -108,7 +145,7 @@ export const ClientControlCenter: React.FC<ClientControlCenterProps> = ({ units,
     });
 
     return events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [units]);
+  }, [units, monthLogs]);
 
   // Filtered events
   const filteredEvents = useMemo(() => {

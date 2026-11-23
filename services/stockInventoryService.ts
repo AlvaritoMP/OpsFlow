@@ -620,7 +620,7 @@ export const stockInventoryService = {
         db('inv_products').select(`${PRODUCT_LIST_COLUMNS},assign_to_worker`).order('name'),
         db('inv_warehouses').select('*').order('name'),
         db('inv_stock').select('*'),
-        db('inv_movements').select('*').order('timestamp', { ascending: false }).limit(500),
+        db('inv_movements').select('id, timestamp, product_name, sku, warehouse_name, type, quantity_change, new_quantity_in_warehouse, details, user_name, transaction_id, recipient, consumption_reason').order('timestamp', { ascending: false }).limit(50),
         db('inv_settings').select('*').eq('id', 1).maybeSingle(),
         db('inv_companies').select('*').order('profile_name'),
         db('inv_suppliers').select('*').order('name'),

@@ -2087,7 +2087,7 @@ export function startMattermostThreadPoller() {
     return;
   }
   pollerStarted = true;
-  const baseMs = Math.max(20_000, Number(cfg.pollIntervalMs) || 20_000);
+  const baseMs = Math.max(60_000, Number(cfg.pollIntervalMs) || 60_000);
 
   const arm = () => {
     const wait = nextPollDelay(baseMs);

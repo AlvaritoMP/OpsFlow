@@ -1,6 +1,7 @@
 import { supabase, handleSupabaseError } from './supabase';
 import { ClientRequest, RequestComment, UserRole } from '../types';
 import { fetchAllPaged, fetchInChunks } from '../utils/queryBatch';
+import { isoShiftDays, LIST_PAGE_SIZE } from '../utils/queryWindow';
 
 /**
  * Coincide con el CHECK en BD: role IN ('ADMIN','OPERATIONS','OPERATIONS_SUPERVISOR','CLIENT').
@@ -41,9 +42,11 @@ export const requestsService = {
     try {
       const { data, error } = await supabase
         .from('client_requests')
-        .select('*, request_attachments(*), request_comments(*)')
+        .select('id, unit_id, date, title, category, priority, status, description, author, related_resource_id, response, resolved_date, request_attachments(attachment_url, attachment_type), request_comments(id, author, role, date, text)')
         .eq('unit_id', unitId)
-        .order('date', { ascending: false });
+        .or(`status.eq.PENDING,status.eq.IN_PROGRESS,date.gte.${isoShiftDays(-30)}`)
+        .order('date', { ascending: false })
+        .limit(LIST_PAGE_SIZE);
 
       if (error) throw error;
 
@@ -60,7 +63,8 @@ export const requestsService = {
     const light = options?.light === true;
     const select = light
       ? 'id, unit_id, date, title, category, priority, status, description, author'
-      : '*, request_attachments(*), request_comments(*)';
+      : 'id, unit_id, date, title, category, priority, status, description, author, related_resource_id, response, resolved_date, request_attachments(attachment_url, attachment_type), request_comments(id, author, role, date, text)';
+    const since = isoShiftDays(-30);
     try {
       const rows = await fetchInChunks(unitIds, 80, (ids) =>
         fetchAllPaged(async (from, to) => {
@@ -68,6 +72,7 @@ export const requestsService = {
             .from('client_requests')
             .select(select)
             .in('unit_id', ids)
+            .or(`status.eq.PENDING,status.eq.IN_PROGRESS,date.gte.${since}`)
             .order('date', { ascending: false })
             .range(from, to);
           if (error) throw error;

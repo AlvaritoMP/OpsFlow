@@ -61,8 +61,8 @@ import { patchUnitView, readUnitView } from './utils/unitViewMemory';
 import { HelpPanel, HelpTriggerButton } from './components/HelpPanel';
 
 /** Polling solo para badge de Presentaciones ATS (Recepción ATS quedó en archivo/consulta). */
-const ATS_COUNT_POLL_MS = 60 * 1000;
-const VACATION_AUTH_POLL_MS = 60 * 1000;
+const ATS_COUNT_POLL_MS = 3 * 60 * 1000;
+const VACATION_AUTH_POLL_MS = 3 * 60 * 1000;
 
 function SidebarGroupLabel({ children }: { children: React.ReactNode }) {
   return (
