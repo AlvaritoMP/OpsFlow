@@ -36,20 +36,28 @@ export const clientsService = {
 
       if (!clientsData || clientsData.length === 0) return [];
 
-      // Obtener representantes para cada cliente
-      const clientsWithRepresentatives = await Promise.all(
-        clientsData.map(async (client) => {
-          const { data: representativesData } = await supabase
-            .from('client_representatives')
-            .select('*')
-            .eq('client_id', client.id)
-            .order('name', { ascending: true });
+      const repsByClient = new Map<string, ClientRepresentativeRow[]>();
+      const ids = clientsData.map((client) => client.id);
+      const CHUNK = 80;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const { data: representativesData, error: repsError } = await supabase
+          .from('client_representatives')
+          .select('client_id, name, phone, email')
+          .in('client_id', ids.slice(i, i + CHUNK));
+        if (repsError) throw repsError;
+        for (const rep of (representativesData || []) as ClientRepresentativeRow[]) {
+          const list = repsByClient.get(rep.client_id) || [];
+          list.push(rep);
+          repsByClient.set(rep.client_id, list);
+        }
+      }
+      for (const list of repsByClient.values()) {
+        list.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es'));
+      }
 
-          return transformClientFromDB(client, representativesData || []);
-        })
+      return clientsData.map((client) =>
+        transformClientFromDB(client, repsByClient.get(client.id) || []),
       );
-
-      return clientsWithRepresentatives;
     } catch (error) {
       handleSupabaseError(error);
       return [];
