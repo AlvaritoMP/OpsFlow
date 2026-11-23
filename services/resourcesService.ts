@@ -19,6 +19,8 @@ const RESOURCE_LIST_COLUMNS = [
 ].join(', ');
 
 const RESOURCE_DETAIL_COLUMNS = `${RESOURCE_LIST_COLUMNS}, image, inbound_source_data, termination_detail`;
+/** Personal de una unidad: la foto es una URL corta. La ficha ATS se pide al abrir ese trabajador. */
+const RESOURCE_UNIT_COLUMNS = `${RESOURCE_LIST_COLUMNS}, image`;
 
 const DAILY_SHIFT_COLUMNS = 'resource_id, date, type, hours, start_time, end_time';
 
@@ -115,7 +117,7 @@ export const resourcesService = {
     try {
       let query = supabase
         .from('resources')
-        .select(RESOURCE_DETAIL_COLUMNS)
+        .select(RESOURCE_UNIT_COLUMNS)
         .eq('unit_id', unitId);
       
       // Si no se incluyen archivados, filtrarlos (solo para Personal)
@@ -344,6 +346,17 @@ export const resourcesService = {
   },
 
   // Obtener un recurso por ID
+  /** Ficha ATS (puede pesar varios MB). Solo al abrir el detalle de un trabajador. */
+  async getInboundSourceData(id: string): Promise<Resource['inboundSourceData']> {
+    const { data, error } = await supabase
+      .from('resources')
+      .select('inbound_source_data')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as { inbound_source_data?: Resource['inboundSourceData'] } | null)?.inbound_source_data ?? undefined;
+  },
+
   async getById(id: string): Promise<Resource | null> {
     try {
       const { data, error } = await supabase

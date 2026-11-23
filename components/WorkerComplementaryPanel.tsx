@@ -56,20 +56,53 @@ export const WorkerComplementaryPanel: React.FC<WorkerComplementaryPanelProps> =
   onSaved,
 }) => {
   const [open, setOpen] = useState(false);
+  const [inbound, setInbound] = useState(worker.inboundSourceData);
+  const [fichaLoaded, setFichaLoaded] = useState(Boolean(worker.inboundSourceData));
+  const [loadingFicha, setLoadingFicha] = useState(false);
   const [draft, setDraft] = useState<WorkerSnapshotComplementary>(() => resolveComplementary(worker));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
+  const workerView = inbound ? { ...worker, inboundSourceData: inbound } : worker;
+
   useEffect(() => {
-    setDraft(resolveComplementary(worker));
+    setInbound(worker.inboundSourceData);
+    setFichaLoaded(Boolean(worker.inboundSourceData));
+  }, [worker.id, worker.inboundSourceData]);
+
+  useEffect(() => {
+    setDraft(resolveComplementary(workerView));
     setDirty(false);
     setSavedMsg(null);
     setError(null);
-  }, [worker.id, worker.inboundSourceData]);
+  }, [worker.id, inbound]);
 
-  const hasAtsSource = Boolean(worker.inboundSourceData?.workerSnapshot);
+  useEffect(() => {
+    if (!open || fichaLoaded) return;
+    let cancelled = false;
+    setLoadingFicha(true);
+    void resourcesService
+      .getInboundSourceData(worker.id)
+      .then((data) => {
+        if (!cancelled) setInbound(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError('No se pudo cargar la ficha');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setFichaLoaded(true);
+          setLoadingFicha(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, worker.id, fichaLoaded]);
+
+  const hasAtsSource = Boolean(inbound?.workerSnapshot);
   const fieldCount = useMemo(
     () => Object.values(draft).filter((v) => v !== null && v !== undefined && v !== '').length,
     [draft],
@@ -87,7 +120,7 @@ export const WorkerComplementaryPanel: React.FC<WorkerComplementaryPanelProps> =
     setError(null);
     setSavedMsg(null);
     try {
-      const inboundSourceData = buildUpdatedInbound(worker.inboundSourceData, draft);
+      const inboundSourceData = buildUpdatedInbound(inbound, draft);
       const updated = await resourcesService.update(worker.id, {
         inboundSourceData,
       });
@@ -119,11 +152,13 @@ export const WorkerComplementaryPanel: React.FC<WorkerComplementaryPanelProps> =
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-800">Ficha complementaria</p>
             <p className="text-xs text-slate-500">
-              {hasAtsSource
-                ? `Datos del trabajador (${fieldCount} campos)`
-                : fieldCount > 0
-                  ? `Ficha OpsFlow (${fieldCount} campos)`
-                  : 'Sin ficha aún — puedes completarla aquí'}
+              {loadingFicha
+                ? 'Cargando ficha...'
+                : hasAtsSource
+                  ? `Datos del trabajador (${fieldCount} campos)`
+                  : fieldCount > 0
+                    ? `Ficha OpsFlow (${fieldCount} campos)`
+                    : 'Sin ficha aún — puedes completarla aquí'}
             </p>
           </div>
         </div>

@@ -269,11 +269,24 @@ function ItemRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [updating, setUpdating] = useState(false);
-  const assignedUnit = units.find((u) => u.id === item.assignedWorkUnitId);
+  const [fullItem, setFullItem] = useState<InboundHandoffItem | null>(null);
+  const view = fullItem ?? item;
+  const assignedUnit = units.find((u) => u.id === view.assignedWorkUnitId);
   const displayName = resolveHandoffDisplayName({
-    snapshot: item.workerSnapshot,
-    workerName: item.workerName,
+    snapshot: view.workerSnapshot,
+    workerName: view.workerName,
   });
+
+  useEffect(() => {
+    if (!expanded || fullItem) return;
+    let cancelled = false;
+    void inboundWorkerHandoffService.getItemById(item.id).then((loaded) => {
+      if (!cancelled && loaded) setFullItem(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, fullItem, item.id]);
 
   const handleStatus = async (status: InboundHandoffItemStatus) => {
     setUpdating(true);
@@ -322,13 +335,14 @@ function ItemRow({
               <CopyableId label="Candidato ATS" value={item.sourceCandidateId} compact />
             </div>
           )}
-          <SnapshotDetails snapshot={item.workerSnapshot} />
+          <SnapshotDetails snapshot={view.workerSnapshot} />
 
           {canEdit && item.itemStatus === 'accepted' && (
             <div className="mt-4">
               <button
                 type="button"
-                onClick={() => onRegister(item)}
+                onClick={() => onRegister(view)}
+                disabled={!fullItem}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
               >
                 <UserPlus size={16} />

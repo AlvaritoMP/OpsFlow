@@ -288,7 +288,21 @@ function transformPackageItemFromDB(data: Record<string, unknown>): HrOutboundIn
     refOperaciones: data.ref_operaciones as string,
     resourceId: data.resource_id as string,
     workerName: data.worker_name as string,
-    workerSnapshot: data.worker_snapshot as HrOutboundIngresoPackageItem['workerSnapshot'],
+    workerSnapshot: (data.worker_snapshot as HrOutboundIngresoPackageItem['workerSnapshot']) ?? ({
+      capturedAt: '',
+      opsflow: {
+        resourceId: String(data.resource_id ?? ''),
+        unitId: String(data.snap_unit_id ?? ''),
+        unitName: String(data.snap_unit_name ?? ''),
+        clientName: '',
+        name: String(data.worker_name ?? ''),
+        dni: data.snap_dni ? String(data.snap_dni) : undefined,
+      },
+      ats: {
+        sourceApp: 'OpsFlow',
+        workerName: String(data.worker_name ?? ''),
+      },
+    } satisfies HrOutboundIngresoPackageItem['workerSnapshot']),
     hrFields: normalizeHrFields(data.hr_fields) ?? undefined,
     itemStatus: data.item_status as HrOutboundIngresoPackageItem['itemStatus'],
     mensaje: (data.mensaje as string) ?? undefined,
@@ -869,7 +883,7 @@ export const hrOutboundIngresoService = {
     try {
       let query = supabase
         .from('hr_outbound_ingreso_queue')
-        .select('*')
+        .select('id, resource_id, inbound_handoff_item_id, opsflow_unit_id, worker_name, assigned_at, report_date, hr_fields, ref_operaciones, queue_status, package_id, exclusion_note, created_at, updated_at')
         .order('assigned_at', { ascending: false });
 
       if (options?.status) {
@@ -897,6 +911,23 @@ export const hrOutboundIngresoService = {
       handleSupabaseError(error);
       return [];
     }
+  },
+
+  /** Snapshot completo solo de los trabajadores que se van a validar o enviar. */
+  async getQueueSnapshots(
+    ids: string[],
+  ): Promise<Map<string, HrOutboundIngresoQueueItem['workerSnapshot']>> {
+    const map = new Map<string, HrOutboundIngresoQueueItem['workerSnapshot']>();
+    if (ids.length === 0) return map;
+    const { data, error } = await supabase
+      .from('hr_outbound_ingreso_queue')
+      .select('id, worker_snapshot')
+      .in('id', ids);
+    if (error) throw error;
+    for (const row of (data ?? []) as Array<{ id: string; worker_snapshot: HrOutboundIngresoQueueItem['workerSnapshot'] }>) {
+      if (row.worker_snapshot) map.set(row.id, row.worker_snapshot);
+    }
+    return map;
   },
 
   async excludeQueueItem(queueItemId: string, note?: string): Promise<void> {
@@ -941,7 +972,7 @@ export const hrOutboundIngresoService = {
 
       const { data: items, error: itemsError } = await supabase
         .from('hr_outbound_ingreso_package_items')
-        .select('*')
+        .select('id, package_id, queue_item_id, ref_operaciones, resource_id, worker_name, hr_fields, item_status, mensaje, empleado_id_rrhh, ingreso_cod, opalosis_estado, opalosis_etapa, created_at, snap_unit_id:worker_snapshot->opsflow->>unitId, snap_unit_name:worker_snapshot->opsflow->>unitName, snap_dni:worker_snapshot->opsflow->>dni')
         .eq('package_id', packageId)
         .order('created_at', { ascending: true });
 

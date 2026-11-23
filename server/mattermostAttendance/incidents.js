@@ -197,12 +197,16 @@ export async function listOpenIncidentsForPolling(maxAgeDays = 7) {
   const since = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from('payroll_attendance_incidents')
-    .select('id, mattermost_post_id, attachments')
+    .select('id, mattermost_post_id')
     .not('mattermost_post_id', 'is', null)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(40);
-  if (error) throw error;
+  if (error) {
+    const err = new Error(error.message || 'Error al listar incidencias para el poller');
+    err.status = error.status || error.code;
+    throw err;
+  }
   return data || [];
 }
 

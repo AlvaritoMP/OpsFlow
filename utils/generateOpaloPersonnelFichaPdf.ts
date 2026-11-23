@@ -739,6 +739,12 @@ export async function downloadOpaloPersonnelFicha(
   worker: Resource,
   ctx: FichaContext = {},
 ): Promise<void> {
-  const doc = await buildOpaloPersonnelFichaPdf(worker, ctx);
+  let source = worker;
+  if (!worker.inboundSourceData) {
+    const { resourcesService } = await import('../services/resourcesService');
+    const inbound = await resourcesService.getInboundSourceData(worker.id);
+    if (inbound) source = { ...worker, inboundSourceData: inbound };
+  }
+  const doc = await buildOpaloPersonnelFichaPdf(source, ctx);
   doc.save(getOpaloPersonnelFichaFilename(worker));
 }

@@ -45,14 +45,54 @@ function transformPackageFromDB(data: Record<string, unknown>): InboundHandoffPa
   };
 }
 
+/** Listados: sin worker_snapshot (fichas de varios MB). El detalle lo pide getItemById. */
+const HANDOFF_ITEM_LIST_COLUMNS = [
+  'id', 'package_id', 'source_candidate_id', 'source_process_id', 'worker_name',
+  'item_status', 'purpose', 'snapshot_version', 'complementary', 'complementary_status',
+  'complementary_filled_at', 'complementary_missing_fields', 'opsflow_intake',
+  'decision_reason', 'decided_at', 'decided_by_name', 'assigned_work_unit_id',
+  'assigned_at', 'created_resource_id', 'created_at', 'updated_at',
+].join(', ');
+
+const HANDOFF_ITEM_LIST_HINTS = [
+  'snap_dni:worker_snapshot->identity->>dni',
+  'snap_nombres:worker_snapshot->identity->>nombres',
+  'snap_apellido_paterno:worker_snapshot->identity->>apellidoPaterno',
+  'snap_apellido_materno:worker_snapshot->identity->>apellidoMaterno',
+  'snap_full_name:worker_snapshot->identity->>fullName',
+  'snap_puesto:worker_snapshot->fields->>puestoContrato',
+  'snap_process_title:worker_snapshot->fields->>processTitle',
+].join(', ');
+
+function withListSnapshot(data: Record<string, unknown>): Record<string, unknown> {
+  if (data.worker_snapshot) return data;
+  return {
+    ...data,
+    worker_snapshot: {
+      identity: {
+        dni: data.snap_dni,
+        nombres: data.snap_nombres,
+        apellidoPaterno: data.snap_apellido_paterno,
+        apellidoMaterno: data.snap_apellido_materno,
+        fullName: data.snap_full_name,
+      },
+      fields: {
+        puestoContrato: data.snap_puesto,
+        processTitle: data.snap_process_title,
+      },
+    },
+  };
+}
+
 function transformItemFromDB(data: Record<string, unknown>): InboundHandoffItem {
-  const missing = data.complementary_missing_fields;
-  const snapshot = data.worker_snapshot as WorkerSnapshot;
-  const storedComplementary = (data.complementary as WorkerSnapshotComplementary) ?? null;
+  const row = withListSnapshot(data);
+  const missing = row.complementary_missing_fields;
+  const snapshot = row.worker_snapshot as WorkerSnapshot;
+  const storedComplementary = (row.complementary as WorkerSnapshotComplementary) ?? null;
   const complementary = hydrateComplementaryFromSnapshot(snapshot, storedComplementary);
   const complementaryStatus = deriveComplementaryStatusFromData(
     complementary,
-    (data.complementary_status as ComplementaryStatus) ?? null,
+    (row.complementary_status as ComplementaryStatus) ?? null,
     Array.isArray(missing) ? (missing as string[]) : undefined,
   );
 
@@ -287,7 +327,7 @@ export const inboundWorkerHandoffService = {
 
       const { data: items, error: itemsError } = await supabase
         .from('inbound_worker_handoff_items')
-        .select('*')
+        .select(`${HANDOFF_ITEM_LIST_COLUMNS}, ${HANDOFF_ITEM_LIST_HINTS}`)
         .eq('package_id', packageId)
         .order('created_at', { ascending: true });
 
@@ -343,7 +383,7 @@ export const inboundWorkerHandoffService = {
       const filter = options?.filter ?? 'pending';
       let query = supabase
         .from('inbound_worker_handoff_items')
-        .select('*, inbound_worker_handoff_packages!inner(source_package_id, source_app, received_at)')
+        .select(`${HANDOFF_ITEM_LIST_COLUMNS}, ${HANDOFF_ITEM_LIST_HINTS}, inbound_worker_handoff_packages!inner(source_package_id, source_app, received_at)`)
         .eq('purpose', 'presentation')
         .order('created_at', { ascending: false });
 

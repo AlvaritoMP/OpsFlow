@@ -29,6 +29,7 @@ import {
   ResourceInboundSourceData,
 } from '../types';
 import { bpoPersonnelService } from '../services/bpoPersonnelService';
+import { resourcesService } from '../services/resourcesService';
 import { hydrateComplementaryFromSnapshot } from '../utils/complementaryHydrate';
 import {
   complementaryHasExpedienteSource,
@@ -266,7 +267,8 @@ export const BpoPersonnelProfilePanel: React.FC<BpoPersonnelProfilePanelProps> =
     setSyncing(true);
     setMessage(null);
     try {
-      const snapshot = inboundSourceData?.workerSnapshot;
+      const loaded = inboundSourceData ?? (await resourcesService.getInboundSourceData(resourceId));
+      const snapshot = loaded?.workerSnapshot;
       const complementary = hydrateComplementaryFromSnapshot(
         snapshot,
         snapshot?.complementary ?? null,

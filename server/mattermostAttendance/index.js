@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { URLSearchParams } from 'node:url';
 import {
   COVERAGE_OPTIONS,
@@ -28,6 +29,7 @@ import {
   safeEqual,
   signState,
   verifyState,
+  getSupabaseAdmin,
 } from './config.js';
 import { syncIncidentToAttendance } from './attendanceSync.js';
 import {
@@ -2019,11 +2021,60 @@ async function handlePostAttachment(req, res, body) {
 let pollerStarted = false;
 let pollerBusy = false;
 let pollFailureStreak = 0;
+let quotaPaused = false;
+
+const POLL_LEASE_KEY = 'mattermost_thread_poll_lease';
+const POLL_OWNER = `${os.hostname()}:${process.pid}`;
+
+function isQuotaError(err) {
+  const status = Number(err?.status || err?.statusCode || err?.code);
+  const text = `${err?.message || ''} ${err?.details || ''}`.toLowerCase();
+  return status === 402 || status === 429 || text.includes('402') || text.includes('429') || text.includes('egress') || text.includes('quota');
+}
 
 function nextPollDelay(baseMs) {
+  if (quotaPaused) return 30 * 60 * 1000;
   if (pollFailureStreak <= 0) return baseMs;
   const factor = 2 ** Math.min(pollFailureStreak - 1, 4);
-  return Math.min(baseMs * factor, 5 * 60 * 1000);
+  return Math.min(baseMs * factor, 15 * 60 * 1000);
+}
+
+/** Un solo proceso consulta Supabase. El otro espera a que venza el arriendo. */
+async function claimPollLease(ttlMs) {
+  const supabase = getSupabaseAdmin();
+  const now = Date.now();
+  const next = `${POLL_OWNER}|${new Date(now + ttlMs).toISOString()}`;
+  const { data, error } = await supabase
+    .from('system_settings')
+    .select('id, value')
+    .eq('key', POLL_LEASE_KEY)
+    .maybeSingle();
+  if (error) throw error;
+  if (data?.value) {
+    const [holder, exp] = String(data.value).split('|');
+    const expires = Date.parse(exp || '');
+    if (holder && holder !== POLL_OWNER && Number.isFinite(expires) && expires > now) {
+      return false;
+    }
+    const { data: updated, error: upErr } = await supabase
+      .from('system_settings')
+      .update({ value: next, updated_at: new Date().toISOString() })
+      .eq('id', data.id)
+      .eq('value', data.value)
+      .select('id');
+    if (upErr) throw upErr;
+    return Array.isArray(updated) && updated.length > 0;
+  }
+  const { error: insErr } = await supabase.from('system_settings').insert({
+    key: POLL_LEASE_KEY,
+    value: next,
+    description: 'Arriendo del poller de hilos Mattermost. Lo renueva un solo proceso.',
+  });
+  if (insErr) {
+    console.warn('No se pudo registrar el arriendo del poller; esta instancia consulta igual.', insErr.message);
+    return true;
+  }
+  return true;
 }
 
 async function pollOpenThreads() {
@@ -2032,6 +2083,8 @@ async function pollOpenThreads() {
   if (!cfg.botToken || !cfg.mattermostUrl) return true;
   pollerBusy = true;
   try {
+    const leased = await claimPollLease(90_000);
+    if (!leased) return 'leased';
     await mattermostFetch('/api/v4/users/me');
     const incidents = await listOpenIncidentsForPolling(7);
     for (const incident of incidents) {
@@ -2063,6 +2116,10 @@ async function pollOpenThreads() {
     }
     return true;
   } catch (err) {
+    if (isQuotaError(err)) {
+      console.warn('⏸️  PostgREST respondió 402/429. El poller espera 30 minutos y no reintenta en bucle.');
+      return 'quota';
+    }
     console.warn(
       '⚠️  Poller Mattermost en pausa:',
       err instanceof Error ? err.message : err,
@@ -2099,6 +2156,13 @@ export function startMattermostThreadPoller() {
     setTimeout(() => {
       void pollOpenThreads()
         .then((ok) => {
+          if (ok === 'quota') {
+            quotaPaused = true;
+            pollFailureStreak += 1;
+            return;
+          }
+          quotaPaused = false;
+          if (ok === 'leased') return;
           pollFailureStreak = ok ? 0 : pollFailureStreak + 1;
         })
         .catch((err) => {

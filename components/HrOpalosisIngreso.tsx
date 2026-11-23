@@ -186,7 +186,13 @@ export const HrOpalosisIngreso: React.FC<HrOpalosisIngresoProps> = ({
         reportDate ? { reportDate } : { status: 'pendiente_envio' },
       );
       const latestSelected = latest.filter((i) => selectedIds.has(i.id));
-      const incomplete = latestSelected.filter((i) => {
+      const snaps = await hrOutboundIngresoService.getQueueSnapshots(latestSelected.map((i) => i.id));
+      const hydrated = latestSelected.map((i) => {
+        const workerSnapshot = snaps.get(i.id) ?? i.workerSnapshot;
+        return workerSnapshot ? { ...i, workerSnapshot } : i;
+      });
+      const incomplete = hydrated.filter((i) => {
+        if (!i.workerSnapshot) return true;
         const merged = i.hrFields
           ? mergeHrFieldsWithSnapshot(i.hrFields, i.workerSnapshot, i.refOperaciones, {
               opalosisUnidadId: i.hrFields.lugarTrabajoId ?? null,
