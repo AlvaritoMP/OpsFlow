@@ -416,19 +416,19 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
     try {
       const plan = await attendanceTareoService.planClearRange(unit.id, dateFrom, dateTo);
       const total = plan.clearIds.length + plan.stripDayIds.length;
-      const kept = `Se conservan ${plan.keptMattermost} con incidencia de Mattermost y ${plan.keptMarks} con marcación de un archivo vigente.`;
+      const kept = `Se conservan ${plan.keptMattermost} de Mattermost y ${plan.keptOther} de otras novedades.`;
       if (total === 0) {
         setMessage(
-          plan.keptMattermost + plan.keptMarks === 0
-            ? 'No hay novedades en este rango.'
-            : `No hay nada que limpiar. ${kept}`
+          plan.keptMattermost + plan.keptOther === 0
+            ? 'No hay marcas de importación en este rango.'
+            : `No hay marcas de importación para limpiar. ${kept}`
         );
         return;
       }
       const fromLabel = dateFrom.split('-').reverse().join('/');
       const toLabel = dateTo.split('-').reverse().join('/');
       const ok = window.confirm(
-        `¿Limpiar ${total} novedad${total === 1 ? '' : 'es'} del ${fromLabel} al ${toLabel}?\n\nSolo se borran los días que no tienen marcación de un archivo vigente ni una incidencia de Mattermost. ${kept}`
+        `¿Limpiar ${total} marca${total === 1 ? '' : 's'} de asistencia del ${fromLabel} al ${toLabel}?\n\nSolo se quitan las que autocompletó la importación o las que se cargaron a mano. Los días reportados en Mattermost no se borran. ${kept}`
       );
       if (!ok) return;
       await attendanceTareoService.applyClearRange(plan);
@@ -602,7 +602,7 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
             type="button"
             onClick={() => void handleClearRange()}
             disabled={clearingRange || loading || suggesting || !dateFrom || !dateTo}
-            title="Vacía el rango. Conserva los días con marcación de un archivo vigente y las incidencias de Mattermost."
+            title="Quita las marcas de asistencia del rango, autocompletadas o puestas a mano. No borra lo reportado en Mattermost."
             className="inline-flex items-center gap-2 text-sm font-medium text-red-800 hover:text-red-950 px-3 py-2 rounded-lg border border-red-200 bg-red-50 disabled:opacity-50"
           >
             <Eraser size={16} />

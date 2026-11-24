@@ -228,7 +228,13 @@ export interface ClearRangePlan {
   /** Celdas con horas cargadas: se quita la clave del día y se dejan las horas. */
   stripDayIds: string[];
   keptMattermost: number;
-  keptMarks: number;
+  keptOther: number;
+}
+
+/** Marca de asistencia que deja la importación: autocompletada o cargada a mano. */
+function isImportedAttendanceMark(key: AttendanceTareoKey | undefined): boolean {
+  if (!key) return false;
+  return key.payrollField === 'turnos_tm' || key.payrollField === 'turnos_tt' || key.payrollField === 'turnos_tn';
 }
 
 function mapNovedad(row: any, keyById?: Map<string, AttendanceTareoKey>): AttendanceTareoNovedad {
@@ -606,26 +612,17 @@ export const attendanceTareoService = {
   },
 
   /**
-   * Plan para vaciar el rango después de borrar un Excel.
-   * Se conserva el día si todavía tiene marcación ligada a un archivo importado,
-   * o si tiene una incidencia de Mattermost. Una marca huérfana (el archivo ya no existe) no protege la celda.
+   * Quita, en el rango, las marcas de asistencia que salieron de la importación
+   * (autocompletar o carga a mano). Un día reportado en Mattermost no se borra.
+   * Vacaciones y el resto de novedades quedan igual.
    */
   async planClearRange(unitId: string, dateFrom: string, dateTo: string): Promise<ClearRangePlan> {
-    const [novedades, marks, incidentDays] = await Promise.all([
+    const [novedades, incidentDays] = await Promise.all([
       this.listNovedades(unitId, dateFrom, dateTo),
-      attendanceReportService.listSettledMarks(unitId, dateFrom, dateTo),
       listIncidentDays(unitId, dateFrom, dateTo),
     ]);
 
-    const liveMarks = new Set<string>();
-    for (const row of marks) {
-      if (!row.matched_resource_id || !row.import_id) continue;
-      const day = effectiveAttendanceDate(row, row.import_report_date);
-      if (!day || day < dateFrom || day > dateTo) continue;
-      liveMarks.add(cellToken(row.matched_resource_id, day));
-    }
-
-    const plan: ClearRangePlan = { clearIds: [], stripDayIds: [], keptMattermost: 0, keptMarks: 0 };
+    const plan: ClearRangePlan = { clearIds: [], stripDayIds: [], keptMattermost: 0, keptOther: 0 };
     for (const novedad of novedades) {
       if (!novedad.id || (!novedad.dayKeyId && !novedad.hoursKeyId)) continue;
       const token = cellToken(novedad.resourceId, novedad.day);
@@ -633,11 +630,11 @@ export const attendanceTareoService = {
         plan.keptMattermost += 1;
         continue;
       }
-      if (liveMarks.has(token)) {
-        plan.keptMarks += 1;
+      if (!isImportedAttendanceMark(novedad.dayKey)) {
+        plan.keptOther += 1;
         continue;
       }
-      if (novedad.hoursKeyId && novedad.dayKeyId) plan.stripDayIds.push(novedad.id);
+      if (novedad.hoursKeyId) plan.stripDayIds.push(novedad.id);
       else plan.clearIds.push(novedad.id);
     }
     return plan;
