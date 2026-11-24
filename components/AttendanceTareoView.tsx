@@ -64,6 +64,7 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
   const [legendOpen, setLegendOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
+  const [clearingRange, setClearingRange] = useState(false);
   const [tipoTareo, setTipoTareo] = useState('MENSUAL');
   const [selectedCells, setSelectedCells] = useState<Set<string>>(() => new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
@@ -408,6 +409,43 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
     }
   };
 
+  const handleClearRange = async () => {
+    if (!canEdit || !dateFrom || !dateTo || dateFrom > dateTo) return;
+    setClearingRange(true);
+    setError(null);
+    try {
+      const plan = await attendanceTareoService.planClearRange(unit.id, dateFrom, dateTo);
+      const total = plan.clearIds.length + plan.stripDayIds.length;
+      const kept = `Se conservan ${plan.keptMattermost} con incidencia de Mattermost y ${plan.keptMarks} con marcación de un archivo vigente.`;
+      if (total === 0) {
+        setMessage(
+          plan.keptMattermost + plan.keptMarks === 0
+            ? 'No hay novedades en este rango.'
+            : `No hay nada que limpiar. ${kept}`
+        );
+        return;
+      }
+      const fromLabel = dateFrom.split('-').reverse().join('/');
+      const toLabel = dateTo.split('-').reverse().join('/');
+      const ok = window.confirm(
+        `¿Limpiar ${total} novedad${total === 1 ? '' : 'es'} del ${fromLabel} al ${toLabel}?\n\nSolo se borran los días que no tienen marcación de un archivo vigente ni una incidencia de Mattermost. ${kept}`
+      );
+      if (!ok) return;
+      await attendanceTareoService.applyClearRange(plan);
+      const hoursNote =
+        plan.stripDayIds.length > 0
+          ? ` En ${plan.stripDayIds.length} se quitó la clave del día y se dejaron las horas.`
+          : '';
+      setMessage(`Se limpiaron ${total} celdas. ${kept}${hoursNote}`);
+      clearSelection();
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'No se pudo limpiar el rango');
+    } finally {
+      setClearingRange(false);
+    }
+  };
+
   const handleExport = async () => {
     setExporting(true);
     setError(null);
@@ -557,6 +595,18 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
           >
             <Wand2 size={16} />
             {suggesting ? 'Autocompletando…' : 'Autocompletar vacías'}
+          </button>
+        )}
+        {step === 'novedades' && canEdit && (
+          <button
+            type="button"
+            onClick={() => void handleClearRange()}
+            disabled={clearingRange || loading || suggesting || !dateFrom || !dateTo}
+            title="Vacía el rango. Conserva los días con marcación de un archivo vigente y las incidencias de Mattermost."
+            className="inline-flex items-center gap-2 text-sm font-medium text-red-800 hover:text-red-950 px-3 py-2 rounded-lg border border-red-200 bg-red-50 disabled:opacity-50"
+          >
+            <Eraser size={16} />
+            {clearingRange ? 'Limpiando…' : 'Limpiar rango'}
           </button>
         )}
         {step === 'novedades' && (

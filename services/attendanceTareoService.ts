@@ -214,6 +214,23 @@ function mapKey(row: any): AttendanceTareoKey {
   };
 }
 
+function mattermostOwnsCell(comment: string | null | undefined): boolean {
+  return /\[mm:[^\]]+\]/i.test(comment || '');
+}
+
+function cellToken(resourceId: string, day: string): string {
+  return `${resourceId}|${String(day || '').slice(0, 10)}`;
+}
+
+export interface ClearRangePlan {
+  /** Celdas que se borran por completo. */
+  clearIds: string[];
+  /** Celdas con horas cargadas: se quita la clave del día y se dejan las horas. */
+  stripDayIds: string[];
+  keptMattermost: number;
+  keptMarks: number;
+}
+
 function mapNovedad(row: any, keyById?: Map<string, AttendanceTareoKey>): AttendanceTareoNovedad {
   const dayKeyId = (row.day_key_id as string) || null;
   const hoursKeyId = (row.hours_key_id as string) || null;
@@ -392,6 +409,29 @@ export function totalsToExportRow(
   };
 }
 
+async function listIncidentDays(unitId: string, dateFrom: string, dateTo: string): Promise<Set<string>> {
+  const days = new Set<string>();
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('payroll_attendance_incidents')
+      .select('employee_id, incident_date')
+      .eq('unit_id', unitId)
+      .gte('incident_date', dateFrom)
+      .lte('incident_date', dateTo)
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const rows = data || [];
+    for (const row of rows) {
+      const employeeId = String((row as { employee_id?: string }).employee_id || '');
+      const day = String((row as { incident_date?: string }).incident_date || '').slice(0, 10);
+      if (employeeId && day) days.add(cellToken(employeeId, day));
+    }
+    if (rows.length < pageSize) break;
+  }
+  return days;
+}
+
 export const attendanceTareoService = {
   async listKeys(includeInactive = false): Promise<AttendanceTareoKey[]> {
     let q = supabase
@@ -565,6 +605,61 @@ export const attendanceTareoService = {
     if (error) throw error;
   },
 
+  /**
+   * Plan para vaciar el rango después de borrar un Excel.
+   * Se conserva el día si todavía tiene marcación ligada a un archivo importado,
+   * o si tiene una incidencia de Mattermost. Una marca huérfana (el archivo ya no existe) no protege la celda.
+   */
+  async planClearRange(unitId: string, dateFrom: string, dateTo: string): Promise<ClearRangePlan> {
+    const [novedades, marks, incidentDays] = await Promise.all([
+      this.listNovedades(unitId, dateFrom, dateTo),
+      attendanceReportService.listSettledMarks(unitId, dateFrom, dateTo),
+      listIncidentDays(unitId, dateFrom, dateTo),
+    ]);
+
+    const liveMarks = new Set<string>();
+    for (const row of marks) {
+      if (!row.matched_resource_id || !row.import_id) continue;
+      const day = effectiveAttendanceDate(row, row.import_report_date);
+      if (!day || day < dateFrom || day > dateTo) continue;
+      liveMarks.add(cellToken(row.matched_resource_id, day));
+    }
+
+    const plan: ClearRangePlan = { clearIds: [], stripDayIds: [], keptMattermost: 0, keptMarks: 0 };
+    for (const novedad of novedades) {
+      if (!novedad.id || (!novedad.dayKeyId && !novedad.hoursKeyId)) continue;
+      const token = cellToken(novedad.resourceId, novedad.day);
+      if (mattermostOwnsCell(novedad.comment) || incidentDays.has(token)) {
+        plan.keptMattermost += 1;
+        continue;
+      }
+      if (liveMarks.has(token)) {
+        plan.keptMarks += 1;
+        continue;
+      }
+      if (novedad.hoursKeyId && novedad.dayKeyId) plan.stripDayIds.push(novedad.id);
+      else plan.clearIds.push(novedad.id);
+    }
+    return plan;
+  },
+
+  async applyClearRange(plan: ClearRangePlan): Promise<void> {
+    const chunkSize = 100;
+    for (let i = 0; i < plan.clearIds.length; i += chunkSize) {
+      const ids = plan.clearIds.slice(i, i + chunkSize);
+      const { error } = await supabase.from('attendance_tareo_novedades').delete().in('id', ids);
+      if (error) throw error;
+    }
+    for (let i = 0; i < plan.stripDayIds.length; i += chunkSize) {
+      const ids = plan.stripDayIds.slice(i, i + chunkSize);
+      const { error } = await supabase
+        .from('attendance_tareo_novedades')
+        .update({ day_key_id: null, comment: null, updated_at: new Date().toISOString() })
+        .in('id', ids);
+      if (error) throw error;
+    }
+  },
+
   async suggestFromConsolidated(
     unit: Unit,
     dateFrom: string,
@@ -613,7 +708,7 @@ export const attendanceTareoService = {
     const matched = filterRowsMatchedActivePersonnel(unit, history) as AttendanceRowWithImportMeta[];
     const latestByWorkerDay = new Map<string, AttendanceRowWithImportMeta>();
     for (const r of matched) {
-      if (!r.matched_resource_id) continue;
+      if (!r.matched_resource_id || !r.import_id) continue;
       const d = effectiveAttendanceDate(r, r.import_report_date);
       if (d < dateFrom || d > dateTo) continue;
       const k = `${r.matched_resource_id}|${d}`;
