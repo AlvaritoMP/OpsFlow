@@ -488,6 +488,18 @@ export const attendanceReportService = {
     if (error) throw error;
   },
 
+  /** Marcas que quedaron sueltas al borrar el Excel. Ya no alimentan tareo ni facturación. */
+  async deleteOrphanMarks(unitId: string, from: string, to: string): Promise<void> {
+    const { error } = await supabase
+      .from('attendance_worker_marks')
+      .delete()
+      .eq('unit_id', unitId)
+      .is('source_import_id', null)
+      .gte('mark_date', from)
+      .lte('mark_date', to);
+    if (error && !isMissingWorkerMarksTable(error)) throw error;
+  },
+
   /** Parsea archivo, inserta cabecera y filas, intenta enlazar trabajadores por DNI dentro de la unidad. */
   async uploadAndSave(
     unit: Unit,

@@ -1065,7 +1065,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           'Inicio y cese son las fechas de la ficha. Si hay cese, los días a pagar van desde el Desde del corte hasta esa fecha.',
           'Sueldo es el sueldo contractual del mes. Si lo cambia, también cambia la base de Vida Ley y SCTR.',
           'Días corte son los días del rango antes de restar faltas. No se editan.',
-          'Faltas son los días descontados del tareo, de Mattermost y de la asistencia dentro del corte. El mismo día no se descuenta dos veces.',
+          'Faltas son los días descontados del tareo y de Mattermost. La asistencia importada solo descuenta si el archivo sigue cargado: al borrarlo, esas marcas ya no entran. El mismo día no se descuenta dos veces.',
           'Días son los días que se facturan. Si usted los escribe, ese valor se conserva al recalcular faltas.',
           'Días vac. son los días de vacaciones gozadas en el corte. Su sueldo entra a las cargas y no se vuelve a sumar como remuneración.',
           'Asig. fam. es la asignación familiar de esa persona. Quien no tiene hijos menores de 18 años queda en cero. El monto de referencia está en Parámetros.',
@@ -1203,7 +1203,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         heading: 'Cómo se cuentan los días',
-        body: 'Las faltas del tareo, de Mattermost y de la asistencia se leen solo entre el desde y el hasta. El mismo día no se descuenta dos veces. El corte puede tener como máximo 62 días.',
+        body: 'Las faltas del tareo y de Mattermost se leen entre el desde y el hasta. La asistencia importada entra solo mientras el archivo siga cargado. El mismo día no se descuenta dos veces. El corte puede tener como máximo 62 días.',
         steps: [
           'Quien trabaja todo un mes calendario sigue en 30 días comerciales.',
           'Un corte más corto, por ejemplo del 16 al 30, factura esos días (15).',

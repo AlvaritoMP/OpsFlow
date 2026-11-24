@@ -640,7 +640,7 @@ export const attendanceTareoService = {
     return plan;
   },
 
-  async applyClearRange(plan: ClearRangePlan): Promise<void> {
+  async applyClearRange(unitId: string, dateFrom: string, dateTo: string, plan: ClearRangePlan): Promise<void> {
     const chunkSize = 100;
     for (let i = 0; i < plan.clearIds.length; i += chunkSize) {
       const ids = plan.clearIds.slice(i, i + chunkSize);
@@ -655,6 +655,7 @@ export const attendanceTareoService = {
         .in('id', ids);
       if (error) throw error;
     }
+    await attendanceReportService.deleteOrphanMarks(unitId, dateFrom, dateTo);
   },
 
   async suggestFromConsolidated(

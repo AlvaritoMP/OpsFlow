@@ -431,7 +431,7 @@ export const AttendanceTareoView: React.FC<AttendanceTareoViewProps> = ({
         `¿Limpiar ${total} marca${total === 1 ? '' : 's'} de asistencia del ${fromLabel} al ${toLabel}?\n\nSolo se quitan las que autocompletó la importación o las que se cargaron a mano. Los días reportados en Mattermost no se borran. ${kept}`
       );
       if (!ok) return;
-      await attendanceTareoService.applyClearRange(plan);
+      await attendanceTareoService.applyClearRange(unit.id, dateFrom, dateTo, plan);
       const hoursNote =
         plan.stripDayIds.length > 0
           ? ` En ${plan.stripDayIds.length} se quitó la clave del día y se dejaron las horas.`

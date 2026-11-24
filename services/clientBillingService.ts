@@ -1008,7 +1008,7 @@ async function loadAbsenceDeductions(unitId: string, window: AttendanceWindow): 
     const faltas: { resourceId: string; day: string }[] = [];
     marks.forEach((row) => {
       const resourceId = row.matched_resource_id;
-      if (!resourceId) return;
+      if (!resourceId || !row.import_id) return;
       const mark = effectiveAttendanceDate(row, row.import_report_date);
       if (!mark || mark < from || mark > to) return;
       const kind = reportDayKind(row.attendance_status);
@@ -1189,7 +1189,7 @@ export async function loadBillingDayGlance(unitId: string, from: string, to: str
       incidentNote.set(token, label.title);
       if (!attendance[resourceId]?.[day]) {
         putCell(attendance, resourceId, day, { text: label.text, title: label.title, tone: label.tone });
-        attendanceRankByDay.set(token, 1);
+        attendanceRankByDay.set(token, 5);
       }
     });
   } catch {
@@ -1200,7 +1200,7 @@ export async function loadBillingDayGlance(unitId: string, from: string, to: str
     const marks = await attendanceReportService.listSettledMarks(unitId, from, to);
     marks.forEach((row) => {
       const resourceId = row.matched_resource_id;
-      if (!resourceId) return;
+      if (!resourceId || !row.import_id) return;
       const day = effectiveAttendanceDate(row, row.import_report_date);
       if (!day || day < from || day > to) return;
       const rank = attendanceRank(row.attendance_status);
