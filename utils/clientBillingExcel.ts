@@ -747,6 +747,24 @@ function writeLaborSubtotal(
   });
 }
 
+function costLineLabel(line: BillingCostLine): string {
+  const baseLabel = line.description?.trim() || KIND_LABELS[line.kind] || line.kind || 'Ítem';
+  if (Array.isArray(line.detail) && line.detail.length > 0) {
+    const parts = line.detail
+      .map((item) => {
+        const name = item.concept?.trim() || 'Ítem';
+        const quantity = Number(item.quantity) || 0;
+        const unitCost = Number(item.unitCost) || 0;
+        if (!item.concept?.trim() && !quantity && !unitCost) return '';
+        return `${name} ${quantity} × ${unitCost}`;
+      })
+      .filter(Boolean);
+    return parts.length ? `${baseLabel} (${parts.join('; ')})` : baseLabel;
+  }
+  if (line.quantity == null && line.unitPrice == null && line.frequency == null) return baseLabel;
+  return `${baseLabel} (${Number(line.quantity) || 0} × ${Number(line.unitPrice) || 0} × ${Number(line.frequency) || 0})`;
+}
+
 function writeCostBlock(
   sheet: ExcelJS.Worksheet,
   rowNumber: number,
@@ -764,11 +782,7 @@ function writeCostBlock(
   items.forEach((line) => {
     const info = line.id === 'empty' ? undefined : amounts.get(line.id);
     const amount = info?.amount ?? line.amount ?? 0;
-    const baseLabel = line.description?.trim() || KIND_LABELS[line.kind] || line.kind || 'Ítem';
-    const label =
-      line.quantity == null && line.unitPrice == null && line.frequency == null
-        ? baseLabel
-        : `${baseLabel} (${Number(line.quantity) || 0} × ${Number(line.unitPrice) || 0} × ${Number(line.frequency) || 0})`;
+    const label = costLineLabel(line);
     writeAmountRow(sheet, row, lastCol, label, amount, false);
     amountRows.push({ id: line.id, row, useFormula: info?.formula === true });
     row += 1;

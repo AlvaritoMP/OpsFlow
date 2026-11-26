@@ -198,6 +198,14 @@ export function adjustmentAmount(worker: BillingWorkerInput, key: BillingAdjustm
   return amount;
 }
 
+/** Fila del detalle de una línea de costo administrativo. */
+export interface AdminCostDetailItem {
+  id: string;
+  concept: string;
+  unitCost: number;
+  quantity: number;
+}
+
 export interface BillingCostLine {
   id: string;
   kind: string;
@@ -211,6 +219,11 @@ export interface BillingCostLine {
   unitPrice?: number;
   /** Veces que se aplica el precio. En la propuesta operativa entra al mes. */
   frequency?: number;
+  /**
+   * Detalle de la línea administrativa. Si el arreglo está presente, el monto es la suma
+   * de costo unitario × cantidad. Si no está, el monto se escribe entero.
+   */
+  detail?: AdminCostDetailItem[];
 }
 
 /** La fila trae el detalle de cantidad, precio unitario y frecuencia. */
@@ -222,6 +235,62 @@ export function costLineHasBreakdown(line: Pick<BillingCostLine, 'quantity' | 'u
 export function costLineAmount(line: BillingCostLine): number {
   if (!costLineHasBreakdown(line)) return round2(num(line.amount));
   return round2(num(line.quantity) * num(line.unitPrice) * num(line.frequency));
+}
+
+/** La línea administrativa usa la tabla de detalle en lugar de un monto entero. */
+export function adminLineHasDetail(line: Pick<BillingCostLine, 'detail'>): boolean {
+  return Array.isArray(line.detail);
+}
+
+/** Costo unitario × cantidad, redondeado a céntimos. */
+export function adminDetailAmount(item: Pick<AdminCostDetailItem, 'unitCost' | 'quantity'>): number {
+  return round2(num(item.unitCost) * num(item.quantity));
+}
+
+/** Suma de las filas del detalle. Cada fila se redondea antes de sumar. */
+export function adminDetailTotal(items: AdminCostDetailItem[] | undefined): number {
+  return round2((items || []).reduce((sum, item) => sum + adminDetailAmount(item), 0));
+}
+
+/**
+ * Monto de una línea administrativa.
+ * La fórmula del costo financiero tiene prioridad. Con detalle, manda la suma de la tabla.
+ */
+export function administrativeLineAmount(line: BillingCostLine, financialAmount = 0): number {
+  if (line.kind === 'financiero' && line.formulaLocked) return round2(financialAmount);
+  if (adminLineHasDetail(line)) return adminDetailTotal(line.detail);
+  return round2(num(line.amount));
+}
+
+/** Copia una línea con identificadores nuevos, incluido el detalle. */
+export function copyBillingCostLine(line: BillingCostLine): BillingCostLine {
+  return {
+    ...line,
+    id: newBillingId(),
+    detail: line.detail?.map((item) => ({ ...item, id: newBillingId() })),
+  };
+}
+
+/** Deja una línea administrativa lista para calcular: detalle o monto entero. */
+export function normalizeAdministrativeLine(raw: Partial<BillingCostLine> | null | undefined): BillingCostLine {
+  const source = raw || {};
+  const line: BillingCostLine = {
+    id: String(source.id || newBillingId()),
+    kind: String(source.kind || 'estructura'),
+    description: String(source.description || ''),
+    amount: round2(num(source.amount)),
+  };
+  if (source.formulaLocked) line.formulaLocked = true;
+  if (source.note) line.note = String(source.note);
+  if (line.formulaLocked || !Array.isArray(source.detail)) return line;
+  line.detail = source.detail.map((item) => ({
+    id: String(item?.id || newBillingId()),
+    concept: String(item?.concept || ''),
+    unitCost: num(item?.unitCost),
+    quantity: num(item?.quantity),
+  }));
+  line.amount = adminDetailTotal(line.detail);
+  return line;
 }
 
 /** Pestañas que pueden llevar bitácora interna. En la propuesta, utilidad tiene la suya. */
@@ -1206,7 +1275,7 @@ export function computeBilling(model: ClientBillingModel): BillingComputation {
     if (line.kind === 'financiero' && line.formulaLocked) {
       return { id: line.id, amount: financialAmount, formula: true };
     }
-    return { id: line.id, amount: num(line.amount), formula: false };
+    return { id: line.id, amount: administrativeLineAmount(line), formula: false };
   });
   const adminTotal = administrative.reduce((sum, line) => sum + line.amount, 0);
   billingScope.costoAdministrativo = adminTotal;
@@ -1459,6 +1528,17 @@ export function modelWithoutInternalNotes(model: ClientBillingModel): ClientBill
   return copy;
 }
 
+function formatAdminDetail(line: BillingCostLine): string {
+  if (!Array.isArray(line.detail)) return '';
+  if (line.detail.length === 0) return 'Detalle vacío';
+  return line.detail
+    .map((item) => {
+      const name = item.concept?.trim() || 'Sin concepto';
+      return `${name}: ${num(item.quantity)} × ${num(item.unitCost)}`;
+    })
+    .join('; ');
+}
+
 function diffLines(changes: BillingChange[], group: string, before: BillingCostLine[], after: BillingCostLine[]) {
   const prevMap = new Map(before.map((line) => [line.id, line]));
   const nextMap = new Map(after.map((line) => [line.id, line]));
@@ -1501,6 +1581,15 @@ function diffLines(changes: BillingChange[], group: string, before: BillingCostL
         label: `${group}: ${name} · cálculo`,
         before: prev.formulaLocked ? 'Fórmula' : 'Manual',
         after: line.formulaLocked ? 'Fórmula' : 'Manual',
+      });
+    }
+    const beforeDetail = formatAdminDetail(prev);
+    const afterDetail = formatAdminDetail(line);
+    if (beforeDetail !== afterDetail) {
+      changes.push({
+        label: `${group}: ${name} · detalle`,
+        before: beforeDetail || 'Monto entero',
+        after: afterDetail || 'Monto entero',
       });
     }
   });

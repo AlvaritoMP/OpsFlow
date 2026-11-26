@@ -31,6 +31,7 @@ import {
   workerOverlapsBillingWindow,
   defaultAdjustmentDescription,
   resolveAttendanceWindow,
+  copyBillingCostLine,
   defaultAdministrativeLines,
   emptyBillingModel,
   formatBillingDateTime,
@@ -1298,7 +1299,7 @@ function workerFromPersonnel(
 }
 
 function cloneLines(lines: BillingCostLine[]): BillingCostLine[] {
-  return lines.map((line) => ({ ...line, id: newBillingId() }));
+  return lines.map((line) => copyBillingCostLine(line));
 }
 
 async function writeAudit(

@@ -2549,7 +2549,7 @@ function EditorView(props: {
               </section>
               <AdminCostLines
                 title="Gastos administrativos"
-                hint="Cada categoría admite las líneas que necesite. El total de la categoría es la suma de esas líneas. El costo financiero puede seguir la fórmula o un monto que usted escriba."
+                hint="Cada categoría admite las líneas que necesite. En cada línea puede armar un detalle de concepto, costo unitario y cantidad: el monto es la suma de unitario × cantidad. Si no usa detalle, escriba el monto entero. El costo financiero puede seguir la fórmula o un monto que usted escriba."
                 lines={editor.model.administrative}
                 kinds={ADMIN_KINDS}
                 locked={locked}
@@ -3389,7 +3389,7 @@ function LinesEditor(props: {
     props.onChange(props.lines.map((line) => (line.id === id ? { ...line, ...patch } : line)));
   };
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+    <section className="shrink-0 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       <div className="p-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold text-slate-900">{props.title}</h2>

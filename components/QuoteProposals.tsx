@@ -1173,7 +1173,7 @@ export const QuoteProposals: React.FC<QuoteProposalsProps> = ({ units, currentUs
           <div className="space-y-3 pb-3">
             <AdminCostLines
               title="Gastos administrativos"
-              hint="Cada categoría admite las líneas que necesite. El total de la categoría es la suma de esas líneas. El costo financiero puede seguir la tasa y los días de Parámetros, o un monto que usted escriba."
+              hint="Cada categoría admite las líneas que necesite. En cada línea puede armar un detalle de concepto, costo unitario y cantidad: el monto es la suma de unitario × cantidad. Si no usa detalle, escriba el monto entero. El costo financiero puede seguir la tasa y los días de Parámetros, o un monto que usted escriba."
               lines={editor.payload.model.administrative}
               kinds={ADMIN_KINDS}
               locked={locked}

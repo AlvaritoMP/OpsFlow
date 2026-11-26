@@ -11,9 +11,11 @@ import {
   DEFAULT_BILLING_RATES,
   computeBilling,
   cloneModel,
+  copyBillingCostLine,
   costLineAmount,
   costLineHasBreakdown,
   defaultAdministrativeLines,
+  normalizeAdministrativeLine,
   emptyBillingModel,
   isProjectionBilling,
   newBillingId,
@@ -243,8 +245,8 @@ export function cloneQuotePayload(source: QuoteProposalPayload, issueDate?: stri
   const normalized = normalizeQuotePayload(source);
   const model = cloneModel(normalized.model);
   model.workers = (model.workers || []).map((worker) => ({ ...worker, id: newBillingId() }));
-  model.operational = (model.operational || []).map((line) => ({ ...line, id: newBillingId() }));
-  model.administrative = (model.administrative || []).map((line) => ({ ...line, id: newBillingId() }));
+  model.operational = (model.operational || []).map((line) => copyBillingCostLine(line));
+  model.administrative = (model.administrative || []).map((line) => copyBillingCostLine(line));
   model.internalNotes = (model.internalNotes || []).map((note) => ({ ...note, id: newBillingId() }));
   model.sourceQuoteId = undefined;
   model.sourceQuoteCode = undefined;
@@ -323,8 +325,8 @@ export function applyQuoteCommercials(
   next.partTimeRates = source.partTimeRates ? normalizePartTimeRates(source.partTimeRates, next.rates) : undefined;
   next.serviceLabel = source.serviceLabel.trim() || next.serviceLabel;
   next.formulas = source.formulas || next.formulas;
-  next.operational = (source.operational || []).map((line) => ({ ...line, id: newBillingId() }));
-  next.administrative = (source.administrative || []).map((line) => ({ ...line, id: newBillingId() }));
+  next.operational = (source.operational || []).map((line) => copyBillingCostLine(line));
+  next.administrative = (source.administrative || []).map((line) => copyBillingCostLine(line));
   if (options?.keepWorkers) {
     next.billingKind = 'real';
     next.sourceQuotePositions = snapshotQuotePositions(source);
@@ -544,7 +546,9 @@ export function normalizeQuotePayload(raw: unknown): QuoteProposalPayload {
         ? normalizePartTimeRates(storedPartTime, rates)
         : undefined,
     operational: Array.isArray(modelRaw?.operational) ? modelRaw.operational.map((line) => normalizeOperationalLine(line)) : [],
-    administrative: Array.isArray(modelRaw?.administrative) ? modelRaw.administrative : defaultAdministrativeLines(),
+    administrative: Array.isArray(modelRaw?.administrative)
+      ? modelRaw.administrative.map((line) => normalizeAdministrativeLine(line))
+      : defaultAdministrativeLines(),
     formulas: normalizeBillingFormulas(modelRaw?.formulas),
     internalNotes: normalizeQuoteNotes(modelRaw?.internalNotes),
   };
