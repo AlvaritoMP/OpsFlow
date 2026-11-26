@@ -110,6 +110,10 @@ function isMissingColumn(error: { message?: string; code?: string } | null, colu
   return error.code === 'PGRST204' || error.code === '42703' || msg.includes(column) || /schema cache/i.test(msg);
 }
 
+const MOVEMENT_LOG_COLUMNS =
+  'id, timestamp, product_name, sku, warehouse_name, type, quantity_change, new_quantity_in_warehouse, details, user_name, transaction_id';
+const MOVEMENT_LOG_COLUMNS_FULL = `${MOVEMENT_LOG_COLUMNS}, recipient, consumption_reason`;
+
 const LOGISTICS_MIGRATION_HINT =
   'Falta aplicar migrations/MIGRATION_INVENTORY_LOGISTICS.sql en Supabase (empresa adquiriente, stock por empresa y pedidos).';
 
@@ -156,8 +160,10 @@ const mapScheduled = (row: Record<string, unknown>): InvScheduledPurchase => ({
   createdBy: String(row.created_by ?? ''),
 });
 
+const OPTIONAL_MOVEMENT_COLUMNS = ['company_id', 'company_name', 'recipient', 'consumption_reason', 'warehouse_id'] as const;
+
 async function insertLog(entry: Omit<InvLogEntry, 'id'>): Promise<void> {
-  const base = {
+  const row: Record<string, unknown> = {
     timestamp: entry.timestamp,
     product_name: entry.productName,
     sku: entry.sku,
@@ -170,21 +176,21 @@ async function insertLog(entry: Omit<InvLogEntry, 'id'>): Promise<void> {
     transaction_id: entry.transactionId ?? null,
     recipient: entry.recipient ?? null,
     consumption_reason: entry.consumptionReason ?? null,
-  };
-  const withCompany = {
-    ...base,
     company_id: entry.companyId ?? null,
     company_name: entry.companyName ?? null,
   };
-  const { error } = await db('inv_movements').insert(withCompany);
-  if (!error) return;
-  if (isMissingColumn(error, 'company_id') || isMissingColumn(error, 'company_name')) {
-    if (entry.companyId) throw new Error(LOGISTICS_MIGRATION_HINT);
-    const retry = await db('inv_movements').insert(base);
-    if (retry.error) throw retry.error;
-    return;
+
+  for (let attempt = 0; attempt < OPTIONAL_MOVEMENT_COLUMNS.length + 1; attempt += 1) {
+    const { error } = await db('inv_movements').insert(row);
+    if (!error) return;
+    const message = error.message || '';
+    const missing = OPTIONAL_MOVEMENT_COLUMNS.filter((column) => message.includes(column));
+    if (missing.length === 0) throw error;
+    if (entry.companyId && missing.some((column) => column === 'company_id' || column === 'company_name')) {
+      throw new Error(LOGISTICS_MIGRATION_HINT);
+    }
+    missing.forEach((column) => delete row[column]);
   }
-  throw error;
 }
 
 async function getStockQuantity(productId: string, warehouseId: string): Promise<number> {
@@ -620,7 +626,7 @@ export const stockInventoryService = {
         db('inv_products').select(`${PRODUCT_LIST_COLUMNS},assign_to_worker`).order('name'),
         db('inv_warehouses').select('*').order('name'),
         db('inv_stock').select('*'),
-        db('inv_movements').select('id, timestamp, product_name, sku, warehouse_name, type, quantity_change, new_quantity_in_warehouse, details, user_name, transaction_id, recipient, consumption_reason').order('timestamp', { ascending: false }).limit(50),
+        db('inv_movements').select(MOVEMENT_LOG_COLUMNS_FULL).order('timestamp', { ascending: false }).limit(50),
         db('inv_settings').select('*').eq('id', 1).maybeSingle(),
         db('inv_companies').select('*').order('profile_name'),
         db('inv_suppliers').select('*').order('name'),
@@ -636,8 +642,22 @@ export const stockInventoryService = {
         if (retry.error) throw retry.error;
         productRows = (retry.data as Record<string, unknown>[]) || [];
       }
+      let logRows = (logsRes.data as Record<string, unknown>[]) || [];
+      if (logsRes.error) {
+        const message = logsRes.error.message || '';
+        if (message.includes('recipient') || message.includes('consumption_reason')) {
+          const retry = await db('inv_movements')
+            .select(MOVEMENT_LOG_COLUMNS)
+            .order('timestamp', { ascending: false })
+            .limit(50);
+          if (retry.error) throw retry.error;
+          logRows = (retry.data as Record<string, unknown>[]) || [];
+        } else {
+          throw logsRes.error;
+        }
+      }
       const firstError = [
-        warehousesRes, stockRes, logsRes, settingsRes,
+        warehousesRes, stockRes, settingsRes,
         companiesRes, suppliersRes, poRes, scheduledRes, accessRes,
       ].find((r) => r.error)?.error;
       if (firstError) throw firstError;
@@ -662,7 +682,7 @@ export const stockInventoryService = {
           warehouseId: row.warehouse_id,
           quantity: Number(row.quantity ?? 0),
         })),
-        logs: ((logsRes.data as Record<string, unknown>[]) || []).map(mapLog),
+        logs: logRows.map(mapLog),
         settings,
         myCompanies: ((companiesRes.data as Record<string, unknown>[]) || []).map(mapCompany),
         suppliers: ((suppliersRes.data as Record<string, unknown>[]) || []).map(mapSupplier),

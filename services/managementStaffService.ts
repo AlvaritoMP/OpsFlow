@@ -224,6 +224,13 @@ async function releaseStaffFromLogs(staffId: string): Promise<void> {
 // FUNCIONES DE TRANSFORMACIÓN
 // ============================================
 
+function normalizeStaffStatus(status: unknown): 'activo' | 'cesado' | 'archivado' {
+  const key = String(status ?? '').trim().toLowerCase();
+  if (key === 'cesado') return 'cesado';
+  if (key === 'archivado') return 'archivado';
+  return 'activo';
+}
+
 function transformStaffFromDB(data: any): ManagementStaff {
   return {
     id: data.id,
@@ -235,7 +242,7 @@ function transformStaffFromDB(data: any): ManagementStaff {
     dni: data.dni,
     startDate: data.start_date,
     endDate: data.end_date,
-    status: data.status as 'activo' | 'cesado' || 'activo',
+    status: normalizeStaffStatus(data.status),
     archived: data.archived || false,
   };
 }
@@ -260,7 +267,7 @@ function transformStaffToDB(staff: Partial<ManagementStaff>): any {
     result.end_date = (staff.endDate && staff.endDate.trim() !== '') ? staff.endDate : null;
   }
   
-  if (staff.status !== undefined) result.status = staff.status;
+  if (staff.status !== undefined) result.status = normalizeStaffStatus(staff.status);
   if (staff.archived !== undefined) result.archived = staff.archived;
 
   return result;

@@ -18,65 +18,6 @@ export const storageService = {
    */
   async uploadFile(bucket: string, file: File, path: string): Promise<string> {
     try {
-      // Verificar autenticación primero
-      const { data: { session }, error: authError } = await supabase.auth.getSession();
-      
-      if (authError || !session) {
-        console.error('⚠️ Usuario no autenticado con Supabase Auth:', authError);
-        console.log('📋 Estado de autenticación:', {
-          hasSession: !!session,
-          authError: authError?.message,
-          sessionUser: session?.user?.id
-        });
-        
-        // Verificar si hay una sesión local pero no de Supabase Auth
-        const { authService } = await import('./authService');
-        const localSession = authService.getSession();
-        const currentUser = await authService.getCurrentUser();
-        
-        if (localSession && currentUser) {
-          console.log('🔍 Usuario tiene sesión local pero no Supabase Auth.');
-          console.log('💡 Intentando crear cuenta en Supabase Auth para habilitar Storage...');
-          
-          // Intentar crear la cuenta en Supabase Auth si no existe
-          // Esto permitirá que Storage funcione
-          try {
-            // Primero intentar sign in (por si ya existe)
-            const signInResult = await supabase.auth.signInWithPassword({
-              email: currentUser.email,
-              password: 'temp_password_placeholder', // Esto fallará, pero nos dirá si existe
-            });
-            
-            // Si llegamos aquí, el usuario existe pero la contraseña es incorrecta
-            // O el usuario no existe
-            console.warn('⚠️ No se pudo autenticar con Supabase Auth automáticamente');
-          } catch (signInErr: any) {
-            // Si el error es "Invalid login credentials", el usuario existe pero necesitamos la contraseña correcta
-            // Si el error es "User not found", el usuario no existe en Auth
-            console.log('ℹ️ Estado de Supabase Auth:', signInErr.message);
-          }
-          
-          // No podemos crear la sesión de Auth sin la contraseña
-          // Mostrar mensaje claro al usuario
-          throw new Error(
-            'Para subir archivos, necesitas una sesión de Supabase Auth activa.\n\n' +
-            'Tu cuenta fue creada directamente en la base de datos y no tiene sesión de Supabase Auth.\n\n' +
-            'SOLUCIÓN:\n' +
-            '1. Cierra sesión (botón en la esquina superior derecha)\n' +
-            '2. Vuelve a iniciar sesión con tu email y contraseña\n' +
-            '3. Esto creará la sesión de Supabase Auth necesaria para Storage\n\n' +
-            'Después de esto, podrás subir imágenes sin problemas.'
-          );
-        }
-        
-        throw new Error('Debes estar autenticado para subir archivos. Por favor, inicia sesión nuevamente.');
-      }
-
-      console.log('✅ Usuario autenticado con Supabase Auth:', session.user.id);
-      console.log('📤 Intentando subir a bucket:', bucket);
-      console.log('📁 Ruta:', path);
-
-      // Intentar subir el archivo directamente
       const { data, error } = await supabase.storage
         .from(bucket)
         .upload(path, file, {
@@ -91,32 +32,18 @@ export const storageService = {
           error: error
         });
 
-        // Si el error es de RLS, dar instrucciones simples
-        if (error.message?.includes('row-level security') || 
+        if (error.message?.includes('row-level security') ||
             error.message?.includes('RLS') ||
             error.message?.includes('permission denied') ||
             error.statusCode === 403 ||
             error.statusCode === '403') {
-          
-          // Verificar políticas existentes
-          const { data: policies, error: policiesError } = await supabase
-            .from('storage.objects')
-            .select('*')
-            .limit(0); // Solo para verificar acceso
-          
           throw new Error(
-            `Error de permisos RLS.\n\n` +
-            `Verifica que:\n` +
-            `1. Estás autenticado (sesión activa)\n` +
-            `2. Las políticas en Supabase Dashboard → Storage → ${bucket} → Policies:\n` +
-            `   - INSERT para "authenticated" con: bucket_id = '${bucket}'\n` +
-            `   - SELECT para "public" con: bucket_id = '${bucket}'\n\n` +
-            `Error: ${error.message}\n` +
-            `Status: ${error.statusCode}`
+            `No hay permiso para subir archivos al bucket "${bucket}". ` +
+            `Ejecuta database/migrations/fix_supabase_error_logs.sql en Supabase. ` +
+            `Detalle: ${error.message}`
           );
         }
-        
-        // Otros errores
+
         throw new Error(`Error al subir: ${error.message || 'Error desconocido'} (Status: ${error.statusCode})`);
       }
 
@@ -179,11 +106,8 @@ export const storageService = {
     const maxDataUrlBytes = options.maxDataUrlBytes ?? 1.5 * 1024 * 1024;
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        const url = await this.uploadFile(bucket, file, path);
-        return { url, storage: 'supabase' };
-      }
+      const url = await this.uploadFile(bucket, file, path);
+      return { url, storage: 'supabase' };
     } catch (uploadError) {
       console.warn('⚠️ Falló subida a Storage, usando data URL:', uploadError);
     }

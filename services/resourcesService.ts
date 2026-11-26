@@ -711,7 +711,7 @@ export const resourcesService = {
       return data?.map(a => ({
         id: a.id,
         name: a.name,
-        type: a.type as any,
+        type: normalizeAssignedAssetType(a.type),
         dateAssigned: a.date_assigned,
         serialNumber: a.serial_number,
         phoneNumber: a.phone_number,
@@ -735,7 +735,7 @@ export const resourcesService = {
       const assetData = {
         resource_id: resourceId,
         name: a.name,
-        type: a.type,
+        type: normalizeAssignedAssetType(a.type),
         date_assigned: a.dateAssigned,
         serial_number: a.serialNumber,
         phone_number: a.phoneNumber || null,
@@ -1290,11 +1290,24 @@ function mapTrainingsFromDB(rows: any[]): Training[] {
   }));
 }
 
+function normalizeAssignedAssetType(value: unknown): AssignedAsset['type'] {
+  const key = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (key === 'epp') return 'EPP';
+  if (key === 'uniforme') return 'Uniforme';
+  if (key === 'tecnologia' || key === 'tecnologico') return 'Tecnologia';
+  if (key === 'herramienta') return 'Herramienta';
+  return 'Otro';
+}
+
 function mapAssetsFromDB(rows: any[]): AssignedAsset[] {
   return rows.map(a => ({
     id: a.id,
     name: a.name,
-    type: a.type as any,
+    type: normalizeAssignedAssetType(a.type),
     dateAssigned: a.date_assigned,
     serialNumber: a.serial_number,
     phoneNumber: a.phone_number,
