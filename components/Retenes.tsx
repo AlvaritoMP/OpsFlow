@@ -329,7 +329,7 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
       });
     } catch (error) {
       console.error('Error exportando reporte:', error);
-      alert('Error al exportar el reporte. Asegúrate de que xlsx está instalado: npm install xlsx');
+      alert('Error al exportar el reporte. Por favor intenta de nuevo.');
     }
   };
 
@@ -383,7 +383,7 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
       });
     } catch (error) {
       console.error('Error exportando reporte de unidad:', error);
-      alert('Error al exportar el reporte. Asegúrate de que xlsx está instalado: npm install xlsx');
+      alert('Error al exportar el reporte. Por favor intenta de nuevo.');
     }
   };
 

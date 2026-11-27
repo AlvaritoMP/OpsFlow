@@ -100,11 +100,28 @@ export const excelService = {
       const filename = options.filename || 
         `export_${new Date().toISOString().split('T')[0]}.xlsx`;
 
-      // Descargar archivo
-      XLSX.writeFile(workbook, filename);
+      // Generar el archivo como blob para mejor compatibilidad con móviles/tablets
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([excelBuffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      
+      // Crear enlace de descarga
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      
+      // Agregar al DOM, hacer clic y limpiar
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Liberar el objeto URL después de un momento
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       console.error('Error al exportar a Excel:', error);
-      throw new Error('Error al exportar a Excel. Asegúrate de que xlsx está instalado: npm install xlsx');
+      throw new Error('Error al exportar el archivo. Por favor intenta de nuevo.');
     }
   },
 
