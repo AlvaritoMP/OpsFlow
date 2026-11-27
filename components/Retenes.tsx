@@ -66,6 +66,9 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
   const [reportMonth, setReportMonth] = useState(new Date().getMonth() + 1);
   const [reportYear, setReportYear] = useState(new Date().getFullYear());
   const [monthlyReport, setMonthlyReport] = useState<any[]>([]);
+  const [reportType, setReportType] = useState<'retenes' | 'unit'>('retenes');
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('');
+  const [unitCoverageReport, setUnitCoverageReport] = useState<any>(null);
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -84,9 +87,13 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
 
   useEffect(() => {
     if (activeView === 'reports') {
-      loadMonthlyReport();
+      if (reportType === 'retenes') {
+        loadMonthlyReport();
+      } else if (reportType === 'unit' && selectedUnitId) {
+        loadUnitCoverageReport();
+      }
     }
-  }, [reportMonth, reportYear, activeView]);
+  }, [reportMonth, reportYear, activeView, reportType, selectedUnitId]);
 
   const loadRetenes = async () => {
     setLoading(true);
@@ -124,6 +131,19 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
       setMonthlyReport(data);
     } catch (error) {
       console.error('Error cargando reporte mensual:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadUnitCoverageReport = async () => {
+    if (!selectedUnitId) return;
+    setLoading(true);
+    try {
+      const data = await retenesService.getUnitCoverageReport(selectedUnitId, reportYear, reportMonth);
+      setUnitCoverageReport(data);
+    } catch (error) {
+      console.error('Error cargando reporte de unidad:', error);
     } finally {
       setLoading(false);
     }
@@ -309,6 +329,60 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
       });
     } catch (error) {
       console.error('Error exportando reporte:', error);
+      alert('Error al exportar el reporte. Asegúrate de que xlsx está instalado: npm install xlsx');
+    }
+  };
+
+  // Exportar reporte de coberturas por unidad a Excel
+  const handleExportUnitCoverageReport = async () => {
+    if (!unitCoverageReport || !selectedUnitId) {
+      alert('Selecciona una unidad para exportar el reporte');
+      return;
+    }
+
+    try {
+      const unit = units.find(u => u.id === selectedUnitId);
+      const unitName = unit?.name || 'Unidad';
+
+      const headers = [
+        'Retén',
+        'DNI',
+        'Teléfono',
+        'Total Coberturas',
+        'Total Horas',
+        'Detalle Fechas'
+      ];
+
+      const data = unitCoverageReport.retenes.map((item: any) => ({
+        'Retén': item.reten_name,
+        'DNI': item.reten_dni,
+        'Teléfono': item.reten_phone,
+        'Total Coberturas': item.total_assignments,
+        'Total Horas': item.total_hours.toFixed(2),
+        'Detalle Fechas': item.assignments.map((a: any) => 
+          `${a.date} (${a.start_time}-${a.end_time})${a.reason ? ` - ${a.reason}` : ''}`
+        ).join('; ')
+      }));
+
+      // Agregar fila de totales
+      if (data.length > 0) {
+        data.push({
+          'Retén': 'TOTAL',
+          'DNI': '',
+          'Teléfono': '',
+          'Total Coberturas': unitCoverageReport.total_assignments,
+          'Total Horas': unitCoverageReport.total_hours.toFixed(2),
+          'Detalle Fechas': ''
+        });
+      }
+
+      const safeUnitName = unitName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+      await excelService.exportToExcel(data, headers, {
+        filename: `coberturas_${safeUnitName}_${reportYear}_${String(reportMonth).padStart(2, '0')}.xlsx`,
+        sheetName: `Coberturas ${reportMonth}/${reportYear}`
+      });
+    } catch (error) {
+      console.error('Error exportando reporte de unidad:', error);
       alert('Error al exportar el reporte. Asegúrate de que xlsx está instalado: npm install xlsx');
     }
   };
@@ -711,8 +785,51 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
       {/* Vista de Reportes */}
       {activeView === 'reports' && (
         <div className="space-y-4">
+          {/* Selector de tipo de reporte */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setReportType('retenes')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  reportType === 'retenes'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Users className="inline mr-2 w-4 h-4" />
+                Por Retén
+              </button>
+              <button
+                onClick={() => setReportType('unit')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  reportType === 'unit'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <MapPin className="inline mr-2 w-4 h-4" />
+                Por Unidad
+              </button>
+            </div>
+          </div>
+
           {/* Controles de reporte */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-end">
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-end flex-wrap">
+            {reportType === 'unit' && (
+              <div className="w-full md:w-auto md:min-w-[250px]">
+                <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Unidad</label>
+                <select
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                  value={selectedUnitId}
+                  onChange={e => setSelectedUnitId(e.target.value)}
+                >
+                  <option value="">Seleccionar unidad...</option>
+                  {units.map(u => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Mes</label>
               <select
@@ -738,44 +855,159 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
                 max={2100}
               />
             </div>
-            <button
-              onClick={handleExportMonthlyReport}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm"
-            >
-              <Download size={16} />
-              Exportar a Excel
-            </button>
+            {reportType === 'retenes' ? (
+              <button
+                onClick={handleExportMonthlyReport}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm"
+              >
+                <Download size={16} />
+                Exportar a Excel
+              </button>
+            ) : (
+              <button
+                onClick={handleExportUnitCoverageReport}
+                disabled={!selectedUnitId || !unitCoverageReport}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download size={16} />
+                Exportar Coberturas
+              </button>
+            )}
           </div>
 
-          {/* Tabla de reporte */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Retén</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">DNI</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Teléfono</th>
-                    <th className="px-4 py-3 text-center text-xs font-bold text-slate-700">Asignaciones</th>
-                    <th className="px-4 py-3 text-center text-xs font-bold text-slate-700">Total Horas</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Unidades</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {monthlyReport.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 text-sm font-medium text-slate-800">{item.reten_name}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{item.reten_dni}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{item.reten_phone}</td>
-                      <td className="px-4 py-3 text-center text-sm font-semibold text-slate-800">{item.total_assignments}</td>
-                      <td className="px-4 py-3 text-center text-sm font-semibold text-slate-800">{item.total_hours.toFixed(2)}h</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{item.units_covered}</td>
+          {/* Tabla de reporte por retén */}
+          {reportType === 'retenes' && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Retén</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">DNI</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Teléfono</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700">Asignaciones</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-slate-700">Total Horas</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Unidades</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {monthlyReport.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-sm font-medium text-slate-800">{item.reten_name}</td>
+                        <td className="px-4 py-3 text-sm text-slate-600">{item.reten_dni}</td>
+                        <td className="px-4 py-3 text-sm text-slate-600">{item.reten_phone}</td>
+                        <td className="px-4 py-3 text-center text-sm font-semibold text-slate-800">{item.total_assignments}</td>
+                        <td className="px-4 py-3 text-center text-sm font-semibold text-slate-800">{item.total_hours.toFixed(2)}h</td>
+                        <td className="px-4 py-3 text-sm text-slate-600">{item.units_covered}</td>
+                      </tr>
+                    ))}
+                    {monthlyReport.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                          No hay asignaciones en este período
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Tabla de reporte por unidad */}
+          {reportType === 'unit' && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              {!selectedUnitId ? (
+                <div className="p-8 text-center text-slate-500">
+                  <MapPin className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm">Selecciona una unidad para ver las coberturas de retenes</p>
+                </div>
+              ) : unitCoverageReport ? (
+                <>
+                  {/* Resumen de la unidad */}
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 border-b border-slate-200">
+                    <div className="flex flex-wrap gap-6">
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Unidad</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          {units.find(u => u.id === selectedUnitId)?.name || 'N/A'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Período</p>
+                        <p className="text-lg font-bold text-slate-800">{unitCoverageReport.period}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Total Coberturas</p>
+                        <p className="text-lg font-bold text-blue-600">{unitCoverageReport.total_assignments}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Total Horas</p>
+                        <p className="text-lg font-bold text-indigo-600">{unitCoverageReport.total_hours.toFixed(2)}h</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Retenes Distintos</p>
+                        <p className="text-lg font-bold text-slate-800">{unitCoverageReport.retenes.length}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Tabla de retenes que cubrieron */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Retén</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">DNI</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Teléfono</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700">Coberturas</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-700">Total Horas</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-slate-700">Fechas</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {unitCoverageReport.retenes.map((item: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="px-4 py-3 text-sm font-medium text-slate-800">{item.reten_name}</td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{item.reten_dni}</td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{item.reten_phone}</td>
+                            <td className="px-4 py-3 text-center text-sm font-semibold text-blue-600">{item.total_assignments}</td>
+                            <td className="px-4 py-3 text-center text-sm font-semibold text-slate-800">{item.total_hours.toFixed(2)}h</td>
+                            <td className="px-4 py-3 text-xs text-slate-600 max-w-xs">
+                              <div className="flex flex-wrap gap-1">
+                                {item.assignments.slice(0, 5).map((a: any, i: number) => (
+                                  <span key={i} className="inline-block px-2 py-0.5 bg-slate-100 rounded text-[10px]">
+                                    {new Date(a.date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
+                                  </span>
+                                ))}
+                                {item.assignments.length > 5 && (
+                                  <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                                    +{item.assignments.length - 5} más
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {unitCoverageReport.retenes.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                              No hay coberturas de retenes en esta unidad para el período seleccionado
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : loading ? (
+                <div className="p-8 text-center text-slate-500">
+                  <div className="animate-spin w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full mx-auto mb-3"></div>
+                  <p className="text-sm">Cargando reporte...</p>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       )}
 

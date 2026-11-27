@@ -417,6 +417,81 @@ export const retenesService = {
     }
   },
 
+  // Obtener reporte de coberturas por unidad
+  async getUnitCoverageReport(unitId: string, year: number, month: number): Promise<any> {
+    try {
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+
+      const { data, error } = await supabase
+        .from('reten_assignments')
+        .select(`
+          *,
+          retenes (
+            name,
+            dni,
+            phone
+          )
+        `)
+        .eq('unit_id', unitId)
+        .gte('assignment_date', startDate)
+        .lte('assignment_date', endDate)
+        .order('assignment_date', { ascending: true });
+
+      if (error) throw error;
+
+      // Agrupar por retén
+      const retenStats: Record<string, any> = {};
+      let totalAssignments = 0;
+      let totalHours = 0;
+
+      (data || []).forEach((assignment: any) => {
+        const retenId = assignment.reten_id;
+        const reten = assignment.retenes;
+        
+        if (!retenStats[retenId]) {
+          retenStats[retenId] = {
+            reten_id: retenId,
+            reten_name: reten?.name || 'N/A',
+            reten_dni: reten?.dni || 'N/A',
+            reten_phone: reten?.phone || 'N/A',
+            total_assignments: 0,
+            total_hours: 0,
+            assignments: []
+          };
+        }
+
+        retenStats[retenId].total_assignments++;
+        totalAssignments++;
+        
+        const start = new Date(`2000-01-01T${assignment.start_time}`);
+        const end = new Date(`2000-01-01T${assignment.end_time}`);
+        const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+        retenStats[retenId].total_hours += hours;
+        totalHours += hours;
+        
+        retenStats[retenId].assignments.push({
+          date: assignment.assignment_date,
+          start_time: assignment.start_time,
+          end_time: assignment.end_time,
+          status: assignment.status,
+          reason: assignment.reason
+        });
+      });
+
+      return {
+        unit_id: unitId,
+        period: `${month}/${year}`,
+        total_assignments: totalAssignments,
+        total_hours: totalHours,
+        retenes: Object.values(retenStats).sort((a: any, b: any) => b.total_assignments - a.total_assignments)
+      };
+    } catch (error) {
+      handleSupabaseError(error);
+      return { unit_id: unitId, period: `${month}/${year}`, total_assignments: 0, total_hours: 0, retenes: [] };
+    }
+  },
+
   // Obtener reporte mensual de coberturas
   async getMonthlyReport(year: number, month: number): Promise<any[]> {
     try {
