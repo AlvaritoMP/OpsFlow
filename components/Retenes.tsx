@@ -327,9 +327,9 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
         filename: `reporte_retenes_${reportYear}_${String(reportMonth).padStart(2, '0')}.xlsx`,
         sheetName: `Reporte ${reportMonth}/${reportYear}`
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error exportando reporte:', error);
-      alert('Error al exportar el reporte. Por favor intenta de nuevo.');
+      alert(error?.message || 'Error al exportar el reporte. Por favor intenta de nuevo.');
     }
   };
 
@@ -381,9 +381,9 @@ export const Retenes: React.FC<RetenesProps> = ({ units, currentUserRole }) => {
         filename: `coberturas_${safeUnitName}_${reportYear}_${String(reportMonth).padStart(2, '0')}.xlsx`,
         sheetName: `Coberturas ${reportMonth}/${reportYear}`
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error exportando reporte de unidad:', error);
-      alert('Error al exportar el reporte. Por favor intenta de nuevo.');
+      alert(error?.message || 'Error al exportar el reporte. Por favor intenta de nuevo.');
     }
   };
 

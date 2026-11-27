@@ -49,24 +49,62 @@ export interface VariableCompensationImportResult {
 }
 
 export const excelService = {
+  // Exportar datos a CSV (fallback para dispositivos móviles)
+  exportToCsv(
+    data: any[],
+    headers: string[],
+    filename: string
+  ): void {
+    // Preparar datos CSV
+    const csvRows = [
+      headers.join(','),
+      ...data.map(row => 
+        headers.map(header => {
+          const value = row[header];
+          if (value === null || value === undefined) return '';
+          // Escapar comillas y envolver en comillas si contiene comas
+          const strValue = String(value).replace(/"/g, '""');
+          return strValue.includes(',') || strValue.includes('\n') ? `"${strValue}"` : strValue;
+        }).join(',')
+      )
+    ];
+    
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.replace('.xlsx', '.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
+
   // Exportar datos a Excel
   async exportToExcel(
     data: any[],
     headers: string[],
     options: ExcelExportOptions = {}
   ): Promise<void> {
+    const filename = options.filename || 
+      `export_${new Date().toISOString().split('T')[0]}.xlsx`;
+
     try {
       // Importación dinámica de xlsx
       const XLSX = await import('xlsx');
+      
+      if (!XLSX || !XLSX.utils) {
+        throw new Error('Librería XLSX no disponible');
+      }
 
       // Preparar datos
       const worksheetData = [
         headers,
         ...data.map(row => headers.map(header => {
           const value = row[header];
-          // Manejar valores nulos o undefined
           if (value === null || value === undefined) return '';
-          // Convertir objetos a string
           if (typeof value === 'object') return JSON.stringify(value);
           return value;
         }))
@@ -96,10 +134,6 @@ export const excelService = {
         options.sheetName || 'Datos'
       );
 
-      // Generar nombre de archivo
-      const filename = options.filename || 
-        `export_${new Date().toISOString().split('T')[0]}.xlsx`;
-
       // Generar el archivo como blob para mejor compatibilidad con móviles/tablets
       const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([excelBuffer], { 
@@ -120,8 +154,14 @@ export const excelService = {
       // Liberar el objeto URL después de un momento
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
-      console.error('Error al exportar a Excel:', error);
-      throw new Error('Error al exportar el archivo. Por favor intenta de nuevo.');
+      console.error('Error al exportar a Excel, intentando CSV:', error);
+      // Fallback a CSV si falla Excel
+      try {
+        this.exportToCsv(data, headers, filename);
+      } catch (csvError) {
+        console.error('Error al exportar a CSV:', csvError);
+        throw new Error('Error al exportar el archivo. Por favor intenta de nuevo.');
+      }
     }
   },
 
