@@ -245,6 +245,8 @@ serve(async (req) => {
     const opsflowCalculoId = newCalculoId();
 
     const kindLabel = body.documentKind === 'credit' ? 'Nota de crédito' : body.documentKind === 'debit' ? 'Nota de débito' : 'Liquidación';
+    // OpaloSis rechaza precio o cantidad negativos. El signo de la nota queda en OpsFlow.
+    const unitPrice = Math.round(Math.abs(signed) * 100) / 100;
     const payload = {
       propuestaEconomicaId,
       fechaInicio: osInstant(start),
@@ -273,7 +275,7 @@ serve(async (req) => {
           cantidad: 1,
           tarifaPaquete: 0,
           sueldo: 0,
-          precioUnitario: Math.round(signed * 100) / 100,
+          precioUnitario: unitPrice,
         },
       ],
     };
@@ -306,7 +308,7 @@ serve(async (req) => {
         ordenServicioId,
         numeroOrdenServicio,
         mensaje: mensaje || 'Se registró correctamente',
-        signedAmount: payload.listaOrdenServicioDetalle[0].precioUnitario,
+        signedAmount: Math.round(signed * 100) / 100,
         sentAt: new Date().toISOString(),
         alreadyExisted: /ya existe/i.test(`${mensaje} ${mensajeError}`),
       },

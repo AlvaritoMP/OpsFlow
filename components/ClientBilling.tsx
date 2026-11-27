@@ -1037,7 +1037,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     const confirmed = window.confirm(
       already.length
         ? `Ya se emitió ${already.length === 1 ? 'una nota de crédito' : `${already.length} notas de crédito`} desde esta liquidación. Se creará otra, independiente, con el total en negativo. Esta liquidación sigue abierta para la factura de corrección. ¿Emitir otra nota de crédito?`
-        : 'Se creará una liquidación independiente como nota de crédito y OpaloSis recibirá el total en negativo. Esta liquidación no se cierra: queda para emitir la factura de corrección. ¿Emitir la nota de crédito?'
+        : 'Se creará una liquidación independiente como nota de crédito. En OpsFlow el subtotal, el IGV y el total quedan en negativo. El precio y la cantidad que recibe OpaloSis van en positivo. Esta liquidación no se cierra. ¿Emitir la nota de crédito?'
     );
     if (!confirmed) return;
 
@@ -1107,7 +1107,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         model: creditModel,
         actor,
         changes: describeCreation(creditModel),
-        audit: { action: 'created', summary: 'Creó esta liquidación como nota de crédito. El total se envía en negativo.' },
+        audit: { action: 'created', summary: 'Creó esta liquidación como nota de crédito. El subtotal, el IGV y el total quedan en negativo.' },
       });
       creditId = savedCredit.id;
       const total = Math.abs(computeBilling(savedCredit.model).grandTotal);
@@ -1144,7 +1144,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
         savedCredit.id,
         'issued',
         actor,
-        `Cerró la nota de crédito. OpaloSis recibió ${pen(signed)}. Orden ${registration.numeroOrdenServicio}.`
+        `Cerró la nota de crédito por ${pen(signed)}. Orden ${registration.numeroOrdenServicio}.`
       );
       const link = {
         billingId: savedCredit.id,
@@ -1713,7 +1713,7 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   </label>
                 </div>
                 <p className="text-xs text-slate-500">
-                  El mes de servicio es el que recibe OpaloSis y se indica en cada liquidación. El inicio y la entrega son el tiempo de vida de la orden. El PES, el documento, el grupo, la línea y la empresa quedan para la siguiente liquidación. Emitir OS usa estos datos y envía el total sin IGV; en una nota de crédito va en negativo. Para dejar una facturación histórica en el archivo, esos datos de la orden no son obligatorios. Moneda: soles.
+                  El mes de servicio es el que recibe OpaloSis y se indica en cada liquidación. El inicio y la entrega son el tiempo de vida de la orden. El PES, el documento, el grupo, la línea y la empresa quedan para la siguiente liquidación. Emitir envía el precio y la cantidad en positivo. En una nota de crédito, el subtotal, el IGV y el total quedan en negativo solo en OpsFlow. Para dejar una facturación histórica en el archivo, esos datos de la orden no son obligatorios. Moneda: soles.
                 </p>
                 {createKind === 'real' && (
                   <>
@@ -2466,9 +2466,9 @@ function EditorView(props: {
                 disabled={!!props.busy}
                 title={
                   storedCredit
-                    ? 'Vuelve a emitir esta nota de crédito. El total sale en negativo.'
+                    ? 'Vuelve a emitir esta nota de crédito. El subtotal, el IGV y el total quedan en negativo.'
                     : emitAs === 'credit'
-                      ? 'Crea una liquidación independiente como nota de crédito, con el total en negativo. Esta queda abierta.'
+                      ? 'Crea una liquidación independiente como nota de crédito. El subtotal, el IGV y el total quedan en negativo. Esta queda abierta.'
                       : 'Emite esta liquidación como factura. El total sale en positivo.'
                 }
                 className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-sm disabled:opacity-60 ${emitAs === 'credit' || storedCredit ? 'bg-rose-700' : 'bg-blue-600'}`}
@@ -3006,7 +3006,7 @@ function EditorView(props: {
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
                   {emitAs === 'credit'
-                    ? 'El total sale en negativo para que OpaloSis la tome como nota de crédito. Se crea otra liquidación y esta queda abierta.'
+                    ? 'El subtotal, el IGV y el total quedan en negativo. El precio y la cantidad no cambian de signo. Se crea otra liquidación y esta queda abierta.'
                     : 'El total sale en positivo. Se emite esta misma liquidación.'}
                 </p>
               </div>
