@@ -362,6 +362,9 @@ export async function saveClientBilling(input: {
   actor: BillingActor;
   changes: BillingChange[];
   action?: 'created' | 'saved';
+  /** Si viene, el total guardado en la lista usa este signo. El cálculo interno sigue en positivo. */
+  signedGrandTotal?: number;
+  audit?: { action: string; summary: string };
 }): Promise<ClientBillingRecord> {
   let formulas = input.model.formulas;
   let draft = !input.id;
@@ -387,7 +390,7 @@ export async function saveClientBilling(input: {
     operational_total: round2(computed.operationalTotal),
     admin_total: round2(computed.adminTotal),
     profit_total: round2(computed.profitAmount),
-    grand_total: round2(computed.grandTotal),
+    grand_total: round2(input.signedGrandTotal ?? computed.grandTotal),
     updated_by: input.actor.id || null,
     updated_by_name: input.actor.name,
     updated_at: now,
@@ -408,7 +411,13 @@ export async function saveClientBilling(input: {
     if (error) throw mapError(error);
     const record = mapRecord(data);
     await tryRecordBillingRun(record, input.actor);
-    await writeAudit(record.id, input.actor, 'created', 'Creó la liquidación', input.changes);
+    await writeAudit(
+      record.id,
+      input.actor,
+      input.audit?.action || 'created',
+      input.audit?.summary || 'Creó la liquidación',
+      input.changes
+    );
     return record;
   }
 
@@ -422,13 +431,22 @@ export async function saveClientBilling(input: {
   if (error) throw mapError(error);
   const record = mapRecord(data);
   await tryRecordBillingRun(record, input.actor);
-  if (input.changes.length > 0) {
+  if (input.audit) {
+    await writeAudit(record.id, input.actor, input.audit.action, input.audit.summary, input.changes);
+  } else if (input.changes.length > 0) {
     const summary = input.model.comment
       ? `Guardó ${input.changes.length} ajuste(s). ${input.model.comment}`
       : `Guardó ${input.changes.length} ajuste(s)`;
     await writeAudit(record.id, input.actor, input.action || 'saved', summary, input.changes);
   }
   return record;
+}
+
+export async function getClientBilling(id: string): Promise<ClientBillingRecord> {
+  const { data, error } = await db.from('client_billings').select('*').eq('id', id).maybeSingle();
+  if (error) throw mapError(error);
+  if (!data) throw new Error('No se encontró esa liquidación.');
+  return mapRecord(data);
 }
 
 export type BillingNoteKind = 'credit' | 'debit';
@@ -813,7 +831,7 @@ export async function loadUnitOpalosisSetup(unitId: string): Promise<UnitOpalosi
     if (!setup.businessLine && issue.businessLine) setup.businessLine = issue.businessLine;
     if (!setup.opaloCompany && issue.opaloCompany) setup.opaloCompany = issue.opaloCompany;
     const kind = asDocumentKind(issue.documentKind);
-    if (kind && !kindSet) {
+    if (kind && kind !== 'credit' && !kindSet) {
       setup.documentKind = kind;
       kindSet = true;
     }

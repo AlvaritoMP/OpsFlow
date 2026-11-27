@@ -33,6 +33,7 @@ import {
   ClientBillingRun,
   SavedBillingCalc,
   getBillingAudit,
+  getClientBilling,
   listUnitBillings,
   listBillingNotes,
   listBillingRuns,
@@ -172,6 +173,7 @@ const ACTION_LABEL: Record<string, string> = {
   issued: 'Emisión',
   archived: 'Archivo',
   reopened: 'Reapertura',
+  credit_note: 'Nota de crédito',
   voided: 'Anulación',
   adjustment_note: 'Nota de ajuste',
 };
@@ -902,9 +904,12 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
     if (next.model.opalosisPesCode && next.model.opalosisIssue) {
       try {
+        const preset = next.model.opalosisIssue.documentKind === 'credit'
+          ? { ...next.model.opalosisIssue, documentKind: 'invoice' as const }
+          : next.model.opalosisIssue;
         await saveUnitOpalosisSetup(
           editor.unitId,
-          { pesCode: next.model.opalosisPesCode, issue: next.model.opalosisIssue },
+          { pesCode: next.model.opalosisPesCode, issue: preset },
           actor
         );
       } catch {
@@ -968,10 +973,10 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
     }
   };
 
-  const issueOs = () => {
-    if (!editor) return;
+  const readIssueSetup = () => {
+    if (!editor) return null;
     const issue = editor.model.opalosisIssue;
-    const error = osSetupError({
+    const setup = {
       osStartDate: editor.model.osStartDate || '',
       osEndDate: editor.model.osEndDate || '',
       serviceMonth: editor.model.osServiceMonth || '',
@@ -979,27 +984,255 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
       workGroup: issue?.workGroup || '',
       businessLine: issue?.businessLine || '',
       opaloCompany: issue?.opaloCompany || '',
-      makerDni: issue?.makerDni || currentUser.dni || '',
-    });
+      makerDni: (issue?.makerDni || currentUser.dni || '').trim(),
+    };
+    const error = osSetupError(setup);
     if (error) {
       setBanner(error);
+      return null;
+    }
+    return setup;
+  };
+
+  const issueOs = (kind: 'invoice' | 'credit' = 'invoice') => {
+    if (!editor) return;
+    if (kind === 'credit' && !editor.model.creditNoteSourceId) {
+      void issueCreditNote();
       return;
     }
+    const setup = readIssueSetup();
+    if (!setup) return;
     void confirmIssue({
-      osStartDate: editor.model.osStartDate || '',
-      osEndDate: editor.model.osEndDate || '',
-      serviceMonth: editor.model.osServiceMonth || '',
-      pesCode: editor.model.opalosisPesCode || '',
+      osStartDate: setup.osStartDate,
+      osEndDate: setup.osEndDate,
+      serviceMonth: setup.serviceMonth,
+      pesCode: setup.pesCode,
       issue: {
-        documentKind: issue?.documentKind || 'invoice',
-        workGroup: issue?.workGroup || '',
-        businessLine: issue?.businessLine || '',
-        opaloCompany: issue?.opaloCompany || '',
+        documentKind: kind,
+        workGroup: setup.workGroup,
+        businessLine: setup.businessLine,
+        opaloCompany: setup.opaloCompany,
         positionLabel: OPALOSIS_POSITION,
         clientApplicant: 'first',
-        makerDni: (issue?.makerDni || currentUser.dni || '').trim(),
+        makerDni: setup.makerDni,
       },
     });
+  };
+
+  const issueCreditNote = async () => {
+    if (!editor || editor.model.creditNoteSourceId) return;
+    const setup = readIssueSetup();
+    if (!setup) return;
+    if (discountNeedsReason(editor.model.discount)) {
+      setBanner('El descuento necesita una justificación. Sin ese texto no se emite la nota de crédito.');
+      return;
+    }
+    const pending = workersMissingQuotePosition(editor.model, quoteCatalogForBilling(editor.model, quotes, editor.status));
+    if (pending.length) {
+      const names = pending.slice(0, 3).map((worker) => worker.name || 'Sin nombre').join(', ');
+      setBanner(`Asigne un puesto de la propuesta a cada trabajador incluido. Faltan ${pending.length}: ${names}${pending.length > 3 ? '…' : ''}.`);
+      return;
+    }
+    const already = editor.model.issuedCreditNotes || [];
+    const confirmed = window.confirm(
+      already.length
+        ? `Ya se emitió ${already.length === 1 ? 'una nota de crédito' : `${already.length} notas de crédito`} desde esta liquidación. Se creará otra, independiente, con el total en negativo. Esta liquidación sigue abierta para la factura de corrección. ¿Emitir otra nota de crédito?`
+        : 'Se creará una liquidación independiente como nota de crédito y OpaloSis recibirá el total en negativo. Esta liquidación no se cierra: queda para emitir la factura de corrección. ¿Emitir la nota de crédito?'
+    );
+    if (!confirmed) return;
+
+    const invoiceIssue: OpalosisIssueSettings = {
+      documentKind: 'invoice',
+      workGroup: setup.workGroup,
+      businessLine: setup.businessLine,
+      opaloCompany: setup.opaloCompany,
+      positionLabel: OPALOSIS_POSITION,
+      clientApplicant: 'first',
+      makerDni: setup.makerDni,
+    };
+    const sourceModel: ClientBillingModel = {
+      ...editor.model,
+      osStartDate: setup.osStartDate,
+      osEndDate: setup.osEndDate,
+      osServiceMonth: setup.serviceMonth,
+      opalosisPesCode: setup.pesCode.trim(),
+      opalosisIssue: invoiceIssue,
+    };
+    let creditId = '';
+    let registered = false;
+    let keptSource: ClientBillingRecord | null = null;
+    let orderNumber = '';
+    setBusy('Creando la nota de crédito');
+    setBanner(null);
+    try {
+      try {
+        await usersService.update(currentUser.id, {
+          name: currentUser.name,
+          email: currentUser.email,
+          role: currentUser.role,
+          avatar: currentUser.avatar,
+          dni: setup.makerDni,
+          canDeleteAttendanceIncidents: currentUser.canDeleteAttendanceIncidents,
+        });
+      } catch {
+        // El DNI queda en la nota de crédito aunque la columna del usuario aún no exista.
+      }
+      try {
+        await saveUnitOpalosisSetup(editor.unitId, { pesCode: setup.pesCode.trim(), issue: invoiceIssue }, actor);
+      } catch {
+        // La unidad conserva el PES anterior. La nota igual puede emitirse.
+      }
+      const prepared = await syncAttendance({ ...editor, model: sourceModel });
+      const unit = { id: prepared.unitId, name: prepared.unitName, clientName: prepared.clientName };
+      const savedSource = await saveClientBilling({
+        id: prepared.id,
+        unit,
+        periodMonth: prepared.periodMonth,
+        model: prepared.model,
+        actor,
+        changes: prepared.id ? diffBillingModels(prepared.baseline, prepared.model) : describeCreation(prepared.model),
+      });
+      keptSource = savedSource;
+      const creditModel = cloneModel(savedSource.model);
+      const baseTitle = (creditModel.title || '').trim();
+      creditModel.title = /^nota de crédito/i.test(baseTitle) ? baseTitle : `Nota de crédito · ${baseTitle || prepared.unitName}`;
+      creditModel.opalosisIssue = { ...invoiceIssue, documentKind: 'credit' };
+      creditModel.opalosisRegistration = undefined;
+      creditModel.issuedCreditNotes = undefined;
+      creditModel.creditNoteSourceId = savedSource.id;
+      creditModel.comment = [creditModel.comment?.trim(), 'Nota de crédito generada desde la liquidación abierta.'].filter(Boolean).join(' ');
+      const savedCredit = await saveClientBilling({
+        unit,
+        periodMonth: prepared.periodMonth,
+        model: creditModel,
+        actor,
+        changes: describeCreation(creditModel),
+        audit: { action: 'created', summary: 'Creó esta liquidación como nota de crédito. El total se envía en negativo.' },
+      });
+      creditId = savedCredit.id;
+      const total = Math.abs(computeBilling(savedCredit.model).grandTotal);
+      const signed = -total;
+      const registration = await registerBillingServiceOrder({
+        billingId: savedCredit.id,
+        pesCode: creditModel.opalosisPesCode || '',
+        osStartDate: creditModel.osStartDate || '',
+        osEndDate: creditModel.osEndDate || '',
+        serviceMonth: creditModel.osServiceMonth || '',
+        documentoMaker: creditModel.opalosisIssue?.makerDni || '',
+        documentKind: 'credit',
+        workGroup: creditModel.opalosisIssue?.workGroup || '',
+        businessLine: creditModel.opalosisIssue?.businessLine || '',
+        opaloCompany: creditModel.opalosisIssue?.opaloCompany || '',
+        positionLabel: OPALOSIS_POSITION,
+        signedTotal: signed,
+        unitName: prepared.unitName,
+        periodMonth: prepared.periodMonth,
+      });
+      registered = true;
+      orderNumber = registration.numeroOrdenServicio;
+      const issuedModel = { ...cloneModel(savedCredit.model), opalosisRegistration: registration };
+      await saveClientBilling({
+        id: savedCredit.id,
+        unit,
+        periodMonth: prepared.periodMonth,
+        model: issuedModel,
+        actor,
+        changes: [],
+        signedGrandTotal: signed,
+      });
+      await setBillingStatus(
+        savedCredit.id,
+        'issued',
+        actor,
+        `Cerró la nota de crédito. OpaloSis recibió ${pen(signed)}. Orden ${registration.numeroOrdenServicio}.`
+      );
+      const link = {
+        billingId: savedCredit.id,
+        numeroOrdenServicio: registration.numeroOrdenServicio,
+        signedAmount: signed,
+        issuedAt: new Date().toISOString(),
+        issuedByName: actor.name,
+      };
+      const linkedModel = {
+        ...cloneModel(savedSource.model),
+        opalosisIssue: invoiceIssue,
+        issuedCreditNotes: [...(savedSource.model.issuedCreditNotes || []), link],
+      };
+      const savedAgain = await saveClientBilling({
+        id: savedSource.id,
+        unit,
+        periodMonth: prepared.periodMonth,
+        model: linkedModel,
+        actor,
+        changes: [{ label: 'Nota de crédito', before: 'Sin emitir', after: `${registration.numeroOrdenServicio} · ${pen(signed)}` }],
+        signedGrandTotal: Math.abs(computeBilling(linkedModel).grandTotal),
+        audit: {
+          action: 'credit_note',
+          summary: `Emitió la nota de crédito ${registration.numeroOrdenServicio}. Esta liquidación sigue abierta para la factura de corrección.`,
+        },
+      });
+      const audit = await getBillingAudit(savedAgain.id);
+      setEditor({
+        ...prepared,
+        id: savedAgain.id,
+        status: 'draft',
+        model: cloneModel(savedAgain.model),
+        baseline: cloneModel(savedAgain.model),
+        audit,
+        createdByName: savedAgain.createdByName,
+        updatedByName: savedAgain.updatedByName,
+      });
+      setBanner(
+        `La nota de crédito ya se emitió: orden ${registration.numeroOrdenServicio}, total ${pen(signed)}. Quedó como liquidación independiente. Esta sigue abierta para la factura de corrección.`
+      );
+      await loadList();
+    } catch (error) {
+      if (creditId && !registered) {
+        try {
+          await setBillingStatus(creditId, 'void', actor, 'La nota de crédito no llegó a OpaloSis y quedó anulada.');
+        } catch {
+          // Si no se puede anular, el borrador queda en la lista.
+        }
+      }
+      if (keptSource && editor) {
+        const audit = await getBillingAudit(keptSource.id).catch(() => editor.audit);
+        setEditor({
+          ...editor,
+          id: keptSource.id,
+          status: keptSource.status,
+          model: cloneModel(keptSource.model),
+          baseline: cloneModel(keptSource.model),
+          audit,
+          createdByName: keptSource.createdByName,
+          updatedByName: keptSource.updatedByName,
+        });
+      }
+      setBanner(
+        registered
+          ? `OpaloSis creó la orden ${orderNumber}, pero no se pudo dejar el aviso en esta liquidación. Revise esa nota de crédito en el listado antes de emitir otra.`
+          : error instanceof Error
+            ? error.message
+            : 'No se emitió la nota de crédito. Esta liquidación sigue abierta.'
+      );
+      await loadList();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openBillingById = async (id: string) => {
+    const known = records.find((item) => item.id === id);
+    if (known) {
+      await openRecord(known);
+      return;
+    }
+    setBusy('Abriendo la nota de crédito');
+    try {
+      await openRecord(await getClientBilling(id));
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'No se pudo abrir la nota de crédito.');
+      setBusy(null);
+    }
   };
 
   const archiveBilling = () => {
@@ -1406,35 +1639,11 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                   </label>
                   <label className="text-sm text-slate-600 md:col-span-2">
                     Código PES de OpaloSis
-                    {pesChoices.length > 0 ? (
-                      <select
-                        className={fieldClass}
-                        value={pesChoices.includes(createPes) ? createPes : '__new__'}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setCreatePes(value === '__new__' ? '' : value);
-                        }}
-                      >
-                        {pesChoices.map((code) => (
-                          <option key={code} value={code}>
-                            {code}
-                          </option>
-                        ))}
-                        <option value="__new__">Otro código</option>
-                      </select>
-                    ) : null}
-                    {(pesChoices.length === 0 || !pesChoices.includes(createPes)) && (
-                      <input
-                        className={fieldClass}
-                        value={createPes}
-                        placeholder="PES-20131211-01"
-                        onChange={(event) => setCreatePes(event.target.value)}
-                      />
-                    )}
+                    <OpalosisPesControl choices={pesChoices} value={createPes} onChange={setCreatePes} />
                     <span className="mt-1 block text-xs text-slate-500">
                       {pesChoices.length > 0
-                        ? 'Queda el de la última liquidación de esta unidad.'
-                        : 'El mes siguiente puede elegir este mismo código.'}
+                        ? 'Queda el de la última liquidación de esta unidad. Puede elegir otro o escribir el código de OpaloSis.'
+                        : 'Escriba el código de la propuesta en OpaloSis. El mes siguiente puede elegir este mismo código.'}
                     </span>
                   </label>
                   <label className="text-sm text-slate-600">
@@ -1648,12 +1857,17 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
                           </td>
                           <td className="px-3 py-3">
                             <StatusPill status={record.status} />
+                            {record.model.opalosisIssue?.documentKind === 'credit' && (
+                              <div className="mt-1">
+                                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-rose-100 text-rose-800">Nota de crédito</span>
+                              </div>
+                            )}
                           </td>
                           <td className={money}>{pen(record.laborTotal)}</td>
                           <td className={money}>{pen(record.operationalTotal)}</td>
                           <td className={money}>{pen(record.adminTotal)}</td>
                           <td className={money}>{pen(record.profitTotal)}</td>
-                          <td className="px-3 py-3 text-right tabular-nums whitespace-nowrap font-semibold text-slate-900" title="Suma sin IGV">{pen(record.grandTotal)}</td>
+                          <td className={`px-3 py-3 text-right tabular-nums whitespace-nowrap font-semibold ${record.grandTotal < 0 ? 'text-rose-800' : 'text-slate-900'}`} title="Suma sin IGV">{pen(record.grandTotal)}</td>
                           <td className="px-3 py-3 text-slate-500">
                             {record.updatedByName || record.createdByName || '—'}
                             <div className="text-xs">{formatBillingDateTime(record.updatedAt)}</div>
@@ -1756,6 +1970,8 @@ export const ClientBilling: React.FC<ClientBillingProps> = ({ units, currentUser
             onSave={() => void save()}
             onSaveEssalud={() => void saveEssaludFixed()}
             onIssue={issueOs}
+            onReloadAudit={refreshOpenAudit}
+            onOpenCreditNote={(id) => void openBillingById(id)}
             onArchive={archiveBilling}
             onReopen={() => void changeStatus('draft')}
             onVoid={() => {
@@ -1838,7 +2054,6 @@ function orderFieldGaps(model: ClientBillingModel) {
   const issue = model.opalosisIssue;
   const dni = (issue?.makerDni || '').trim();
   return {
-    pes: !(model.opalosisPesCode || '').trim(),
     start: !model.osStartDate,
     end: !model.osEndDate,
     service: !/^\d{4}-\d{2}$/.test(model.osServiceMonth || ''),
@@ -1850,6 +2065,68 @@ function orderFieldGaps(model: ClientBillingModel) {
   };
 }
 
+function OpalosisPesControl(props: {
+  choices: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const known = props.choices.includes(props.value);
+  return (
+    <>
+      {props.choices.length > 0 ? (
+        <select
+          className={fieldClass}
+          value={known ? props.value : '__new__'}
+          onChange={(event) => props.onChange(event.target.value === '__new__' ? '' : event.target.value)}
+        >
+          {props.choices.map((code) => (
+            <option key={code} value={code}>{code}</option>
+          ))}
+          <option value="__new__">Otro código</option>
+        </select>
+      ) : null}
+      {(props.choices.length === 0 || !known) && (
+        <input
+          className={fieldClass}
+          value={props.value}
+          placeholder="PES-20131211-01"
+          onChange={(event) => props.onChange(event.target.value)}
+        />
+      )}
+    </>
+  );
+}
+
+function DraftOpalosisPes(props: {
+  unitId: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [choices, setChoices] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void loadUnitOpalosisSetup(props.unitId)
+      .then((setup) => {
+        if (!cancelled) setChoices(setup.pesChoices);
+      })
+      .catch(() => {
+        if (!cancelled) setChoices([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.unitId]);
+  return (
+    <label className="text-sm text-slate-600 md:col-span-2">
+      Código PES de OpaloSis
+      <OpalosisPesControl choices={choices} value={props.value} onChange={props.onChange} />
+      <span className="mt-1 block text-xs text-slate-500">
+        Elija uno ya usado en esta unidad o escriba el código de la propuesta en OpaloSis. Guarde para conservarlo.
+      </span>
+    </label>
+  );
+}
+
 function MissingOrderFields(props: {
   editor: EditorState;
   canEdit: boolean;
@@ -1858,7 +2135,6 @@ function MissingOrderFields(props: {
   const { editor } = props;
   const issue = editor.model.opalosisIssue;
   const [pinned, setPinned] = useState<{ id: string; gaps: ReturnType<typeof orderFieldGaps> } | null>(null);
-  const [pesChoices, setPesChoices] = useState<string[]>([]);
   const gaps = pinned && editor.id && pinned.id === editor.id ? pinned.gaps : null;
 
   useEffect(() => {
@@ -1866,23 +2142,8 @@ function MissingOrderFields(props: {
     setPinned({ id: editor.id, gaps: orderFieldGaps(editor.model) });
   }, [editor.id]);
 
-  useEffect(() => {
-    if (!editor.id || !gaps?.pes) return;
-    let cancelled = false;
-    void loadUnitOpalosisSetup(editor.unitId)
-      .then((setup) => {
-        if (!cancelled) setPesChoices(setup.pesChoices);
-      })
-      .catch(() => {
-        if (!cancelled) setPesChoices([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [editor.id, editor.unitId, gaps?.pes]);
-
   if (!gaps || editor.status !== 'draft' || !props.canEdit) return null;
-  const anyMissing = gaps.pes || gaps.start || gaps.end || gaps.service || gaps.document || gaps.group || gaps.line || gaps.company || gaps.dni;
+  const anyMissing = gaps.start || gaps.end || gaps.service || gaps.document || gaps.group || gaps.line || gaps.company || gaps.dni;
   if (!anyMissing) return null;
 
   const patchIssue = (patch: Partial<OpalosisIssueSettings>) => {
@@ -1906,31 +2167,6 @@ function MissingOrderFields(props: {
         Esta liquidación ya estaba creada y le faltan datos para enviarla a OpaloSis. Complete solo lo que aparece aquí. El inicio y la entrega no son el corte de asistencia.
       </p>
       <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
-        {gaps.pes && (
-          <label className="text-sm text-slate-600 md:col-span-2">
-            Código PES de OpaloSis
-            {pesChoices.length > 0 ? (
-              <select
-                className={fieldClass}
-                value={pesChoices.includes(editor.model.opalosisPesCode || '') ? editor.model.opalosisPesCode : '__new__'}
-                onChange={(event) => props.onPatchModel({ opalosisPesCode: event.target.value === '__new__' ? '' : event.target.value })}
-              >
-                {pesChoices.map((code) => (
-                  <option key={code} value={code}>{code}</option>
-                ))}
-                <option value="__new__">Otro código</option>
-              </select>
-            ) : null}
-            {(pesChoices.length === 0 || !pesChoices.includes(editor.model.opalosisPesCode || '')) && (
-              <input
-                className={fieldClass}
-                value={editor.model.opalosisPesCode || ''}
-                placeholder="PES-20131211-01"
-                onChange={(event) => props.onPatchModel({ opalosisPesCode: event.target.value })}
-              />
-            )}
-          </label>
-        )}
         {gaps.service && (
           <label className="text-sm text-slate-600">
             Mes de servicio
@@ -2024,7 +2260,9 @@ function EditorView(props: {
   onPatchRates: (patch: Partial<BillingRates>) => void;
   onSave: () => void;
   onSaveEssalud: () => void;
-  onIssue: () => void;
+  onIssue: (kind: 'invoice' | 'credit') => void;
+  onReloadAudit: () => Promise<void>;
+  onOpenCreditNote: (billingId: string) => void;
   onArchive: () => void;
   onReopen: () => void;
   onVoid: () => void;
@@ -2054,6 +2292,10 @@ function EditorView(props: {
   });
   const includedCount = windowWorkers.filter((worker) => worker.included).length;
   const [excelWithFormulas, setExcelWithFormulas] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [emitAs, setEmitAs] = useState<'invoice' | 'credit'>(editor.model.opalosisIssue?.documentKind === 'credit' ? 'credit' : 'invoice');
+  const storedCredit = Boolean(editor.model.creditNoteSourceId);
+  const showCreditAmount = storedCredit || (!locked && emitAs === 'credit') || (locked && editor.model.opalosisIssue?.documentKind === 'credit');
   const [sheetMode, setSheetMode] = useState<'costs' | 'attendance' | 'novedades'>('costs');
   const [nightView, setNightView] = useState<'real' | 'rolled'>('real');
   const rollOvertime = editor.model.rates.rollOvertimeIntoNightBonus === true;
@@ -2090,6 +2332,11 @@ function EditorView(props: {
   }, [attendanceError, sheetMode]);
 
   useEffect(() => {
+    setHistoryOpen(false);
+    setEmitAs(editor.model.creditNoteSourceId || editor.model.opalosisIssue?.documentKind === 'credit' ? 'credit' : 'invoice');
+  }, [editor.id, editor.model.creditNoteSourceId, editor.model.opalosisIssue?.documentKind, editor.model.issuedCreditNotes?.length]);
+
+  useEffect(() => {
     if (sheetMode === 'costs') return;
     if (attendanceError) return;
     let cancelled = false;
@@ -2120,6 +2367,9 @@ function EditorView(props: {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold text-slate-900">{editor.clientName}</h1>
             <StatusPill status={editor.status} />
+            {editor.model.opalosisIssue?.documentKind === 'credit' && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-rose-100 text-rose-800">Nota de crédito</span>
+            )}
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${projection ? 'bg-violet-100 text-violet-800' : 'bg-sky-100 text-sky-800'}`}>
               {billingKindLabel(editor.model)}
             </span>
@@ -2154,7 +2404,7 @@ function EditorView(props: {
                   if (quoteId && quoteId !== editor.model.sourceQuoteId) props.onUseQuote(quoteId);
                 }}
               >
-                <option value="">{editor.model.sourceQuoteId ? 'Mantener la actual' : 'Elegir PES…'}</option>
+                <option value="">{editor.model.sourceQuoteId ? 'Mantener la actual' : 'Elegir propuesta…'}</option>
                 {props.quotes.map((quote) => (
                   <option key={quote.id} value={quote.id} title={quoteChoiceLabel(quote)}>
                     {quoteChoiceLabel(quote)}
@@ -2184,6 +2434,17 @@ function EditorView(props: {
           >
             <Download size={16} /> {excelWithFormulas ? 'Excel con fórmulas' : 'Excel'}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setHistoryOpen(true);
+              if (editor.id) void props.onReloadAudit();
+            }}
+            title="Cierres, reaperturas y cada cambio guardado de esta liquidación"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50"
+          >
+            <History size={16} /> Historial
+          </button>
           {editor.id && (
             <button type="button" onClick={props.onOpenCompare} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50">
               <ArrowLeftRight size={16} /> Corrida
@@ -2201,12 +2462,18 @@ function EditorView(props: {
               </button>
               <button
                 type="button"
-                onClick={props.onIssue}
+                onClick={() => props.onIssue(storedCredit ? 'credit' : emitAs)}
                 disabled={!!props.busy}
-                title="Emite la liquidación con los datos de la orden indicados al armar la facturación."
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-60"
+                title={
+                  storedCredit
+                    ? 'Vuelve a emitir esta nota de crédito. El total sale en negativo.'
+                    : emitAs === 'credit'
+                      ? 'Crea una liquidación independiente como nota de crédito, con el total en negativo. Esta queda abierta.'
+                      : 'Emite esta liquidación como factura. El total sale en positivo.'
+                }
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-sm disabled:opacity-60 ${emitAs === 'credit' || storedCredit ? 'bg-rose-700' : 'bg-blue-600'}`}
               >
-                <Check size={16} /> Emitir OS
+                <Check size={16} /> {emitAs === 'credit' || storedCredit ? 'Emitir nota de crédito' : 'Emitir factura'}
               </button>
               <button
                 type="button"
@@ -2268,6 +2535,13 @@ function EditorView(props: {
                 onChange={(event) => props.onPatchModel({ comment: event.target.value })}
               />
             </label>
+            {!locked && (
+              <DraftOpalosisPes
+                unitId={editor.unitId}
+                value={editor.model.opalosisPesCode || ''}
+                onChange={(value) => props.onPatchModel({ opalosisPesCode: value })}
+              />
+            )}
           </div>
 
           {projection ? (
@@ -2694,22 +2968,86 @@ function EditorView(props: {
               </div>
             )}
           </div>
-          <div className="border-t border-slate-100 pt-3">
+          <div className="border-t border-slate-100 pt-3 space-y-2">
+            {(editor.model.issuedCreditNotes || []).length > 0 && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 space-y-1">
+                <p className="text-xs font-medium text-rose-900">La nota de crédito ya se emitió. Esta liquidación sigue abierta para la factura de corrección.</p>
+                {(editor.model.issuedCreditNotes || []).map((note) => (
+                  <button
+                    key={note.billingId}
+                    type="button"
+                    onClick={() => props.onOpenCreditNote(note.billingId)}
+                    className="block text-left text-xs text-rose-800 underline"
+                  >
+                    {note.numeroOrdenServicio} · {pen(note.signedAmount)}
+                    {note.issuedAt ? ` · ${formatBillingDateTime(note.issuedAt)}` : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!locked && !storedCredit && (
+              <div>
+                <p className="text-xs font-medium text-slate-700">Qué se va a emitir</p>
+                <div className="mt-1 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setEmitAs('invoice')}
+                    className={`px-2 py-1.5 rounded-md text-xs font-medium ${emitAs === 'invoice' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
+                  >
+                    Factura
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmitAs('credit')}
+                    className={`px-2 py-1.5 rounded-md text-xs font-medium ${emitAs === 'credit' ? 'bg-white text-rose-800 shadow-sm' : 'text-slate-500'}`}
+                  >
+                    Nota de crédito
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
+                  {emitAs === 'credit'
+                    ? 'El total sale en negativo para que OpaloSis la tome como nota de crédito. Se crea otra liquidación y esta queda abierta.'
+                    : 'El total sale en positivo. Se emite esta misma liquidación.'}
+                </p>
+              </div>
+            )}
+            {storedCredit && (
+              <p className="text-[11px] text-rose-800">Esta liquidación es la nota de crédito. El total queda en negativo.</p>
+            )}
             <div className="flex justify-between text-sm text-slate-500">
               <span>Total sin IGV</span>
-              <span className="text-lg font-bold text-slate-900">{pen(computed.grandTotal)}</span>
+              <span className={`text-lg font-bold ${showCreditAmount ? 'text-rose-800' : 'text-slate-900'}`}>{pen(showCreditAmount ? -Math.abs(computed.grandTotal) : computed.grandTotal)}</span>
             </div>
             <div className="flex justify-between text-xs text-slate-500 mt-1">
               <span>IGV {Number((editor.model.rates.igvRate * 100).toFixed(2))}%</span>
-              <span>{pen(computed.igvAmount)}</span>
+              <span>{pen(showCreditAmount ? -Math.abs(computed.igvAmount) : computed.igvAmount)}</span>
             </div>
             <div className="flex justify-between text-sm mt-1">
               <span className="text-slate-600">Total con IGV</span>
-              <span className="font-semibold text-slate-800">{pen(computed.totalWithIgv)}</span>
+              <span className={`font-semibold ${showCreditAmount ? 'text-rose-800' : 'text-slate-800'}`}>{pen(showCreditAmount ? -Math.abs(computed.totalWithIgv) : computed.totalWithIgv)}</span>
             </div>
           </div>
         </aside>
       </div>
+      {historyOpen && createPortal(
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setHistoryOpen(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-8" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 p-4 border-b border-slate-100">
+              <div>
+                <h2 className="font-semibold text-slate-900">Historial de la liquidación</h2>
+                <p className="text-sm text-slate-500 mt-1">Cierres, reaperturas y cada cambio guardado. Un cierre es una emisión o un archivo. Reabrir la devuelve a borrador.</p>
+              </div>
+              <button type="button" onClick={() => setHistoryOpen(false)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700">
+                Cerrar
+              </button>
+            </div>
+            <div className="p-4 max-h-[70vh] overflow-y-auto">
+              <TracePanel editor={editor} pendingChanges={props.pendingChanges} embedded />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -3714,18 +4052,28 @@ function FormulaPreview({ formulas }: { formulas?: BillingFormulaSet }) {
   );
 }
 
+function historyMark(action: string): string | null {
+  if (action === 'issued' || action === 'archived') return 'Cierre';
+  if (action === 'reopened') return 'Reapertura';
+  if (action === 'credit_note') return 'Nota de crédito';
+  return null;
+}
+
 function TracePanel(props: {
   editor: EditorState;
   pendingChanges: { label: string; before: string; after: string }[];
+  embedded?: boolean;
 }) {
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm divide-y divide-slate-100">
+    <section className={`bg-white border border-slate-200 rounded-xl shadow-sm divide-y divide-slate-100 ${props.embedded ? 'border-0 shadow-none' : ''}`}>
+      {!props.embedded && (
       <div className="p-4">
         <h2 className="font-semibold text-slate-900 flex items-center gap-2">
           <History size={16} /> Qué se hizo en esta facturación
         </h2>
         <p className="text-sm text-slate-500 mt-1">Al guardar se registra quién cambió cada sueldo, día, costo o tasa, con el valor anterior y el nuevo.</p>
       </div>
+      )}
       {props.pendingChanges.length > 0 && (
         <div className="p-4 bg-amber-50">
           <p className="text-sm font-medium text-amber-900 mb-2">Todavía no guardados</p>
@@ -3735,10 +4083,13 @@ function TracePanel(props: {
       {props.editor.audit.length === 0 && props.pendingChanges.length === 0 && (
         <div className="p-6 text-sm text-slate-500">Guarde la liquidación para empezar el historial.</div>
       )}
-      {props.editor.audit.map((entry) => (
+      {props.editor.audit.map((entry) => {
+        const mark = historyMark(entry.action);
+        return (
         <article key={entry.id} className="p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-sm font-medium text-slate-900">
+            <p className={`text-sm font-medium ${entry.action === 'reopened' ? 'text-amber-800' : entry.action === 'issued' || entry.action === 'archived' || entry.action === 'credit_note' ? 'text-emerald-800' : 'text-slate-900'}`}>
+              {mark ? <span className="mr-1">{mark} ·</span> : null}
               {ACTION_LABEL[entry.action] || entry.action} · {entry.actorName || 'Usuario'}
             </p>
             <time className="text-xs text-slate-400">{formatBillingDateTime(entry.createdAt)}</time>
@@ -3750,7 +4101,8 @@ function TracePanel(props: {
             </div>
           )}
         </article>
-      ))}
+        );
+      })}
     </section>
   );
 }

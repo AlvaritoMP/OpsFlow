@@ -339,6 +339,15 @@ export const OPALOSIS_DOCUMENT_LABELS: Record<OpalosisDocumentKind, string> = {
   credit: 'Nota de crédito',
 };
 
+/** Nota de crédito emitida desde una liquidación que sigue abierta. */
+export interface IssuedCreditNoteLink {
+  billingId: string;
+  numeroOrdenServicio: string;
+  signedAmount: number;
+  issuedAt: string;
+  issuedByName?: string;
+}
+
 /** Respuesta guardada cuando OpaloSis acepta la orden. */
 export interface OpalosisRegistration {
   opsflowCalculoId: number;
@@ -406,6 +415,10 @@ export interface ClientBillingModel {
   opalosisIssue?: OpalosisIssueSettings;
   /** Respuesta de OpaloSis al registrar la orden. */
   opalosisRegistration?: OpalosisRegistration;
+  /** Notas de crédito ya emitidas desde esta liquidación. La liquidación de origen sigue usable. */
+  issuedCreditNotes?: IssuedCreditNoteLink[];
+  /** Si esta liquidación es la nota de crédito creada desde otra. */
+  creditNoteSourceId?: string;
   /** Bitácora interna por pestaña. No se copia a corridas ni al Excel. */
   internalNotes?: BillingInternalNote[];
   /** Descuento de esta liquidación. Solo resta si el monto es mayor que cero y hay justificación. */
