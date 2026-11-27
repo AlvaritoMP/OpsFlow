@@ -443,7 +443,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Semanal: calendario de asignaciones de la semana (navegue con las flechas).',
           'Retenes: alta/edición del personal de retén (datos, foto, estado).',
-          'Reportes: consolidado mensual y exportación.',
+          'Reportes: consolidado mensual por retén o por unidad, con exportación a Excel.',
         ],
       },
       {
@@ -456,6 +456,19 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
         tips: [
           'Mantenga actualizado el estado del retén (disponible / no disponible) para evitar asignaciones incorrectas.',
+        ],
+      },
+      {
+        heading: 'Reportes',
+        body: 'La pestaña Reportes permite generar dos tipos de consolidados mensuales:',
+        steps: [
+          'Por Retén: muestra cada retén con sus asignaciones totales, horas trabajadas y unidades cubiertas en el mes. El Excel incluye: Retén, DNI, Teléfono, Total Asignaciones, Total Horas, Unidades Cubiertas y Detalle de Asignaciones.',
+          'Por Unidad: seleccione una unidad para ver cuántas coberturas de retenes tuvo, qué retenes la cubrieron y cuántas veces cada uno. El Excel incluye: Retén, DNI, Teléfono, Total Coberturas, Total Horas, Detalle Fechas, más una fila de totales al final.',
+        ],
+        tips: [
+          'Use el reporte Por Unidad para analizar qué unidades requieren más cobertura de retenes.',
+          'Los reportes respetan el mes y año seleccionados en los filtros.',
+          'El archivo Excel se descarga directamente al dispositivo; en tablets revise la carpeta Descargas.',
         ],
       },
     ],
